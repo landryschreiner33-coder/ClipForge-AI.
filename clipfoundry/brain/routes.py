@@ -172,6 +172,7 @@ class OpenChat(BaseModel):
 class Say(BaseModel):
     text: str = Field(max_length=4000)
     base_revision: int | None = None
+    choice: bool = False  # a quick reply pressed: words the model or the editor wrote (chat.send)
 
 
 class Decide(BaseModel):
@@ -204,7 +205,7 @@ def chat_messages(chat_id: str, after: str = "", limit: int = chat_module.KEEP) 
 @chats.post("/{chat_id}/messages", dependencies=WRITE)
 def say(chat_id: str, body: Say) -> dict:
     try:
-        return chat_module.send(principal.workspace_id(), chat_id, body.text, body.base_revision)
+        return chat_module.send(principal.workspace_id(), chat_id, body.text, body.base_revision, choice=body.choice)
     except chat_module.ChatError as exc:
         raise _chat_err(exc) from exc
 

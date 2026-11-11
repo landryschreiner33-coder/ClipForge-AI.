@@ -178,10 +178,16 @@ the built-in model downloaded, or an AI helper chosen in Settings → ClipForge 
    words. "Remember that …" is a turn of the conversation ("Remember that day at the lake? Make a video of it" is a
    question, not a memory). "forget …" with the exact words of a memory removes it at once, with every twin that says
    them too (kept for one video, switched off, or as another kind), so nothing still follows them. The words are all
-   of them after "forget" ("forget my intro is 3 seconds" is what the Forget chip of the memory “my intro is 3
-   seconds” sends); those after a leading "that", "about", "the", "my" or "what I said about" count only when no
-   memory says them all. "forget", like "remember" and "note", is a whole word: "Forgetting captions loses viewers"
-   asks nothing. "@Name" with
+   of them after "forget" ("forget my intro is 3 seconds" forgets the memory “my intro is 3 seconds”); those after a
+   leading "that", "about", "the", "my" or "what I said about" count only when no memory says them all. "forget", like
+   "remember" and "note", is a whole word ("Forgetting captions loses viewers" and "Forget-me-nots …" ask nothing),
+   and "forget" and each word it skips count only with a space after them (a colon after "forget"): "Forget that,
+   keep the music low", "Forget. Keep the music low" or "Forget that" and the rule on the next line set something
+   aside and say the rule again, so the conversation answers them and nothing is forgotten. Words in quotes ("forget
+   “keep the music low”", what a "Which one?" button sends) are forgotten exactly as they are, never shorter ones;
+   when no memory says them any more the answer says "Nothing I remember says “…”, so nothing was forgotten." A quick
+   reply you press (the question's choices, or the editor's) is words the model or the editor wrote: it never forgets
+   anything at once (the page sends it with `choice`), so a Forget card shows what would go first. "@Name" with
    nothing after it asks what that helper should do. In a video's chat, a change of at most 500 characters that the
    editor's rules understand completely ("move clip 4 before clip 2", `edit_requests.by_rules`) is proposed at once
    as a change request.
@@ -343,7 +349,7 @@ has started: that finishes, for the next answer). After a restart, an answer tha
 |---|---|---|
 | "help", "what can you do" | | what it can do on its own, and that the built-in model makes it a real assistant |
 | "remember …", "always …", "never …", "from now on …", "I like/want/prefer/don't want …" | `remember` (`said`): a `rule` when it says always, never, only, must …, otherwise a `fact`; "for this video" or "here" scopes it to the video | "Remembered: … It applies to every video / this video." |
-| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; the words after a leading "that", "about", "the" or "my" only when no memory says them all); otherwise finds the closest memories | "Forgotten: …" (and how many times it was kept), or the candidates, each with a Forget button |
+| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; the words after a leading "that", "about", "the" or "my", with a space after it, only when no memory says them all; words in quotes only as they are); otherwise, and always for a quick reply you pressed, finds the closest memories | "Forgotten: …" (and how many times it was kept); "Nothing I remember says “…”" for quoted words no memory says; or "Which one?" with the closest memories, the same words once (with how many times they are kept, all of which picking them forgets), each with a Forget button that sends its words in quotes |
 | "what do you know / remember …", "what have you learned" | lists the best memories for the words after it (or the newest) | the list |
 | "why …", "what did you use", "explain" | the latest answer for this video (change request or FilmCraft pass): its summary and the memories it used | the explanation |
 | anything else, in a video's chat | `edit_requests.ask` with the editor's rules alone | the proposal: Apply as a new version, Discard; a question with choices; or what it cannot do |
@@ -366,7 +372,8 @@ your projects (3)", with a warning mark and the reason when it failed); a helper
 on it", then "helped with this" with its steps; long work folds); a proposed change for the video (Apply as a new
 version, which Undo takes back, or Discard); a card for each change or delete waiting for you (see "Actions");
 buttons to pages and projects in the app (never to the page you are on); the question's choices as quick replies
-under the newest answer (one press sends one); "Remembered: … Undo" for what it saved; and small lines with what it
+under the newest answer (one press sends one, marked as a quick reply: it never forgets anything at once);
+"Remembered: … Undo" for what it saved; and small lines with what it
 used from your brain and its know-how and where your words went. A helper's own answer has its icon and "· helper".
 While an answer is written, Stop takes the place of Send and the box waits; Enter sends, Shift+Enter starts a new
 line; a counter appears near 4,000 characters; "Clear this chat" asks first and keeps the memories. An empty chat
@@ -440,7 +447,7 @@ length, and checks choices, ranges and the required ones; what is wrong is told 
 | `remember` | make | saves a lasting rule or fact you told it in this message, in your words (in a video's chat it can keep it to that video); anything else waits for your OK, and a memory you already have is never changed (below) |
 | `propose_change` | make | in a video's chat only: a change to the cut in plain words (at most 500 characters), worked out and checked by the editor (`edit_requests.ask`); you apply it as a new version or discard it |
 | `ask_agent` | make | hands a job to one of your helper agents and reads its work (see "Helper agents") |
-| `forget` | change | removes every memory that says those words; the button names each one and where it applies (at most 16: a card that would need more cannot be pressed, and says to use the exact words or Brain → Memory), and its OK forgets only those, each only while it still says them; it never looks for memories again |
+| `forget` | change | removes every memory that says those words; the button names each one and where it applies (at most 16: a card that would need more cannot be pressed, and says to use the exact words or Brain → Memory), and its OK forgets only those, each only while it still says them; it never looks for memories again, and OK on a card that names more than 16 (one an earlier build saved) forgets none and says so |
 | `rename_project` | change | renames a project or video; only the name changes |
 | `delete_project` | delete | deletes a project or video and what belongs only to it; the button lists what goes and what stays |
 
@@ -600,7 +607,7 @@ another helper (it has no `ask_agent`); work without ClipForge AI's model; be re
 - `GET /api/brain/memories/knowhow` (every playbook and its source) · `POST /api/brain/memories/knowhow/select` `{query, task?}`: what it would read, and the playbook that would answer on its own
 - `GET /api/brain/memories/export` · `POST /api/brain/memories/import` `{data}`
 - `POST /api/brain/chats` `{project_id?}`: opens the video's chat, or the general one, with its last messages, `ai` (the model: `ready`, `provider`, `label`, `local`; with the built-in model or no model chosen, `builtin`: `supported`, `recommended`, `level`, `task`, `levels`; `better` when this computer fits a better level) and `agents` (the switched-on helpers: `id`, `name`, `icon`, `role`)
-- `GET /api/brain/chats/{chat_id}/messages?after=` · `POST /api/brain/chats/{chat_id}/messages` `{text, base_revision?}` (at most 4,000 characters; 409 while an answer is being written in that chat) · `POST /api/brain/chats/{chat_id}/messages/{message_id}/apply` · `.../discard` · `DELETE /api/brain/chats/{chat_id}/messages`
+- `GET /api/brain/chats/{chat_id}/messages?after=` · `POST /api/brain/chats/{chat_id}/messages` `{text, base_revision?, choice?}` (at most 4,000 characters; `choice` true for a quick reply pressed, which never forgets at once; 409 while an answer is being written in that chat) · `POST /api/brain/chats/{chat_id}/messages/{message_id}/apply` · `.../discard` · `DELETE /api/brain/chats/{chat_id}/messages`
 - `POST /api/brain/chats/{chat_id}/stop`: stops the answer being written (it keeps what it wrote) and returns the chat's messages
 - `POST /api/brain/chats/{chat_id}/messages/{message_id}/actions/{action_id}` `{do}`: your OK (`true`) or no (`false`) for a button; returns the message, with `gone: true` when the action deleted this chat's own video; 409 while the answer is still being written, 404 for a button that is not in the message
 - `GET /api/brain/agents` (your helpers, the ready-made ones with `added`, the tools a helper may be given, the icons, the limit) · `POST /api/brain/agents` `{template?, name?, icon?, role?, instructions?, tools?, helps_plans?, enabled?}` (a ready-made one by `template`; what you send replaces its words) · `PATCH /api/brain/agents/{agent_id}` `{name?, icon?, role?, instructions?, tools?, helps_plans?, enabled?, position?}` · `DELETE /api/brain/agents/{agent_id}`: 404 for an unknown helper, 409 for a name you already have, 422 for anything else the checks refuse, each with the reason in words

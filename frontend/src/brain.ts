@@ -133,8 +133,10 @@ const chats = "/api/brain/chats";
 export const chatApi = {
   open: (projectId = "") => req<Chat>("POST", chats, { project_id: projectId }),
   messages: (chatId: string, after = "") => req<ChatMessage[]>("GET", `${chats}/${chatId}/messages?after=${encodeURIComponent(after)}`),
-  say: (chatId: string, text: string, baseRevision?: number) =>
-    req<{ owner: ChatMessage; ai: ChatMessage }>("POST", `${chats}/${chatId}/messages`, { text, base_revision: baseRevision ?? null }),
+  /** `choice`: a quick reply pressed (words the model or the editor offered): it never forgets anything at once. */
+  say: (chatId: string, text: string, baseRevision?: number, choice = false) =>
+    req<{ owner: ChatMessage; ai: ChatMessage }>("POST", `${chats}/${chatId}/messages`,
+      { text, base_revision: baseRevision ?? null, ...(choice ? { choice: true } : {}) }),
   clear: (chatId: string) => req<{ cleared: number }>("DELETE", `${chats}/${chatId}/messages`),
   apply: (chatId: string, messageId: string) => req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/apply`),
   discard: (chatId: string, messageId: string) => req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/discard`),

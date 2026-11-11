@@ -463,6 +463,7 @@ def _ask_agent(ctx: Ctx, args: dict) -> Result:
 # ------------------------------------------------------------------ changing and deleting (after the owner's OK)
 FORGET_MAX = 16  # the memories one Forget card names, a line each (twins of the same words: usually two or three);
 #                  with its first line this fits the lines a card shows (assistant.MAX_DETAIL)
+FORGET_IDS = 50  # a card saved by an earlier build named up to 50: its OK reads them all, to refuse rather than cut
 
 
 def _memories_for(ctx: Ctx, words: str) -> list[dict]:
@@ -514,11 +515,15 @@ def _forget_preview(ctx: Ctx, args: dict) -> dict:
 def _forget(ctx: Ctx, args: dict) -> Result:
     """After the owner's OK: forgets the memories the card named (`memory_ids`; a card saved by an earlier build named
     one, `memory_id`), each only while it still says the card's words: one changed since stays as it is now, and one
-    forgotten, or tidied into its twin, meanwhile is gone already. It never looks for memories again."""
+    forgotten, or tidied into its twin, meanwhile is gone already. It never looks for memories again, and a card that
+    names more than one card can show now (an earlier build's) forgets none: it could not show them all."""
     words = args["memory"]
     ids = args.get("memory_ids") or ([args["memory_id"]] if args.get("memory_id") else [])
     if not ids:
         raise ToolError("This button does not say which memories it forgets: ask me again.")
+    if len(ids) > FORGET_MAX:
+        raise ToolError(f"This card names {len(ids)} memories, more than one card can show, so nothing was forgotten. "
+                        "To forget them all, say “forget” and the exact words, or use Brain → Memory.")
     gone, changed = [], 0
     for mid in ids:
         try:
@@ -647,7 +652,7 @@ register(Tool("forget", "remove something from the memory (memory: its words)",
                                                 # the memories its card named (one on a card saved by an earlier
                                                 # build): only the button keeps them
                                                 "memory_ids": {"type": "array", "items": {"type": "string"},
-                                                               "maxItems": FORGET_MAX, "internal": True},
+                                                               "maxItems": FORGET_IDS, "internal": True},
                                                 "memory_id": {"type": "string", "internal": True}},
                "required": ["memory"]},
               _forget, "change", "Forget {memory}", preview=_forget_preview, for_agents=False))

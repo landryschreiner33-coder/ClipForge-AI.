@@ -41,14 +41,19 @@ HELP = ("Right now I have no model to think with, so I only follow a few rules: 
 NO_MODEL = ("I need a model to think with before I can really talk. Set up the built-in model (free, it runs on this "
             "computer) with the button above, or choose an AI helper in Settings → ClipForge AI. Until then I can "
             "remember, forget and list what you tell me, and answer editing questions from my built-in know-how.")
-_REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)\b(?:\s+that)?\s*[:,\-]?\s*(.+)$",
-                       re.I | re.S)  # a whole word: "Notes from the shoot …" is not "note" + "s from the shoot …"
+# whole words, and so is the "that" it leaves out: "Notes from the shoot …", "Note-taking …" and "Remember that's …"
+# keep every letter; a dash separates only after a space ("note - the drone shots …")
+_REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?=[\s:,])(?:\s+that(?=[\s:,]))?"
+                       r"(?:\s*[:,]|\s+-)?\s*(.+)$", re.I | re.S)
 _STANDING = re.compile(r"^(?:from now on|always|never|i (?:like|love|want|prefer|hate|don't want|do not want|"
                        r"never want|always want))\b", re.I)
 _RULE_WORDS = re.compile(r"\b(always|never|don't|do not|only|every|from now on|must|should|no)\b", re.I)
-# "forget" and the words it skips are whole words: "Forgetting captions loses viewers" and "forget mystery music" are
-# not "forget" + "ting captions …" or "forget my" + "stery music"
-_FORGET = re.compile(r"^(?:please\s+)?forget\b(?:\s+(?:that|about|the|my|what i said about)\b)*\s*[:,]?\s*(.*)$",
+# "forget" and the words it skips are whole words: "Forgetting captions loses viewers", "Forget-me-nots …" and "forget
+# mystery music" are not "forget" + "ting captions …" or "forget my" + "stery music"; a word is skipped only with a
+# space and no punctuation after it, so "forget that, …" looks for "that, …"
+_GOES_ON = r"(?=[^\s.,;:!?…/\-–—])"  # what follows "forget" or a skipped word when the same request goes on
+_FORGET = re.compile(r"^(?:please\s+)?forget(?![\w'’-])"
+                     rf"(?:\s+(?:that|about|the|my|what i said about)(?=[ \t]+{_GOES_ON}))*\s*[:,]?\s*(.*)$",
                      re.I | re.S)
 _LIST = re.compile(r"^(?:what do you (?:know|remember)|what have you learned|what (?:is|'s) in your brain|"
                    r"(?:show|list)(?: me)?(?: your| my)? memor(?:y|ies))\b\s*(?:about|of|on)?\s*(.*)$", re.I | re.S)
@@ -57,8 +62,13 @@ _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
 _HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b|\bhere\b", re.I)
 
 _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S)
-_FORGET_WORD = re.compile(r"^(?:please\s+)?forget\b\s*[:,]?\s*", re.I)
-_FORGET_SKIPS = re.compile(r"^(?:that|about|the|my|what i said about)\b\s*[:,]?\s*", re.I)
+# What forgets at once: "forget" and a space or a colon, then the words. A comma, a full stop, a dash or a new line
+# after "forget" or after a skipped word ends the request ("Forget that, keep the music low" sets something aside and
+# says the rule again): the conversation, or without a model "Which one?", answers it.
+_FORGET_WORD = re.compile(rf"^(?:please\s+)?forget(?:[ \t]*:\s*|[ \t]+){_GOES_ON}", re.I)
+_FORGET_SKIPS = re.compile(rf"^(?:that|about|the|my|what i said about)[ \t]+{_GOES_ON}", re.I)
+_QUOTED = re.compile(r"[“\"]([^“”\"]+)[”\"][.!]?")  # what a "Which one?" button sends: those words, never fewer
+_EDGES = " \t\r\n.,;:!?-–—“”\"'‘’"  # around the words "forget …" looks for
 _lock = threading.Lock()
 _decide_lock = threading.Lock()
 _routes: list[tuple[Callable[[dict, dict | None], bool], Callable[[str, str, str], dict]]] = []
@@ -208,9 +218,11 @@ def _add(chat: dict, role: str, text: str, data: dict | None = None, status: str
 
 
 # ------------------------------------------------------------------ what you say
-def send(ws: str, chat_id: str, text: object, base_revision: int | None = None) -> dict:
+def send(ws: str, chat_id: str, text: object, base_revision: int | None = None, *, choice: bool = False) -> dict:
     """Your message and the answer. The answer is final unless its status is `thinking`: the model is writing it in
-    the background and the page polls the message, which grows as it is written."""
+    the background and the page polls the message, which grows as it is written. `choice`: the words are a quick
+    reply you pressed, which the model or the editor wrote: they never forget anything at once (a Forget card, or
+    without a model "Which one?", shows what would go first)."""
     chat = get_chat(ws, chat_id)
     text = _message(text, MAX_TEXT + 1)
     if not text:
@@ -224,7 +236,7 @@ def send(ws: str, chat_id: str, text: object, base_revision: int | None = None) 
         raise ChatError("I am still answering your last message. Wait for it, or press Stop.", 409)
     owner = _add(chat, "owner", text)
     try:
-        reply = _answer(chat, text, base_revision)
+        reply = _answer(chat, text, base_revision, bool(choice))
     except (ChatError, memories.Invalid) as exc:  # a memory it cannot keep or find is said in plain words too
         reply = {"text": str(exc), "data": {"tool": "help"}, "status": "failed"}
     except Exception as exc:  # noqa: BLE001 - the chat never crashes on one message
@@ -239,15 +251,15 @@ def send(ws: str, chat_id: str, text: object, base_revision: int | None = None) 
     return out
 
 
-def _answer(chat: dict, text: str, base_revision: int | None) -> dict:
+def _answer(chat: dict, text: str, base_revision: int | None, choice: bool = False) -> dict:
     ws, pid = chat["workspace_id"], chat.get("project_id") or ""
     if not assistant.ready():
-        return _rules(chat, text, base_revision)
+        return _rules(chat, text, base_revision, choice)
     m = _REMEMBER_EXACT.match(text)
     if m and "?" not in m.group(1):  # "remember: is my intro too long?" is a question for the conversation
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
-    if m and m.group(1).strip():
+    if m and m.group(1).strip() and not choice:  # a quick reply's words are the model's: its Forget card shows them
         forgot = _forget_words(ws, text)
         if forgot:
             return forgot
@@ -262,7 +274,7 @@ def _answer(chat: dict, text: str, base_revision: int | None) -> dict:
     return _talk(chat, text, mention[0] if mention else None)
 
 
-def _rules(chat: dict, text: str, base_revision: int | None) -> dict:
+def _rules(chat: dict, text: str, base_revision: int | None, choice: bool = False) -> dict:
     """Without a model: the rules alone (unchanged from before ClipForge AI could talk)."""
     ws, pid = chat["workspace_id"], chat.get("project_id") or ""
     if _HELP.match(text):
@@ -272,7 +284,7 @@ def _rules(chat: dict, text: str, base_revision: int | None) -> dict:
         return _remember(ws, pid, m.group(1).strip() if m else text)
     m = _FORGET.match(text)
     if m:
-        return _forget(ws, pid, m.group(1).strip(), text)
+        return _forget(ws, pid, m.group(1), text, at_once=not choice)
     m = _LIST.match(text)
     if m:
         return _list(ws, pid, m.group(1).strip())
@@ -347,46 +359,75 @@ def _remember(ws: str, pid: str, said: str) -> dict:
             "data": {"tool": "remember", "memory": memories.view(row), "used": []}}
 
 
-def _said(text: str) -> list[str]:
-    """The words a "forget …" message may name a memory by, longest first: all of them after "forget", then without
-    each leading word the pattern skips in turn ("forget that my intro is …": "that my intro is …", "my intro is …",
-    "intro is …")."""
-    rest, out = _FORGET_WORD.sub("", text, count=1).strip(), []
+def _said(text: str) -> tuple[list[str], bool]:
+    """The words a "forget …" message may name a memory by, longest first, and whether they were in quotes: all of
+    them after "forget", then without each leading word the pattern skips in turn ("forget that my intro is …": "that
+    my intro is …", "my intro is …", "intro is …"). Words in quotes (what a "Which one?" button sends) count only as
+    they are, never shorter. None when "forget" is not followed by a space or a colon and a word (_FORGET_WORD)."""
+    head = _FORGET_WORD.match(text)
+    rest, out = (text[head.end():].strip() if head else ""), []
     while rest:
+        quoted = _QUOTED.fullmatch(rest)
+        if quoted:
+            return [quoted.group(1).strip()], True
         out.append(rest)
         skip = _FORGET_SKIPS.match(rest)
         rest = rest[skip.end():].strip() if skip else ""
-    return out
+    return out, False
 
 
 def _forget_words(ws: str, text: str) -> dict | None:
     """“forget …” with the exact words of a memory: every memory that says them goes, its twins too (kept for one
     video, switched off, another kind), so nothing still follows them. The words are the first of `_said` that a
-    memory says: "forget my intro is 3 seconds" (what the chip of the one picked sends) forgets "my intro is 3
-    seconds", and "intro is 3 seconds" only when no memory says "my intro is 3 seconds". None when none is said."""
-    for words in _said(text):
+    memory says: "forget my intro is 3 seconds" forgets "my intro is 3 seconds", and "intro is 3 seconds" only when
+    no memory says "my intro is 3 seconds". Words in quotes go only as they are: when no memory says them (a "Which
+    one?" button pressed again, or after its memory was forgotten or changed elsewhere) the answer says so and
+    nothing goes. None when the message names no memory's words."""
+    said, quoted = _said(text)
+    for words in said:
         gone = memories.forget_words(ws, words)
         if gone:
             n = len(gone)
             also = "" if n == 1 else f" (I had it {n} times; {'both' if n == 2 else f'all {n}'} are gone)"
             return {"text": f"Forgotten: “{gone[0]['text']}”{also}.",
                     "data": {"tool": "forget", "forgotten": gone[0], "used": []}}
+    if quoted:
+        return {"text": f"Nothing I remember says “{said[0]}”, so nothing was forgotten.",
+                "data": {"tool": "forget", "candidates": [], "used": []}}
     return None
 
 
-def _forget(ws: str, pid: str, query: str, text: str) -> dict:
+def _forget(ws: str, pid: str, query: str, text: str, at_once: bool = True) -> dict:
+    """Without a model: a memory's exact words forget it at once (_forget_words); other words list the memories they
+    could mean, each set of words once (its twins go with it). `at_once` False, for a quick reply you pressed: the
+    list only, so nothing goes before you pick."""
+    query = query.strip(_EDGES)
     if not query:
         raise ChatError("Say what to forget, for example: forget the rule about zooms.")
-    forgot = _forget_words(ws, text)
-    if forgot:
-        return forgot
-    found = memories.list_(ws, q=query, limit=CANDIDATES)
+    if at_once:
+        forgot = _forget_words(ws, text)
+        if forgot:
+            return forgot
+    found: list[list[dict]] = []
+    listed: set[str] = set()
+    for m in memories.list_(ws, q=query, limit=CANDIDATES * 4):
+        if m["id"] in listed:
+            continue
+        same = memories.saying(ws, m["text"]) or [m]  # every memory that says these words, oldest first
+        listed.update(r["id"] for r in same)
+        found.append(same)
+        if len(found) == CANDIDATES:
+            break
     if not found:
         return {"text": "I have nothing like that in my memory.", "data": {"tool": "forget", "candidates": []}}
-    lines = "\n".join(f"- [{m['kind']}] {m['text']}" for m in found)
-    return {"text": f"Which one? I will forget the one you pick:\n{lines}",
-            "data": {"tool": "forget", "candidates": [{"id": m["id"], "kind": m["kind"], "text": m["text"]}
-                                                        for m in found], "used": []}}
+    lines = []
+    for same in found:
+        n, kinds = len(same), ", ".join(dict.fromkeys(r["kind"] for r in same))
+        also = "" if n == 1 else f" ({n} times: picking it forgets {'both' if n == 2 else f'all {n}'})"
+        lines.append(f"- [{kinds}] {same[0]['text']}{also}")
+    return {"text": "Which one? I will forget the one you pick:\n" + "\n".join(lines),
+            "data": {"tool": "forget", "candidates": [{"id": s[0]["id"], "kind": s[0]["kind"], "text": s[0]["text"]}
+                                                        for s in found], "used": []}}
 
 
 def _list(ws: str, pid: str, about: str) -> dict:

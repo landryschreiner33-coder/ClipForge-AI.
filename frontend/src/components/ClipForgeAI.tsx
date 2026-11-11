@@ -295,8 +295,9 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   };
 
   /** Send words to the chat. From the box (Enter or Send) the box empties and keeps the focus; a quick reply pressed
-   * from the keyboard puts the focus in the box too, since the reply goes away once it is answered. */
-  const send = async (words: string, fromBox = false, refocus = fromBox) => {
+   * from the keyboard puts the focus in the box too, since the reply goes away once it is answered. `choice`: words
+   * the model or the editor offered as a quick reply, which never forget anything at once (the server shows a card). */
+  const send = async (words: string, fromBox = false, refocus = fromBox, choice = false) => {
     const said = words.trim();
     if (!chat || !said || sendingNow.current || writing || busy) return;
     if (said.length > MAX_CHAT_TEXT) {
@@ -308,7 +309,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
     sendingNow.current = true;
     setSending(true);
     try {
-      const r = await chatApi.say(chat.id, said, v?.plan_revision);
+      const r = await chatApi.say(chat.id, said, v?.plan_revision, choice);
       stick.current = true;
       setLost("");
       setMsgs((all) => [...all.filter((m) => m.id !== r.owner.id && m.id !== r.ai.id), r.owner, r.ai]);
@@ -385,7 +386,8 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   const latest = useRef({ act, send, decide });
   latest.current = { act, send, decide };
   const onAct = useCallback((m: ChatMessage, what: "apply" | "discard") => latest.current.act(m, what), []);
-  const onSend = useCallback((words: string, keyboard = false) => latest.current.send(words, false, keyboard), []);
+  const onSend = useCallback((words: string, keyboard = false, choice = false) =>
+    latest.current.send(words, false, keyboard, choice), []);
   const onDecide = useCallback((m: ChatMessage, a: ChatAction, doIt: boolean) => latest.current.decide(m, a, doIt), []);
   // "Clear this chat" goes with the messages, so the dialog cannot give the focus back to it: the conversation takes it.
   const cleared = useRef(false);
@@ -588,8 +590,9 @@ const Owner = memo(function Owner({ m, agents }: { m: ChatMessage; agents: ChatA
   );
 });
 
-/** Sends words to the chat; `keyboard`: pressed from the keyboard, so the focus goes to the message box. */
-type SendWords = (words: string, keyboard?: boolean) => Promise<void>;
+/** Sends words to the chat; `keyboard`: pressed from the keyboard, so the focus goes to the message box; `choice`: a
+ * quick reply the model or the editor wrote. */
+type SendWords = (words: string, keyboard?: boolean, choice?: boolean) => Promise<void>;
 
 /** ClipForge AI's answer, or a helper's when you talked to it with @. It is drawn again only when it changes. */
 const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onDecide }: {
@@ -623,7 +626,7 @@ const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onD
         {ask && ask.choices.length > 0 && <Ask ask={ask} said={m.text} disabled={sending || busy} onSend={onSend} />}
         {d.tool === "forget" && (d.candidates || []).length > 0 && <div className="cfai-chips" role="group" aria-label="Forget one">
           {(d.candidates || []).map((c) => <button key={c.id} type="button" className="btn btn-small ask-choice" disabled={busy || sending}
-            onClick={(e) => void onSend(`forget ${c.text}`, notTouch(e))}><Icon name="trash" />Forget “{c.text}”</button>)}
+            onClick={(e) => void onSend(`forget “${c.text}”`, notTouch(e))}><Icon name="trash" />Forget “{c.text}”</button>)}
         </div>}
         {(remembered.length > 0 || (d.tool === "remember" && d.memory)) && <div className="cfai-chips">
           {remembered.map((mem) => <Remembered key={mem.id} mem={mem} />)}
@@ -718,7 +721,7 @@ function Proposal({ r, full, busy, onAct, onSend }: {
       {r.status === "thinking" && <div><button type="button" className="btn btn-small" disabled={busy} onClick={() => act("discard")}><Icon name="stop" />Cancel</button></div>}
       {r.status === "question" && (p.choices || []).length > 0 && <div className="cfai-chips" role="group" aria-label="Choose one">
         {(p.choices || []).map((c) => <button key={c.request} type="button" className="btn btn-small ask-choice" disabled={busy}
-          onClick={(e) => void onSend(c.request, notTouch(e))}>{c.label}</button>)}
+          onClick={(e) => void onSend(c.request, notTouch(e), true)}>{c.label}</button>)}
       </div>}
     </div>
   );
@@ -787,7 +790,7 @@ function Ask({ ask, said, disabled, onSend }: { ask: ChatAsk; said: string; disa
       {question && <p className="cfai-ask-q">{question}</p>}
       <div className="cfai-chips" role="group" aria-label={ask.question || "Quick replies"}>
         {ask.choices.map((c) => <button key={c} type="button" className="chip" disabled={disabled}
-          onClick={(e) => void onSend(c, notTouch(e))}>{c}</button>)}
+          onClick={(e) => void onSend(c, notTouch(e), true)}>{c}</button>)}
       </div>
     </div>
   );

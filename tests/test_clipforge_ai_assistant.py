@@ -1072,6 +1072,57 @@ def test_ok_on_a_forget_card_never_looks_for_memories_again(data, monkeypatch):
     assert len(brain.list_(WS)) == 2
 
 
+def test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves(data, monkeypatch):
+    """A quick reply the model offered goes to the conversation like typed words, but it never forgets at once: the
+    model wrote those words, so the Forget card shows what goes before anything does. The “Which one?” buttons send a
+    memory's words in quotes, which forget only those words; a correction (“Forget that, keep the music low”) is a
+    turn of the conversation. OK on a card that names more memories than a card can show (an earlier build's)
+    forgets none of them."""
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import brain, db
+    from clipfoundry.api import app
+    from clipfoundry.brain import chat, memories, toolbox
+
+    fake = install(monkeypatch, say("Shall I forget it?", ("forget", {"memory": "Keep the music low"})),
+                   say("Shall I forget it?", ("forget", {"memory": "Keep the music low"})),
+                   say("All right: the music stays low."))
+    rule = brain.remember(WS, "Keep the music low", kind="rule")
+    twin = _twin("keep the music low", scope="platform:tiktok", platform="tiktok")
+    c = chat.open_chat(WS)
+    m = settled(c["id"], chat.send(WS, c["id"], "Forget “Keep the music low”", choice=True)["ai"]["id"])
+    act = m["data"]["pending"][0]
+    assert (act["state"], act["label"]) == ("waiting", "Forget “Keep the music low”") and len(fake.calls) == 1
+    assert act["args"]["memory_ids"] == [rule["id"], twin["id"]] and len(brain.list_(WS)) == 2  # nothing went yet
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:  # the page says the words were a quick reply
+        r = client.post(f"/api/brain/chats/{c['id']}/messages", json={"text": "Forget “Keep the music low”",
+                                                                     "choice": True}, headers={"X-ClipFoundry": "1"})
+        assert r.status_code == 200
+    m = settled(c["id"], r.json()["ai"]["id"])
+    assert m["data"]["pending"][0]["state"] == "waiting" and len(fake.calls) == 2 and len(brain.list_(WS)) == 2
+
+    brain.remember(WS, "intro is 3 seconds")
+    m = _say(c["id"], "forget “my intro is 3 seconds”")  # a “Which one?” button whose memory went meanwhile
+    assert m["text"] == "Nothing I remember says “my intro is 3 seconds”, so nothing was forgotten."
+    assert len(brain.list_(WS)) == 3 and len(fake.calls) == 2
+    m = settled(c["id"], _say(c["id"], "Forget that, keep the music low.")["id"])  # a correction
+    assert m["text"] == "All right: the music stays low." and len(fake.calls) == 3 and len(brain.list_(WS)) == 3
+
+    more = [_twin("Keep the music low", scope=f"platform:p{i}", platform=f"p{i}")["id"]
+            for i in range(toolbox.FORGET_MAX - 1)]
+    ids = [rule["id"], twin["id"], *more]  # one more than a card names now: a card an earlier build saved
+    act = {"id": "a1", "tool": "forget", "args": {"memory": "Keep the music low", "memory_ids": ids}, "risk": "change",
+           "label": "Forget “Keep the music low”", "detail": [f"I keep these words {len(ids)} times, and OK forgets "
+                                                              "them all:"], "blocked": "", "state": "waiting",
+           "result": ""}
+    card = db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": "ai", "text": "x",
+                                               "status": "done", "data": {"tool": "talk", "pending": [act]}})
+    out = chat.decide(WS, c["id"], card["id"], "a1", True)["data"]["pending"][0]
+    assert out["state"] == "failed" and len(memories.saying(WS, "Keep the music low")) == len(ids)
+    assert out["result"] == (f"This card names {len(ids)} memories, more than one card can show, so nothing was "
+                             "forgotten. To forget them all, say “forget” and the exact words, or use Brain → Memory.")
+
+
 def test_a_button_cannot_be_pressed_while_its_answer_is_written(data, monkeypatch):
     from clipfoundry.brain import chat
 

@@ -455,6 +455,35 @@ Landry's projects, could never do anything, and without a downloaded model only 
   - New tests: `test_forget_takes_only_the_words_the_owner_named_and_only_as_a_whole_word`
     (`tests/test_clipforge_ai_chat.py`) and `test_ok_on_a_forget_card_never_looks_for_memories_again`
     (`tests/test_clipforge_ai_assistant.py`).
+- **A last look at forgetting** (one reviewer; each finding checked again by one who tried to refute it, and all six
+  held up; each fix has a test that failed before it, and the click-through tried the buttons in the app):
+  - A correction such as "Forget that, keep the music low" (or "Forget that. Keep …", "Forget, keep …", "Forget about
+    that - keep …", "Forget. Keep …", or "Forget that" with the rule on the next line) forgot at once the very rule it
+    says again, with its twins. "forget" and each word it skips now count only with a space after them (a colon after
+    "forget"); anything else goes to the conversation, or without a model to "Which one?", and nothing is forgotten.
+  - A "Which one?" button pressed again, or after its memory was forgotten or changed elsewhere, forgot another memory
+    with fewer words ("intro is 3 seconds" for "the intro is 3 seconds"). The button now sends the words in quotes;
+    quoted words go only as they are, and when no memory says them the answer is "Nothing I remember says “…”, so
+    nothing was forgotten."
+  - A quick reply the model offered ("Forget “Keep the music low”") forgot every memory that says those words on one
+    press, with no Forget card. The page now sends a quick reply (the model's choices and the editor's) with `choice`,
+    which never forgets at once: the model's Forget card shows what would go, or without a model "Which one?".
+  - In the chat without a model "Remember that's my sister in the intro" was kept as "'s my sister in the intro",
+    "Note-taking …" as "taking …", and "Forget-me-nots …" asked which memory to forget. "remember", "note", "keep in
+    mind", "forget" and the "that" left out are whole words now; a dash separates only after a space ("note - the drone
+    shots …").
+  - "Which one?" listed the same words kept twice (a rule and a fact) as two picks, and either pick forgot both. It
+    lists the same words once now, with how many times they are kept and that picking them forgets each.
+  - OK on a Forget card saved by the build before (it named up to 50 memories) forgot only the first 16 and said
+    nothing of the rest. Such a card now forgets none and says to use the exact words or Brain → Memory
+    (`toolbox.FORGET_IDS`).
+  - New tests: `test_a_correction_never_forgets_and_a_longer_word_is_never_cut` and
+    `test_which_one_lists_each_set_of_words_once_and_its_button_forgets_only_those_words`
+    (`tests/test_clipforge_ai_chat.py`), and
+    `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`
+    (`tests/test_clipforge_ai_assistant.py`); `frontend/dist` rebuilt. The click-through (outside the repo) checks
+    that a quick reply is sent with `choice`, and that the "Which one?" button sends the words in quotes, forgets both
+    twins, and pressed again forgets nothing.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
