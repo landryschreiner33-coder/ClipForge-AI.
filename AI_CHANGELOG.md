@@ -217,12 +217,12 @@ Landry's projects, could never do anything, and without a downloaded model only 
 - **Merged with PR #35, deleting projects** (the release line at bc7250f): `delete_project` uses its safe delete
   (`studio/project_delete.py`) itself; the stand-in answer for a version without it is gone. The card shows the plan's
   sentences and keeps the moment the plan was judged (`as_of`), which OK sends back, so a file the card said stays
-  still stays however long the card waited; `as_of` is an internal argument (`"internal": True` in a tool's schema:
-  `tools.signature` hides it from the model, `tools.check_args` keeps it only from a button's own saved arguments,
-  `button=True` in `chat.decide`, and `tools.same_button` makes two cards that differ only there one card). When
-  Autopilot or a post started on the project after the card was shown, OK keeps the card and says what it waits for
-  (`TryAgain`, as for work still stopping). A rename or delete card whose project was deleted since says "That project
-  is not there any more: it was deleted." instead of naming the project's id. A memory "for this video" that an
+  because the owner added it again still stays however long the card waited; `as_of` is an internal argument
+  (`"internal": True` in a tool's schema: `tools.signature` hides it from the model, `tools.check_args` keeps it only
+  from a button's own saved arguments, `button=True` in `chat.decide`, and `tools.same_button` makes two cards that
+  differ only there one card). Work still stopping keeps the card for another press (`TryAgain`). A rename or delete
+  card whose project was deleted since says "That project is not there any more: it was deleted." instead of naming
+  the project's id. A memory "for this video" that an
   answer saves after its video was deleted is not kept (`toolbox._keep`). The chat page drops a project deleted from
   the chat from its pins, as the Projects page does. The privacy page's ClipForge AI part says a chat, a memory kept
   for one project and a video's change requests go when that project is deleted. PR #35's
@@ -231,9 +231,47 @@ Landry's projects, could never do anything, and without a downloaded model only 
   now checks that and also an older version's memory (its comment in `project_delete.py` says so). New tests:
   `test_the_chat_deletes_with_the_safe_delete_of_the_projects_page` (the real module: the card's words, its `as_of`,
   OK deletes the video with its chat and its own memories, a memory for every video stays),
-  `test_a_delete_that_must_wait_since_its_button_was_shown_keeps_the_button`,
   `test_nothing_is_kept_for_a_video_deleted_while_the_answer_was_written`; the two tests that used a version without
   the safe delete now use a project deleted while it was offered. Each failed on the code before this merge.
+- **An independent review of that merge** (three reviewers, one for the delete path, one for what is kept and the
+  privacy page, one for the tests and docs, and a separate check of each finding that tried to refute it) found three
+  real problems and three small ones. Each fix has a test that failed before it:
+  - A card could delete a file it said stays. A card is judged when it is shown, and one answer can show two delete
+    cards for videos that share a file: both say the file stays because the other video uses it, and OK on both
+    deleted it. `project_delete.plan()` now also lists what goes beyond the project itself (`removes`: media files,
+    the copy of the video it was made from, planned posts); the card keeps it as a second internal argument, and
+    `project_delete.delete(..., removes=)` deletes no more than that, or nothing (`DeleteError` 409, code `changed`:
+    "What deleting it removes has changed since this was shown: it would now also remove … Nothing was deleted."),
+    checked before any work is stopped and again on what is deleted once it has stopped. The card then fails and says
+    to ask again; a new card lists what goes now. A post planned after the card was shown is caught the same way. The
+    project's own clips, versions, notes and chat are the project and go with it whatever their number. The Projects
+    page does not send `removes` and works as before.
+  - A card that Autopilot got in the way of kept its OK, and a later press deleted what Autopilot made meanwhile (a
+    clip, a planned post), which no card the owner saw had listed. A `blocked` answer now ends the card with what it
+    waits for; asking again later shows a card with what goes then.
+  - Deleting a video gave the day's online AI requests back: the editor's change requests counted from their
+    `edit_requests` rows, which the delete removes. Each one now also writes its own `ai_usage` row (task
+    `edit_request`, `allowance.editor_request`), which stays; one sent before this counts from its `edit_requests` row
+    while that is there, never twice. The privacy page says the record stays after its video is deleted.
+  - Small ones: a memory deleted while an answer was written got a use record left over for nothing
+    (`memories.record_use` now counts and records in one transaction, only for a memory that is there); a clips
+    project and a YouTube video with the same name could not be told apart (`toolbox.find` takes the `kind` the model
+    gives, and without it asks which one, naming each one's kind); and new tests show a model can neither read nor
+    give a card's internal arguments.
+  - New tests: in `tests/test_clipforge_ai_assistant.py`,
+    `test_two_delete_cards_for_videos_that_share_a_file_never_remove_more_than_they_listed`,
+    `test_a_delete_card_autopilot_got_in_the_way_of_ends_and_a_new_card_says_what_goes_then`,
+    `test_a_delete_card_never_cancels_a_post_planned_after_it_was_shown`,
+    `test_a_clips_project_and_a_video_with_the_same_name_are_told_apart_by_their_kind`,
+    `test_a_buttons_own_arguments_never_come_from_a_model` and
+    `test_deleting_a_video_keeps_the_days_count_of_its_change_requests`; in `tests/test_studio_project_delete.py`,
+    `test_a_delete_given_its_confirmations_list_removes_no_more_than_that_or_nothing` (also the variant where work that
+    stops changes what goes); `test_a_delete_that_must_wait_or_would_remove_more_since_its_card_was_shown_ends_the_card`
+    replaces the test that kept a blocked card, and `test_uses_are_recorded_and_counted` and
+    `test_the_editors_change_requests_and_the_chat_share_one_daily_count` check more.
+  - Left as it was: with a model on this computer, the editor's own daily limit (`edit_requests._sent_today`) counts
+    its change requests from their rows, so deleting a video still gives those back, as before this merge. The
+    reviewers' doubt about `scripts/assistant_check.py`'s polite-no verdict did not hold up.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

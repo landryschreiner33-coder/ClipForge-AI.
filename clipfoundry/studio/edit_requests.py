@@ -819,7 +819,7 @@ def ask(project_id: str, ws: str, text: str, base_revision: int | None = None) -
             saved = db.insert("edit_requests", row)
         else:  # checked again and counted together with ClipForge AI's requests: never one more than the limit
             try:
-                saved = allowance.counted(ws, settings, lambda: db.insert("edit_requests", row))
+                saved = allowance.editor_request(ws, settings, lambda: db.insert("edit_requests", row))
             except allowance.Reached:
                 return at_limit()
     _used(ws, rec, saved["id"])

@@ -123,7 +123,7 @@ def test_recall_puts_the_rules_first_finds_by_meaning_and_keeps_to_the_scope_and
 
 
 def test_uses_are_recorded_and_counted(data):
-    from clipfoundry import brain
+    from clipfoundry import brain, db
 
     m = brain.remember(WS, "Captions always on")
     assert brain.record_use(WS, [m["id"], m["id"], ""], "change_request", "req-1") == 1
@@ -136,6 +136,11 @@ def test_uses_are_recorded_and_counted(data):
         brain.record_use(WS, [m["id"]], "dreams")
     assert brain.record_use(WS, [m["id"]], "chat") == 1
     assert brain.record_use("other", [m["id"]], "chat") == 0  # another workspace's memory is never touched
+    assert len(brain.uses(WS, m["id"])) == 3  # nor given a record
+    # a memory deleted while the answer was written (with its project, or forgotten) is not given one either
+    assert brain.record_use(WS, ["gone", m["id"]], "chat", "msg-2") == 1
+    assert db.scalar("SELECT COUNT(*) FROM brain_memory_uses WHERE memory_id = 'gone'") == 0
+    assert len(brain.uses(WS, m["id"])) == 4
 
 
 def test_guesses_expire_unless_confirmed_and_forget_removes_a_memory_with_its_uses(data):

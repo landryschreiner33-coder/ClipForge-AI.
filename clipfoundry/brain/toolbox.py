@@ -104,9 +104,18 @@ def _words(s: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", (s or "").lower())
 
 
-def find(ws: str, query: str, current: str = "") -> dict:
+def _which(found: list[dict]) -> str:
+    """The projects' names, as the model and the owner tell them apart: a name two of them share says which kind
+    each one is."""
+    names = [p["name"].lower() for p in found]
+    return ", ".join(f"“{p['name']}”" + (f" ({KIND_WORDS.get(p['kind'], 'project')})"
+                                         if names.count(p["name"].lower()) > 1 else "") for p in found)
+
+
+def find(ws: str, query: str, current: str = "", kind: str = "") -> dict:
     """The one project `query` names (an id, the name, or words from the name; "this video" means the chat's own).
-    Raises ToolError naming the candidates when it is not clear which one."""
+    `kind` ("clips" or "full_video") decides between projects that fit as well, such as a clips project and a
+    YouTube video with the same name. Raises ToolError naming the candidates when it is not clear which one."""
     query = (query or "").strip().strip("“”\"'")
     every = projects(ws)
     if not query or query.lower() in ("this", "this video", "this project", "it", "current", "here"):
@@ -116,6 +125,8 @@ def find(ws: str, query: str, current: str = "") -> dict:
         raise ToolError("Say which project: there is no project open in this chat.")
     for test in (lambda p: p["id"] == query, lambda p: p["name"].lower() == query.lower()):
         hit = [p for p in every if test(p)]
+        if len(hit) > 1 and kind:
+            hit = [p for p in hit if p["kind"] == kind] or hit
         if len(hit) == 1:
             return hit[0]
         if len(hit) > 1:
@@ -133,10 +144,13 @@ def find(ws: str, query: str, current: str = "") -> dict:
     if not scored:
         names = ", ".join(f"“{p['name']}”" for p in every[:8]) or "none yet"
         raise ToolError(f"No project is called “{query}”. The projects are: {names}.")
-    if len(scored) > 1 and scored[1][0] == scored[0][0]:
-        names = ", ".join(f"“{p['name']}”" for _, p in scored[:5])
-        raise ToolError(f"More than one project fits “{query}”: {names}. Ask the owner which one.")
-    return scored[0][1]
+    best = [p for share, p in scored if share == scored[0][0]]
+    if len(best) > 1 and kind:
+        best = [p for p in best if p["kind"] == kind] or best
+    if len(best) > 1:
+        raise ToolError(f"More than one project fits “{query}”: {_which([p for _, p in scored[:5]])}. Ask the owner "
+                        "which one.")
+    return best[0]
 
 
 def describe_project(ws: str, p: dict, budget: int = 1400) -> str:
@@ -503,11 +517,13 @@ def _rename(ctx: Ctx, args: dict) -> Result:
 
 def _delete_preview(ctx: Ctx, args: dict) -> dict:
     """What deleting the project does, in the safe delete's own words (studio/project_delete.py, as the window on the
-    Projects page says it). The moment it was judged goes on the button (`as_of`), so pressing OK later deletes no file
-    the button said stays."""
+    Projects page says it). The button keeps when that was judged (`as_of`: a file it said stays because the owner
+    added it again still stays when OK comes later) and what it listed beyond the project itself (`removes`: media
+    files, the copy of the video it was made from, planned posts). OK deletes no more than that, or nothing: a card
+    can wait long, and one answer can show two cards for projects that share a file."""
     from ..studio import project_delete as pd
 
-    p = find(ctx.ws, args.get("project", ""), ctx.project_id)
+    p = find(ctx.ws, args.get("project", ""), ctx.project_id, args.get("kind") or "")
     try:
         plan = pd.plan(ctx.ws, p["id"], p["kind"])
     except pd.DeleteError as exc:
@@ -517,7 +533,8 @@ def _delete_preview(ctx: Ctx, args: dict) -> dict:
         detail.insert(0, str(plan["working"]))
     return {"label": f"Delete the {KIND_WORDS[p['kind']]} “{p['name']}”", "detail": detail[:10],
             "blocked": plan.get("blocked") or "", "args": {"project": p["id"], "kind": p["kind"],
-                                                           "as_of": plan.get("as_of")}}
+                                                           "as_of": plan.get("as_of"),
+                                                           "removes": plan.get("removes")}}
 
 
 def _delete(ctx: Ctx, args: dict) -> Result:
@@ -525,12 +542,15 @@ def _delete(ctx: Ctx, args: dict) -> Result:
 
     p = _named(ctx, args)
     try:  # running work gets 10 s to stop, as on the Projects page
-        done = pd.delete(ctx.ws, p["id"], p["kind"], wait=10.0, as_of=args.get("as_of"))
+        done = pd.delete(ctx.ws, p["id"], p["kind"], wait=10.0, as_of=args.get("as_of"), removes=args.get("removes"))
     except pd.DeleteError as exc:
-        # its work was asked to stop and has not yet, or Autopilot or a post started on it since the button was
-        # shown (deleting waits for them): the button stays, and OK works once that has ended
-        if exc.code in ("stopping", "blocked"):
+        if exc.code == "stopping":  # its work was asked to stop and has not yet: the button stays for another press
             raise TryAgain(str(exc)) from exc
+        if exc.code == "changed":  # it would remove more than this card listed: a new card shows what goes now
+            raise ToolError(f"{exc} Ask again to see what deleting it removes now.") from exc
+        # blocked: Autopilot or a post started on it since the card was shown, and what goes can change until that
+        # ends (a planned post, more clips), so this card's words no longer hold; asking again later shows a card
+        # with the words of that moment, as the Projects page checks again after such an answer
         raise ToolError(GONE if exc.code == "not_found" else str(exc)) from exc
     later = (". A few of its files were open in another program; ClipForge removes them the next time it starts."
              if done.get("left_behind") else "")  # as the Projects page says it
@@ -583,6 +603,8 @@ register(Tool("rename_project", "rename a project or video",
 register(Tool("delete_project", "delete a project or video and what belongs only to it",
               {"type": "object", "properties": {"project": TEXT,
                                                 "kind": {"type": "string", "enum": ["clips", "full_video"]},
-                                                # when its preview was shown: only the button keeps it
-                                                "as_of": {"type": "number", "internal": True}}},
+                                                # when its preview was shown and what it listed beyond the project:
+                                                # only the button keeps them
+                                                "as_of": {"type": "number", "internal": True},
+                                                "removes": {"type": "object", "internal": True}}},
               _delete, "delete", "Delete {project}", preview=_delete_preview, for_agents=False))

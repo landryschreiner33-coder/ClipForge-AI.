@@ -357,18 +357,23 @@ def recall(query: str, ws: str, *, project_id: str = "", platform: str = "", mod
 
 
 def record_use(ws: str, memory_ids: list[str], where: str, ref_id: str = "") -> int:
-    """An answer used these memories: remember where, and count it on each memory."""
+    """An answer used these memories: remember where, and count it on each memory. A memory that is not there any
+    more (forgotten, or deleted with its project while the answer was written) gets no record: its uses went with
+    it, and one written after that would be left over for nothing."""
     if where not in WHERE:
         raise Invalid("Unknown place of use.")
     now = time.time()
     n = 0
-    for mid in dict.fromkeys(memory_ids):
-        if not mid:
-            continue
-        db.insert("brain_memory_uses", {"memory_id": mid, "workspace_id": ws, "where_used": where,
-                                        "ref_id": ref_id or "", "created_at": now})
-        n += db.execute("UPDATE brain_memories SET used_count = used_count + 1, last_used_at = ? WHERE id = ? AND "
-                        "workspace_id = ?", (now, mid, ws))
+    with db.connect() as conn:  # one transaction: a delete cannot come between the count and its record
+        for mid in dict.fromkeys(memory_ids):
+            if not mid:
+                continue
+            hit = conn.execute("UPDATE brain_memories SET used_count = used_count + 1, last_used_at = ? WHERE id = ? "
+                               "AND workspace_id = ?", (now, mid, ws)).rowcount
+            if hit:
+                conn.execute("INSERT INTO brain_memory_uses (id, memory_id, workspace_id, where_used, ref_id, "
+                             "created_at) VALUES (?, ?, ?, ?, ?, ?)", (db.new_id(), mid, ws, where, ref_id or "", now))
+            n += hit
     return n
 
 

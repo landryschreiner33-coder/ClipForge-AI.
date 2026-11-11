@@ -358,9 +358,11 @@ change) and, on a helper's own answer, `agent`. Limits: a message is at most 4,0
 ClipForge AI's answer, every round of a helper it asks or you talk to, every note a helper writes for the new-video
 planner, every planning answer of that planner (`studio/video_setup.py`, in a draft's chat or in the build job), and
 the editor's change requests sent to an online AI (its `sent` line starts with `allowance.SENT_ONLINE`, "Sent over the
-internet"). Each request ClipForge AI, a helper or the planner sends is one `ai_usage` row (provider
-`clipforge_ai:<workspace>`, the day, the task `chat`, `helper`, `helper_note` or `video_plan`, the model, the message or
-the video).
+internet"). Each request is one `ai_usage` row (provider `clipforge_ai:<workspace>`, the day, the task `chat`,
+`helper`, `helper_note`, `video_plan` or `edit_request`, the model, the message, the video or the change request; the
+editor writes its row with its request, `allowance.editor_request`). The rows stay when a video is deleted, so
+deleting one (with its change requests) does not give the day's requests back; an editor request sent before the
+editor wrote its own row is counted from its `edit_requests` row while that is there.
 At the limit a message is not answered ("Today's limit of N requests to your online AI is reached (Settings →
 Advanced, “AI requests a day”). Nothing was sent."); an answer that reaches it midway keeps what it wrote and did and ends with "…
 So I stopped here."; a helper says so instead of working; the planner gets no more notes. A model on this computer
@@ -444,15 +446,26 @@ says so and links to Brain → Memory, where you decide. Undo on a chip only eve
 
 `delete_project` uses the safe delete of the Projects page (`clipfoundry/studio/project_delete.py`: `plan()` says
 what goes, what stays and what would block it; `delete()` does it). The card shows the plan's own sentences ("Goes:
-…", "Stays: …", and first what work deleting stops), and it keeps the moment the plan was judged (`as_of`) with its
-arguments: OK sends it back, so a file the card said stays still stays however long the card waited. `as_of` is an
-internal argument (`"internal": True` in the tool's schema): a model never reads it in the tool's line
-(`tools.signature`) and never gives it (`tools.check_args` keeps it only from the button's own saved arguments,
-`button=True` in `chat.decide`), and two cards that differ only there are one card (`tools.same_button`). Work still
-running on the project is asked to stop and given 10 seconds; when it has not stopped yet, or Autopilot or a post
-started on the project since the card was shown, the card keeps its OK with that message, and a press later works
-(`tools.TryAgain`). A card whose project was deleted since (on the Projects page, or by another card) fails with
-"That project is not there any more: it was deleted." (`toolbox.GONE`; a rename card too). Deleting the video whose
+…", "Stays: …", and first what work deleting stops), and it keeps two things from the plan with its arguments, which
+OK sends back: the moment the plan was judged (`as_of`), so a file the card said stays because you added it again
+still stays however long the card waited, and what it listed beyond the project itself (`removes`: media files, the
+copy of the video it was made from, planned posts). OK deletes no more than that, or nothing: when deleting would now
+remove more, because the other project that used a file was deleted meanwhile (one answer can show two cards for
+videos that share a file) or a post was planned since, the card fails with what changed ("What deleting it removes
+has changed since this was shown: it would now also remove … Nothing was deleted. Ask again to see what deleting it
+removes now.", code `changed`), and asking again shows a card that lists it. The project's own clips, versions,
+notes and chat are the project: they go with it whatever their number. `as_of` and `removes` are internal arguments
+(`"internal": True` in the tool's schema): a model never reads them in the tool's line (`tools.signature`) and never
+gives them (`tools.check_args` keeps them only from the button's own saved arguments, `button=True` in
+`chat.decide`), and two cards that differ only there are one card (`tools.same_button`). Work still running on the
+project is asked to stop and given 10 seconds; when it has not stopped yet, the card keeps its OK with that message,
+and a press later works (`tools.TryAgain`). When Autopilot or a post started on the project since the card was
+shown, the card fails with that message and deletes nothing: what goes can change until they end (more clips, a
+planned post), so a new card says what goes then. When the delete names a project two kinds share a name with (a
+clips project and a YouTube video both called "Hike"), the `kind` the model gives decides; without it the owner is
+asked which one, each named with its kind (`toolbox.find`). A card whose project was deleted since (on the Projects
+page, or by another card) fails with "That project is not there any more: it was deleted." (`toolbox.GONE`; a rename
+card too). Deleting the video whose
 chat this is removes the chat too: the page says so, takes the project off its pins, as the Projects page does, and
 goes to Projects. A memory "for this video" that an answer saves after its video was deleted is not kept
 (`toolbox._keep`): the video's memories went with it.

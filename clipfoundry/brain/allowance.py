@@ -5,10 +5,11 @@ rounds of the helpers it asks), and the new-video planner's requests (studio/vid
 agents count too. A model on this computer is never counted or limited (the editor keeps its own limit of its
 requests to it, as always).
 
-Each request ClipForge AI, a helper or the planner sends is one row of `ai_usage` with provider
-"clipforge_ai:<workspace>" (the local day it counts against, its task: chat, helper, helper_note or video_plan, the
-model and the chat message or video it was for); a change request the editor sends is its own `edit_requests` row
-(source ai), as before.
+Each request is one row of `ai_usage` with provider "clipforge_ai:<workspace>" (the local day it counts against, its
+task: chat, helper, helper_note, video_plan or edit_request, the model and the chat message, video or change request it
+was for). The row stays when its video is deleted (deleting a video deletes its change requests), so the day's count
+never goes down. An editor request sent before the editor wrote such a row is counted from its own `edit_requests`
+row (source ai) while that is there.
 """
 from __future__ import annotations
 
@@ -50,13 +51,16 @@ def limit(settings: dict) -> int:
 
 
 def used(ws: str) -> int:
-    """Requests sent to an online AI today in this workspace: ClipForge AI's, its helpers' and the editor's (an
-    editor request to a model on this computer is not one of them)."""
-    mine = int(db.scalar("SELECT COUNT(*) FROM ai_usage WHERE provider = ? AND day = ?",
-                         (f"{PROVIDER}:{ws}", _day())) or 0)
-    edits = int(db.scalar("SELECT COUNT(*) FROM edit_requests WHERE workspace_id = ? AND source = 'ai' AND "
-                          "created_at >= ? AND sent LIKE ?", (ws, _day_start(), SENT_ONLINE + "%")) or 0)
-    return mine + edits
+    """Requests sent to an online AI today in this workspace: ClipForge AI's, its helpers', the planner's and the
+    editor's (an editor request to a model on this computer is not one of them)."""
+    provider = f"{PROVIDER}:{ws}"
+    mine = int(db.scalar("SELECT COUNT(*) FROM ai_usage WHERE provider = ? AND day = ?", (provider, _day())) or 0)
+    # an editor request with no row of its own in ai_usage (sent before the editor wrote one)
+    older = int(db.scalar("SELECT COUNT(*) FROM edit_requests e WHERE e.workspace_id = ? AND e.source = 'ai' AND "
+                          "e.created_at >= ? AND e.sent LIKE ? AND NOT EXISTS (SELECT 1 FROM ai_usage u WHERE "
+                          "u.provider = ? AND u.task = 'edit_request' AND u.job_id = e.id)",
+                          (ws, _day_start(), SENT_ONLINE + "%", provider)) or 0)
+    return mine + older
 
 
 def message(settings: dict) -> str:
@@ -70,13 +74,20 @@ def reached(ws: str, settings: dict) -> bool:
 
 
 def counted(ws: str, settings: dict, write: Callable[[], T]) -> T:
-    """Check today's allowance and run `write()`, which writes the row that counts one request to the online AI (the
-    editor's change request), as one step: raises Reached, writing nothing, when the allowance is used up. Every part
-    counts under the same lock, so two parts asking at the same moment never send one more than the limit."""
+    """Check today's allowance and run `write()`, which writes the row that counts one request to the online AI, as
+    one step: raises Reached, writing nothing, when the allowance is used up. Every part counts under the same lock,
+    so two parts asking at the same moment never send one more than the limit."""
     with _lock:
         if used(ws) >= limit(settings):
             raise Reached(message(settings))
         return write()
+
+
+def _row(ws: str, settings: dict, task: str, ref: str) -> dict:
+    from ..pipeline import llm
+
+    return db.insert("ai_usage", {"provider": f"{PROVIDER}:{ws}", "day": _day(), "job_id": str(ref or ""),
+                                  "task": task, "model": llm.provider_label(settings), "status": "done"})
 
 
 def take(ws: str, settings: dict, task: str, ref: str = "") -> None:
@@ -84,8 +95,16 @@ def take(ws: str, settings: dict, task: str, ref: str = "") -> None:
     allowance is used up. A model on this computer is free: nothing is counted."""
     if not online(settings):
         return
-    from ..pipeline import llm
+    counted(ws, settings, lambda: _row(ws, settings, task, ref))
 
-    counted(ws, settings, lambda: db.insert("ai_usage", {
-        "provider": f"{PROVIDER}:{ws}", "day": _day(), "job_id": str(ref or ""), "task": task,
-        "model": llm.provider_label(settings), "status": "done"}))
+
+def editor_request(ws: str, settings: dict, write: Callable[[], dict]) -> dict:
+    """The editor's change request to the online AI: checks today's allowance and runs `write()` (it writes the
+    request's `edit_requests` row and returns it) with the `ai_usage` row that counts it, as one step. Raises Reached,
+    writing nothing, when the allowance is used up."""
+    def both() -> dict:
+        row = write()
+        _row(ws, settings, "edit_request", row["id"])
+        return row
+
+    return counted(ws, settings, both)

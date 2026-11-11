@@ -49,10 +49,11 @@ GONE = "That project is not there any more: it was deleted."  # brain/toolbox.py
 
 
 def _fake_deleter(monkeypatch, blocked: str = "") -> types.ModuleType:
-    """A stand-in for studio/project_delete.py, the safe delete: plan() says what goes and what stays, and when it
-    judged that (`as_of`); delete() removes the project with its chat (and that chat's messages). `refuse`: plan()
-    finds the project gone, as when it is deleted on the Projects page while ClipForge AI offers it. The real one is
-    used in test_the_chat_deletes_with_the_safe_delete_of_the_projects_page."""
+    """A stand-in for studio/project_delete.py, the safe delete: plan() says what goes and what stays, when it
+    judged that (`as_of`) and what it lists beyond the project itself (`removes`); delete() removes the project with
+    its chat (and that chat's messages). `refuse`: plan() finds the project gone, as when it is deleted on the
+    Projects page while ClipForge AI offers it. The real one is used in
+    test_the_chat_deletes_with_the_safe_delete_of_the_projects_page and the tests after it."""
     from clipfoundry import db, studio
 
     mod = types.ModuleType("clipfoundry.studio.project_delete")
@@ -71,6 +72,8 @@ def _fake_deleter(monkeypatch, blocked: str = "") -> types.ModuleType:
     mod.waits = []
     mod.planned = []      # the moment each plan was judged (its as_of)
     mod.as_ofs = []       # the as_of each delete was given
+    mod.removes = []      # the removes each delete was given
+    mod.changed = ""      # deleting would now remove more than the card listed: the real one's sentence
 
     def plan(ws, project_id, kind):
         if mod.refuse:
@@ -78,13 +81,16 @@ def _fake_deleter(monkeypatch, blocked: str = "") -> types.ModuleType:
         mod.planned.append(time.time())
         return {"goes": ["the video and its versions", "its chat with ClipForge AI"],
                 "stays": ["your files in the media library"], "blocked": mod.blocked, "working": mod.working,
-                "as_of": mod.planned[-1]}
+                "as_of": mod.planned[-1], "removes": {"files": [], "source": False, "posts": []}}
 
-    def delete(ws, project_id, kind, *, wait=0.0, as_of=None):
+    def delete(ws, project_id, kind, *, wait=0.0, as_of=None, removes=None):
         mod.waits.append(wait)
         mod.as_ofs.append(as_of)
+        mod.removes.append(removes)
         if mod.blocked:
             raise DeleteError(mod.blocked, 409, "blocked")
+        if mod.changed:
+            raise DeleteError(mod.changed, 409, "changed")
         if mod.stopping:
             mod.stopping -= 1
             raise DeleteError("ClipForge is still stopping its work on it. Try again in a few seconds.", 409,
@@ -986,7 +992,8 @@ def test_deleting_the_chats_own_video_says_the_chat_is_gone(env, monkeypatch):
     m = settled(c["id"], _say(c["id"], "delete this video")["id"])
     act = m["data"]["pending"][0]
     assert act["label"] == "Delete the YouTube video “Hike”" and act["risk"] == "delete" and act["state"] == "waiting"
-    assert act["args"] == {"project": p["id"], "kind": "full_video", "as_of": pd.planned[0]}
+    assert act["args"] == {"project": p["id"], "kind": "full_video", "as_of": pd.planned[0],
+                           "removes": {"files": [], "source": False, "posts": []}}
     assert act["detail"] == ["Goes: the video and its versions", "Goes: its chat with ClipForge AI",
                              "Stays: your files in the media library"]
     assert pd.deleted == [] and db.fetch("studio_projects", p["id"])  # nothing goes before the press
@@ -996,6 +1003,7 @@ def test_deleting_the_chats_own_video_says_the_chat_is_gone(env, monkeypatch):
     assert out["data"]["pending"][0]["state"] == "done"
     assert pd.deleted == [(WS, p["id"], "full_video")] and db.fetch("studio_projects", p["id"]) is None
     assert pd.as_ofs == pd.planned  # judged as the button said, however long it waited for the OK
+    assert pd.removes == [act["args"]["removes"]]  # and removing no more than it listed
     with pytest.raises(chat.ChatError) as e:
         chat.messages(WS, c["id"])
     assert e.value.status == 404
@@ -1037,14 +1045,16 @@ def test_a_delete_whose_work_is_still_stopping_keeps_its_button_for_another_pres
     second = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
     assert second["state"] == "done" and pd.deleted == [(WS, p["id"], "clips")]
     assert pd.waits == [10.0, 10.0]  # running work gets as long to stop as on the Projects page
-    assert pd.as_ofs == pd.planned * 2
+    assert pd.as_ofs == pd.planned * 2 and pd.removes == [act["args"]["removes"]] * 2
     assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "done"  # answered once
 
 
-def test_a_delete_that_must_wait_since_its_button_was_shown_keeps_the_button(data, monkeypatch):
-    """Autopilot or a post can start on the project after the button was shown: OK then says what it waits for, and
-    the button stays for a later press (deleting waits for them, as on the Projects page). The same delete asked for
-    twice is one button, although each preview judged it at its own moment."""
+def test_a_delete_that_must_wait_or_would_remove_more_since_its_card_was_shown_ends_the_card(data, monkeypatch):
+    """Autopilot or a post can start on the project after the card was shown: deleting waits for them, as on the
+    Projects page, and what goes can change until they end (more clips, a planned post), so OK ends the card with what
+    it waits for and deletes nothing; a later press changes nothing. OK on a card that would now remove more than it
+    listed ends it too, and says to ask again. The same delete asked for twice is one card, although each preview
+    judged it at its own moment."""
     from clipfoundry import db
     from clipfoundry.brain import chat
 
@@ -1057,17 +1067,26 @@ def test_a_delete_that_must_wait_since_its_button_was_shown_keeps_the_button(dat
     assert [a["state"] for a in m["data"]["pending"]] == ["waiting"] and len(pd.planned) == 2
     pd.blocked = "One of its clips is being posted right now."
     first = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
-    assert first["state"] == "waiting" and first["result"] == "One of its clips is being posted right now."
+    assert first["state"] == "failed" and first["result"] == "One of its clips is being posted right now."
     assert pd.deleted == [] and db.get_project(p["id"])
     pd.blocked = ""
-    assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "done"
-    assert pd.deleted == [(WS, p["id"], "clips")] and pd.as_ofs == [pd.planned[0]] * 2
+    assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "failed"  # answered once
+    assert pd.deleted == [] and db.get_project(p["id"]) and pd.as_ofs == [pd.planned[0]]
+
+    pd.changed = ("What deleting it removes has changed since this was shown: it would now also remove 1 planned "
+                  "post of its clips. Nothing was deleted.")
+    install(monkeypatch, say("", again), say("Press OK to delete it."))
+    m = settled(c["id"], _say(c["id"], "delete Busy talk")["id"])
+    act = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
+    assert act["state"] == "failed" and act["result"] == pd.changed + " Ask again to see what deleting it removes now."
+    assert pd.deleted == [] and db.get_project(p["id"])
 
 
 def test_the_chat_deletes_with_the_safe_delete_of_the_projects_page(env, monkeypatch):
     """With studio/project_delete.py itself: the button shows its words for what goes and what stays and carries the
-    moment they were judged (`as_of`, which a model neither reads nor gives); OK deletes the video with its chat and
-    the memories kept only for it, judged at that moment, and the memories for every video stay."""
+    moment they were judged (`as_of`) and what it listed beyond the project (`removes`), which a model neither reads
+    nor gives; OK deletes the video with its chat and the memories kept only for it, judged at that moment, and the
+    memories for every video stay."""
     from clipfoundry import db
     from clipfoundry.brain import chat, memories, tools
     from clipfoundry.studio import project_delete as pd
@@ -1079,7 +1098,7 @@ def test_the_chat_deletes_with_the_safe_delete_of_the_projects_page(env, monkeyp
     seen = []
     real = pd.delete
     monkeypatch.setattr(pd, "delete", lambda *a, **kw: seen.append(kw) or real(*a, **kw))
-    install(monkeypatch, say("Press OK and it goes.", ("delete_project", {"as_of": 1.0})))
+    install(monkeypatch, say("Press OK and it goes.", ("delete_project", {"as_of": "soon", "removes": "everything"})))
     m = settled(c["id"], _say(c["id"], "delete this video")["id"])
     act = m["data"]["pending"][0]
     assert act["state"] == "waiting" and act["label"] == "Delete the YouTube video “Hike”"
@@ -1089,13 +1108,157 @@ def test_the_chat_deletes_with_the_safe_delete_of_the_projects_page(env, monkeyp
     assert "Goes: 1 note ClipForge AI kept only for this project and its chat about it (2 messages)." in act["detail"]
     assert "Stays: Your own files on this computer stay where they are, unchanged." in act["detail"]
     assert act["args"]["project"] == p["id"] and act["args"]["kind"] == "full_video"
-    assert act["args"]["as_of"] != 1.0 and time.time() - act["args"]["as_of"] < 60  # its plan's moment
+    # its plan's moment and its list of what goes beyond the project (its four files), never the model's words
+    assert isinstance(act["args"]["as_of"], float) and time.time() - act["args"]["as_of"] < 60
+    assert act["args"]["removes"] == pd.plan(WS, p["id"], "full_video")["removes"]
+    assert len(act["args"]["removes"]["files"]) == 4
     assert "as_of" not in tools.signature(tools.get("delete_project"))
     out = chat.decide(WS, c["id"], m["id"], "a1", True)
     assert out["gone"] is True and out["data"]["pending"][0]["state"] == "done" and out["text"] == "Deleted “Hike”"
-    assert seen == [{"wait": 10.0, "as_of": act["args"]["as_of"]}]
+    assert seen == [{"wait": 10.0, "as_of": act["args"]["as_of"], "removes": act["args"]["removes"]}]
     assert db.fetch("studio_projects", p["id"]) is None and db.fetch("brain_chats", c["id"]) is None
     assert db.fetch("brain_memories", mine["id"]) is None and db.fetch("brain_memories", every["id"])
+
+
+def test_two_delete_cards_for_videos_that_share_a_file_never_remove_more_than_they_listed(data, monkeypatch):
+    """One answer can show two delete cards: both say the file the two videos share stays, because the other one uses
+    it. OK on the first deletes that video and the file stays; OK on the second would now remove the file its card
+    said stays, so it deletes nothing and says why, and asking again shows a card that lists the file."""
+    from pathlib import Path
+
+    from clipfoundry import db
+    from clipfoundry.brain import chat
+    from test_studio_project_delete import _stored, _video
+
+    summit = _stored(51, filename="summit.mp4")
+    day, night = _video("Summit day", [summit["id"]]), _video("Summit night", [summit["id"]])
+    install(monkeypatch, say("", ("delete_project", {"project": "Summit day"}),
+                             ("delete_project", {"project": "Summit night"})), say("Press OK on each."))
+    c = chat.open_chat(WS)
+    m = settled(c["id"], _say(c["id"], "delete both summit videos")["id"])
+    stays = "Stays: “summit.mp4” stays in ClipForge because another project or example uses it."
+    assert [(a["state"], stays in a["detail"]) for a in m["data"]["pending"]] == [("waiting", True)] * 2
+    first = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
+    assert first["state"] == "done" and db.fetch("studio_projects", day["id"]) is None
+    assert db.fetch("assets", summit["id"])  # the other video uses it
+    second = chat.decide(WS, c["id"], m["id"], "a2", True)["data"]["pending"][1]
+    assert second["state"] == "failed" and second["result"] == (
+        "What deleting it removes has changed since this was shown: it would now also remove ClipForge's copy of "
+        "“summit.mp4”, which no other project uses now. Nothing was deleted. Ask again to see what deleting it "
+        "removes now.")
+    assert db.fetch("studio_projects", night["id"]) and db.fetch("assets", summit["id"])
+    assert Path(summit["path"]).is_file()
+    install(monkeypatch, say("", ("delete_project", {"project": "Summit night"})), say("Press OK."))
+    m = settled(c["id"], _say(c["id"], "delete Summit night")["id"])
+    act = m["data"]["pending"][0]
+    assert "Goes: ClipForge's copy of “summit.mp4”, which no other project uses." in act["detail"]
+    assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "done"
+    assert db.fetch("studio_projects", night["id"]) is None and db.fetch("assets", summit["id"]) is None
+    assert not Path(summit["path"]).exists()
+
+
+def test_a_delete_card_autopilot_got_in_the_way_of_ends_and_a_new_card_says_what_goes_then(data, monkeypatch):
+    """With studio/project_delete.py itself: Autopilot started on the project after the card was shown, so OK ends
+    the card with what it waits for and deletes nothing. What Autopilot made meanwhile (a clip, a planned post) is on
+    no card the owner saw, so pressing that card again changes nothing; asking again shows a card that lists it."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat
+
+    p = db.create_project("Lake day", workspace_id=WS, status="ready", origin="autopilot")
+    clip = db.create_clip(p["id"], start=0, end=10, status="ready")
+    ask = ("delete_project", {"project": "Lake day"})
+    install(monkeypatch, say("", ask), say("Press OK to delete it."))
+    c = chat.open_chat(WS)
+    m = settled(c["id"], _say(c["id"], "delete Lake day")["id"])
+    act = m["data"]["pending"][0]
+    assert act["state"] == "waiting"
+    assert "Goes: The project “Lake day” and its 1 clip, with their edits and versions." in act["detail"]
+    job = db.insert("worker_jobs", {"kind": "package_clip", "worker": "packager", "status": "running",
+                                    "ref_type": "clip", "ref_id": clip["id"]})
+    act = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
+    assert act["state"] == "failed" and act["result"].startswith("Autopilot is still working on this video.")
+    later = db.create_clip(p["id"], start=20, end=30, status="ready")  # meanwhile: a clip and a planned post
+    post = db.insert("scheduled_publications", {"clip_id": later["id"], "platform": "youtube",
+                                                "status": "awaiting_approval", "planned_at": 2e9})
+    db.update("worker_jobs", job["id"], status="done")
+    assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "failed"  # answered once
+    assert db.get_project(p["id"]) and db.fetch("clips", later["id"])
+    assert db.fetch("scheduled_publications", post["id"])["status"] == "awaiting_approval"
+    install(monkeypatch, say("", ask), say("Press OK to delete it."))
+    m = settled(c["id"], _say(c["id"], "delete Lake day")["id"])
+    detail = m["data"]["pending"][0]["detail"]
+    assert "Goes: The project “Lake day” and its 2 clips, with their edits and versions." in detail
+    assert "Goes: 1 planned post of its clips that has not been uploaded yet." in detail
+
+
+def test_a_delete_card_never_cancels_a_post_planned_after_it_was_shown(data, monkeypatch):
+    """With studio/project_delete.py itself: a post planned after the card was shown is on no card the owner saw, so
+    OK deletes nothing and says so; the card that lists it deletes the project and cancels the post."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat
+
+    p = db.create_project("Lake day", workspace_id=WS, status="ready")
+    clip = db.create_clip(p["id"], start=0, end=10, status="ready")
+    ask = ("delete_project", {"project": "Lake day"})
+    install(monkeypatch, say("", ask), say("Press OK to delete it."))
+    c = chat.open_chat(WS)
+    m = settled(c["id"], _say(c["id"], "delete Lake day")["id"])
+    post = db.insert("scheduled_publications", {"clip_id": clip["id"], "platform": "youtube", "status": "approved",
+                                                "planned_at": 2e9})
+    act = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
+    assert act["state"] == "failed" and act["result"] == (
+        "What deleting it removes has changed since this was shown: it would now also remove 1 planned post of its "
+        "clips. Nothing was deleted. Ask again to see what deleting it removes now.")
+    assert db.get_project(p["id"]) and db.fetch("scheduled_publications", post["id"])["status"] == "approved"
+    install(monkeypatch, say("", ask), say("Press OK to delete it."))
+    m = settled(c["id"], _say(c["id"], "delete Lake day")["id"])
+    assert "Goes: 1 planned post of its clips that has not been uploaded yet." in m["data"]["pending"][0]["detail"]
+    assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "done"
+    assert db.get_project(p["id"]) is None
+    assert db.fetch("scheduled_publications", post["id"])["status"] == "canceled"
+
+
+def test_a_clips_project_and_a_video_with_the_same_name_are_told_apart_by_their_kind(data, monkeypatch):
+    """A clips project and a YouTube video can share a name: the kind the model gives decides between them, and
+    without it the owner is asked which one, each named with its kind."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat, toolbox
+    from clipfoundry.brain.tools import ToolError
+    from test_studio_project_delete import _video
+
+    clips = db.create_project("Hike", workspace_id=WS)
+    video = _video("Hike", [])
+    assert toolbox.find(WS, "Hike", kind="clips")["id"] == clips["id"]
+    assert toolbox.find(WS, "hike", kind="full_video")["id"] == video["id"]
+    assert toolbox.find(WS, "the hike", kind="clips")["id"] == clips["id"]  # words from the name, too
+    with pytest.raises(ToolError) as e:
+        toolbox.find(WS, "Hike")
+    assert str(e.value) == ("More than one project fits “Hike”: “Hike” (YouTube video), “Hike” (clips project). Ask "
+                            "the owner which one.")
+    install(monkeypatch, say("", ("delete_project", {"project": "Hike", "kind": "clips"})), say("Press OK."))
+    c = chat.open_chat(WS)
+    m = settled(c["id"], _say(c["id"], "delete the Hike clips project")["id"])
+    act = m["data"]["pending"][0]
+    assert act["label"] == "Delete the clips project “Hike”" and act["args"]["project"] == clips["id"]
+
+
+def test_a_buttons_own_arguments_never_come_from_a_model(data):
+    """What a preview puts on the owner's button (when a delete's window was judged, what it listed beyond the
+    project) is not in what a model reads, is dropped from what a model gives, is checked when the button is
+    pressed, and two buttons that differ only in it are one button."""
+    from clipfoundry.brain import tools
+
+    tool = tools.get("delete_project")
+    sig = tools.signature(tool)
+    assert "as_of" not in sig and "removes" not in sig and sig.startswith("- delete_project(project?: text, kind?: ")
+    given = {"project": "Hike", "as_of": "soon", "removes": "everything"}
+    assert tools.check_args(tool, given) == {"project": "Hike"}  # from a model: dropped, whatever it is
+    with pytest.raises(tools.ToolError, match="as_of should be number"):
+        tools.check_args(tool, given, button=True)
+    shown = {"project": "p1", "kind": "clips", "as_of": 5.0, "removes": {"files": ["a"], "source": False, "posts": []}}
+    assert tools.check_args(tool, shown, button=True) == shown
+    assert tools.same_button(tool, shown, {**shown, "as_of": 6.0, "removes": {"files": []}})
+    assert not tools.same_button(tool, shown, {**shown, "project": "p2"})
 
 
 def test_nothing_is_kept_for_a_video_deleted_while_the_answer_was_written(env, monkeypatch):
@@ -1384,10 +1547,13 @@ def test_the_editors_change_requests_and_the_chat_share_one_daily_count(data, mo
     install(monkeypatch, say("One."), ai_edit_requests_per_day=2, **ONLINE)
     c = chat.open_chat(WS)
     settled(c["id"], _say(c["id"], "hello")["id"])
-    db.insert("edit_requests", {"workspace_id": WS, "project_id": "p1", "base_revision": 1, "text": "x",
-                                "status": "ready", "source": "ai",
-                                "sent": "Sent over the internet to Groq: …"})  # one change request the editor sent
-    assert allowance.used(WS) == 2 and allowance.reached(WS, db.get_settings())
+    sent = db.insert("edit_requests", {"workspace_id": WS, "project_id": "p1", "base_revision": 1, "text": "x",
+                                       "status": "ready", "source": "ai",
+                                       "sent": "Sent over the internet to Groq: …"})  # one the editor sent
+    assert allowance.used(WS) == 2 and allowance.reached(WS, db.get_settings())  # sent before it had its own row
+    db.insert("ai_usage", {"provider": f"clipforge_ai:{WS}", "day": time.strftime("%Y-%m-%d"), "job_id": sent["id"],
+                           "task": "edit_request", "model": "Groq llama-3.3-70b-versatile", "status": "done"})
+    assert allowance.used(WS) == 2  # with its own row, as the editor writes one now: counted once
     db.insert("edit_requests", {"workspace_id": WS, "project_id": "p1", "base_revision": 1, "text": "y",
                                 "status": "ready", "source": "rules"})  # understood without a model: free
     db.insert("edit_requests", {"workspace_id": WS, "project_id": "p1", "base_revision": 1, "text": "z",
@@ -1422,6 +1588,31 @@ def test_a_model_on_this_computer_and_the_online_allowance_never_block_each_othe
     r = er.ask(pid, WS, "Make it calmer")
     assert r["status"] == "failed" and r["message"].startswith("Today's limit of 2 AI requests is reached")
     assert len(fake_ai.prompts) == 1
+
+
+def test_deleting_a_video_keeps_the_days_count_of_its_change_requests(env, monkeypatch):
+    """The editor's change requests to an online AI each count in their own row: deleting the video, which deletes
+    its change requests, does not give the day's requests back."""
+    from clipfoundry import db
+    from clipfoundry.brain import allowance
+    from clipfoundry.studio import edit_requests as er
+    from clipfoundry.studio import project_delete
+    from test_studio_edit_requests import _ai, _wait
+
+    pid = _project(env)["id"]
+    fake_ai = _ai(monkeypatch, '{"operations": [{"op": "remove", "clip_id": "c4"}]}',
+                  '{"operations": [{"op": "remove", "clip_id": "c3"}]}', ai_edit_requests_per_day=2, **ONLINE)
+    sent = [_wait(er.ask(pid, WS, text)["id"]) for text in ("Make the ending punchier", "Make the middle tighter")]
+    assert all(r["status"] not in ("failed", "thinking") for r in sent) and len(fake_ai.prompts) == 2
+    rows = db.select("ai_usage", "provider = ?", (f"clipforge_ai:{WS}",), "created_at ASC")
+    assert [(r["task"], r["job_id"]) for r in rows] == [("edit_request", r["id"]) for r in sent]
+    assert allowance.used(WS) == 2
+    project_delete.delete(WS, pid, "full_video", wait=5.0)
+    assert db.select("edit_requests", "project_id = ?", (pid,)) == []
+    settings = db.get_settings()
+    assert allowance.used(WS) == 2 and allowance.reached(WS, settings)
+    with pytest.raises(allowance.Reached):
+        allowance.take(WS, settings, "chat")
 
 
 def test_the_editor_and_the_chat_count_under_one_lock(env, monkeypatch):

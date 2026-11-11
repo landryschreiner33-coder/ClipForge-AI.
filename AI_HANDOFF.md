@@ -23,7 +23,8 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   to the AI helper you choose and what a conversation sends ("An AI service you choose", NVIDIA's row: web addresses
   starting with http://, https:// or www. and email addresses removed from everything, the size limit on each request's
   words), and that downloading the built-in model contacts GitHub and Hugging Face. Since the merge with PR #35 it says
-  that deleting a project removes its chat, the memories kept for it alone and a video's change requests. The public
+  that deleting a project removes its chat, the memories kept for it alone and a video's change requests, while the
+  record of each request sent to an online AI (the editor's change requests too) stays for the daily limit. The public
   website (gh-pages) is not updated: that needs Landry's OK.
 - **Code:** new `clipfoundry/brain/assistant.py`, `tools.py`, `toolbox.py`, `agents.py`, `allowance.py` (the daily
   limit, per request); changed `brain/chat.py`,
@@ -55,16 +56,21 @@ Without a model the old rules still answer, and the chat offers the built-in mod
     `agents.list_(ws, enabled_only=False)`, `agents.run(ws, agent_id, task, …, owner_text="")`, and
     `allowance.take(ws, settings, task, ref="")` before each request the planner sends to an online model itself
     (it raises `allowance.Reached` when today's limit is reached; a model on the computer is never counted), or
-    `allowance.counted(ws, settings, write)` when a part counts with a row of its own. A video counts as
+    `allowance.counted(ws, settings, write)` when a part counts with a row of its own. The editor's change requests
+    use `allowance.editor_request`, which also writes their own `ai_usage` row (task `edit_request`), so deleting a
+    video does not give the day's requests back. A video counts as
     being planned (its chat and links open the setup page) only when it is a draft with its setup and the full_video
     workflow, the same rule as the planner's `video_setup.is_draft`.
   - **Deleting projects** (PR #35, merged in) is `clipfoundry/studio/project_delete.py`: `plan(ws, project_id,
-    kind)` (`goes`, `stays`, `blocked`, `working`, `as_of`) and `delete(ws, project_id, kind, *, wait, as_of)`, which
-    raises `DeleteError` (`code`: `not_found`, `blocked`, `stopping`, `kind`). `delete_project` calls exactly these:
-    the card keeps the plan's `as_of` (an internal argument: `"internal": True` in the schema, hidden from the model,
-    kept only from the button's saved arguments) and OK sends it back with `wait=10.0`; `stopping` and `blocked` keep
-    the card for another press, `not_found` says the project was deleted already. Deleting a project also deletes
-    its chat (`chat.decide` answers `gone`). `test_clipforge_ai_assistant.py` tests the card with the real module
+    kind)` (`goes`, `stays`, `blocked`, `working`, `as_of`, `removes`) and `delete(ws, project_id, kind, *, wait,
+    as_of, removes)`, which raises `DeleteError` (`code`: `not_found`, `blocked`, `stopping`, `changed`, `kind`).
+    `delete_project` calls exactly these: the card keeps the plan's `as_of` and `removes` (what it listed beyond the
+    project: media files, the copy of the video it was made from, planned posts; internal arguments: `"internal":
+    True` in the schema, hidden from the model, kept only from the button's saved arguments) and OK sends them back
+    with `wait=10.0`, so it never deletes more than the card listed. `stopping` keeps the card for another press;
+    `blocked` (Autopilot or a post started since) and `changed` (it would now remove more) end it, and asking again
+    shows a card with what goes then; `not_found` says the project was deleted already. Deleting a project also
+    deletes its chat (`chat.decide` answers `gone`). `test_clipforge_ai_assistant.py` tests the card with the real module
     and the engine's corners with a stand-in.
   - Chat messages keep the `brain_chat_messages` table and its columns; roles are `owner`, `ai` and `agent`;
     `data.tool` values include "talk" (the assistant) and "plan" (the planner).
@@ -132,8 +138,9 @@ in another program (Windows) is deleted the next time ClipForge starts.
   project can remove a file it still needs. Work a delete cannot see (a thread, not a studio job) must re-check that
   its project still exists before it writes anything for it: the planning answer (`video_setup._think`) opens the
   project's chat with `open_chat`, which makes a new empty chat if the delete lands between its two reads. ClipForge AI's delete tool calls `plan()` and `delete()` (pass the
-  plan's `as_of` to `delete` when a person read the plan first); deleting from a project's own chat deletes that
-  chat too. A new kind of file ClipForge makes for one project should be recorded where `_video_asset_ids` reads it,
+  plan's `as_of` to `delete` when a person read the plan first, and its `removes` when the confirmation can wait
+  long, as ClipForge AI's card can: then nothing more than it listed is deleted, or nothing, code `changed`);
+  deleting from a project's own chat deletes that chat too. A new kind of file ClipForge makes for one project should be recorded where `_video_asset_ids` reads it,
   or it stays after the project is deleted.
 - **Verify:** `python -m pytest -q tests/test_studio_project_delete.py`; the fast and slow suites; `cd frontend && npm
   run build`; in the app, delete a full video and a clips project from Projects and read the window first.

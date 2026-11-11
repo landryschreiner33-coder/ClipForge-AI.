@@ -22,9 +22,13 @@ project is tidying up, not a verdict on its clips, so it is not a taste lesson.
 
 `plan` says all of this in plain sentences without changing anything, so a confirmation can show exactly what will
 happen; `delete` does it and returns the same sentences. The window's moment (`as_of`) goes back with the delete, so
-a file the window said stays is not deleted because the window stayed open. Work running for the project is stopped
-first. Autopilot's work, a post that is uploading (or may already be live) and a video still being copied in are never
-interrupted: deleting waits for them.
+a file the window said stays because it was added again is not deleted because the window stayed open past the day.
+Whether another project uses a file is judged when deleting; a confirmation that can wait long (ClipForge AI's delete
+card) also sends back what it listed beyond the project itself (`removes`: media files, the copy of the video it was
+made from, planned posts), and when deleting would now remove more (the other project that used a file was deleted
+meanwhile, a post was planned), nothing is deleted. Work running for the project is stopped first. Autopilot's work, a
+post that is uploading (or may already be live) and a video still being copied in are never interrupted: deleting
+waits for them.
 """
 from __future__ import annotations
 
@@ -71,8 +75,9 @@ SCENE_FILES = ("picture_asset_id", "clip_asset_id", "pictures")  # what an anima
 
 class DeleteError(ValueError):
     """Why a project was not deleted, in plain words. `status`: 404 not found (or another workspace's), 409 work on
-    it must end first, 422 an unknown kind. `code`: not_found, blocked (wait for it), stopping (try again in a
-    moment: deleting already asked the work to stop) or kind."""
+    it must end first or what it removes has changed, 422 an unknown kind. `code`: not_found, blocked (wait for it),
+    stopping (try again in a moment: deleting already asked the work to stop), changed (it would now remove more than
+    the confirmation listed: look at it again) or kind."""
 
     def __init__(self, message: str, status: int = 422, code: str = ""):
         super().__init__(message)
@@ -496,6 +501,9 @@ def _view(s: _Survey) -> dict:
         working = f"ClipForge is still working on it ({', '.join(s.working)}). Deleting stops that first."
     return {"id": row["id"], "kind": s.kind, "name": row["name"], "blocked": s.blocked, "working": working,
             "goes": goes, "stays": stays, "freed_bytes": s.freed_bytes, "as_of": s.as_of,
+            # what goes beyond the project itself, for a delete that must remove no more than was shown (`delete`)
+            "removes": {"files": [a["id"] for a in s.drop], "source": bool(s.source_copy),
+                        "posts": list(s.planned_posts)},
             "counts": {"clips": s.clips, "versions": s.versions, "revisions": s.revisions, "renders": s.renders,
                        "files": len(s.drop) + (1 if s.source_copy else 0), "files_kept": len(s.keep) + len(s.again),
                        "planned_posts": len(s.planned_posts),
@@ -675,18 +683,56 @@ POSTING = ("One of its clips is being posted right now, or ClipForge is still ch
            "Wait until that finishes (see Publishing), then delete the project.")
 
 
-def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: float | None = None) -> dict:
+def _beyond(s: _Survey, removes: dict | None) -> str:
+    """What deleting now would remove beyond what the confirmation listed (its plan's `removes`), in words: a media
+    file, the copy of the video it was made from, a planned post. "" when nothing more. The project's own clips,
+    versions, notes, chat and what ClipForge made for its scenes are the project: they go with it whatever their
+    number."""
+    if removes is None:
+        return ""
+    files, posts = set(removes.get("files") or []), set(removes.get("posts") or [])
+    more = [a for a in s.drop if a["id"] not in files and a["id"] not in s.made]
+    words = []
+    copies = [a for a in more if not uploads.is_linked(a)]
+    linked = [a for a in more if uploads.is_linked(a)]
+    if copies:
+        words.append(f"ClipForge's {'copy' if len(copies) == 1 else 'copies'} of {_names(copies)}, which no other "
+                     "project uses now")
+    if linked:
+        words.append(f"what ClipForge made from {_names(linked)} to work with {'it' if len(linked) == 1 else 'them'}")
+    if s.source_copy and not removes.get("source"):
+        words.append(f"ClipForge's copy of the video it was made from (“{s.source_copy[:60]}”)")
+    planned = [p for p in s.planned_posts if p not in posts]
+    if planned:
+        words.append(f"{_n(len(planned), 'planned post')} of its clips")
+    return _listed(words) if words else ""
+
+
+def _check_removes(s: _Survey, removes: dict | None, stopped: bool) -> None:
+    more = _beyond(s, removes)
+    if more:
+        raise DeleteError(f"What deleting it removes has changed since this was shown: it would now also remove "
+                          f"{more}. Nothing was deleted" + (", but the work running on it was stopped." if stopped
+                                                             else "."), 409, "changed")
+
+
+def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: float | None = None,
+           removes: dict | None = None) -> dict:
     """Delete the project and what only it uses (see the module notes); returns `plan`'s words with "deleted":
     True ("left_behind": True when some files were in use; the next start removes them). `as_of` is the plan's
-    moment (a file added again is judged as the window judged it). Running work is asked to stop and given up to
-    `wait` seconds; DeleteError (409, "stopping") when it has not stopped by then, so the caller can ask again in a
-    moment."""
+    moment (a file added again is judged as the window judged it). `removes` is the plan's own list of what goes
+    beyond the project: given it, deleting removes no more than that, or nothing (DeleteError 409, "changed"; checked
+    before any work is stopped and again on what is deleted). Running work is asked to stop and given up to `wait`
+    seconds; DeleteError (409, "stopping") when it has not stopped by then, so the caller can ask again in a moment."""
     s = _survey(ws, project_id, kind, as_of)
     if s.blocked:
         raise DeleteError(s.blocked, 409, "blocked")
+    _check_removes(s, removes, stopped=False)
+    stopped = False
     end = time.monotonic() + max(0.0, wait)
     while s.working:
         _stop(s)
+        stopped = True
         while _running(s) and time.monotonic() < end:
             time.sleep(0.2)
         if _running(s):
@@ -700,6 +746,8 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
                 _stop(s)
                 raise DeleteError(STOPPING, 409, "stopping")
             time.sleep(0.2)
+    if stopped:  # what is deleted is this survey's: the stopped work may have changed it
+        _check_removes(s, removes, stopped=True)
     out = _view(s)
     if s.planned_posts:
         from ..autopilot import scheduler
