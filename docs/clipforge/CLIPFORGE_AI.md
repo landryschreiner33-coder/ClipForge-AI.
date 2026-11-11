@@ -63,13 +63,18 @@ one line per memory. `brain.record_use(ids, where, ref_id)` is called when an an
 punctuation ignored, in any language: Russian or Chinese words are words too) in the same workspace and kind update
 the memory (revision + 1, the stronger source and confidence win) instead of adding a twin. It writes only over the
 memory as it read it (its revision, `memories._write_over`), and so do an edit, a confirmation and a brain file: one
-forgotten, tidied into its twin or changed in between is read again, so the words are kept, what Tidy or an edit
-wrote is never put back as it was, and no two states of a memory share a revision. Memories saved before
-this rule are matched by their old form as well, and Tidy brings their stored form up to date. `forget(ws, memory_id)` deletes a memory and its uses; an answer that used it keeps
-its own copy of the words. `confirm` turns a guess into something you said. `export` gives one JSON file
-(`clipforge.brain-memories/v1`); `import_` merges by id and revision (a newer file wins, also when another memory
+changed in between is read again, so what Tidy or an edit wrote is never put back as it was and no two states of a
+memory share a revision. One gone in between (forgotten, or tidied into its twin) is read again too: "remember" and a
+brain file then keep the words as a memory of their own, and an edit or a confirmation answers "Memory not found.".
+Memories saved before this rule are matched by their old form as well, and Tidy brings their stored form up to date.
+`forget(ws, memory_id)` deletes a memory and its uses; an answer that used it keeps its own copy of the words. With
+`words=` it deletes the memory only while it still says them (a Forget card's OK), and `forget_words(ws, text)`
+forgets every memory that says those words (`saying`: every kind, wherever it applies, switched on or off), so no twin
+still follows words you asked to forget. `confirm` turns a guess into something you said. `export` gives one JSON
+file (`clipforge.brain-memories/v1`); `import_` merges by id and revision (a newer file wins, also when another memory
 says those words: what the owner changed on the other computer applies, the twins are read once and Tidy merges those
-kept for the same videos; an unknown id is added unless a memory says its words already; nothing is deleted).
+kept for the same videos and switched on or off alike; an unknown id is added unless a memory says its words already;
+nothing is deleted).
 
 **Health** (`brain.check(ws)`): counts by kind and source, memories without a meaning or with an old embedder,
 near-duplicates (same kind, cosine ≥ 0.92: "review them; Tidy merges exact twins kept for the same videos"),
@@ -169,7 +174,8 @@ the built-in model downloaded, or an AI helper chosen in Settings → ClipForge 
    your words: a `rule` when they say always, never, only, every, must, should …, otherwise a `fact`; "for this
    video" or "here" keeps it to the video; words longer than a memory can be (600 characters) are refused in plain
    words. "Remember that …" is a turn of the conversation ("Remember that day at the lake? Make a video of it" is a
-   question, not a memory). "forget …" with the exact words of a memory removes it at once. "@Name" with
+   question, not a memory). "forget …" with the exact words of a memory removes it at once, with every twin that says
+   them too (kept for one video, switched off, or as another kind), so nothing still follows them. "@Name" with
    nothing after it asks what that helper should do. In a video's chat, a change of at most 500 characters that the
    editor's rules understand completely ("move clip 4 before clip 2", `edit_requests.by_rules`) is proposed at once
    as a change request.
@@ -331,7 +337,7 @@ has started: that finishes, for the next answer). After a restart, an answer tha
 |---|---|---|
 | "help", "what can you do" | | what it can do on its own, and that the built-in model makes it a real assistant |
 | "remember …", "always …", "never …", "from now on …", "I like/want/prefer/don't want …" | `remember` (`said`): a `rule` when it says always, never, only, must …, otherwise a `fact`; "for this video" or "here" scopes it to the video | "Remembered: … It applies to every video / this video." |
-| "forget …" | finds the closest memories; deletes one only when your words match it exactly | the candidates, each with a Forget button |
+| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind); otherwise finds the closest memories | "Forgotten: …" (and how many times it was kept), or the candidates, each with a Forget button |
 | "what do you know / remember …", "what have you learned" | lists the best memories for the words after it (or the newest) | the list |
 | "why …", "what did you use", "explain" | the latest answer for this video (change request or FilmCraft pass): its summary and the memories it used | the explanation |
 | anything else, in a video's chat | `edit_requests.ask` with the editor's rules alone | the proposal: Apply as a new version, Discard; a question with choices; or what it cannot do |
@@ -428,7 +434,7 @@ length, and checks choices, ranges and the required ones; what is wrong is told 
 | `remember` | make | saves a lasting rule or fact you told it in this message, in your words (in a video's chat it can keep it to that video); anything else waits for your OK, and a memory you already have is never changed (below) |
 | `propose_change` | make | in a video's chat only: a change to the cut in plain words (at most 500 characters), worked out and checked by the editor (`edit_requests.ask`); you apply it as a new version or discard it |
 | `ask_agent` | make | hands a job to one of your helper agents and reads its work (see "Helper agents") |
-| `forget` | change | removes a memory; the button names it |
+| `forget` | change | removes every memory that says those words; the button names each one, and its OK forgets only those, each only while it still says them |
 | `rename_project` | change | renames a project or video; only the name changes |
 | `delete_project` | delete | deletes a project or video and what belongs only to it; the button lists what goes and what stays |
 

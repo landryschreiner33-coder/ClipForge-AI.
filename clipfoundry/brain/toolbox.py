@@ -461,29 +461,69 @@ def _ask_agent(ctx: Ctx, args: dict) -> Result:
 
 
 # ------------------------------------------------------------------ changing and deleting (after the owner's OK)
-def _memory_for(ctx: Ctx, words: str) -> dict:
-    found = memories.list_(ctx.ws, q=words, limit=5)
-    exact = [m for m in found if memories._norm(m["text"]) == memories._norm(words)]  # noqa: SLF001
-    if exact:
-        return exact[0]
-    if not found:
-        raise ToolError("Nothing like that is in the memory.")
-    return found[0]
+FORGET_MAX = 50  # the memories one Forget card can name (twins of the same words: usually two or three)
+
+
+def _memories_for(ctx: Ctx, words: str) -> list[dict]:
+    """What a Forget card is about: every memory that says these words (`memories.saying`: its twins too, kept for one
+    video, switched off or as another kind), else every one that says the words of the closest memory; oldest
+    first."""
+    same = memories.saying(ctx.ws, words)
+    if not same:
+        found = memories.list_(ctx.ws, q=words, limit=5)
+        if not found:
+            raise ToolError("Nothing like that is in the memory.")
+        same = memories.saying(ctx.ws, found[0]["text"]) or [found[0]]
+    return same[:FORGET_MAX]
+
+
+def _a(kind: str) -> str:
+    return f"{'an' if kind[:1] in 'aeiou' else 'a'} {kind}"
+
+
+def _where(m: dict, names: dict[str, str]) -> str:
+    """Where a memory applies, in plain words, and whether it is switched off."""
+    scope, _, value = str(m.get("scope") or "all").partition(":")
+    where = {"project": f"for “{names.get(value) or 'a deleted video'}” only", "platform": f"for {value} only",
+             "mode": "for clips only" if value == "clips" else "for YouTube videos only"}.get(scope, "for every video")
+    return where if m.get("enabled") else f"{where} (switched off)"
 
 
 def _forget_preview(ctx: Ctx, args: dict) -> dict:
-    m = _memory_for(ctx, args["memory"])
-    return {"label": f"Forget “{clip(m['text'], 120)}”", "detail": [f"It is a {m['kind']} you taught me."],
-            "blocked": "", "args": {"memory": m["text"], "memory_id": m["id"]}}
+    """The Forget card names every memory that says those words, so OK leaves no twin that still follows them."""
+    same = _memories_for(ctx, args["memory"])
+    first = same[0]
+    if len(same) == 1:
+        detail = [f"It is {_a(first['kind'])} you taught me."]
+    else:
+        names = {p["id"]: p["name"] for p in projects(ctx.ws)}
+        detail = [f"I keep these words {len(same)} times, and OK forgets them all:"] + \
+                 [f"{_a(m['kind'])} {_where(m, names)}" for m in same]
+    return {"label": f"Forget “{clip(first['text'], 120)}”", "detail": detail, "blocked": "",
+            "args": {"memory": first["text"], "memory_ids": [m["id"] for m in same]}}
 
 
 def _forget(ctx: Ctx, args: dict) -> Result:
-    mid = args.get("memory_id") or _memory_for(ctx, args["memory"])["id"]
-    try:
-        gone = memories.forget(ctx.ws, mid)
-    except memories.Invalid as exc:
-        raise ToolError(str(exc)) from exc
-    return Result(f"Forgotten: {gone['text']}", f"Forgot “{clip(gone['text'], 80)}”")
+    """After the owner's OK: forgets the memories the card named, each only while it still says the card's words (one
+    changed since stays as it is now; one forgotten, or tidied into its twin, meanwhile is gone already)."""
+    words, ids = args["memory"], args.get("memory_ids")
+    if not ids:
+        same = _memories_for(ctx, words)
+        words, ids = same[0]["text"], [m["id"] for m in same]
+    gone, changed = [], 0
+    for mid in ids:
+        try:
+            gone.append(memories.forget(ctx.ws, mid, words=words))
+        except memories.Invalid as exc:
+            changed += exc.status == 409
+    if not gone:
+        raise ToolError("That memory was changed since the card was shown, so nothing was forgotten." if changed
+                        else "Memory not found.")
+    note = f" ({len(gone)} times)" if len(gone) > 1 else ""
+    if changed:
+        note += (f"; {changed} was changed since the card was shown and stays" if changed == 1 else
+                 f"; {changed} were changed since the card was shown and stay")
+    return Result(f"Forgotten: {gone[0]['text']}{note}", f"Forgot “{clip(gone[0]['text'], 80)}”{note}")
 
 
 def _rename_preview(ctx: Ctx, args: dict) -> dict:
@@ -594,7 +634,11 @@ register(Tool("ask_agent", "hand a job to one of the owner's helper agents and g
               {"type": "object", "properties": {"agent": TEXT, "task": {"type": "string", "maxLength": 1500}},
                "required": ["agent", "task"]}, _ask_agent, "make", "Asked {agent}", for_agents=False))
 register(Tool("forget", "remove something from the memory (memory: its words)",
-              {"type": "object", "properties": {"memory": TEXT, "memory_id": TEXT}, "required": ["memory"]},
+              {"type": "object", "properties": {"memory": {"type": "string", "maxLength": memories.MAX_TEXT},
+                                                # the memories its card named: only the button keeps them
+                                                "memory_ids": {"type": "array", "items": {"type": "string"},
+                                                               "maxItems": FORGET_MAX, "internal": True}},
+               "required": ["memory"]},
               _forget, "change", "Forget {memory}", preview=_forget_preview, for_agents=False))
 register(Tool("rename_project", "rename a project or video",
               {"type": "object", "properties": {"project": TEXT, "name": {"type": "string", "maxLength": 120}},

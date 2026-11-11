@@ -929,7 +929,8 @@ def test_pressing_ok_runs_a_change_no_skips_it_and_a_second_press_changes_nothin
 
     m = settled(c["id"], _say(c["id"], "I don't mind zooms any more")["id"])
     act = m["data"]["pending"][0]
-    assert act["label"] == "Forget “Never zoom in on faces”" and act["args"]["memory_id"] == zoom["id"]
+    assert act["label"] == "Forget “Never zoom in on faces”" and act["args"]["memory_ids"] == [zoom["id"]]
+    assert act["detail"] == ["It is a rule you taught me."]
     no = chat.decide(WS, c["id"], m["id"], "a1", False)
     assert no["data"]["pending"][0]["state"] == "skipped" and brain.get(WS, zoom["id"])
     assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "skipped"
@@ -964,6 +965,63 @@ def test_pressing_ok_runs_a_change_no_skips_it_and_a_second_press_changes_nothin
     out = chat.decide(WS, c["id"], forged["id"], "a1", True)
     assert out["data"]["pending"][0]["state"] == "failed" and brain.list_(WS, q="evil") == []
     assert out["data"]["pending"][0]["result"] == "This action is not available any more."
+
+
+def _twin(text: str, **fields) -> dict:
+    """The same words kept apart from the memory that says them (for one video, switched off, as another kind): a
+    brain file, an edit, or two answers at the same moment."""
+    from clipfoundry import db
+    from clipfoundry.brain import memories
+
+    return db.insert("brain_memories", {"workspace_id": WS, "kind": "fact", "text": text,
+                                        "norm": memories._norm(text), "source": "said",  # noqa: SLF001
+                                        "confidence": 1.0, "scope": "all", "tags": [], "data": {}, "meaning": None,
+                                        "meaning_model": "", "enabled": 1, "revision": 1, "used_count": 0, **fields})
+
+
+def test_forget_takes_every_memory_that_says_those_words_and_its_button_only_what_it_listed(data, monkeypatch):
+    """“forget …” with a memory's exact words forgets its twins too (kept for one video, switched off, another kind),
+    so nothing still follows them. The Forget card names each one, and its OK forgets only those, each only while it
+    still says the card's words: one changed since stays as it is now. A model never names what a button forgets."""
+    from clipfoundry import brain, db
+    from clipfoundry.brain import chat, memories, tools
+
+    fake = install(monkeypatch, say("Shall I forget it?", ("forget", {"memory": "never zoom in on faces"})),
+                   say("Shall I forget it?", ("forget", {"memory": "keep the music low"})))
+    p = db.create_project("Hike day", workspace_id=WS)
+    brain.remember(WS, "my intro is 3 seconds")
+    _twin("My intro is 3 seconds", scope=f"project:{p['id']}", project_id=p["id"])
+    c = chat.open_chat(WS)
+    m = _say(c["id"], "forget my intro is 3 seconds")
+    assert m["text"] == "Forgotten: “my intro is 3 seconds” (I had it 2 times; both are gone)." and fake.calls == []
+    assert brain.list_(WS) == []
+
+    zoom = brain.remember(WS, "Never zoom in on faces", kind="rule")
+    off = _twin("never zoom in on faces", kind="rule", scope=f"project:{p['id']}", project_id=p["id"], enabled=0)
+    fact = _twin("never zoom in on faces")
+    m = settled(c["id"], _say(c["id"], "I don't mind zooms any more")["id"])
+    act = m["data"]["pending"][0]
+    assert act["label"] == "Forget “Never zoom in on faces”"
+    assert act["args"] == {"memory": "Never zoom in on faces", "memory_ids": [zoom["id"], off["id"], fact["id"]]}
+    assert act["detail"] == ["I keep these words 3 times, and OK forgets them all:", "a rule for every video",
+                             "a rule for “Hike day” only (switched off)", "a fact for every video"]
+    memories.edit(WS, fact["id"], text="never zoom in on hands")  # changed after the card was shown
+    late = _twin("Never zoom in on faces", kind="fact", scope="platform:tiktok", platform="tiktok")  # after it
+    done = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
+    assert done["state"] == "done"
+    assert done["result"] == ("Forgot “Never zoom in on faces” (2 times); 1 was changed since the card was shown "
+                              "and stays")
+    assert sorted(x["text"] for x in brain.list_(WS)) == ["Never zoom in on faces", "never zoom in on hands"]
+    assert brain.get(WS, late["id"])  # the card did not list it
+
+    music = brain.remember(WS, "keep the music low")
+    m = settled(c["id"], _say(c["id"], "music can be loud now")["id"])
+    memories.edit(WS, music["id"], text="keep the music very low")  # every memory it listed changed: nothing goes
+    failed = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
+    assert failed["state"] == "failed" and brain.get(WS, music["id"])["text"] == "keep the music very low"
+    assert failed["result"] == "That memory was changed since the card was shown, so nothing was forgotten."
+    assert len(fake.calls) == 2
+    assert tools.check_args(tools.get("forget"), {"memory": "x", "memory_ids": [music["id"]]}) == {"memory": "x"}
 
 
 def test_a_button_cannot_be_pressed_while_its_answer_is_written(data, monkeypatch):

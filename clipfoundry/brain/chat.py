@@ -244,14 +244,9 @@ def _answer(chat: dict, text: str, base_revision: int | None) -> dict:
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
     if m and m.group(1).strip():
-        # the exact words of a memory, also when they start with a word the pattern skips ("forget my intro is …")
-        said = {memories._norm(m.group(1)), memories._norm(_FORGET_WORD.sub("", text))}  # noqa: SLF001
-        exact = [x for x in memories.list_(ws, q=m.group(1).strip(), limit=CANDIDATES)
-                 if memories._norm(x["text"]) in said]  # noqa: SLF001
-        if exact:
-            gone = memories.forget(ws, exact[0]["id"])
-            return {"text": f"Forgotten: “{gone['text']}”.", "data": {"tool": "forget", "forgotten": gone,
-                                                                     "used": []}}
+        forgot = _forget_words(ws, text, m.group(1).strip())
+        if forgot:
+            return forgot
     mention = agents.mentioned(ws, text)
     if mention and not mention[1]:
         return {"text": f"What should {mention[0]['name']} do? Write it after the name, like “@{mention[0]['name']} "
@@ -273,7 +268,7 @@ def _rules(chat: dict, text: str, base_revision: int | None) -> dict:
         return _remember(ws, pid, m.group(1).strip() if m else text)
     m = _FORGET.match(text)
     if m:
-        return _forget(ws, pid, m.group(1).strip())
+        return _forget(ws, pid, m.group(1).strip(), text)
     m = _LIST.match(text)
     if m:
         return _list(ws, pid, m.group(1).strip())
@@ -348,14 +343,29 @@ def _remember(ws: str, pid: str, said: str) -> dict:
             "data": {"tool": "remember", "memory": memories.view(row), "used": []}}
 
 
-def _forget(ws: str, pid: str, query: str) -> dict:
+def _forget_words(ws: str, text: str, words: str) -> dict | None:
+    """“forget …” with the exact words of a memory, also when they start with a word the pattern skips ("forget my
+    intro is …"): every memory that says them goes, its twins too (kept for one video, switched off, another kind),
+    so nothing still follows them. None when no memory says those words."""
+    gone = memories.forget_words(ws, words)
+    whole = _FORGET_WORD.sub("", text).strip()
+    if whole and memories._norm(whole) != memories._norm(words):  # noqa: SLF001
+        gone += memories.forget_words(ws, whole)
+    if not gone:
+        return None
+    n = len(gone)
+    also = "" if n == 1 else f" (I had it {n} times; {'both' if n == 2 else f'all {n}'} are gone)"
+    return {"text": f"Forgotten: “{gone[0]['text']}”{also}.",
+            "data": {"tool": "forget", "forgotten": gone[0], "used": []}}
+
+
+def _forget(ws: str, pid: str, query: str, text: str = "") -> dict:
     if not query:
         raise ChatError("Say what to forget, for example: forget the rule about zooms.")
+    forgot = _forget_words(ws, text or query, query)
+    if forgot:
+        return forgot
     found = memories.list_(ws, q=query, limit=CANDIDATES)
-    exact = [m for m in found if memories._norm(m["text"]) == memories._norm(query)]
-    if exact:
-        gone = memories.forget(ws, exact[0]["id"])
-        return {"text": f"Forgotten: “{gone['text']}”.", "data": {"tool": "forget", "forgotten": gone, "used": []}}
     if not found:
         return {"text": "I have nothing like that in my memory.", "data": {"tool": "forget", "candidates": []}}
     lines = "\n".join(f"- [{m['kind']}] {m['text']}" for m in found)

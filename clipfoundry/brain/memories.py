@@ -75,20 +75,21 @@ def _legacy_norm(text: object) -> str:
     return " ".join(tokens(str(text or "")))
 
 
-def _same_words(ws: str, kind: str, text: object, *, other_than: str = "") -> dict | None:
-    """The oldest memory of this kind in the workspace that says the same words as `text` (`_norm`), or None. A norm
-    stored before Nov 9 2026 is found too and compared again by its text: those were the same for every memory in
-    another script."""
+def saying(ws: str, text: object, kinds: tuple[str, ...] = KINDS) -> list[dict]:
+    """Every memory of the workspace that says the same words as `text` (`_norm`) as one of these kinds, oldest first,
+    wherever it applies and switched on or off. A norm stored before Nov 9 2026 is found too and compared again by its
+    text: those were the same for every memory in another script."""
     norm = _norm(text)
     keys = sorted({norm, _legacy_norm(text)})
-    where = f"workspace_id = ? AND kind = ? AND norm IN ({', '.join('?' for _ in keys)})"
-    params: tuple = (ws, kind, *keys)
-    if other_than:
-        where, params = where + " AND id != ?", (*params, other_than)
-    for row in db.select("brain_memories", where, params, "created_at ASC"):
-        if _norm(row["text"]) == norm:
-            return row
-    return None
+    where = (f"workspace_id = ? AND kind IN ({', '.join('?' for _ in kinds)}) "
+             f"AND norm IN ({', '.join('?' for _ in keys)})")
+    rows = db.select("brain_memories", where, (ws, *kinds, *keys), "created_at ASC")
+    return [r for r in rows if _norm(r["text"]) == norm]
+
+
+def _same_words(ws: str, kind: str, text: object, *, other_than: str = "") -> dict | None:
+    """The oldest memory of this kind in the workspace that says the same words as `text` (`saying`), or None."""
+    return next((r for r in saying(ws, text, (kind,)) if r["id"] != other_than), None)
 
 
 def _clean(text: object, what: str = "remember") -> str:
@@ -285,15 +286,35 @@ def _write_over(old: dict, fields: dict) -> dict | None:
             "SELECT * FROM brain_memories WHERE id = ?", (old["id"],)).fetchone())
 
 
-def forget(ws: str, memory_id: str) -> dict:
+def forget(ws: str, memory_id: str, *, words: object = None) -> dict:
     """Delete a memory and the record of where it was used; an answer that used it keeps its own copy. One
     transaction: a use an answer records at the same moment goes with the memory or is not recorded (`record_use`),
-    never left over for nothing."""
-    row = get(ws, memory_id)
+    never left over for nothing. With `words`, only while the memory still says them (`_norm`): one changed since they
+    were shown stays as it is now (409), so a Forget button never forgets words it did not show."""
     with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")  # what is checked is what goes: nothing changes it in between
+        raw = conn.execute("SELECT * FROM brain_memories WHERE id = ?", (memory_id,)).fetchone()
+        row = db._decode("brain_memories", raw) if raw else None  # noqa: SLF001 - read inside this transaction
+        if not row or row["workspace_id"] != ws:
+            raise Invalid("Memory not found.", 404)
+        if words is not None and _norm(row["text"]) != _norm(words):
+            raise Invalid("The memory says other words now.", 409)
         conn.execute("DELETE FROM brain_memory_uses WHERE memory_id = ?", (memory_id,))
         conn.execute("DELETE FROM brain_memories WHERE id = ?", (memory_id,))
     return view(row)
+
+
+def forget_words(ws: str, text: object) -> list[dict]:
+    """Forget every memory that says `text` (`saying`: every kind, wherever it applies, switched on or off), so no
+    twin still holds words the owner asked to forget. One forgotten or changed meanwhile is left to that. Returns
+    what went, oldest first."""
+    gone = []
+    for row in saying(ws, text):
+        try:
+            gone.append(forget(ws, row["id"], words=text))
+        except Invalid:
+            continue
+    return gone
 
 
 # ------------------------------------------------------------------ reading

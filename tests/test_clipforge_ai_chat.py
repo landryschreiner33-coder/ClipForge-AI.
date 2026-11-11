@@ -90,6 +90,40 @@ def test_teaching_forgetting_listing_and_help_need_no_model(env):
     assert chat.clear(WS, c["id"]) == len(msgs) and chat.messages(WS, c["id"]) == []
 
 
+def _twin(text: str, **fields) -> dict:
+    """The same words kept apart from the memory that says them (for one video, switched off, as another kind): a
+    brain file, an edit, or two answers at the same moment."""
+    from clipfoundry import db
+    from clipfoundry.brain import memories
+
+    return db.insert("brain_memories", {"workspace_id": WS, "kind": "fact", "text": text,
+                                        "norm": memories._norm(text), "source": "said",  # noqa: SLF001
+                                        "confidence": 1.0, "scope": "all", "tags": [], "data": {}, "meaning": None,
+                                        "meaning_model": "", "enabled": 1, "revision": 1, "used_count": 0, **fields})
+
+
+def test_forget_with_the_exact_words_forgets_every_memory_that_says_them(env):
+    """Its twins go with it (kept for one video, switched off, or as a rule), so nothing still follows words the owner
+    asked to forget, also when they start with a word the pattern skips ("forget my …"); other words stay."""
+    from clipfoundry import brain
+    from clipfoundry.brain import chat
+
+    c = chat.open_chat(WS)
+    brain.remember(WS, "my intro is 3 seconds")
+    _twin("My intro is 3 seconds", scope="project:p1", project_id="p1")
+    _twin("my intro is 3 seconds.", enabled=0)
+    _twin("my intro is 3 seconds", kind="rule")
+    brain.remember(WS, "my outro is 5 seconds")
+    m = _say(c["id"], "forget my intro is 3 seconds")
+    assert m["text"] == "Forgotten: “my intro is 3 seconds” (I had it 4 times; all 4 are gone)."
+    assert m["data"]["tool"] == "forget" and m["data"]["forgotten"]["text"] == "my intro is 3 seconds"
+    assert [x["text"] for x in brain.list_(WS)] == ["my outro is 5 seconds"]
+    _twin("My outro is 5 seconds", enabled=0)
+    m = _say(c["id"], "forget: my outro is 5 seconds")
+    assert m["text"] == "Forgotten: “my outro is 5 seconds” (I had it 2 times; both are gone)."
+    assert brain.list_(WS) == []
+
+
 def test_a_videos_chat_proposes_checked_changes_that_apply_as_versions_and_explains_them(env, monkeypatch):
     from clipfoundry import brain, db
     from clipfoundry.brain import chat

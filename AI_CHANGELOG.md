@@ -417,6 +417,22 @@ Landry's projects, could never do anything, and without a downloaded model only 
     `test_a_confirmation_or_edit_of_a_memory_gone_meanwhile_says_it_is_gone` now forgets the memory right after it is
     read (it hooked `db.update`, which an edit no longer calls). The click-through presses Forget on a memory forgotten
     elsewhere meanwhile.
+- **One more look at those fixes** (two reviewers, the memories and the delete; each finding checked again by one who
+  tried to refute it: four of five held up, one in the code and three about two sentences of the design notes; one about
+  the delete's wording did not; the code fix has tests that failed before it): "forget …" with a memory's exact words
+  removed only one memory that says them. A twin (the same words kept for one video, switched off, or as another kind)
+  stayed in force while the answer said "Forgotten", and the Forget card named one memory. Now every memory that says
+  those words goes (`memories.forget_words`, `memories.saying`), the answer says how many times it was kept, and the
+  rules-only chat also understands "forget my …" as the fast path does. The Forget card names each memory it forgets
+  (where it applies, switched off or not); its OK forgets only those (`memory_ids`, which only the button keeps), each
+  only while it still says the card's words (`memories.forget(..., words=)`, checked and deleted in one locked step),
+  and says how many went and how many were changed since and stay. Docs: the design notes say that "remember" and a
+  brain file keep the words of a memory gone in between while an edit or a confirmation answers "Memory not found.", and
+  that a brain file's twins are merged by Tidy when kept for the same videos and switched on or off alike; the privacy
+  page says that asking ClipForge AI to forget forgets every memory that says those words. New tests:
+  `test_forget_with_the_exact_words_forgets_every_memory_that_says_them` (`tests/test_clipforge_ai_chat.py`) and
+  `test_forget_takes_every_memory_that_says_those_words_and_its_button_only_what_it_listed`
+  (`tests/test_clipforge_ai_assistant.py`).
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
