@@ -76,8 +76,10 @@ Every call blocks (run it in a job thread) and takes `progress(fraction, message
 Everything made goes to `data/engines/made/<image|video|voice>/<day>/`, with a note next to it (same name, `.json`)
 naming the model, its licence and its use rules (`rule`), the words, the seed and the time taken. Each job saves under
 a name of its own inside ComfyUI, so asking for the same picture twice makes it twice (ComfyUI answers an identical
-request from its cache, with the file of the first time). The shorts maker copies what it keeps into
-its project. Sizes that suit 9:16 shorts: pictures 1080×1920 (or 768×1344 to save time), clips 480×832 or 704×1280.
+request from its cache, with the file of the first time). The shorts maker takes what it uses out of there into its
+project, with its note (docs/clipforge/ANIMATED_SHORTS.md, "Tidying"), so it goes when the short does; a test from
+Settings stays in engines/made. A file ComfyUI hands back that is not a picture, or an empty video, is refused and
+deleted with its note. Sizes that suit 9:16 shorts: pictures 1080×1920 (or 768×1344 to save time), clips 480×832 or 704×1280.
 
 ### ComfyUI: ClipForge's own, or the app already on the computer
 

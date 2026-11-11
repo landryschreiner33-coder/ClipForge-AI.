@@ -252,10 +252,38 @@ crash or a full disk) becomes a designed card with the reason.
 * Errors reach the owner in plain words (`_plain`): the voice, motion, card and upload messages are written for the
   owner; a full disk, a permission problem or another file problem, the video tool and anything else get a plain
   sentence, and the cause goes to the log.
-* Tidying: a clip a build made and then threw away (its scene changed or went meanwhile) is deleted when nothing
-  uses it (files are stored once, so the same bytes may be in use elsewhere: then it stays); working folders and
-  half-recorded voices an app closed mid-build left are deleted once they are an hour old. Pictures and clips that
-  any version uses stay, so undo can bring them back.
+* Tidying: every picture and clip a build stores goes on the short's list (table `short_files`) as soon as it is
+  stored. At the start and the end of each build, a file on the list that nothing names any more is deleted (its row,
+  its read-only copy and its folder with its transcript, thumbnail and maker's original): a clip a later build
+  replaced before any version kept it (a build overtaken by a newer change saves no version), a picture that left a
+  scene's earlier pictures, a deleted scene's files, a file a stopped build stored before a scene took it. A clip a
+  build made and then threw away (its scene changed or went meanwhile) goes at once. "Names" means a scene (picture,
+  earlier pictures, clip), any saved version (so undo can bring it back), any other video, clips project, upload,
+  link, example, import, source note or another short's list: files are stored once, so the same bytes may be in use
+  elsewhere, and then the file stays. It is checked again in the step that deletes the row, under the file's content
+  lock, and a file ClipForge just handed out again (the same bytes uploaded, linked or stored once more:
+  `assets.reused_at`, set in the same step) is left alone for an hour, so tidying never deletes a copy an upload was
+  just given and has not recorded yet. Working folders and
+  half-recorded voices an app closed mid-build left are deleted once they are an hour old; the oldest recorded voices
+  no scene uses go once a short has more than 120. Deleting the short (studio/project_delete.py) reaches every file on
+  its list, also one no scene or version names.
+* The makers on this computer (clipfoundry/engines) save what they make in `data/engines/made` with a note. What a
+  short uses is taken out of there and kept with what the short made from it, so it goes when that does: a made
+  picture becomes the scene's stored picture (its note is `maker.json` in the picture's folder), the video maker's
+  clip and note go into the scene clip's folder (`maker.mp4`, `maker.json`), and the voice engine's recording and
+  note go into the short's voice folder (`voice/maker/<voice key>.wav` and `.json`, tidied with that voice). A
+  made picture is copied first and then deleted from engines/made, so a file another program holds open (Windows)
+  never costs the scene its picture: it then stays there with its note. What a maker made that cannot be used (a
+  picture that does not open, a video the short could not fit, a silent or unreadable recording, a file ComfyUI
+  handed back that is not a picture or is an empty video) or that was made as Stop was pressed is deleted with its
+  note (the reason is kept with the scene); only files in engines/made are ever deleted
+  (`local_engines.discard_made`). The delete window says which originals go with the short and which stay in
+  engines/made (made by a version from before shorts kept them, or the move failed). Voice samples
+  (`voice-sample`) are not projects: their engine originals stay in engines/made.
+* A picture the owner uploads for a scene (`update_scene` with `picture_asset_id` and the page's `upload_ids`, every
+  upload it made of the picture, also one dropped again after a change failed) takes those uploads
+  (`uploads.taken`), so deleting the short removes ClipForge's copy instead of keeping it as a file added again. Choosing an earlier picture again sends no upload and takes none (another page's upload of the same picture
+  stays that page's, and keeps the file).
 * `view(project)` is the `short` part of the editor page's video (`GET /api/studio/videos/<id>`): the options, stage
   and message, the scenes in the plan's order, progress, seconds (the video's length plus an estimate for scenes
   not in it yet), engines, `cards_to_swap` (designed cards a ready picture maker would replace: **Draw real

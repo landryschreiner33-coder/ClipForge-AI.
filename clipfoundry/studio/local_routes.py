@@ -28,11 +28,13 @@ class LinkRequest(BaseModel):
 
 
 def _link_all(workspace_id: str, paths: list[str]) -> dict:
-    """Each file on its own: one that cannot be linked is reported under "problems", the others are added."""
+    """Each file on its own: one that cannot be linked is reported under "problems", the others are added, each with
+    the `upload_id` the page sends when it makes or adds to a project with it (uploads.taken)."""
     assets, problems = [], []
     for path in paths:
         try:
-            assets.append(uploads.asset_view(uploads.link_local(workspace_id, path)))
+            linked = uploads.link_local(workspace_id, path)
+            assets.append({**uploads.asset_view(linked), "upload_id": linked["upload_id"]})
         except uploads.UploadError as exc:
             problems.append({"path": path, "detail": str(exc)})
     return {"assets": assets, "problems": problems}

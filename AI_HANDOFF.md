@@ -115,6 +115,42 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   "Not done yet").
 - **Waiting on Landry:** a try of the chat and the helpers on Landry's computer; the release (explicit OK).
 
+## Leftover files and upload races after deleting projects — 2026-11-11 (Claude Code, cloud session)
+
+**Plain-English summary:** follow-ups from the review of deleting projects. Deleting an animated short now also
+removes the pictures and clips it made and then replaced, and the original files the local makers made for it. Two
+copies of the same file finishing their upload at the same moment no longer fail. ClipForge now remembers which
+project or example each upload (and each file added from this computer) was for, so a project's own later upload of
+a file no longer keeps that file forever after the project is deleted, while a file another page has just added is
+still kept for that page. A planning answer that arrives just as its video is deleted no longer makes an empty chat.
+
+- **Branch / PR:** `claude/project-thread-h05xs8`, built on PR #35 (deleting projects), into
+  `claude/project-thread-x72wkd`, merged under Landry's standing word to merge finished work. Not released: a release
+  still needs Landry's explicit OK.
+- **Code:** `clipfoundry/makers/shorts.py` (`short_files`, `_tidy_files`, `_drop`, `_named`, makers' originals taken
+  in, `update_scene` `upload_ids`), `makers/local_engines.py` / `pictures.py` / `voice.py`, `engines/makers.py`,
+  `studio/uploads.py` (`_content_lock`, `_reuse`, `_again`, `_hand_out`, `taken`), `studio/project_delete.py`
+  (`_added_again`, `_handed_out`, the recheck inside the delete, `_maker_originals`), `studio/reference.py`
+  (`_drop_file`, `create(upload_ids=)`), `studio/video_flow.py`, `clips_flow.py`, `video_setup.py`, `routes.py`,
+  `local_routes.py`, `brain/chat.py` (`open_chat(create=False)`), `db.py` (`short_files`, `uploads.taken`,
+  `assets.reused_at`); frontend `studio.ts`, `studioParts.tsx` (`FileDrop.onUploaded`, `useUploadsByFile`),
+  `MakeClips`, `MakeVideo`, `VideoReview`, `ShortScenes`, `ExampleVideos`; `frontend/dist` rebuilt. Details:
+  [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **For other work:** a page that makes a project, an example or a scene picture from the owner's files must send
+  `upload_ids` (every upload and link it made of those files; `uploadFile` and the link answer carry `upload_id`), or
+  deleting that project keeps the files as if another page had them (a project made since uploads are recorded owns
+  only the uploads sent with it). ClipForge AI's tools that make a project from an uploaded file should pass the
+  upload ids they know. A new kind of owner (not a project or
+  an example) that takes uploads passes its own id to `uploads.taken`. Code that hands out a stored file again must
+  go through `uploads._reuse` (the mark a running delete and a short's tidy look at). A new place that stores files
+  for a short records them in `short_files`.
+- **Verify:** `python -m pytest -q tests/test_studio_uploads_taken.py tests/test_studio_shorts_tidy.py
+  tests/test_studio_project_delete.py tests/test_studio_local_files.py tests/test_studio_reference.py`; the fast and
+  slow suites; `cd frontend && npm run build`.
+- **Not done:** Landry's Mac and a real Windows PC; real local makers (ComfyUI, the voice engine) are stand-ins in
+  the tests. Projects and examples made before this change took no uploads and keep the older rules.
+- **Waiting on Landry:** the release (explicit OK).
+
 ## Deleting projects — 2026-11-10 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked to be able to delete projects. Every card on the Projects page now has a

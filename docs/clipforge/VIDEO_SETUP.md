@@ -124,7 +124,9 @@ cannot answer in another shape; 1,200 tokens at most). The answer is data: every
 bounds above, unknown fields are dropped, file numbers must exist, the order must be a permutation. "Stop" ends an
 answer being written; what was planned before stays, and an answer that arrives after Stop changes nothing (it is
 taken in under the same lock Stop takes, only while its message is still "thinking" and the video is still being
-planned). A request not yet sent is never sent. One already sent is told to stop when the assistant's
+planned). An answer only looks up the video's chat, never makes one (`open_chat(create=False)`): a video deleted
+while its answer is written gets no new, empty chat, and `open_chat` removes a chat it just made for a video deleted
+in between. A request not yet sent is never sent. One already sent is told to stop when the assistant's
 `llm.converse` (PR #37) carries the request; through `llm.complete` it runs to its end and its answer is dropped.
 Up to three answers are written at once, so one draft's slow answer or a build that plans never waits behind
 another.
@@ -218,7 +220,7 @@ the ClipForge AI panel), `data.source` (`ai` or `rules`), `data.sent` and `data.
 
 | Route | What it does |
 |---|---|
-| `POST /api/studio/videos/setup` | start a draft: files, idea, mode, name, style, example, script, remember |
+| `POST /api/studio/videos/setup` | start a draft: files, idea, mode, name, style, example, script, remember, and `upload_ids` (the page's uploads of the files, which become the video's: `uploads.taken`) |
 | `GET /api/studio/videos/{id}/setup` | the draft (or built video's) setup: plan, mode, messages, files with listening state, model |
 | `POST /api/studio/videos/{id}/setup/say` | the owner says something (`text`, and `question_id` for a quick answer); returns the owner row, the AI row and the setup |
 | `POST /api/studio/videos/{id}/setup/stop` | stop the answer being written |
@@ -226,7 +228,7 @@ the ClipForge AI panel), `data.source` (`ai` or `rules`), `data.sent` and `data.
 | `POST /api/studio/videos/{id}/setup/build` | build the draft (plans first in the job when there is no plan) |
 | `PUT /api/studio/videos/{id}/plan` | after the build: change the plan and edit again as a new version |
 | `GET /api/studio/video-setup/model` | whether ClipForge AI has a model to plan with, its name, on this computer or not |
-| `POST /api/studio/videos/{id}/media` | (existing) add files, to a draft too |
+| `POST /api/studio/videos/{id}/media` | (existing) add files, to a draft too; `upload_ids` as above, also for a file the video has already |
 
 `POST /api/studio/videos` (the old one-step create) is unchanged for scripts and tests.
 

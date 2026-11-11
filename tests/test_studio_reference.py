@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from synthetic_media import make_video, needs_ffmpeg
+
 H = {"X-ClipFoundry": "1"}
 
 
@@ -468,3 +470,104 @@ def test_example_routes(env, monkeypatch):
         assert api.get("/api/studio/references").json()[0]["id"] == rid
         gone = api.delete(f"/api/studio/references/{rid}", params={"keep_style": 0}, headers=H)
         assert gone.status_code == 200 and api.get(f"/api/studio/references/{rid}").status_code == 404
+
+
+def test_deleting_an_examples_file_keeps_it_while_something_else_needs_it(env, monkeypatch):
+    """"Also delete the video file" keeps the file when anything else still names it (here a short's list of the
+    files its builds stored, which the example delete did not look at before), or when the same file was handed out
+    again since the example was made (another page holds it). Otherwise it goes, with its rows."""
+    import time
+
+    from clipfoundry import db
+    from clipfoundry.studio import reference, uploads
+
+    _fake_analysis(monkeypatch)
+    a, b, c = _video(env, 1), _video(env, 2, sha="b"), _video(env, 3, sha="c")
+    db.execute("INSERT INTO short_files (project_id, asset_id, workspace_id, created_at) VALUES (?, ?, ?, ?)",
+               ("vid-short", a["id"], "local", time.time()))
+    out = reference.delete(reference.create("local", a["id"], {})["id"], "local", delete_file=True)
+    assert "stays because a project or another example uses it" in " ".join(out["notes"])
+    assert db.fetch("assets", a["id"])
+    ref = reference.create("local", b["id"], {})
+    time.sleep(0.01)
+    assert uploads._reuse("local", "b")["id"] == b["id"]  # the same bytes uploaded again on another page
+    up = db.insert("uploads", {"workspace_id": "local", "filename": "example2.mp4", "size": 1, "status": "complete",
+                               "asset_id": b["id"]})
+    out = reference.delete(ref["id"], "local", delete_file=True)
+    assert "stays because you added it again in the last day" in " ".join(out["notes"])
+    assert db.fetch("assets", b["id"]) and db.fetch("uploads", up["id"])
+    out = reference.delete(reference.create("local", c["id"], {})["id"], "local", delete_file=True)
+    assert "file was deleted" in " ".join(out["notes"]) and db.fetch("assets", c["id"]) is None
+
+
+def test_deleting_an_examples_file_keeps_it_while_another_pages_upload_has_it(env, monkeypatch):
+    """A page (a video not started yet) uploads a file. Then the owner uploads the same file on Brain > Examples and
+    adds it as an example: that page sends its upload, which becomes the example's own. Deleting the example with
+    its file keeps the file, because the other page's upload, which no project or example took, finished in the last
+    day: that page may be about to use it. A file whose only upload is the example's own goes with it."""
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+    from clipfoundry.studio import reference
+
+    _fake_analysis(monkeypatch)
+    a, b = _video(env, 1), _video(env, 2)
+
+    def upload(asset: dict) -> dict:
+        time.sleep(0.01)
+        return db.insert("uploads", {"workspace_id": "local", "filename": asset["filename"], "size": 1,
+                                     "status": "complete", "asset_id": asset["id"]})
+
+    other_page = upload(a)  # stored the file; that page has not made its video yet
+    with TestClient(app, base_url="http://127.0.0.1:8765") as api:
+        def example(asset: dict) -> tuple[str, dict]:
+            mine = upload(asset)  # the Examples page's upload of the same bytes (the copy ClipForge has)
+            r = api.post("/api/studio/references", json={"asset_id": asset["id"], "upload_ids": [mine["id"]]},
+                         headers=H)
+            assert r.status_code == 200, r.text
+            return r.json()["id"], mine
+
+        rid, mine = example(a)
+        assert db.fetch("uploads", mine["id"])["taken"] == rid and db.fetch("uploads", other_page["id"])["taken"] == ""
+        out = reference.delete(rid, "local", delete_file=True)
+        assert "The video file stays because you added it again in the last day" in " ".join(out["notes"])
+        assert db.fetch("assets", a["id"]) and db.fetch("uploads", other_page["id"])
+        rid, _ = example(b)  # only the example's own upload
+        out = reference.delete(rid, "local", delete_file=True)
+        assert "The video file was deleted." in out["notes"] and db.fetch("assets", b["id"]) is None
+
+
+@needs_ffmpeg
+def test_an_examples_file_goes_when_every_upload_of_it_was_taken(env, monkeypatch):
+    """The owner adds a file as an example (the Examples page's upload is the example's), then uploads the same file
+    for a video, which takes that upload, and deletes the video: the file stays, the example uses it. Deleting the
+    example with its file then deletes it: every upload of it was for the example or the video, so no page holds it,
+    although ClipForge handed it out again after the example was made."""
+    import time
+
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete, reference, uploads, video_flow
+
+    _fake_analysis(monkeypatch)
+    file = make_video(env / "f.mp4", seconds=1.0)
+
+    def upload() -> dict:
+        data = file.read_bytes()
+        up = uploads.start("local", file.name, len(data))
+        uploads.put_chunk(up["id"], 0, data)
+        return uploads.complete(up["id"])
+
+    mine = upload()
+    ref = reference.create("local", mine["id"], {}, upload_ids=[mine["upload_id"]])
+    time.sleep(0.01)
+    page = upload()  # Make a YouTube video: ClipForge gives it the copy it has
+    assert page["id"] == mine["id"]
+    vid = video_flow.create("local", "local", name="V", asset_ids=[page["id"]], brief={}, style_id="settings",
+                            remember={"enabled": False}, upload_ids=[page["upload_id"]])["id"]
+    project_delete.delete("local", vid, "full_video", as_of=project_delete.plan("local", vid, "full_video")["as_of"])
+    assert db.fetch("assets", mine["id"])  # the example uses it
+    out = reference.delete(ref["id"], "local", delete_file=True)
+    assert "The video file was deleted." in out["notes"] and db.fetch("assets", mine["id"]) is None

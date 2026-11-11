@@ -323,7 +323,7 @@ def test_a_clip_thrown_away_is_deleted_and_leftovers_are_tidied(env, monkeypatch
     assert db.fetch("assets", kept["id"]) and Path(kept["path"]).is_file()
     assert not old.exists() and not part.exists() and recent.exists()
     # a thrown-away clip whose bytes are a file already in use stays
-    shorts._drop_unused(db.fetch("assets", _scenes(pid, _plan(pid))[1]["clip_asset_id"]), "local")
+    assert shorts._drop(_scenes(pid, _plan(pid))[1]["clip_asset_id"], "local", pid) is False
     assert all(db.fetch("assets", s["clip_asset_id"]) for s in _scenes(pid, _plan(pid)))
 
 

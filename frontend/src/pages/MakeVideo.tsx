@@ -2,12 +2,12 @@ import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { errorText, fmtTime } from "../api";
 import { LocalFiles } from "../components/LocalFiles";
 import { ScriptDrop } from "../components/ScriptDrop";
-import { ExampleSelect, FileDrop, linkedRow, Picked, StyleSelect, UploadRow } from "../components/studioParts";
+import { ExampleSelect, FileDrop, linkedRow, Picked, StyleSelect, UploadRow, useUploadsByFile } from "../components/studioParts";
 import { Banner, Dialog, Disclosure, Icon, LoadingPage, PageHead, Toggle, toast, usePoll } from "../components/ui";
 import { PlanForm, PlanSheet, useChanged } from "../components/VideoPlan";
 import { useAppearance } from "../prefs";
 import { navigate, redirect, useLeaveGuard } from "../router";
-import { Asset, PlanFields, Script, SetupFile, SetupMessage, SetupMode, SetupQuestion, studio, VideoSetup } from "../studio";
+import { Asset, PlanFields, Script, SetupFile, SetupMessage, SetupMode, SetupQuestion, studio, uploadIds, VideoSetup } from "../studio";
 import "../videoSetup.css";
 
 const ACCEPT = "video/*,image/png,image/jpeg,image/webp,audio/*,.mkv,.m4v,.flac,.opus,.ogg";
@@ -61,6 +61,7 @@ function Start() {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const removed = useRef(new Set<string>());  // taken out: an upload still finishing does not bring it back
+  const uploaded = useUploadsByFile();
 
   useEffect(() => {
     let alive = true;
@@ -86,6 +87,7 @@ function Start() {
   });
   const addLinked = (assets: Asset[]) => {
     const rows = assets.map(linkedRow);
+    assets.forEach(uploaded.add);  // each link is the page's own, like an upload
     rows.forEach((r) => removed.current.delete(r.key));
     setLinked((l) => [...l, ...rows.filter((r) => !l.some((x) => x.key === r.key))]);
     setOrder((o) => [...o, ...rows.map((r) => r.key).filter((k) => !o.includes(k))]);
@@ -96,7 +98,8 @@ function Start() {
     setProblem("");
     try {
       const v = await studio.startVideoSetup({
-        asset_ids: ordered.map((f) => f.asset!.id), idea: idea.trim(), mode: chosen, name: name.trim(), style_id: style,
+        asset_ids: ordered.map((f) => f.asset!.id), upload_ids: uploaded.of(ordered.map((f) => f.asset!.id)),
+        idea: idea.trim(), mode: chosen, name: name.trim(), style_id: style,
         reference_id: example, script, remember: { enabled: remembering, name: styleName.trim() } });
       if (chosen !== appearance.video_setup_mode) setAppearance({ video_setup_mode: chosen });  // for next time
       navigate(v.href);
@@ -115,7 +118,7 @@ function Start() {
           <section className="panel" aria-labelledby="vs-files-h">
             <h2 id="vs-files-h">Your files</h2>
             <FileDrop accept={ACCEPT} multiple label="Drop videos, pictures and sounds here (as many as you like)"
-              onPicked={(keys) => keys.forEach((k) => removed.current.delete(k))}
+              onPicked={(keys) => keys.forEach((k) => removed.current.delete(k))} onUploaded={uploaded.add}
               onAssets={(rows) => { setFiles(rows); setOrder((o) => [...o.filter((k) => k.startsWith("linked|") || rows.some((r) => r.key === k)),
                 ...rows.map((r) => r.key).filter((k) => !o.includes(k) && !removed.current.has(k))]); }} />
             {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer (big files, nothing is copied)</button>}
@@ -470,32 +473,50 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
   const [uploads, setUploads] = useState<Picked[]>([]);
   const [local, setLocal] = useState<"unknown" | "yes" | "no">("unknown");
   const [browsing, setBrowsing] = useState(false);
-  const added = useRef(new Set<string>());
+  const added = useRef(new Set<string>());  // files this panel knows: one taken out stays out until picked again
+  const sent = useRef(new Set<string>());  // uploads sent with their file
+  const clock = useRef(0);
+  const pickedAt = useRef(new Map<string, number>());  // when each row was picked
+  const takenOut = useRef(new Map<string, number>());  // when each file was taken out of the video
   useEffect(() => {
     let alive = true;
     studio.localBrowse("").then(() => alive && setLocal("yes")).catch(() => alive && setLocal("no"));
     return () => { alive = false; };
   }, []);
-  const add = (assetIds: string[], again = false) => {
-    // picked on purpose: also one taken out before (one still in the video stays known, so taking it out later holds)
-    if (again) assetIds.filter((a) => !s.files.some((f) => f.id === a)).forEach((a) => added.current.delete(a));
-    const fresh = assetIds.filter((a) => !added.current.has(a) && !s.files.some((f) => f.id === a));
-    if (!fresh.length) return;
-    fresh.forEach((a) => added.current.add(a));
-    studio.addVideoMedia(s.id, fresh).then(onAdded).catch((e) => {
-      fresh.forEach((a) => added.current.delete(a));
+  const inVideo = (id: string) => s.files.some((f) => f.id === id);
+  /** `again`: picked on purpose, also a file taken out before. `picked`: uploads of rows picked after their file
+   * was taken out (the same file again under another name), which are picked on purpose too. */
+  const add = (assets: Asset[], again = false, picked: Set<string> = new Set()) => {
+    if (again) assets.filter((a) => !inVideo(a.id)).forEach((a) => added.current.delete(a.id));
+    const fresh = assets.filter((a) => !inVideo(a.id) && (!added.current.has(a.id)
+      || (!!a.upload_id && picked.has(a.upload_id) && !sent.current.has(a.upload_id))));
+    // each upload is sent once with its file, also one of a file the video has already, so it is the video's own
+    const mine = assets.filter((a) => a.upload_id && !sent.current.has(a.upload_id) && (fresh.includes(a) || inVideo(a.id)));
+    if (!fresh.length && !mine.length) return;
+    const ups = uploadIds(mine);
+    // a file sent now is known, also one the video has already, so taking it out later holds
+    const known = [...new Set([...fresh, ...mine].map((a) => a.id))].filter((id) => !added.current.has(id));
+    known.forEach((id) => added.current.add(id));
+    ups.forEach((u) => sent.current.add(u));
+    studio.addVideoMedia(s.id, [...new Set([...fresh, ...mine].map((a) => a.id))], ups).then(onAdded).catch((e) => {
+      known.forEach((id) => added.current.delete(id));
+      ups.forEach((u) => sent.current.delete(u));
       onProblem(errorText(e));
     });
   };
   // files join the video in the order you dropped them, each as soon as it and the ones before it have uploaded
+  const have = s.files.map((f) => f.id).join(" ");
   useEffect(() => {
-    const ready: string[] = [];
+    const ready: Asset[] = [];
+    const picked = new Set<string>();
     for (const r of uploads) {
-      if (r.asset) ready.push(r.asset.id);
-      else if (!r.error) break;
+      if (r.asset) {
+        ready.push(r.asset);
+        if (r.asset.upload_id && (pickedAt.current.get(r.key) ?? 0) > (takenOut.current.get(r.asset.id) ?? 0)) picked.add(r.asset.upload_id);
+      } else if (!r.error) break;
     }
-    add(ready);
-  }, [uploads]);  // eslint-disable-line react-hooks/exhaustive-deps
+    add(ready, false, picked);
+  }, [uploads, have]);  // eslint-disable-line react-hooks/exhaustive-deps
   const sending = uploads.filter((r) => !r.asset && !r.error);
   useEffect(() => onUploading(sending.length), [sending.length]);  // eslint-disable-line react-hooks/exhaustive-deps
   const videos = s.files.filter((f) => f.kind === "video").length;
@@ -516,7 +537,7 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
               <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${f.filename} up`} disabled={i === 0} onClick={() => onMove(f.id, -1)}><Icon name="chev" className="vs-up" /></button>
               <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${f.filename} down`} disabled={i === s.files.length - 1} onClick={() => onMove(f.id, 1)}><Icon name="chev" className="vs-down" /></button>
               <button type="button" className="btn btn-small btn-icon" aria-label={`Take ${f.filename} out of this video`}
-                disabled={s.files.length === 1 || (f.kind === "video" && videos === 1)} onClick={() => onRemove(f.id)}><Icon name="x" /></button>
+                disabled={s.files.length === 1 || (f.kind === "video" && videos === 1)} onClick={() => { takenOut.current.set(f.id, ++clock.current); onRemove(f.id); }}><Icon name="x" /></button>
             </div>
           </li>
         ))}
@@ -526,9 +547,12 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
       <Disclosure summary="Add files">
         <div className="stack-3">
           <FileDrop accept={ACCEPT} multiple label="Drop more videos, pictures and sounds" onAssets={setUploads}
-            onPicked={(keys) => add(uploads.filter((r) => keys.includes(r.key) && r.asset).map((r) => r.asset!.id), true)} />
+            onPicked={(keys) => {
+              keys.forEach((k) => pickedAt.current.set(k, ++clock.current));
+              add(uploads.filter((r) => keys.includes(r.key) && r.asset).map((r) => r.asset!), true);
+            }} />
           {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer</button>}
-          {browsing && <LocalFiles onLinked={(assets) => add(assets.map((a) => a.id), true)} onClose={() => setBrowsing(false)} />}
+          {browsing && <LocalFiles onLinked={(assets) => add(assets, true)} onClose={() => setBrowsing(false)} />}
         </div>
       </Disclosure>
     </section>

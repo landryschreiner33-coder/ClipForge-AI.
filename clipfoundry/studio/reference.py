@@ -20,11 +20,10 @@ import hashlib
 import json
 import logging
 import os
-import shutil
 import time
 from pathlib import Path
 
-from .. import config, db
+from .. import db
 from . import capabilities, reference_analysis as ra, styles, uploads
 from .jobs import Canceled, Lease, cancel as cancel_job, enqueue, handler
 
@@ -98,7 +97,9 @@ def _meta(data: dict, current: dict | None = None) -> dict:
     return out
 
 
-def create(workspace_id: str, asset_id: str, data: dict, ranges: list | None = None) -> dict:
+def create(workspace_id: str, asset_id: str, data: dict, ranges: list | None = None, upload_ids=None) -> dict:
+    """A new example of the owner's video file. `upload_ids`: the uploads the Examples page made of the file, which
+    become the example's own (uploads.taken), so deleting it with its file tells them from another page's."""
     try:
         asset = uploads.asset(asset_id, workspace_id)
     except uploads.UploadError as exc:
@@ -111,6 +112,7 @@ def create(workspace_id: str, asset_id: str, data: dict, ranges: list | None = N
         "id": "ref-" + os.urandom(6).hex(), "workspace_id": workspace_id, "asset_id": asset_id,
         "ranges": [] if not ranges else [{"start_ms": int(a * 1000), "end_ms": int(b * 1000)} for a, b in clean],
         "status": "queued", "message": "Waiting to be analyzed", "round": 1, **meta})
+    uploads.taken(workspace_id, upload_ids, row["id"], [asset_id])
     enqueue(workspace_id, "reference_analysis", row["id"], 1)
     return view(row)
 
@@ -173,31 +175,48 @@ def delete(ref_id: str, workspace_id: str, *, keep_style: bool = True, delete_fi
     db.execute("DELETE FROM reference_videos WHERE id = ?", (ref_id,))
     file_note = "The video file stays in your media."
     if delete_file:
-        file_note = _drop_file(row["asset_id"], workspace_id)
+        file_note = _drop_file(row["asset_id"], workspace_id, float(row.get("created_at") or 0))
     return {"deleted": ref_id, "notes": [n for n in (style_note, file_note,
                                                        "Projects already made keep the choices they used.") if n]}
 
 
-def _drop_file(asset_id: str, workspace_id: str) -> str:
-    users = db.scalar("SELECT COUNT(*) FROM reference_videos WHERE asset_id = ?", (asset_id,)) or 0
-    users += db.scalar("SELECT COUNT(*) FROM studio_projects WHERE workspace_id = ? AND asset_ids LIKE ?",
-                       (workspace_id, f'%"{asset_id}"%')) or 0
-    users += db.scalar("SELECT COUNT(*) FROM projects WHERE asset_id = ?", (asset_id,)) or 0
-    if users:
-        return "The video file stays because a project or another example uses it."
+def _drop_file(asset_id: str, workspace_id: str, made: float = 0.0) -> str:
+    """Delete the example's video file when nothing else needs it. It stays when anything else names it (a project,
+    any saved version of a video, an animated short, a media import, another example: project_delete's own check),
+    or when, in the last day, the owner added the same file on a page whose upload no project or example took (also
+    before the example was made; Add from this computer leaves such an upload too): that page may be about to use
+    it. The Examples page's own uploads are the example's (create), so they do not count, nor do uploads a project
+    took. A copy ClipForge handed out again since the example was made, within the hour, that nothing recorded yet
+    (no upload of it finished since; a build storing the same bytes records it elsewhere) stays too. The check and
+    the delete are one step, so a hand-out waits for it (uploads._reuse). What ClipForge made for a linked file
+    goes; the owner's file never does."""
+    from . import project_delete
+
     asset = db.fetch("assets", asset_id)
-    note = "The video file was deleted."
-    if asset and asset["workspace_id"] == workspace_id:
-        # what ClipForge made for the file (and a stored upload's original beside it); a linked file is the owner's
-        # own and stays where it is: nothing outside the data folder is ever deleted
-        folder = uploads.work_dir(asset).resolve()
-        data = config.data_dir().resolve()
-        db.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
-        if folder == data or data in folder.parents:
-            shutil.rmtree(folder, ignore_errors=True)
-        if uploads.is_linked(asset):
-            note = "What ClipForge made for the file was deleted; the file itself stays where it is on this computer."
-    return note
+    if not asset or asset["workspace_id"] != workspace_id:
+        return "The video file was deleted."
+    with uploads._content_lock(workspace_id, asset["sha256"]), db.connect() as conn:  # noqa: SLF001
+        conn.execute("BEGIN IMMEDIATE")
+        if asset_id in project_delete._used_elsewhere(workspace_id, "example", ""):  # noqa: SLF001
+            return "The video file stays because a project or another example uses it."
+        now = conn.execute("SELECT reused_at FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        if now is None:
+            return "The video file was deleted."
+        handed, clock = float(now[0] or 0), time.time()
+        in_flight = handed > max(made, clock - uploads.REUSE_HOLD_S) and not conn.execute(
+            "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND updated_at >= ? LIMIT 1",
+            (asset_id, handed)).fetchone()
+        if in_flight or conn.execute(
+                "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ? "
+                "LIMIT 1", (asset_id, clock - project_delete.AGAIN_S)).fetchone():
+            return "The video file stays because you added it again in the last day, and a page may be about to use it."
+        for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"), ("assets", "id")):
+            conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset_id,))
+        conn.commit()
+    project_delete.remove_asset_files(asset)
+    if uploads.is_linked(asset):
+        return "What ClipForge made for the file was deleted; the file itself stays where it is on this computer."
+    return "The video file was deleted."
 
 
 # ------------------------------------------------------------------ the analysis job

@@ -360,6 +360,8 @@ def test_the_engine_reads_and_its_word_times_follow_the_trim(env, monkeypatch):
 
     assert voice.speak("Hola", env / "es.wav", lang="es")["voice"] == "Lumi", "auto picks the asked language"
     assert got["rule"] == ""
+    # the engine's own file is named, for the short to keep with the voice made from it
+    assert got["original"] == str(env / f"engine{1}.wav") and Path(got["original"]).is_file()
 
     # times the engine only estimated give way to listening or the estimate from the sound; a licence's rule for
     # what the voice makes travels with it, so the short can show it
@@ -423,6 +425,64 @@ def test_cancel_is_checked_before_and_after_the_engine(env, monkeypatch):
     with pytest.raises(Cancelled):
         voice.speak("Hello world", env / "x.wav", cancel=lambda: flag["stop"])
     assert not (env / "x.wav").exists()
+
+
+def test_an_engine_voice_that_cannot_be_used_or_was_stopped_leaves_nothing_in_engines_made(env, monkeypatch):
+    """The engine saves its sound in engines/made with a note. When that sound is silent (this computer's voice
+    reads instead) or the owner pressed Stop as it finished, nobody will use it: it goes with its note. A sound file
+    the engine left anywhere else is never touched."""
+    from clipfoundry import config
+    from clipfoundry.makers import local_engines, voice
+    from clipfoundry.pipeline.common import Cancelled
+
+    made = config.data_dir() / "engines" / "made" / "voice" / "2026-11-10"
+    made.mkdir(parents=True)
+    engines = FakeEngines(made)
+    monkeypatch.setattr(local_engines, "module", lambda: engines)
+    real = engines.speak
+
+    def with_note(text, **kw):
+        got = real(text, **kw)
+        Path(got["path"]).with_suffix(".json").write_text("{}")
+        return got
+
+    monkeypatch.setattr(engines, "speak", with_note)
+    assert voice.speak("Hello world", env / "ok.wav")["original"] == str(made / "engine1.wav")
+
+    def silent(text, **kw):
+        got = with_note(text, **kw)
+        _write_wav(Path(got["path"]), [("quiet", 1.0)], 24000)
+        return got
+
+    monkeypatch.setattr(engines, "speak", silent)
+    if voice._espeak():
+        assert voice.speak("Hello world", env / "silent.wav")["engine"] == "espeak"
+    else:
+        with pytest.raises(voice.VoiceError):
+            voice.speak("Hello world", env / "silent.wav")
+    assert not (made / "engine2.wav").exists() and not (made / "engine2.json").exists()
+
+    flag = {"stop": False}
+
+    def stop_as_it_finishes(text, **kw):
+        got = with_note(text, **kw)
+        flag["stop"] = True
+        return got
+
+    monkeypatch.setattr(engines, "speak", stop_as_it_finishes)
+    with pytest.raises(Cancelled):
+        voice.speak("Hello world", env / "stopped.wav", cancel=lambda: flag["stop"])
+    assert not (made / "engine3.wav").exists() and not (made / "engine3.json").exists()
+    assert (made / "engine1.wav").is_file() and (made / "engine1.json").is_file()  # the one it used stays
+
+    flag["stop"] = False
+    elsewhere = FakeEngines(env)  # an engine that keeps its sound elsewhere: never deleted
+    monkeypatch.setattr(local_engines, "module", lambda: elsewhere)
+    monkeypatch.setattr(elsewhere, "speak", lambda text, **kw: (flag.update(stop=True), {
+        "path": _write_wav(env / "theirs.wav", [("tone", 0.5)], 24000)})[1])
+    with pytest.raises(Cancelled):
+        voice.speak("Hello world", env / "stopped2.wav", cancel=lambda: flag["stop"])
+    assert (env / "theirs.wav").is_file()
 
 
 # ------------------------------------------------------------------ macOS and Windows (stand-in programs)

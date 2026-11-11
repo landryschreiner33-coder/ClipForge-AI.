@@ -980,6 +980,14 @@ CREATE TABLE IF NOT EXISTS short_scenes (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_short_scenes_project ON short_scenes(project_id, position);
+CREATE TABLE IF NOT EXISTS short_files (     -- every file an animated short's builds stored: what tidying looks at
+    project_id TEXT NOT NULL,                 -- when nothing names one any more, and what deleting the short reaches
+    asset_id TEXT NOT NULL,                   -- (also a file no scene or saved version names)
+    workspace_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (project_id, asset_id)
+);
+CREATE INDEX IF NOT EXISTS idx_short_files_asset ON short_files(asset_id);
 -- ---------------------------------------------------------------- Clips → Full stories
 CREATE TABLE IF NOT EXISTS story_proposals (
     id TEXT PRIMARY KEY,
@@ -1270,6 +1278,7 @@ JSON_FIELDS = {
     "assets": {"probe"},
     "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script", "short", "setup"},
     "short_scenes": {"pictures", "info"},
+    "short_files": set(),
     "edit_plans": {"plan", "meta"},
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},
@@ -1326,6 +1335,13 @@ ADDED_COLUMNS = {
     "sources": {"rights_info": "TEXT DEFAULT '{}'", "access": "TEXT DEFAULT '{}'",
                 "channel_check": "TEXT DEFAULT '{}'", "user_added": "INTEGER DEFAULT 0",
                 "intake": "TEXT DEFAULT '{}'"},
+    # the project that took a finished upload (studio/uploads.taken): deleting a project counts only uploads no
+    # project took as files the owner added again (Add from this computer leaves such a row too)
+    "uploads": {"taken": "TEXT DEFAULT ''"},
+    # when ClipForge last handed out a stored file again (the same bytes uploaded, linked or stored once more): a
+    # short's tidying leaves it alone for a while, so the one it was handed to can record it (studio/uploads.py),
+    # and a delete that started before it keeps it (studio/project_delete._handed_out)
+    "assets": {"reused_at": "REAL DEFAULT 0"},
 }
 
 
@@ -1366,9 +1382,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_post_spacing(conn)
     _migrate_connections(conn)
     _migrate_cloud_secrets(conn)
+    _migrate_uploads_taken(conn)
 
 
 CONNECTIONS_MIGRATION = "social_connections_migrated_v1"
+UPLOADS_TAKEN_SINCE = "uploads_taken_since"
+
+
+def _migrate_uploads_taken(conn: sqlite3.Connection) -> None:
+    """When ClipForge started recording which project took each upload (uploads.taken), once: a project made since
+    then owns only the uploads its page sent, while one made before keeps the older rules when it is deleted
+    (studio/project_delete._added_again)."""
+    now = time.time()
+    conn.execute("INSERT OR IGNORE INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
+                 (UPLOADS_TAKEN_SINCE, json.dumps({"at": now}), now))
 
 
 def legacy_connection_id(platform: str) -> str:
