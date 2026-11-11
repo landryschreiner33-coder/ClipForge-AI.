@@ -4,8 +4,9 @@ With a model set up (the built-in one, or an AI helper), everything you say goes
 (assistant.py): it answers like a person, with the conversation so far, your projects and your memories, and uses
 its tools (tools.py) to look things up and do things; anything that changes or deletes something waits for your OK
 button (`decide`). "@Name …" talks to one of your helper agents (agents.py). Two things never need the model:
-"remember: …" (with the colon, and no question in it) saves exactly your words, and "forget <the exact words>"
-removes that memory; "remember that …" is a turn of the conversation, and the model saves it with its remember tool.
+"remember: …" (with the colon, no question in it, and words that name something, not only "that" or "it") saves
+exactly your words, and "forget <the exact words>" removes every memory that says them; "remember that …" is a turn
+of the conversation, and the model saves it with its remember tool.
 In a video's chat, a change the rules understand on their own ("move clip 4 before clip 2") is proposed at once.
 
 Without a model, the rules answer alone, as before: teaching ("remember …", "always …", "never …"), forgetting,
@@ -41,12 +42,20 @@ HELP = ("Right now I have no model to think with, so I only follow a few rules: 
 NO_MODEL = ("I need a model to think with before I can really talk. Set up the built-in model (free, it runs on this "
             "computer) with the button above, or choose an AI helper in Settings → ClipForge AI. Until then I can "
             "remember, forget and list what you tell me, and answer editing questions from my built-in know-how.")
-# whole words, and so is the "that" it leaves out: "Notes from the shoot …", "Note-taking …" and "Remember that's …"
-# keep every letter; a dash separates only after a space ("note - the drone shots …"); "Remember that." leaves "."
-# (nothing to keep) and "Remember that. My intro is …" the sentence after it
+# whole words, and so is the "that" it leaves out, which goes only before a space, a colon or a comma, or before ".",
+# "!", "?" or "…" that end the message or a sentence: "Notes from the shoot …", "Note-taking …", "Remember that's …"
+# and "Remember that;…" keep every letter; "Remember that." leaves "." (nothing to keep) and "Remember that. My intro
+# is …" the sentence after it. A colon or a comma separates right after the word or with a space after it, and a dash
+# only with spaces on both sides ("note - the drone shots …"), so "Note -14 LUFS …" keeps its minus and "Remember
+# that :D" its smiley
 _REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?=[\s:,])"
-                       r"(?:\s+that(?![\w'’-])(?:[.!?…]+(?=\s))?)?(?:\s*[:,]|\s+-)?\s*(.+)$", re.I | re.S)
-_POINTERS = {"that", "this", "it", "these", "those", "that one", "this one"}  # words that only point at something else
+                       r"(?:\s+that(?=[\s:,]|[.!?…]+(?:\s|$))(?:[.!?…]+(?=\s))?)?"
+                       r"(?:[:,]|\s+[:,](?!\S)|\s+-(?=\s))?\s*(.+)$", re.I | re.S)
+# words that name nothing to remember on their own: they point at something said before, or only ask nicely
+_NAMES_NOTHING = {"that", "this", "it", "these", "those", "them", "one", "that one", "this one", "these ones",
+                  "those ones", "here", "please", "thanks", "thank you"}
+_SMILEY = re.compile(r"(?<!\w)(?:[:;=][-'^o]?[()\[\]{}<>|/\\*$@DPpOo03]+|<3+)(?!\w)")  # ":D", ";-)", "<3"
+_WORDS = re.compile(r"(?:[^\W_]|')+")  # the words of a memory, as memories._norm reads them
 _STANDING = re.compile(r"^(?:from now on|always|never|i (?:like|love|want|prefer|hate|don't want|do not want|"
                        r"never want|always want))\b", re.I)
 _RULE_WORDS = re.compile(r"\b(always|never|don't|do not|only|every|from now on|must|should|no)\b", re.I)
@@ -65,11 +74,11 @@ _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
 _HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b|\bhere\b", re.I)
 
 _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S)
-# What forgets at once: "forget" and a space or a colon, then the words, which start with a letter, a digit or an
-# opening quote. Anything else after "forget" or after a skipped word (a comma, a full stop, a dash, a new line, an
-# emoji, a bracket …) ends the request ("Forget that, keep the music low", or "Forget that 😅" and the rule on the
-# next line, set something aside and say the rule again): the conversation, or without a model "Which one?",
-# answers it.
+# What forgets at once: "forget" and a space or a colon, then the words, which start with a letter or a digit, or
+# are all in quotes (“…” or "…"). Anything else after "forget" or after a skipped word (a comma, a full stop, a dash,
+# a new line, an emoji, a bracket, other quote marks, or a quote followed by more words) ends the request ("Forget
+# that, keep the music low", "Forget the “🔇”, keep …", or "Forget that 😅" and the rule on the next line, set
+# something aside and say the rule again): the conversation, or without a model "Which one?", answers it.
 _FORGET_WORD = re.compile(rf"^(?:please\s+)?forget(?:[ \t]*:\s*|[ \t]+){_GOES_ON}", re.I)
 _FORGET_SKIPS = re.compile(rf"^(?:that|about|the|my|what i said about)[ \t]+{_GOES_ON}", re.I)
 # what a "Which one?" button sends (“…”, around words that may have quotes of their own) or words typed in quotes
@@ -262,7 +271,9 @@ def _answer(chat: dict, text: str, base_revision: int | None, choice: bool = Fal
     if not assistant.ready():
         return _rules(chat, text, base_revision, choice)
     m = _REMEMBER_EXACT.match(text)
-    if m and "?" not in m.group(1):  # "remember: is my intro too long?" is a question for the conversation
+    # "remember: is my intro too long?" is a question for the conversation, and "remember: that" points at something
+    # only the conversation can read
+    if m and "?" not in m.group(1) and not _names_nothing(m.group(1)):
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
     if m and m.group(1).strip() and not choice:  # a quick reply's words are the model's: its Forget card shows them
@@ -347,21 +358,38 @@ def _talk(chat: dict, text: str, agent: dict | None) -> dict:
     return {"text": "", "data": data, "status": "thinking", "after": after, "role": role}
 
 
+def _names_nothing(words: str) -> bool:
+    """Words that name nothing to remember on their own: no letter or digit once smileys are left out ("😅", ":D"),
+    or only words that point at something said before ("that", "that one", "it 👍") or ask nicely ("please")."""
+    words = _SMILEY.sub(" ", words)
+    return not any(ch.isalnum() for ch in words) or \
+        " ".join(_WORDS.findall(words.lower().replace("’", "'"))) in _NAMES_NOTHING
+
+
 def _remember(ws: str, pid: str, said: str) -> dict:
+    """The owner's own words, kept at once, with an Undo chip. A memory that already says them as this kind is
+    updated instead (switched on, kept for every video when asked for every video), and then the answer offers no
+    Undo: Undo forgets the memory, and that one was there before this answer."""
     said = said.strip()
     if said.endswith(".") and not said.endswith(".."):
         said = said[:-1].rstrip()
     here = bool(pid) and bool(_HERE.search(said))
     if here:  # "for this video: …" / "… here" scopes the memory; the words themselves are not kept
         said = " ".join(_HERE.sub(" ", said).split()).strip(" :,-")
-    # "Remember that." or "remember: it" points at something said before, which only the conversation can read
-    if not any(ch.isalnum() for ch in said) or said.strip(_EDGES).lower() in _POINTERS:
+    if _names_nothing(said):  # "Remember that." points at something said before, which only the conversation reads
         raise ChatError("Say what to remember, for example: remember that my intro is 3 seconds.")
     if len(" ".join(said.split())) > memories.MAX_TEXT:
         raise ChatError(f"That is too long to remember: keep a memory under {memories.MAX_TEXT} characters.")
     kind = "rule" if _RULE_WORDS.search(said) else "fact"
+    old = memories.twin(ws, said, kind)
     row = memories.remember(ws, said, kind=kind, source="said", project_id=pid if here else "")
-    where = "this video" if here else "every video"
+    where = "every video" if row.get("scope") == "all" else "this video"
+    if old and old["id"] == row["id"]:
+        again = [w for w, was in (("switched on again", not old.get("enabled")),
+                                  ("no longer only a guess", old.get("source") == "guessed")) if was]
+        also = f" ({', '.join(again)})" if again else ""
+        return {"text": f"I already remember “{row['text']}”{also}. It applies to {where}. Say “forget …” to remove "
+                        "it.", "data": {"tool": "remember", "kept": memories.view(row), "used": []}}
     return {"text": f"Remembered: “{row['text']}”. It applies to {where}. Say “forget …” to remove it.",
             "data": {"tool": "remember", "memory": memories.view(row), "used": []}}
 
@@ -370,13 +398,16 @@ def _said(text: str) -> tuple[list[str], bool]:
     """The words a "forget …" message may name a memory by, longest first, and whether they were in quotes: all of
     them after "forget", then without each leading word the pattern skips in turn ("forget that my intro is …": "that
     my intro is …", "my intro is …", "intro is …"). Words in quotes (what a "Which one?" button sends) count only as
-    they are, never shorter. None when "forget" is not followed by a space or a colon and a word (_FORGET_WORD)."""
+    they are, never shorter. None when "forget" is not followed by a space or a colon and a word (_FORGET_WORD), and
+    none from a quote that more words follow ("forget the “🔇”, keep the music low" sets something aside)."""
     head = _FORGET_WORD.match(text)
     rest, out = (text[head.end():].strip() if head else ""), []
     while rest:
         quoted = _quoted(rest)
         if quoted:
             return [quoted], True
+        if not rest[0].isalnum():  # a quote that is not all of the words: a memory's words start with a word
+            break
         out.append(rest)
         skip = _FORGET_SKIPS.match(rest)
         rest = rest[skip.end():].strip() if skip else ""

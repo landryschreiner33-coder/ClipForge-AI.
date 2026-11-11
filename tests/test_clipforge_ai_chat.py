@@ -161,10 +161,12 @@ def test_forget_takes_only_the_words_the_owner_named_and_only_as_a_whole_word(en
 def test_a_correction_never_forgets_and_a_longer_word_is_never_cut(env):
     """“Forget that, keep the music low” sets something aside and says the rule again: it never forgets that rule at
     once (without a model it asks which one, so nothing goes before a press). “forget”, and each word it skips,
-    counts only with a space after it (or a colon after “forget”) and then a word or an opening quote: never with a
-    comma, a full stop, a dash, a new line, an emoji, a smiley, a bracket or an arrow. A longer word is never cut:
+    counts only with a space after it (or a colon after “forget”) and then a word or an opening “ or ": never with a
+    comma, a full stop, a dash, a new line, an emoji, a smiley, a bracket or an arrow, and a quote counts only when it
+    holds all the words (“Forget the “🔇”, keep the music low” is a correction too). A longer word is never cut:
     “Remember that's …” keeps “that's …”, and “Note-taking …”, “Forget-me-nots …” and “Keep in mind-blowing …” are not
-    requests. “Remember that.” names nothing to remember, so nothing is kept."""
+    requests; a minus is not a dash (“Note -14 LUFS …”). Words that name nothing on their own (“Remember that.”,
+    “Remember that one”, “Remember this 😅”, “Remember that :D”) keep nothing."""
     from clipfoundry import brain
     from clipfoundry.brain import chat
 
@@ -178,7 +180,11 @@ def test_a_correction_never_forgets_and_a_longer_word_is_never_cut(env):
                  "Forget about that 😂 keep the music low", "Forget :) keep the music low",
                  "Forget that (keep the music low)", "Forget that » keep the music low",
                  "Forget that → keep the music low", "Forget that 🙈\nKeep the music low",
-                 "Forget 😅\nKeep the music low", "Forget that 😅, keep the music low"):
+                 "Forget 😅\nKeep the music low", "Forget that 😅, keep the music low",
+                 "Forget the “🔇”, keep the music low", "Forget “🎵🔊” — keep the music low!",
+                 "Forget that “…” keep the music low", "Forget about that “🙈”\nKeep the music low",
+                 'Forget that "..." keep the music low', "Forget that “:)” keep the music low",
+                 "Forget that “” keep the music low", "Forget «keep the music low»"):
         m = _say(c["id"], said)
         assert m["data"]["tool"] == "forget" and m["text"].startswith("Which one?"), said  # nothing went
         assert len(brain.list_(WS)) == 2, said
@@ -195,16 +201,46 @@ def test_a_correction_never_forgets_and_a_longer_word_is_never_cut(env):
     assert m["data"]["memory"]["text"] == "the drone shots are in the B folder"
     m = _say(c["id"], "Remember that. The outro is 2 seconds")  # “that.” points back; the next sentence is kept
     assert m["data"]["memory"]["text"] == "The outro is 2 seconds"
+    m = _say(c["id"], "Note -14 LUFS for YouTube")  # a minus, not a dash
+    assert m["data"]["memory"]["text"] == "-14 LUFS for YouTube"
+    m = _say(c["id"], "Remember that -3 dB is right for music")
+    assert m["data"]["memory"]["text"] == "-3 dB is right for music"
+    m = _say(c["id"], "Remember that; the cut at 0:42 stays")  # “that” is left out only before a space or , : . ! ? …
+    assert m["data"]["memory"]["text"] == "that; the cut at 0:42 stays"
     kept = sorted(x["text"] for x in brain.list_(WS))
     for said in ("Note-taking during the shoot saves time in the edit", "Keep in mind-blowing transitions for the end",
                  "Forget-me-nots in spring footage look great"):
         m = _say(c["id"], said)
         assert m["data"]["tool"] not in ("remember", "forget"), said
     for said in ("Remember that.", "Note that.", "Keep in mind that.", "Remember that!", "Remember that?",
-                 "Remember that", "remember this.", "Please remember that 😅", "remember: it"):
+                 "Remember that", "remember this.", "Please remember that 😅", "remember: it", "Remember that one",
+                 "Note that one.", "Keep in mind that one!", "Remember this…", "Please remember this 😅",
+                 "Remember it 👍", "Remember this :)", "Remember: that…", "Remember that :D", "Remember :D",
+                 "Remember that, please.", "Remember these 👇", "Remember that here."):
         m = _say(c["id"], said)
         assert m["status"] == "failed" and m["text"].startswith("Say what to remember, for example: "), said
     assert sorted(x["text"] for x in brain.list_(WS)) == kept
+
+
+def test_remembering_words_a_memory_already_says_offers_no_undo(env):
+    """The memory that already says the words is switched on and kept for every video, and the answer says so with
+    no Undo chip: Undo forgets the memory, and that one was there before the answer. New words get their chip."""
+    from clipfoundry.brain import chat, memories
+
+    c = chat.open_chat(WS)
+    old = _twin("The outro is 2 seconds", scope="platform:tiktok", platform="tiktok", enabled=0)
+    m = _say(c["id"], "Remember that. The outro is 2 seconds")
+    assert m["text"] == ("I already remember “The outro is 2 seconds” (switched on again). It applies to every video. "
+                         "Say “forget …” to remove it.")
+    assert "memory" not in m["data"] and m["data"]["kept"]["id"] == old["id"]
+    row = memories.get(WS, old["id"])
+    assert (row["enabled"], row["scope"]) == (1, "all")
+    m = _say(c["id"], "remember: the outro is 2 seconds")  # said again
+    assert m["text"] == ("I already remember “the outro is 2 seconds”. It applies to every video. Say “forget …” to "
+                         "remove it.")
+    assert "memory" not in m["data"] and [x["id"] for x in memories.list_(WS)] == [old["id"]]
+    m = _say(c["id"], "remember: the intro is 3 seconds")
+    assert m["data"]["memory"]["text"] == "the intro is 3 seconds" and m["data"]["memory"]["id"] != old["id"]
 
 
 def test_which_one_lists_each_set_of_words_once_and_its_button_forgets_only_those_words(env):

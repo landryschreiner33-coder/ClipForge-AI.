@@ -175,20 +175,27 @@ the built-in model downloaded, or an AI helper chosen in Settings → ClipForge 
 4. The fast paths, which need no model. "remember: …" (with the colon, and no question in the words) saves exactly
    your words: a `rule` when they say always, never, only, every, must, should …, otherwise a `fact`; "for this
    video" or "here" keeps it to the video; words longer than a memory can be (600 characters) are refused in plain
-   words. "Remember that …" is a turn of the conversation ("Remember that day at the lake? Make a video of it" is a
+   words. Words that name nothing on their own ("remember: it", "remember: that one 👍", "remember: 🎵") point at
+   something said before, so the conversation answers them. When a memory already says the words (switched off, or
+   kept for one video or platform) it is switched on and kept for every video (with "here", for this video, unless
+   it was kept for every video already), and the answer says "I already remember “…”" with no Undo chip: Undo
+   forgets the memory, and that one was there before.
+   "Remember that …" is a turn of the conversation ("Remember that day at the lake? Make a video of it" is a
    question, not a memory). "forget …" with the exact words of a memory removes it at once, with every twin that says
    them too (kept for one video, switched off, or as another kind), so nothing still follows them. The words are all
    of them after "forget" ("forget my intro is 3 seconds" forgets the memory “my intro is 3 seconds”); those after a
    leading "that", "about", "the", "my" or "what I said about" count only when no memory says them all. "forget", like
    "remember" and "note", is a whole word ("Forgetting captions loses viewers" and "Forget-me-nots …" ask nothing),
    and "forget" and each word it skips count only with a space after them (a colon after "forget") and then a word
-   (a letter or a digit) or an opening quote: "Forget that, keep the music low", "Forget. Keep the music low",
+   (a letter or a digit) or an opening “ or ": "Forget that, keep the music low", "Forget. Keep the music low",
    "Forget that 😅 keep the music low" or "Forget that" and the rule on the next line set something aside and say the
    rule again, so the conversation answers them and nothing is forgotten. Words in quotes ("forget “keep the music
    low”", what a "Which one?" button sends) are forgotten exactly as they are, never shorter ones, also when they
    have quotes of their own (in curly quotes everything from the first “ to the last ” counts, as long as the curly
    quotes inside pair up; “a” and “b” typed in one message are two quotes, not one); when no memory says them any
-   more the answer says "Nothing I remember says “…”, so nothing was forgotten." A quick
+   more the answer says "Nothing I remember says “…”, so nothing was forgotten." A quote counts only when it holds
+   all the words: "Forget the “🔇”, keep the music low" is a correction too. Other quote marks (« », „ “, ‘ ’ …) and
+   words that start with an emoji or "#" are not forgotten at once: the conversation, or "Which one?", asks first. A quick
    reply you press (the question's choices, or the editor's) is words the model or the editor wrote: it never forgets
    anything at once (the page sends it with `choice`), so a Forget card shows what would go first. "@Name" with
    nothing after it asks what that helper should do. In a video's chat, a change of at most 500 characters that the
@@ -351,8 +358,8 @@ has started: that finishes, for the next answer). After a restart, an answer tha
 | You say | It does | It answers with |
 |---|---|---|
 | "help", "what can you do" | | what it can do on its own, and that the built-in model makes it a real assistant |
-| "remember …", "always …", "never …", "from now on …", "I like/want/prefer/don't want …" | `remember` (`said`): a `rule` when it says always, never, only, must …, otherwise a `fact`; "for this video" or "here" scopes it to the video; "Remember that." or "Note this." (only words that point back, or no letter or digit at all) keeps nothing | "Remembered: … It applies to every video / this video."; "Say what to remember, for example: …" when it keeps nothing |
-| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; the words after a leading "that", "about", "the" or "my", with a space and a word after it, only when no memory says them all; words in quotes only as they are); otherwise, and always for a quick reply you pressed, finds the closest memories | "Forgotten: …" (and how many times it was kept); "Nothing I remember says “…”" for quoted words no memory says; or "Which one?" with the closest memories, the same words once (with how many times they are kept, all of which picking them forgets), each with a Forget button that sends its words in quotes |
+| "remember …", "always …", "never …", "from now on …", "I like/want/prefer/don't want …" | `remember` (`said`): a `rule` when it says always, never, only, must …, otherwise a `fact`; "for this video" or "here" scopes it to the video; "remember", "note", "keep in mind" and the "that" left out after them are whole words, and a dash separates only with a space on both sides ("Note -14 LUFS for YouTube" keeps its minus); words that name nothing on their own ("Remember that.", "Remember that one", "Note this 😅", "Remember that :D", "Remember that, please.") keep nothing; a memory that already says the words is switched on and kept for every video (with "here", for this video, unless it was kept for every video already) | "Remembered: … It applies to every video / this video." with an Undo chip; "I already remember “…” (switched on again)" with no Undo when a memory already said it; "Say what to remember, for example: …" when it keeps nothing |
+| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; the words after a leading "that", "about", "the", "my" or "what I said about", with a space and then a word or an opening “ or " after it, only when no memory says them all; words in quotes only as they are, and only when the quote holds all the words); otherwise, and always for a quick reply you pressed, finds the closest memories | "Forgotten: …" (and how many times it was kept); "Nothing I remember says “…”" for quoted words no memory says; or "Which one?" with the closest memories, the same words once (with how many times they are kept, all of which picking them forgets), each with a Forget button that sends its words in quotes |
 | "what do you know / remember …", "what have you learned" | lists the best memories for the words after it (or the newest) | the list |
 | "why …", "what did you use", "explain" | the latest answer for this video (change request or FilmCraft pass): its summary and the memories it used | the explanation |
 | anything else, in a video's chat | `edit_requests.ask` with the editor's rules alone | the proposal: Apply as a new version, Discard; a question with choices; or what it cannot do |

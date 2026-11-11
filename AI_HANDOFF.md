@@ -97,10 +97,13 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   "remember: …" and an exact "forget …" skip the model (forgetting every memory that says the words after "forget",
   its twins too, `memories.forget_words`, or those after a leading "my", "that", "the" or "about" only when no memory
   says them all; "forget", "remember" and "note" are whole words, and "forget" or a skipped word followed by anything
-  but a space and a word or an opening quote (a comma, a full stop, a new line, an emoji …) forgets nothing ("Forget
-  that, keep the music low" is a correction); quoted words, what a "Which one?" button sends, go only as they are,
-  also with quotes of their own (`chat._quoted`); "Remember that." keeps nothing without a model; a quick reply
-  pressed (`choice`) never forgets at once; the
+  but a space (or, after "forget", a colon) and then a word or an opening “ or " (a comma, a full stop, a new line,
+  an emoji, other quote marks …) forgets nothing ("Forget that, keep the music low" is a correction); quoted words,
+  what a "Which one?" button sends, go only as they are, also with quotes of their own (`chat._quoted`), and only
+  when the quote holds all the words ("Forget the “🔇”, keep …" is a correction too); words that name nothing on
+  their own ("Remember that one", "remember: it", `chat._names_nothing`) keep nothing, and with a model "remember:
+  it" goes to the conversation; "remember: …" on words a memory already says answers "I already remember" with no
+  Undo chip (Undo would forget that older memory); a quick reply pressed (`choice`) never forgets at once; the
   Forget card names each memory, at most 16, and its OK forgets only those, each only while it still says the card's
   words, and never looks again: a card saved by an earlier build forgets only the memory it named, or none when it
   named more than 16), while "I like …" and "always …" now go to the conversation,

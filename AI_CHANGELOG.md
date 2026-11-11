@@ -506,6 +506,34 @@ Landry's projects, could never do anything, and without a downloaded model only 
     (`tests/test_clipforge_ai_chat.py`) and in
     `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`
     (`tests/test_clipforge_ai_assistant.py`); no frontend change.
+- **One more look at those fixes** (two reviewers; each finding checked again by one who tried to refute it: eight
+  held up, two of them the same problem; two more were judged older or only cosmetic and are fixed too; each code
+  fix has a test that failed before it):
+  - A correction with a quote that more words follow ("Forget the “🔇”, keep the music low", "Forget that “…” keep
+    the music low") still forgot the rule it says again, with its twins, with or without a model: an opening quote
+    let "forget" go on, and a memory's words count only letters and digits. A quote now counts only when it holds
+    all the words (`chat._said`); otherwise the conversation, or without a model "Which one?", answers it. The docs
+    now name the two quote marks that count (“ and "); other quote marks (« », „ “ …) ask first.
+  - Without a model, words that name nothing on their own still kept a memory: "Remember that one" kept "one",
+    "Remember this…", "Remember it 👍" and "Remember this :)" kept "this…", "it 👍" and "this :)", and "Remember that
+    :D" kept "D". The check now reads only the words, leaves smileys out, and knows "that one", "these", "please" and
+    the like (`chat._names_nothing`).
+  - "Note -14 LUFS for YouTube" and "Remember that -3 dB is right for music" lost their minus ("14 LUFS …"): a dash
+    now separates only with a space on both sides. The "that" is left out only before a space, a colon, a comma, or
+    ".", "!", "?" or "…" that end a sentence, so "Remember that; …" keeps its words whole, as before the last round.
+  - With a model, "remember: it" failed with "Say what to remember"; words that name nothing on their own now go to
+    the conversation, which can read what "it" is.
+  - "remember: …" (or, without a model, "Remember that. …") on words a memory already says switched that memory on
+    and showed an Undo chip that deleted it: the older memory was gone, not put back as it was. The answer now says
+    "I already remember “…”" (with "switched on again" when it was off) and has no Undo chip, so Undo still forgets
+    only what an answer added. (Older than the last round; fixed here.)
+  - Docs: the handoff now says a colon after "forget" counts too; CLIPFORGE_AI.md step 4 and the rules table say what
+    "remember: …" does with words that name nothing and with words a memory already says.
+  - New tests: `test_remembering_words_a_memory_already_says_offers_no_undo` (`tests/test_clipforge_ai_chat.py`) and
+    `test_remember_with_a_colon_needs_words_that_name_something_and_offers_no_undo_for_an_older_memory`
+    (`tests/test_clipforge_ai_assistant.py`), and new cases in
+    `test_a_correction_never_forgets_and_a_longer_word_is_never_cut` and
+    `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`; no frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
