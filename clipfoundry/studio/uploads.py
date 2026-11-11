@@ -83,23 +83,26 @@ def _discard(folder: Path) -> None:
 REUSE_HOLD_S = 3600.0  # how long a file handed out again is left alone by a short's tidying (makers/shorts._drop)
 
 
-def _reuse(workspace_id: str, digest: str) -> dict | None:
+def _reuse(workspace_id: str, digest: str, linked: bool = False) -> dict | None:
     """The stored file with these bytes, marked as handed out again just now, or None. Whoever gets it records it a
     moment later (an upload, a link, a short's scene); until then nothing names it, so tidying would see an unused
     file: the mark keeps it (shorts._drop). The mark and the check are one step each in the database, so a file
-    deleted in between is not handed out."""
+    deleted in between is not handed out. `linked`: handed out by Add from this computer, which leaves no upload
+    row, so that is marked too (relinked_at)."""
+    now = time.time()
     with db.connect() as conn:
-        marked = conn.execute("UPDATE assets SET reused_at = ? WHERE workspace_id = ? AND sha256 = ?",
-                              (time.time(), workspace_id, digest)).rowcount
+        marked = conn.execute("UPDATE assets SET reused_at = ?, relinked_at = CASE WHEN ? THEN ? ELSE relinked_at "
+                              "END WHERE workspace_id = ? AND sha256 = ?",
+                              (now, int(linked), now, workspace_id, digest)).rowcount
     rows = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest)) if marked else []
     return rows[0] if rows else None
 
 
-def _stored_already(workspace_id: str, digest: str, folder: Path) -> dict | None:
+def _stored_already(workspace_id: str, digest: str, folder: Path, linked: bool = False) -> dict | None:
     """After a save was refused because the same bytes are stored already (another ClipForge program, such as
     Autopilot's, stored them between the check and the save): that asset, with this save's own folder removed.
     Refused (409, try again) when that asset was deleted again in the meantime."""
-    existing = _reuse(workspace_id, digest)
+    existing = _reuse(workspace_id, digest, linked)
     _discard(folder)
     if existing is None:  # stored and deleted again in between: this save is refused, nothing is left behind
         raise UploadError("ClipForge was saving the same file at that moment. Try again.", 409)
@@ -303,11 +306,12 @@ def quick_hash(path: Path, size: int | None = None) -> str:
 
 
 def complete(upload_id: str) -> dict:
-    """Verify, probe and store the finished file as an asset (the same bytes are stored once per workspace)."""
+    """Verify, probe and store the finished file as an asset (the same bytes are stored once per workspace). The
+    answer is the asset with `upload_id`, the upload the page sends when it makes or adds to a project (taken)."""
     with _lock(upload_id):
         row = get(upload_id)
         if row["status"] == "complete":
-            return asset_view(db.fetch("assets", row["asset_id"]))  # type: ignore[arg-type]
+            return _again(row)
         if row["received"] != row["size"]:
             raise UploadError(f"Only {row['received']:,} of {row['size']:,} bytes arrived. Resume upload.", 409,
                               received=row["received"])
@@ -327,7 +331,28 @@ def complete(upload_id: str) -> dict:
                       error=str(exc) if exc.status == 409 else f"Not a readable {row['kind']} file.")
             raise
         db.update("uploads", upload_id, status="complete", asset_id=stored["id"])
-        return asset_view(stored)
+        return {**asset_view(stored), "upload_id": upload_id}
+
+
+def _again(row: dict) -> dict:
+    """A finished upload finished again: the same file dropped on two pages while its first upload was still
+    arriving resumes that one upload (start), so the second page finishes it too. That page gets an upload of its
+    own (a copy of the row, which no project took yet), so a project made on the first page never takes the second
+    page's, and deleting it keeps the file for the second page (project_delete._added_again). The file is marked
+    as handed out again, like any upload of bytes ClipForge has (_reuse), in one step with the copy of the row, so a
+    project being deleted either keeps the file or has deleted it already (409: upload it again)."""
+    mine, now = "up-" + os.urandom(8).hex(), time.time()
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute("UPDATE assets SET reused_at = ? WHERE id = ?", (now, row["asset_id"])).rowcount:
+            raise UploadError("The file was deleted meanwhile. Upload it again.", 409)
+        conn.execute("INSERT INTO uploads (id, workspace_id, filename, kind, size, received, sha256, status, "
+                     "asset_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'complete', ?, ?, ?)",
+                     (mine, row["workspace_id"], row["filename"], row["kind"], row["size"], row["size"],
+                      row["sha256"], row["asset_id"], now, now))
+        asset = db._decode("assets", conn.execute(  # noqa: SLF001
+            "SELECT * FROM assets WHERE id = ?", (row["asset_id"],)).fetchone())
+    return {**asset_view(asset), "upload_id": mine}  # type: ignore[arg-type]
 
 
 def _inspect(file: Path, kind: str, folder: Path, label: str = "This file") -> tuple[dict, str]:
@@ -414,7 +439,7 @@ def link_local(workspace_id: str, path: str) -> dict:
         raise UploadError("The file is empty.")
     digest = quick_hash(file, size)
     with _content_lock(workspace_id, digest):
-        existing = _reuse(workspace_id, digest)
+        existing = _reuse(workspace_id, digest, linked=True)
         if existing is not None:
             if not Path(existing["path"]).is_file():  # the same file, found again after it was moved
                 db.update("assets", existing["id"], path=str(file))
@@ -433,7 +458,7 @@ def link_local(workspace_id: str, path: str) -> dict:
                                         "sha256": digest, "size": size, "path": str(file), "thumb_path": thumb,
                                         "probe": info})
         except sqlite3.IntegrityError:  # another ClipForge program linked it a moment ago
-            return _stored_already(workspace_id, digest, folder)
+            return _stored_already(workspace_id, digest, folder, linked=True)
 
 
 def taken(workspace_id: str, upload_ids, project_id: str, asset_ids) -> None:

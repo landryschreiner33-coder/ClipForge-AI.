@@ -1,4 +1,4 @@
-import { DragEvent, useEffect, useRef, useState } from "react";
+import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Connection, ExampleVideo, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
 import { Icon } from "./ui";
 
@@ -15,6 +15,21 @@ export type Picked = { key: string; file: File; progress: UploadProgress | null;
 /** A row for a file used where it is (no upload): the asset stands in for the file. */
 export const linkedRow = (asset: Asset): Picked => ({ key: `linked|${asset.id}`, file: new File([], asset.filename, { type: `${asset.kind}/*` }),
   progress: null, asset, error: "", linked: true });
+
+/** Every upload a page made, by file, also of a file picked again or taken out and added back: all of them are the
+ * page's own, so they go with the file when the page makes its project (`of`), and none counts as another page's. */
+export function useUploadsByFile() {
+  const seen = useRef(new Map<string, Set<string>>());
+  return useMemo(() => ({
+    note: (rows: Picked[]) => rows.forEach((r) => {
+      if (!r.asset?.upload_id) return;
+      const ids = seen.current.get(r.asset.id) || new Set<string>();
+      ids.add(r.asset.upload_id);
+      seen.current.set(r.asset.id, ids);
+    }),
+    of: (assetIds: string[]) => [...new Set(assetIds.flatMap((a) => [...(seen.current.get(a) || [])]))],
+  }), []);
+}
 
 /** Uploads that run at the same time; the rest wait their turn (each one reads its file in chunks). */
 const PARALLEL = 3;

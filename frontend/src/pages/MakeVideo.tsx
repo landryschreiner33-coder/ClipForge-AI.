@@ -2,7 +2,7 @@ import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { errorText, fmtTime } from "../api";
 import { LocalFiles } from "../components/LocalFiles";
 import { ScriptDrop } from "../components/ScriptDrop";
-import { ExampleSelect, FileDrop, linkedRow, Picked, StyleSelect, UploadRow } from "../components/studioParts";
+import { ExampleSelect, FileDrop, linkedRow, Picked, StyleSelect, UploadRow, useUploadsByFile } from "../components/studioParts";
 import { Banner, Dialog, Disclosure, Icon, LoadingPage, PageHead, Toggle, toast, usePoll } from "../components/ui";
 import { PlanForm, PlanSheet, useChanged } from "../components/VideoPlan";
 import { useAppearance } from "../prefs";
@@ -61,6 +61,7 @@ function Start() {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const removed = useRef(new Set<string>());  // taken out: an upload still finishing does not bring it back
+  const uploaded = useUploadsByFile();
 
   useEffect(() => {
     let alive = true;
@@ -96,8 +97,8 @@ function Start() {
     setProblem("");
     try {
       const v = await studio.startVideoSetup({
-        asset_ids: ordered.map((f) => f.asset!.id), upload_ids: uploadIds(ordered.map((f) => f.asset)), idea: idea.trim(),
-        mode: chosen, name: name.trim(), style_id: style,
+        asset_ids: ordered.map((f) => f.asset!.id), upload_ids: uploaded.of(ordered.map((f) => f.asset!.id)),
+        idea: idea.trim(), mode: chosen, name: name.trim(), style_id: style,
         reference_id: example, script, remember: { enabled: remembering, name: styleName.trim() } });
       if (chosen !== appearance.video_setup_mode) setAppearance({ video_setup_mode: chosen });  // for next time
       navigate(v.href);
@@ -117,7 +118,7 @@ function Start() {
             <h2 id="vs-files-h">Your files</h2>
             <FileDrop accept={ACCEPT} multiple label="Drop videos, pictures and sounds here (as many as you like)"
               onPicked={(keys) => keys.forEach((k) => removed.current.delete(k))}
-              onAssets={(rows) => { setFiles(rows); setOrder((o) => [...o.filter((k) => k.startsWith("linked|") || rows.some((r) => r.key === k)),
+              onAssets={(rows) => { uploaded.note(rows); setFiles(rows); setOrder((o) => [...o.filter((k) => k.startsWith("linked|") || rows.some((r) => r.key === k)),
                 ...rows.map((r) => r.key).filter((k) => !o.includes(k) && !removed.current.has(k))]); }} />
             {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer (big files, nothing is copied)</button>}
             {browsing && <LocalFiles onLinked={addLinked} onClose={() => setBrowsing(false)} />}

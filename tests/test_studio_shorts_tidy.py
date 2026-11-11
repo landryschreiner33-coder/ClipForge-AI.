@@ -259,7 +259,7 @@ class FakeMakers:
     def make_video(self, prompt, *, image=None, seconds=4.0, width=720, height=1280, seed=None, progress=None,
                    cancel=None):
         path = self._out("video", ".mp4")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c=green:s=72x128:r=24:d=0.5",
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=green:s=72x128:r=24:d=0.5",
                         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
         return path
 
@@ -450,3 +450,68 @@ def test_choosing_an_earlier_picture_again_takes_no_other_pages_upload(env, tmp_
     assert "“owl.png” stays in ClipForge because you added it again since." in plan["stays"]
     project_delete.delete("local", pid, "full_video", as_of=plan["as_of"])
     assert _kept(owl["id"]) and db.fetch("uploads", other)["asset_id"] == owl["id"]
+
+
+def test_a_thrown_away_clip_that_cannot_be_deleted_yet_never_fails_its_scene(env, monkeypatch):
+    """Deleting a clip made for words that changed meanwhile is tidying: when it fails (the database busy for too
+    long), the scene is made again with the new words as usual, and the clip stays listed for the next tidy."""
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+
+    project = _make(env)
+    pid = project["id"]
+    scene = _scenes(pid, _plan(pid))[0]
+    real_drop, refused = shorts._drop, []
+
+    def busy(asset_id, ws, project_id):
+        if not refused:
+            refused.append(asset_id)
+            raise RuntimeError("database is locked")
+        return real_drop(asset_id, ws, project_id)
+
+    monkeypatch.setattr(shorts, "_drop", busy)
+    real_update, failed = db.update, []
+
+    def watch(table, value, key="id", **fields):
+        if table == "short_scenes" and fields.get("status") == "failed":
+            failed.append(fields.get("error"))
+        return real_update(table, value, key, **fields)
+
+    monkeypatch.setattr(db, "update", watch)
+    env["calls"].during_clip = lambda: shorts.update_scene(_fresh(pid), scene["id"],
+                                                           {"narration": "Octopuses: three hearts, one body."})
+    shorts.update_scene(_fresh(pid), scene["id"], {"narration": "Octopuses have three busy hearts."})
+    _run(env)
+    row = db.fetch("short_scenes", scene["id"])
+    assert refused and failed == [] and row["status"] == "ready"
+    assert row["narration"] == "Octopuses: three hearts, one body."
+    assert _gone(db.fetch("assets", refused[0]) or {"id": refused[0], "path": "/nonexistent/x"})  # the next tidy
+
+
+def test_the_answer_after_a_picture_was_used_again_during_the_delete_keeps_its_original(env, monkeypatch):
+    """The short's pictures are handed out again while it is deleted (the same bytes stored for another short): they
+    stay with the originals beside them, and the answer no longer says those originals went."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete, uploads
+
+    _makers(env, monkeypatch)
+    project = _make(env, motion="animate")
+    pid = project["id"]
+    pictures = [db.fetch("assets", s["picture_asset_id"]) for s in _scenes(pid, _plan(pid))]
+    plan = project_delete.plan("local", pid, "full_video")
+    assert any("the originals of the pictures, video clips and voices" in line for line in plan["goes"])
+    view = project_delete._view
+
+    def meanwhile(s):
+        for p in pictures:
+            uploads._reuse("local", p["sha256"])
+        return view(s)
+
+    monkeypatch.setattr(project_delete, "_view", meanwhile)
+    out = project_delete.delete("local", pid, "full_video", as_of=plan["as_of"])
+    made_line = next(line for line in out["goes"] if line.startswith("What ClipForge made for its scenes:"))
+    assert "picture" not in made_line and made_line.endswith(
+        ", with the originals of the video clips and voices made for it on this computer."), made_line
+    assert any(line.endswith("stay in ClipForge because they were used again just now.") for line in out["stays"])
+    for p in pictures:
+        assert _kept(p["id"]) and (uploads.work_dir(p) / "maker.json").is_file()

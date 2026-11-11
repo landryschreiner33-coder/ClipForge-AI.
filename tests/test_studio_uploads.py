@@ -309,7 +309,7 @@ def test_a_file_another_clipforge_stored_and_deleted_again_meanwhile_refuses_the
 
     real_reuse = uploads._reuse
 
-    def deleted_before_reuse(workspace_id, d):
+    def deleted_before_reuse(workspace_id, d, *a, **k):
         db.execute("DELETE FROM assets WHERE id = 'as-other0000000001'")
         return real_reuse(workspace_id, d)
 

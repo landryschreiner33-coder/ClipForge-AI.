@@ -8,8 +8,9 @@ export type Asset = { id: string; kind: "video" | "audio" | "image"; filename: s
   linked?: boolean;
   /** A small preview copy of a big video exists (previews read it; the final render never does). */
   proxy?: boolean;
-  /** The upload that brought this file on this page (uploadFile). Sent with the file when the page makes or adds to a
-   * project, so that upload becomes the project's own and deleting the project can tell it from another page's. */
+  /** The upload that brought this file on this page (uploadFile; the server gives each page its own). Sent with the
+   * file when the page makes or adds to a project, so that upload becomes the project's own and deleting the project
+   * can tell it from another page's. */
   upload_id?: string };
 /** The uploads a page's files came with (none for a file used where it is). */
 export const uploadIds = (assets: (Asset | null | undefined)[]) =>
@@ -497,7 +498,7 @@ export async function uploadFile(file: File, onProgress: (p: UploadProgress) => 
   const asset = await req<Asset>("POST", `/api/uploads/${up.id}/complete`);
   remember(fp, null);
   onProgress({ received: file.size, size: file.size, state: "done" });
-  return { ...asset, upload_id: up.id };
+  return { ...asset, upload_id: asset.upload_id || up.id };  // a file finished on two pages: each has its own
 }
 
 /** Seconds with tenths, for edit points (m:ss.t). */

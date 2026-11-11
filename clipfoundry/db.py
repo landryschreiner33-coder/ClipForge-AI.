@@ -1318,8 +1318,10 @@ ADDED_COLUMNS = {
     # project took as files the owner added again
     "uploads": {"taken": "TEXT DEFAULT ''"},
     # when ClipForge last handed out a stored file again (the same bytes uploaded, linked or stored once more): a
-    # short's tidying leaves it alone for a while, so the one it was handed to can record it (studio/uploads.py)
-    "assets": {"reused_at": "REAL DEFAULT 0"},
+    # short's tidying leaves it alone for a while, so the one it was handed to can record it (studio/uploads.py);
+    # relinked_at: when Add from this computer last handed it out again (no upload row records that), so deleting
+    # a project keeps it for the page that holds it (studio/project_delete._added_again)
+    "assets": {"reused_at": "REAL DEFAULT 0", "relinked_at": "REAL DEFAULT 0"},
 }
 
 

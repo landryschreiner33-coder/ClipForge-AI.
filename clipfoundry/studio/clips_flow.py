@@ -160,9 +160,9 @@ def attach_source(project_id: str, asset: dict, *, submit: bool = True) -> dict:
 
 def create(workspace_id: str, user_id: str, *, asset_id: str, mode: str, style_id: str = "saved",
            choices: dict | None = None, skills_on: list[str] | None = None, skills_off: list[str] | None = None,
-           upload: dict | None = None, reference_id: str = "", upload_id: str = "") -> dict:
-    """A clips project from the owner's video file. `upload_id`: the owner's upload of it that the page sent (it
-    becomes this project's, uploads.taken)."""
+           upload: dict | None = None, reference_id: str = "", upload_ids=None) -> dict:
+    """A clips project from the owner's video file. `upload_ids`: the owner's uploads of it that the page sent (they
+    become this project's, uploads.taken)."""
     if mode not in REQUEST_MODES:
         raise FlowError("Choose Highlights, Full stories or Story parts.")
     try:
@@ -178,5 +178,5 @@ def create(workspace_id: str, user_id: str, *, asset_id: str, mode: str, style_i
                                 asset_id=asset_id, clip_mode=ready["mode"], guidance=ready["guidance"],
                                 destinations=ready["destinations"], options=ready["options"])
     remember_mode(workspace_id, user_id, mode)
-    uploads.taken(workspace_id, [upload_id], project["id"], [asset_id])  # the page's upload of the video
+    uploads.taken(workspace_id, upload_ids, project["id"], [asset_id])  # the page's uploads of the video
     return attach_source(project["id"], asset)

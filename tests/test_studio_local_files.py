@@ -339,3 +339,30 @@ def test_the_same_file_linked_twice_at_once_is_one_asset(env, monkeypatch):
     assert uploads.link_local("local", str(other))["id"] == "as-other0000000000"
     assert sorted(p.name for p in uploads.assets_dir("local").iterdir()) == sorted([got[0]["id"]])
     assert other.is_file()  # the owner's file is never touched
+
+
+@needs_ffmpeg
+def test_a_file_added_from_this_computer_again_stays_when_a_project_using_it_is_deleted(env, monkeypatch):
+    """A video made from a file used where it is. On a new page the owner adds the same file again (Add from this
+    computer leaves no upload behind), then deletes the video: what ClipForge made from the file stays for that
+    page, whose Start still works. Without a new page holding it, it goes with the video."""
+    from clipfoundry import db
+    from clipfoundry.jobs import worker
+    from clipfoundry.studio import project_delete, uploads, video_flow
+
+    monkeypatch.setattr(worker, "submit_studio", lambda job_id: None)
+    file = make_video(env / "clip.mp4", seconds=1.0)
+    linked = uploads.link_local("local", str(file))
+    old = video_flow.create("local", "local", name="Old", asset_ids=[linked["id"]], brief={}, style_id="settings",
+                            remember={"enabled": False})["id"]
+    plan = project_delete.plan("local", old, "full_video")
+    assert plan["counts"]["files"] == 1 and plan["counts"]["files_kept"] == 0
+    time.sleep(0.01)
+    assert uploads.link_local("local", str(file))["id"] == linked["id"]  # the new page gets the same asset
+    plan = project_delete.plan("local", old, "full_video")
+    assert plan["counts"]["files"] == 0 and plan["counts"]["files_kept"] == 1
+    assert "“clip.mp4” stays in ClipForge because you added it again since." in plan["stays"]
+    project_delete.delete("local", old, "full_video", as_of=plan["as_of"])
+    assert db.fetch("assets", linked["id"]) and file.is_file()
+    video_flow.create("local", "local", name="New", asset_ids=[linked["id"]], brief={}, style_id="settings",
+                      remember={"enabled": False})

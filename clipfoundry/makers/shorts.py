@@ -1057,8 +1057,11 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
 
     row = _change_scene(sid, put_clip)
     if row is None or row["clip_asset_id"] != clip["id"]:
-        if float(clip.get("created_at") or 0) >= since:
-            _drop(clip["id"], ws, pid)  # made for words or a picture that changed (or a scene that went) meanwhile
+        if float(clip.get("created_at") or 0) >= since:  # made for words or a picture that changed meanwhile
+            try:
+                _drop(clip["id"], ws, pid)
+            except Exception:  # noqa: BLE001 - tidying never fails a build: the file stays listed, the next tidy has it
+                log.exception("a thrown-away clip of short %s could not be deleted", pid)
         if row is not None:
             raise _Stale()
         return

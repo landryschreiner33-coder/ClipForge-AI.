@@ -200,7 +200,7 @@ class ClipsRequest(BaseModel):
     skills_off: list[str] = []
     upload: dict = {}
     reference_id: str = ""
-    upload_id: str = ""  # the page's upload of the file (studio/uploads.taken)
+    upload_ids: list[str] = []  # the page's uploads of the file (studio/uploads.taken)
 
 
 @router.post("/api/studio/clips")
@@ -221,7 +221,7 @@ def make_clips(body: ClipsRequest) -> dict:
             project = clips_flow.create(p.workspace_id, p.user_id, asset_id=body.asset_id, mode=body.mode,
                                         style_id=body.style_id, choices=body.choices, skills_on=body.skills_on,
                                         skills_off=body.skills_off, upload=body.upload,
-                                        reference_id=body.reference_id, upload_id=body.upload_id)
+                                        reference_id=body.reference_id, upload_ids=body.upload_ids)
     except link_import.LinkError as exc:
         return JSONResponse({"detail": f"{exc.why} {exc.fix}", "problem": exc.view()}, status_code=422)
     except clips_flow.FlowError as exc:

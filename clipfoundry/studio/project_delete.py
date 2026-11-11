@@ -99,7 +99,10 @@ class _Survey:
     drop: list[dict] = field(default_factory=list)  # media nothing else uses: deleted
     keep: list[dict] = field(default_factory=list)  # media something else uses: kept
     again: list[dict] = field(default_factory=list)  # media the owner uploaded again since: kept
+    handed: list[dict] = field(default_factory=list)  # media handed out again while it was being deleted: kept
     made: set[str] = field(default_factory=set)  # what ClipForge made for an animated short's scenes
+    engine: dict[str, set[str]] = field(default_factory=dict)  # the makers' pictures and clips (_short_made)
+    voices: bool = False  # the short read words with a maker's voice (_short_made)
     makers: list[str] = field(default_factory=list)  # the makers' originals that go with them ("pictures", ...)
     makers_left: list[str] = field(default_factory=list)  # the makers' originals left in engines/made: they stay
     as_of: float = 0.0  # the moment "added again" is judged at: when the window was shown
@@ -348,7 +351,8 @@ def _added_again(asset: dict, row: dict, seen: float) -> bool:
     the window was shown) count, and only uploads no project took (uploads.taken: each page sends the uploads it made
     a project from or added to it, and those are that project's; one a project took was for that project, also one
     deleted since). When this project took uploads of its own, the page sent all of them, so any other such upload
-    is another page's ("again"). Otherwise (a project made before uploads were marked, or only from files ClipForge
+    is another page's ("again"). A file Add from this computer handed out again after the project was made, in that
+    day, is "again" too: a page may hold it, and that leaves no upload row (assets.relinked_at). Otherwise (a project made before uploads were marked, or only from files ClipForge
     got another way) it is "again" when, in that day:
     * an upload finished after the project was made that did not make it: one that started after ClipForge had the
       file (also a file ClipForge got another way: Find media, a link, a short's build), or one that started before
@@ -359,6 +363,8 @@ def _added_again(asset: dict, row: dict, seen: float) -> bool:
     changed: stopping its work (deleting does that first) changes the project, and the answer must stay what the
     window said."""
     stored, made, day = float(asset.get("created_at") or 0), float(row.get("created_at") or 0), seen - AGAIN_S
+    if float(asset.get("relinked_at") or 0) > max(made, day):  # Add from this computer gave it to a page since
+        return True
     done = "FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ?"
     if db.scalar("SELECT 1 FROM uploads WHERE taken = ? LIMIT 1", (row["id"],)):  # its pages sent their uploads
         return bool(db.scalar(f"SELECT 1 {done} LIMIT 1", (asset["id"], day)))
@@ -371,9 +377,9 @@ def _added_again(asset: dict, row: dict, seen: float) -> bool:
 
 
 def _handed_out(conn, asset_id: str, since: float) -> bool:
-    """ClipForge handed this copy to an upload of the same bytes (or to Add from this computer) after `since`, the
-    moment the window looked: a page holds it now, so it stays. Asked inside the delete's transaction, which such a
-    hand-out waits for (it marks the copy, assets.reused_at, before giving it)."""
+    """ClipForge handed this copy out again after `since`, the moment the window looked (an upload of the same bytes,
+    Add from this computer, a build storing the same bytes): whoever got it holds it now, so it stays. Asked inside
+    the delete's transaction, which such a hand-out waits for (it marks the copy, assets.reused_at, first)."""
     row = conn.execute("SELECT reused_at FROM assets WHERE id = ?", (asset_id,)).fetchone()
     return row is not None and float(row[0] or 0) > since
 
@@ -454,7 +460,7 @@ def _survey(ws: str, project_id: str, kind: str, as_of: float | None = None) -> 
                 s.jobs += db.select("studio_jobs", "kind = 'media_import' AND target_id = ? AND status IN "
                                     "('queued', 'running')", (imp["id"],))
         asset_ids = _video_asset_ids(row)
-        s.made, engine, voices = _short_made(project_id)
+        s.made, s.engine, s.voices = _short_made(project_id)
         vdir = config.data_dir() / "videos" / project_id
         if vdir.is_dir() and _inside_data(vdir):
             s.folders.append(vdir)
@@ -470,7 +476,7 @@ def _survey(ws: str, project_id: str, kind: str, as_of: float | None = None) -> 
         else:
             s.drop.append(asset)
     if kind == "full_video" and row.get("workflow") == "animated_short":
-        s.makers, s.makers_left = _maker_originals(project_id, s.drop, s.made, engine, voices)
+        s.makers, s.makers_left = _maker_originals(project_id, s.drop, s.made, s.engine, s.voices)
     for asset in s.drop:  # preparing a file that is about to go is work on this project too
         s.targets.add(asset["id"])
         s.jobs += db.select("studio_jobs", "kind = 'asset_prepare' AND target_id = ? AND status IN "
@@ -566,6 +572,9 @@ def _view(s: _Survey) -> dict:
     if s.again:
         stays.append(f"{_names(s.again)} {'stays' if len(s.again) == 1 else 'stay'} in ClipForge because you added "
                      + ("it" if len(s.again) == 1 else "them") + " again since.")
+    if s.handed:
+        stays.append(f"{_names(s.handed)} {'stays' if len(s.handed) == 1 else 'stay'} in ClipForge because "
+                     + ("it was" if len(s.handed) == 1 else "they were") + " used again just now.")
     if s.makers_left:
         stays.append(f"Originals of the {_listed(s.makers_left)} made for it on this computer that ClipForge could "
                      "not keep with it stay in engines/made, each with a note of the words it was made from.")
@@ -578,7 +587,8 @@ def _view(s: _Survey) -> dict:
     return {"id": row["id"], "kind": s.kind, "name": row["name"], "blocked": s.blocked, "working": working,
             "goes": goes, "stays": stays, "freed_bytes": s.freed_bytes, "as_of": s.as_of,
             "counts": {"clips": s.clips, "versions": s.versions, "revisions": s.revisions, "renders": s.renders,
-                       "files": len(s.drop) + (1 if s.source_copy else 0), "files_kept": len(s.keep) + len(s.again),
+                       "files": len(s.drop) + (1 if s.source_copy else 0),
+                       "files_kept": len(s.keep) + len(s.again) + len(s.handed),
                        "planned_posts": len(s.planned_posts),
                        "memories": s.memories, "chat_messages": s.chat_messages}}
 
@@ -814,8 +824,12 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
                     raise DeleteError(POSTING, 409, "blocked") from exc
     scope = f"project:{project_id}"
     with db.connect() as conn:  # one transaction: the project is either all there or all gone
-        conn.execute("BEGIN IMMEDIATE")  # an upload being handed a copy now waits for this (uploads._reuse)
-        handed = [a for a in s.drop if _handed_out(conn, a["id"], s.as_of)]
+        # Nothing else can change the database until this commits: a copy handed out (uploads._reuse) or a file
+        # another project took since the last look waits for it, so the files are looked at once more here.
+        conn.execute("BEGIN IMMEDIATE")
+        named = _used_elsewhere(ws, kind, project_id) if s.drop else ""
+        now_used = [a for a in s.drop if a["id"] in named]
+        handed = [a for a in s.drop if a not in now_used and _handed_out(conn, a["id"], s.as_of)]
         have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         if kind == "clips":
             for table in db.CLIP_CHILDREN:
@@ -843,15 +857,19 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
         conn.execute("DELETE FROM brain_memory_uses WHERE memory_id IN (SELECT id FROM brain_memories WHERE "
                      "workspace_id = ? AND scope = ?)", (ws, scope))
         conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND scope = ?", (ws, scope))
-        s.drop = [a for a in s.drop if a not in handed]
+        s.drop = [a for a in s.drop if a not in now_used and a not in handed]
         for asset in s.drop:
             for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"), ("assets", "id")):
                 conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset["id"],))
-    if handed:  # the answer says what happened
-        s.again += handed
-        s.freed_bytes -= sum(_bytes(f, shared_too=True) for f in (_asset_folder(a) for a in handed) if f)
+    if now_used or handed:  # the answer says what happened
+        s.keep += now_used
+        s.handed += handed
+        s.freed_bytes -= sum(_bytes(f, shared_too=True) for f in (_asset_folder(a) for a in now_used + handed)
+                             if f and f.is_dir())
+        if kind == "full_video" and s.row.get("workflow") == "animated_short":
+            s.makers, s.makers_left = _maker_originals(project_id, s.drop, s.made, s.engine, s.voices)
         out = _view(s)
-    kept = s.keep + s.again
+    kept = s.keep + s.again + s.handed
     stored = [a for a in s.drop + kept if not uploads.is_linked(a) and Path(a["path"]).is_file()]
     copies = {(st.st_dev, st.st_ino) for st in (os.stat(a["path"]) for a in stored)}
     folders = s.folders + [f for f in (_asset_folder(a) for a in s.drop) if f]

@@ -468,3 +468,31 @@ def test_example_routes(env, monkeypatch):
         assert api.get("/api/studio/references").json()[0]["id"] == rid
         gone = api.delete(f"/api/studio/references/{rid}", params={"keep_style": 0}, headers=H)
         assert gone.status_code == 200 and api.get(f"/api/studio/references/{rid}").status_code == 404
+
+
+def test_deleting_an_examples_file_keeps_it_while_something_else_needs_it(env, monkeypatch):
+    """"Also delete the video file" keeps the file when anything else still names it (here a short's list of the
+    files its builds stored, which the example delete did not look at before), or when the same file was handed out
+    again since the example was made (another page holds it). Otherwise it goes, with its rows."""
+    import time
+
+    from clipfoundry import db
+    from clipfoundry.studio import reference, uploads
+
+    _fake_analysis(monkeypatch)
+    a, b, c = _video(env, 1), _video(env, 2, sha="b"), _video(env, 3, sha="c")
+    db.execute("INSERT INTO short_files (project_id, asset_id, workspace_id, created_at) VALUES (?, ?, ?, ?)",
+               ("vid-short", a["id"], "local", time.time()))
+    out = reference.delete(reference.create("local", a["id"], {})["id"], "local", delete_file=True)
+    assert "stays because a project or another example uses it" in " ".join(out["notes"])
+    assert db.fetch("assets", a["id"])
+    ref = reference.create("local", b["id"], {})
+    time.sleep(0.01)
+    assert uploads._reuse("local", "b")["id"] == b["id"]  # the same bytes uploaded again on another page
+    up = db.insert("uploads", {"workspace_id": "local", "filename": "example2.mp4", "size": 1, "status": "complete",
+                               "asset_id": b["id"]})
+    out = reference.delete(ref["id"], "local", delete_file=True)
+    assert "stays because you added it again since" in " ".join(out["notes"])
+    assert db.fetch("assets", b["id"]) and db.fetch("uploads", up["id"])
+    out = reference.delete(reference.create("local", c["id"], {})["id"], "local", delete_file=True)
+    assert "file was deleted" in " ".join(out["notes"]) and db.fetch("assets", c["id"]) is None

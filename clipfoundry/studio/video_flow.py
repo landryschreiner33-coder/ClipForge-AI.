@@ -853,11 +853,19 @@ def add_media(project_id: str, asset_ids: list[str], *, upload_ids=()) -> dict:
         _owned(project["workspace_id"], aid)  # only your own files
         if aid not in project["asset_ids"]:
             added.append(aid)
-    uploads.taken(project["workspace_id"], upload_ids, project_id, asset_ids)
     if added:
         bin_ids = list(project["asset_ids"]) + added
-        db.update("studio_projects", project_id, asset_ids=bin_ids, updated_at=time.time())
+        with db.connect() as conn:  # the files are still there (deleting another project may have removed one)
+            conn.execute("BEGIN IMMEDIATE")
+            marks = ", ".join("?" * len(added))
+            if conn.execute(f"SELECT COUNT(*) FROM assets WHERE id IN ({marks})", added).fetchone()[0] < len(added):
+                raise VideoError("Asset not found.")
+            conn.execute("UPDATE studio_projects SET asset_ids = ?, updated_at = ? WHERE id = ?",
+                         (db._encode("studio_projects", {"asset_ids": bin_ids})["asset_ids"],  # noqa: SLF001
+                          time.time(), project_id))
         enqueue(project["workspace_id"], "video_media", project_id, bin_key(bin_ids))
+    # after the bin names the files: a delete that looks in between sees them used here
+    uploads.taken(project["workspace_id"], upload_ids, project_id, asset_ids)
     return {"added": added}
 
 
