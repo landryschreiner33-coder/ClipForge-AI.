@@ -124,7 +124,9 @@ cannot answer in another shape; 1,200 tokens at most). The answer is data: every
 bounds above, unknown fields are dropped, file numbers must exist, the order must be a permutation. "Stop" ends an
 answer being written; what was planned before stays, and an answer that arrives after Stop changes nothing (it is
 taken in under the same lock Stop takes, only while its message is still "thinking" and the video is still being
-planned). A request not yet sent is never sent. One already sent is told to stop when the assistant's
+planned). An answer only looks up the video's chat, never makes one (`open_chat(create=False)`): a video deleted
+while its answer is written gets no new, empty chat, and `open_chat` removes a chat it just made for a video deleted
+in between. A request not yet sent is never sent. One already sent is told to stop when the assistant's
 `llm.converse` (PR #37) carries the request; through `llm.complete` it runs to its end and its answer is dropped.
 Up to three answers are written at once, so one draft's slow answer or a build that plans never waits behind
 another.

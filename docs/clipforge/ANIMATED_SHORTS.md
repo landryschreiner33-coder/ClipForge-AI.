@@ -260,7 +260,10 @@ crash or a full disk) becomes a designed card with the reason.
   build made and then threw away (its scene changed or went meanwhile) goes at once. "Names" means a scene (picture,
   earlier pictures, clip), any saved version (so undo can bring it back), any other video, clips project, upload,
   link, example, import, source note or another short's list: files are stored once, so the same bytes may be in use
-  elsewhere, and then the file stays. It is checked again in the step that deletes the row. Working folders and
+  elsewhere, and then the file stays. It is checked again in the step that deletes the row, under the file's content
+  lock, and a file ClipForge just handed out again (the same bytes uploaded, linked or stored once more:
+  `assets.reused_at`, set in the same step) is left alone for an hour, so tidying never deletes a copy an upload was
+  just given and has not recorded yet. Working folders and
   half-recorded voices an app closed mid-build left are deleted once they are an hour old; the oldest recorded voices
   no scene uses go once a short has more than 120. Deleting the short (studio/project_delete.py) reaches every file on
   its list, also one no scene or version names.
@@ -269,8 +272,16 @@ crash or a full disk) becomes a designed card with the reason.
   picture becomes the scene's stored picture (its note is `maker.json` in the picture's folder), the video maker's
   clip and note go into the scene clip's folder (`maker.mp4`, `maker.json`), and the voice engine's recording and
   note go into the short's voice folder (`voice/maker/<voice key>.wav` and `.json`, tidied with that voice). A
-  picture or video clip of the maker's that the short could not use is deleted with its note (the reason is kept
-  with the scene). Voice samples (`voice-sample`) are not projects: their engine originals stay in engines/made.
+  made picture is copied first and then deleted from engines/made, so a file another program holds open (Windows)
+  never costs the scene its picture: it then stays there with its note. What a maker made that cannot be used (a
+  picture that does not open, a video the short could not fit, a silent or unreadable recording, a file ComfyUI
+  handed back that is not a picture or is an empty video) or that was made as Stop was pressed is deleted with its
+  note (the reason is kept with the scene); only files in engines/made are ever deleted
+  (`local_engines.discard_made`). The delete window says which originals go with the short and which stay in
+  engines/made (made by a version from before shorts kept them, or the move failed). Voice samples
+  (`voice-sample`) are not projects: their engine originals stay in engines/made.
+* A picture the owner chooses for a scene (`update_scene` with `picture_asset_id`) takes their upload of it
+  (`uploads.taken`), so deleting the short removes ClipForge's copy instead of keeping it as a file added again.
 * `view(project)` is the `short` part of the editor page's video (`GET /api/studio/videos/<id>`): the options, stage
   and message, the scenes in the plan's order, progress, seconds (the video's length plus an estimate for scenes
   not in it yet), engines, `cards_to_swap` (designed cards a ready picture maker would replace: **Draw real
