@@ -55,18 +55,20 @@ Without a model the old rules still answer, and the chat offers the built-in mod
     num_ctx, on_text, cancel)`. Also public: `tools.Tool`, `tools.Result`, `tools.ToolError`,
     `agents.list_(ws, enabled_only=False)`, `agents.run(ws, agent_id, task, …, owner_text="")`, and
     `allowance.take(ws, settings, task, ref="")` before each request the planner sends to an online model itself
-    (it raises `allowance.Reached` when today's limit is reached; a model on the computer is never counted), or
-    `allowance.counted(ws, settings, write)` when a part counts with a row of its own. The editor's change requests
-    use `allowance.editor_request`, which also writes their own `ai_usage` row (task `edit_request`), so deleting a
-    video does not give the day's requests back. A video counts as
+    (it raises `allowance.Reached` when today's limit is reached; a model on the computer is never counted). Only
+    `ai_usage` rows count: `allowance.counted(ws, settings, write)` runs a `write` that must itself write that row
+    with the part's own (the check and both rows are one step under one lock). The editor's change requests use
+    `allowance.editor_request`, which writes their `edit_requests` row and their own `ai_usage` row (task
+    `edit_request`), so deleting a video does not give the day's requests back. A video counts as
     being planned (its chat and links open the setup page) only when it is a draft with its setup and the full_video
     workflow, the same rule as the planner's `video_setup.is_draft`.
   - **Deleting projects** (PR #35, merged in) is `clipfoundry/studio/project_delete.py`: `plan(ws, project_id,
     kind)` (`goes`, `stays`, `blocked`, `working`, `as_of`, `removes`) and `delete(ws, project_id, kind, *, wait,
     as_of, removes)`, which raises `DeleteError` (`code`: `not_found`, `blocked`, `stopping`, `changed`, `kind`).
     `delete_project` calls exactly these: the card keeps the plan's `as_of` and `removes` (what it listed beyond the
-    project: media files, the copy of the video it was made from, planned posts; internal arguments: `"internal":
-    True` in the schema, hidden from the model, kept only from the button's saved arguments) and OK sends them back
+    project: media files, the copy of the video it was made from, planned posts, and as `kept` what ClipForge made for
+    a short's scenes that it said stays; internal arguments: `"internal": True` in the schema, hidden from the model,
+    kept only from the button's saved arguments) and OK sends them back
     with `wait=10.0`, so it never deletes more than the card listed. `stopping` keeps the card for another press;
     `blocked` (Autopilot or a post started since) and `changed` (it would now remove more) end it, and asking again
     shows a card with what goes then; `not_found` says the project was deleted already. Deleting a project also

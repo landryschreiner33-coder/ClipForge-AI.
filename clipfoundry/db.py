@@ -785,6 +785,8 @@ CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every r
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage(provider, day);
+-- allowance.used(): whether an editor's change request has its own row, without reading every earlier day
+CREATE INDEX IF NOT EXISTS idx_ai_usage_job ON ai_usage(provider, task, job_id);
 
 -- ---------------------------------------------------------------- ClipForge: identity and workspaces (cloud/)
 CREATE TABLE IF NOT EXISTS workspaces (

@@ -362,7 +362,8 @@ internet"). Each request is one `ai_usage` row (provider `clipforge_ai:<workspac
 `helper`, `helper_note`, `video_plan` or `edit_request`, the model, the message, the video or the change request; the
 editor writes its row with its request, `allowance.editor_request`). The rows stay when a video is deleted, so
 deleting one (with its change requests) does not give the day's requests back; an editor request sent before the
-editor wrote its own row is counted from its `edit_requests` row while that is there.
+editor wrote its own row is counted from its `edit_requests` row while that is there (an index on the provider, task
+and request keeps that check to today's requests however long ClipForge has been used, `idx_ai_usage_job`).
 At the limit a message is not answered ("Today's limit of N requests to your online AI is reached (Settings →
 Advanced, “AI requests a day”). Nothing was sent."); an answer that reaches it midway keeps what it wrote and did and ends with "…
 So I stopped here."; a helper says so instead of working; the planner gets no more notes. A model on this computer
@@ -372,9 +373,10 @@ server at a loopback address (localhost, 127.x.x.x, ::1, 0.0.0.0); an Ollama clo
 such as `gpt-oss:120b-cloud`) answers online even through the Ollama on this computer, so it counts, and the editor
 says its request is sent over the internet. Another part that sends its own requests to an online model calls
 `allowance.take(ws, settings, task, ref)` before each one: it counts the request or raises `allowance.Reached`
-(its message says so in plain words), and then nothing may be sent. A part that counts with a row of its own (the
-editor) uses `allowance.counted(ws, settings, write)`: the check and its row are one step under the same lock, so
-two parts asking at the same moment never send one more than the limit.
+(its message says so in plain words), and then nothing may be sent. The editor uses
+`allowance.editor_request(ws, settings, write)`: `write` saves its `edit_requests` row, and the check, that row and
+the `ai_usage` row that counts it are one step under the same lock (`allowance.counted`), so two parts asking at the
+same moment never send one more than the limit. Only `ai_usage` rows count: a part's own table never does.
 
 **Every kind of model** (`clipfoundry/pipeline/llm.py`, `converse(settings, messages, *, system, task, json_object,
 json_schema, max_tokens, timeout, temperature, num_ctx, on_text, cancel)`): the whole conversation with a system text,
@@ -449,12 +451,14 @@ what goes, what stays and what would block it; `delete()` does it). The card sho
 …", "Stays: …", and first what work deleting stops), and it keeps two things from the plan with its arguments, which
 OK sends back: the moment the plan was judged (`as_of`), so a file the card said stays because you added it again
 still stays however long the card waited, and what it listed beyond the project itself (`removes`: media files, the
-copy of the video it was made from, planned posts). OK deletes no more than that, or nothing: when deleting would now
-remove more, because the other project that used a file was deleted meanwhile (one answer can show two cards for
+copy of the video it was made from, planned posts, and the pictures and clips ClipForge made for a short's scenes
+that it said stay because another project uses them). OK deletes no more than that, or nothing: when deleting would
+now remove more, because the other project that used a file was deleted meanwhile (one answer can show two cards for
 videos that share a file) or a post was planned since, the card fails with what changed ("What deleting it removes
 has changed since this was shown: it would now also remove … Nothing was deleted. Ask again to see what deleting it
 removes now.", code `changed`), and asking again shows a card that lists it. The project's own clips, versions,
-notes and chat are the project: they go with it whatever their number. `as_of` and `removes` are internal arguments
+notes and chat are the project, and so is what ClipForge makes for a short's scenes after the card was shown: they go
+with it whatever their number. `as_of` and `removes` are internal arguments
 (`"internal": True` in the tool's schema): a model never reads them in the tool's line (`tools.signature`) and never
 gives them (`tools.check_args` keeps them only from the button's own saved arguments, `button=True` in
 `chat.decide`), and two cards that differ only there are one card (`tools.same_button`). Work still running on the

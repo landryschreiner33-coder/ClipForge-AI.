@@ -519,8 +519,9 @@ def _delete_preview(ctx: Ctx, args: dict) -> dict:
     """What deleting the project does, in the safe delete's own words (studio/project_delete.py, as the window on the
     Projects page says it). The button keeps when that was judged (`as_of`: a file it said stays because the owner
     added it again still stays when OK comes later) and what it listed beyond the project itself (`removes`: media
-    files, the copy of the video it was made from, planned posts). OK deletes no more than that, or nothing: a card
-    can wait long, and one answer can show two cards for projects that share a file."""
+    files, the copy of the video it was made from, planned posts, and what ClipForge made for its scenes that it said
+    stays). OK deletes no more than that, or nothing: a card can wait long, and one answer can show two cards for
+    projects that share a file."""
     from ..studio import project_delete as pd
 
     p = find(ctx.ws, args.get("project", ""), ctx.project_id, args.get("kind") or "")

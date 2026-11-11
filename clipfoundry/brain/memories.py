@@ -246,10 +246,13 @@ def confirm(ws: str, memory_id: str) -> dict:
 
 
 def forget(ws: str, memory_id: str) -> dict:
-    """Delete a memory and the record of where it was used; an answer that used it keeps its own copy."""
+    """Delete a memory and the record of where it was used; an answer that used it keeps its own copy. One
+    transaction: a use an answer records at the same moment goes with the memory or is not recorded (`record_use`),
+    never left over for nothing."""
     row = get(ws, memory_id)
-    db.execute("DELETE FROM brain_memory_uses WHERE memory_id = ?", (memory_id,))
-    db.execute("DELETE FROM brain_memories WHERE id = ?", (memory_id,))
+    with db.connect() as conn:
+        conn.execute("DELETE FROM brain_memory_uses WHERE memory_id = ?", (memory_id,))
+        conn.execute("DELETE FROM brain_memories WHERE id = ?", (memory_id,))
     return view(row)
 
 
@@ -467,9 +470,10 @@ def tidy(ws: str) -> dict:
     now = time.time()
     expired = db.select("brain_memories", "workspace_id = ? AND expires_at IS NOT NULL AND expires_at <= ?",
                         (ws, now))
-    for r in expired:
-        db.execute("DELETE FROM brain_memory_uses WHERE memory_id = ?", (r["id"],))
-        db.execute("DELETE FROM brain_memories WHERE id = ?", (r["id"],))
+    with db.connect() as conn:  # each with the record of its uses, in one transaction (as `forget`)
+        for r in expired:
+            conn.execute("DELETE FROM brain_memory_uses WHERE memory_id = ?", (r["id"],))
+            conn.execute("DELETE FROM brain_memories WHERE id = ?", (r["id"],))
     merged = 0
     groups: dict[tuple[str, str], list[dict]] = {}
     for r in db.select("brain_memories", "workspace_id = ?", (ws,), "created_at ASC"):
@@ -487,8 +491,9 @@ def tidy(ws: str) -> dict:
                   tags=_tags(list(keep.get("tags") or []) + [t for r in rest for t in (r.get("tags") or [])]),
                   revision=int(keep.get("revision") or 1) + 1)
         for r in rest:
-            db.execute("UPDATE brain_memory_uses SET memory_id = ? WHERE memory_id = ?", (keep["id"], r["id"]))
-            db.execute("DELETE FROM brain_memories WHERE id = ?", (r["id"],))
+            with db.connect() as conn:  # its uses move to the one kept as it goes: one transaction (as `forget`)
+                conn.execute("UPDATE brain_memory_uses SET memory_id = ? WHERE memory_id = ?", (keep["id"], r["id"]))
+                conn.execute("DELETE FROM brain_memories WHERE id = ?", (r["id"],))
             merged += 1
     return {"expired": len(expired), "merged": merged}
 

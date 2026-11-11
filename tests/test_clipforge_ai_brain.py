@@ -143,6 +143,46 @@ def test_uses_are_recorded_and_counted(data):
     assert len(brain.uses(WS, m["id"])) == 4
 
 
+def test_a_use_recorded_while_a_memory_is_forgotten_or_tidied_away_is_never_left_behind(data, monkeypatch):
+    """Forget and Tidy delete a memory with the record of its uses, and Tidy moves a twin's uses to the memory it
+    keeps, each in one step: an answer that records a use at any moment in between (here: after every step they
+    take) has it go with the memory, or it is not recorded. None is left over for a memory that is gone."""
+    from contextlib import contextmanager
+
+    from clipfoundry import brain, db
+
+    said = brain.remember(WS, "Captions in yellow")
+    twin = db.insert("brain_memories", {"workspace_id": WS, "kind": "fact", "text": "captions in yellow",
+                                        "norm": "captions in yellow", "source": "did", "confidence": 0.8,
+                                        "scope": "all", "tags": [], "data": {}, "meaning": None,
+                                        "meaning_model": "", "enabled": 1, "revision": 1, "used_count": 0})
+    gone = brain.remember(WS, "A guess that ran out", source="guessed")
+    db.update("brain_memories", gone["id"], expires_at=time.time() - 5)
+    forgotten = brain.remember(WS, "Never use red captions", kind="rule")
+    every = [said["id"], twin["id"], gone["id"], forgotten["id"]]
+    real, inside = db.connect, [False]
+
+    @contextmanager
+    def connect():
+        with real() as conn:
+            yield conn
+        if not inside[0]:  # an answer that used them all records it right after each step
+            inside[0] = True
+            try:
+                brain.record_use(WS, every, "chat", "msg-1")
+            finally:
+                inside[0] = False
+
+    monkeypatch.setattr(db, "connect", connect)
+    brain.forget(WS, forgotten["id"])
+    assert brain.tidy(WS) == {"expired": 1, "merged": 1}
+    monkeypatch.setattr(db, "connect", real)
+    assert db.scalar("SELECT COUNT(*) FROM brain_memory_uses u WHERE NOT EXISTS (SELECT 1 FROM brain_memories m "
+                     "WHERE m.id = u.memory_id)") == 0
+    assert {m["id"] for m in db.select("brain_memories", "workspace_id = ?", (WS,))} == {said["id"]}
+    assert len(brain.uses(WS, said["id"])) >= 2  # its own and its twin's moved to it
+
+
 def test_guesses_expire_unless_confirmed_and_forget_removes_a_memory_with_its_uses(data):
     from clipfoundry import brain, db
 

@@ -1157,6 +1157,47 @@ def test_two_delete_cards_for_videos_that_share_a_file_never_remove_more_than_th
     assert not Path(summit["path"]).exists()
 
 
+def test_two_shorts_delete_cards_never_remove_a_scene_picture_one_said_stays(data, monkeypatch):
+    """The same with a picture ClipForge made for two animated shorts' scenes (one file): what it made for a short
+    goes with it, but each card says this picture stays, because the other short uses it. OK on the first deletes
+    that short and the picture stays; OK on the second would now remove it, so it deletes nothing and says why; asking
+    again shows a card that counts it with what was made for the scenes."""
+    from pathlib import Path
+
+    from clipfoundry import db
+    from clipfoundry.brain import chat
+    from test_studio_project_delete import _stored, _video
+
+    picture = _stored(61, kind="image", filename="Scene 1 picture.png")
+    shark, owl = (_video(name, [], workflow="animated_short") for name in ("Shark facts", "Owl facts"))
+    for short in (shark, owl):
+        db.insert("short_scenes", {"project_id": short["id"], "workspace_id": WS, "position": 1, "narration": "Teeth",
+                                   "picture_asset_id": picture["id"], "info": {"picture": {"source": "engine"}}})
+    install(monkeypatch, say("", ("delete_project", {"project": "Shark facts"}),
+                             ("delete_project", {"project": "Owl facts"})), say("Press OK on each."))
+    c = chat.open_chat(WS)
+    m = settled(c["id"], _say(c["id"], "delete both facts shorts")["id"])
+    stays = "Stays: “Scene 1 picture.png” stays in ClipForge because another project or example uses it."
+    assert [(a["state"], stays in a["detail"]) for a in m["data"]["pending"]] == [("waiting", True)] * 2
+    first = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
+    assert first["state"] == "done" and db.fetch("studio_projects", shark["id"]) is None
+    assert db.fetch("assets", picture["id"])  # the other short uses it
+    second = chat.decide(WS, c["id"], m["id"], "a2", True)["data"]["pending"][1]
+    assert second["state"] == "failed" and second["result"] == (
+        "What deleting it removes has changed since this was shown: it would now also remove “Scene 1 picture.png”, "
+        "which ClipForge made for its scenes and no other project uses now. Nothing was deleted. Ask again to see "
+        "what deleting it removes now.")
+    assert db.fetch("studio_projects", owl["id"]) and db.fetch("assets", picture["id"])
+    assert Path(picture["path"]).is_file()
+    install(monkeypatch, say("", ("delete_project", {"project": "Owl facts"})), say("Press OK."))
+    m = settled(c["id"], _say(c["id"], "delete Owl facts")["id"])
+    act = m["data"]["pending"][0]
+    assert "Goes: What ClipForge made for its scenes: 1 picture." in act["detail"]
+    assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "done"
+    assert db.fetch("studio_projects", owl["id"]) is None and db.fetch("assets", picture["id"]) is None
+    assert not Path(picture["path"]).exists()
+
+
 def test_a_delete_card_autopilot_got_in_the_way_of_ends_and_a_new_card_says_what_goes_then(data, monkeypatch):
     """With studio/project_delete.py itself: Autopilot started on the project after the card was shown, so OK ends
     the card with what it waits for and deletes nothing. What Autopilot made meanwhile (a clip, a planned post) is on
@@ -1560,6 +1601,53 @@ def test_the_editors_change_requests_and_the_chat_share_one_daily_count(data, mo
                                 "status": "ready", "source": "ai",
                                 "sent": "Stays on this computer: Ollama …"})  # a model on this computer: free
     assert allowance.used(WS) == 2 and allowance.used("other") == 0
+
+
+def test_the_days_count_takes_no_longer_after_a_year_of_requests(data, monkeypatch):
+    """The day's count runs before every request to an online AI, under the allowance's lock, and checks each of
+    today's change requests for a row of its own: a year of earlier requests must not make that slower. Counted in
+    SQLite's own steps, so the test does not depend on how fast this computer is."""
+    import sqlite3
+
+    from clipfoundry import db
+    from clipfoundry.brain import allowance
+
+    provider, today = f"clipforge_ai:{WS}", time.strftime("%Y-%m-%d")
+    for k in range(40):  # today's change requests, each with its own row, as the editor writes them
+        sent = db.insert("edit_requests", {"workspace_id": WS, "project_id": "p1", "base_revision": 1, "text": f"r{k}",
+                                           "status": "ready", "source": "ai",
+                                           "sent": "Sent over the internet to Groq: …"})
+        db.insert("ai_usage", {"provider": provider, "day": today, "job_id": sent["id"], "task": "edit_request",
+                               "status": "done"})
+
+    def earlier(days: range) -> None:
+        with db.connect() as conn:
+            conn.executemany("INSERT INTO ai_usage (id, provider, day, job_id, task, status, created_at, updated_at) "
+                             "VALUES (?, ?, ?, ?, 'edit_request', 'done', 0, 0)",
+                             [(f"u{d}-{k}", provider, f"2025-{d:04d}", f"old{d}-{k}") for d in days
+                              for k in range(40)])
+
+    steps = [0]
+    real = sqlite3.connect
+
+    def counting(*args, **kwargs):
+        conn = real(*args, **kwargs)
+        conn.set_progress_handler(lambda: steps.__setitem__(0, steps[0] + 1), 100)
+        return conn
+
+    def cost() -> int:
+        steps[0] = 0
+        monkeypatch.setattr(sqlite3, "connect", counting)
+        try:
+            assert allowance.used(WS) == 40
+        finally:
+            monkeypatch.setattr(sqlite3, "connect", real)
+        return steps[0]
+
+    earlier(range(1))
+    one_day = cost()
+    earlier(range(1, 365))
+    assert cost() < 2 * one_day + 5
 
 
 def test_a_model_on_this_computer_and_the_online_allowance_never_block_each_other(env, monkeypatch):

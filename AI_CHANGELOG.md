@@ -272,6 +272,32 @@ Landry's projects, could never do anything, and without a downloaded model only 
   - Left as it was: with a model on this computer, the editor's own daily limit (`edit_requests._sent_today`) counts
     its change requests from their rows, so deleting a video still gives those back, as before this merge. The
     reviewers' doubt about `scripts/assistant_check.py`'s polite-no verdict did not hold up.
+- **A check of those fixes** (three more reviewers: the delete guard, the daily count and memory uses, the tests and
+  docs; each finding checked again by one who tried to refute it) found one more real problem and three small ones,
+  each fixed with a test that failed before:
+  - A card could still delete a picture ClipForge made for a short's scenes that it said stays: what ClipForge makes
+    for a short goes with it whatever its number, and that rule also covered a picture another project used when the
+    card was shown (the owner put the same picture in another video, or two shorts share one; ClipForge keeps one
+    file). When the other project was deleted meanwhile, OK deleted it. The plan's `removes` now also lists, as
+    `kept`, what ClipForge made for its scenes that it says stays, and `project_delete.delete(..., removes=)` counts
+    such a file as more ("it would now also remove “Scene 1 picture.png”, which ClipForge made for its scenes and no
+    other project uses now. Nothing was deleted."). What it makes for a new scene after the card was shown still goes
+    with the short.
+  - The day's count of online requests looked through every earlier day's requests, once for each of today's change
+    requests, before every request under the allowance's lock (about a second after a year of heavy use). A new index
+    (`idx_ai_usage_job` on `ai_usage(provider, task, job_id)`, made at the next start) keeps it to today's.
+  - Forget and Tidy deleted a memory and the record of its uses in separate steps, so a use recorded in between was
+    left over for nothing; Tidy's merge of twins likewise. Each is now one transaction.
+  - `docs/clipforge/CLIPFORGE_AI.md` and `AI_HANDOFF.md` still said the editor counts with `allowance.counted` and its
+    own row; they now name `allowance.editor_request` and say only `ai_usage` rows count.
+  - New tests: `test_a_delete_given_its_confirmations_list_never_removes_a_scene_picture_it_said_stays` in
+    `tests/test_studio_project_delete.py`; `test_two_shorts_delete_cards_never_remove_a_scene_picture_one_said_stays`
+    and `test_the_days_count_takes_no_longer_after_a_year_of_requests` (counted in SQLite's own steps, not time) in
+    `tests/test_clipforge_ai_assistant.py`; in `tests/test_clipforge_ai_brain.py`,
+    `test_a_use_recorded_while_a_memory_is_forgotten_or_tidied_away_is_never_left_behind`. Two doubts did not hold
+    up: a card that waited for work to stop and then found more to delete says only that nothing was deleted (the
+    earlier press said the work was being stopped), and the editor's two rows cannot be split by anything in ClipForge
+    (each write waits up to 30 seconds for the database).
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
