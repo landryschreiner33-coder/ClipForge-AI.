@@ -347,8 +347,8 @@ def test_the_same_file_linked_twice_at_once_is_one_asset(env, monkeypatch):
 
 @needs_ffmpeg
 def test_a_file_added_from_this_computer_again_stays_when_a_project_using_it_is_deleted(env, monkeypatch):
-    """A video made from a file used where it is. On a new page the owner adds the same file again (Add from this
-    computer leaves no upload behind), then deletes the video: what ClipForge made from the file stays for that
+    """A video made from a file used where it is (the page sends its link). On a new page the owner adds the same
+    file again, then deletes the video: what ClipForge made from the file stays for that
     page, whose Start still works. Without a new page holding it, it goes with the video."""
     from clipfoundry import db
     from clipfoundry.jobs import worker
@@ -358,7 +358,7 @@ def test_a_file_added_from_this_computer_again_stays_when_a_project_using_it_is_
     file = make_video(env / "clip.mp4", seconds=1.0)
     linked = uploads.link_local("local", str(file))
     old = video_flow.create("local", "local", name="Old", asset_ids=[linked["id"]], brief={}, style_id="settings",
-                            remember={"enabled": False})["id"]
+                            remember={"enabled": False}, upload_ids=[linked["upload_id"]])["id"]
     plan = project_delete.plan("local", old, "full_video")
     assert plan["counts"]["files"] == 1 and plan["counts"]["files_kept"] == 0
     time.sleep(0.01)

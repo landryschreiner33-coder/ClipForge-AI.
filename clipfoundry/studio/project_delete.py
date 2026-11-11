@@ -350,9 +350,10 @@ def _added_again(asset: dict, row: dict, seen: float) -> bool:
     file, so every upload of the same bytes is this file. Only uploads that finished in the day before `seen` (when
     the window was shown) count, and only uploads no project took (uploads.taken: each page sends the uploads it made
     a project from or added to it, and those are that project's; one a project took was for that project, also one
-    deleted since). When this project took uploads of its own, the page sent all of them, so any other such upload
-    is another page's ("again"). Add from this computer leaves such an upload too (uploads._hand_out). Otherwise (a
-    project made before uploads were marked, or only from files ClipForge got another way) it is "again" when, in
+    deleted since). When this project took uploads of its own, or was made since ClipForge records them, its pages
+    sent all of its own, so any other such upload is another page's ("again"); a project made from a file ClipForge
+    got another way (a link, Find media) owns none. Add from this computer leaves such an upload too
+    (uploads._hand_out). A project made before uploads were marked keeps the older rules: it is "again" when, in
     that day:
     * an upload finished after the project was made that did not make it: one that started after ClipForge had the
       file (also a file ClipForge got another way: Find media, a link, a short's build), or one that started before
@@ -364,14 +365,23 @@ def _added_again(asset: dict, row: dict, seen: float) -> bool:
     window said."""
     stored, made, day = float(asset.get("created_at") or 0), float(row.get("created_at") or 0), seen - AGAIN_S
     done = "FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ?"
-    if db.scalar("SELECT 1 FROM uploads WHERE taken = ? LIMIT 1", (row["id"],)):  # its pages sent their uploads
-        return bool(db.scalar(f"SELECT 1 {done} LIMIT 1", (asset["id"], day)))
+    if made >= _marked_since() or db.scalar("SELECT 1 FROM uploads WHERE taken = ? LIMIT 1", (row["id"],)):
+        return bool(db.scalar(f"SELECT 1 {done} LIMIT 1", (asset["id"], day)))  # its pages sent their uploads
     if db.scalar(f"SELECT 1 {done} AND (created_at > ? OR created_at < ?) LIMIT 1",
                  (asset["id"], max(made, day), stored, made)):
         return True
     later = int(db.scalar(f"SELECT COUNT(*) {done} AND created_at > ?", (asset["id"], day, stored)) or 0)
     first = 1 if db.scalar(f"SELECT 1 {done} AND created_at <= ? LIMIT 1", (asset["id"], day, stored)) else 0
     return later + first >= 2
+
+
+def _marked_since() -> float:
+    """When ClipForge started recording which project took each upload (db._migrate_uploads_taken)."""
+    raw = db.scalar("SELECT value FROM autopilot_state WHERE key = ?", (db.UPLOADS_TAKEN_SINCE,))
+    try:
+        return float(json.loads(raw)["at"]) if raw else 0.0
+    except (ValueError, TypeError, KeyError):
+        return 0.0
 
 
 def _handed_out(conn, asset_id: str, since: float) -> bool:

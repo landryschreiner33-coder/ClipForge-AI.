@@ -239,10 +239,11 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
     const got = fresh(await patch({ picture_prompt: text }, `The picture idea of scene ${scene.n} is saved.`));
     if (got) settleIdea(got.picture_prompt);
   };
-  // FileDrop reports its rows while it updates itself, so each file is dealt with a moment later, and only once.
+  // FileDrop reports its rows while it updates itself, so each upload is dealt with a moment later, and only once
+  // (a picture dropped again is a new upload, so a change that failed is tried again with it).
   const picked = (rows: Picked[]) => {
     for (const r of rows) {
-      const k = `${drop}|${r.key}`;
+      const k = `${drop}|${r.key}|${r.asset?.upload_id || ""}`;
       const wrong = !isPicture(r.file) || (!!r.asset && r.asset.kind !== "image");
       if (seen.current.has(k) || (!wrong && !r.asset)) continue;
       seen.current.add(k);
@@ -253,10 +254,7 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
           toast("That file is not a picture. Use a PNG, JPEG or WebP picture.", true);
         } else {
           void patch({ picture_asset_id: assetId, upload_ids: uploaded.of([assetId]) }, `Scene ${scene.n} uses your picture now.`)
-            .then((nv) => {
-              if (nv) setUploading(false);
-              else seen.current.delete(k);  // not changed: dropping the picture again tries again
-            });
+            .then((nv) => nv && setUploading(false));
         }
       }, 0);
       return;

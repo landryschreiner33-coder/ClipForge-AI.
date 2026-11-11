@@ -939,13 +939,18 @@ def test_a_shorts_window_reads_its_saved_versions_and_a_picture_waiting_to_be_re
     assert not any("engines/made" in line for line in project_delete.plan("local", stopped, "full_video")["stays"])
 
 
-def test_another_pages_upload_of_the_same_file_keeps_it_even_when_it_finished_before_or_after_the_project(env):
-    """A page makes a project only from finished uploads, so an upload that started before the project was made and
-    finished after it is another page's (the same file under another name, sent at the same time). And two drops of
-    a file in the last day mean another page may hold it: the project was made from one of them at most. Either way
-    the file stays. One drop (the uploads that started before ClipForge had the file count as one) still goes."""
+def test_another_pages_upload_of_the_same_file_keeps_it_even_when_it_finished_before_or_after_the_project(
+        env, monkeypatch):
+    """Projects made before ClipForge recorded which project took an upload keep these rules. A page makes a project
+    only from finished uploads, so an upload that started before the project was made and finished after it is
+    another page's (the same file under another name, sent at the same time). And two drops of a file in the last
+    day mean another page may hold it: the project was made from one of them at most. Either way the file stays. One
+    drop (the uploads that started before ClipForge had the file count as one) still goes. A project made since then
+    that took none of them (made another way) owns none of them, so the one drop stays too."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
+
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: float("inf"))  # all made before
 
     def upload(asset: dict, started: float, done: float) -> None:
         db.insert("uploads", {"workspace_id": "local", "filename": asset["filename"], "size": 3000,
@@ -974,6 +979,8 @@ def test_another_pages_upload_of_the_same_file_keeps_it_even_when_it_finished_be
     upload(once, t - 4, t + 0.5)
     vid3 = _video("Once", [once["id"]], created_at=t + 30)["id"]
     assert project_delete.plan("local", vid3, "full_video")["counts"]["files"] == 1
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: t)  # made since
+    assert project_delete.plan("local", vid3, "full_video")["counts"]["files_kept"] == 1
 
 
 def test_a_video_being_planned_goes_with_its_planning_chat_and_an_answer_written_after_changes_nothing(env,

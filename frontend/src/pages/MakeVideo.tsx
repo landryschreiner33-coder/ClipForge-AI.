@@ -484,7 +484,8 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
   const add = (assets: Asset[], again = false) => {
     // picked on purpose: also one taken out before (one still in the video stays known, so taking it out later holds)
     if (again) assets.filter((a) => !inVideo(a.id)).forEach((a) => added.current.delete(a.id));
-    const fresh = assets.filter((a) => !added.current.has(a.id) && !inVideo(a.id));
+    // a new upload of a file taken out (the same file under another name) is picked on purpose too
+    const fresh = assets.filter((a) => !inVideo(a.id) && (!added.current.has(a.id) || (!!a.upload_id && !sent.current.has(a.upload_id))));
     // each upload is sent once with its file, also one of a file the video has already, so it is the video's own
     const mine = assets.filter((a) => a.upload_id && !sent.current.has(a.upload_id) && (fresh.includes(a) || inVideo(a.id)));
     if (!fresh.length && !mine.length) return;

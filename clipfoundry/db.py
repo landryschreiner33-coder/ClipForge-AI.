@@ -1361,9 +1361,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_post_spacing(conn)
     _migrate_connections(conn)
     _migrate_cloud_secrets(conn)
+    _migrate_uploads_taken(conn)
 
 
 CONNECTIONS_MIGRATION = "social_connections_migrated_v1"
+UPLOADS_TAKEN_SINCE = "uploads_taken_since"
+
+
+def _migrate_uploads_taken(conn: sqlite3.Connection) -> None:
+    """When ClipForge started recording which project took each upload (uploads.taken), once: a project made since
+    then owns only the uploads its page sent, while one made before keeps the older rules when it is deleted
+    (studio/project_delete._added_again)."""
+    now = time.time()
+    conn.execute("INSERT OR IGNORE INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
+                 (UPLOADS_TAKEN_SINCE, json.dumps({"at": now}), now))
 
 
 def legacy_connection_id(platform: str) -> str:

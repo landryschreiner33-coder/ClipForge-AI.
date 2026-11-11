@@ -27,9 +27,13 @@ Follow-ups from the delete-projects review (PR #35), passed on by the coordinato
   `uploads.taken(ws, upload_ids, project_id, asset_ids)` marks exactly those (new column `uploads.taken`). Add from
   this computer leaves such an upload too (`uploads._hand_out`, one step with marking the copy; the link answer has
   `upload_id`), so links count like uploads. When deleting, a project that took uploads counts every other finished
-  upload of the file in the day as another page's ("again", kept), also one made before the project; a project made
-  before this keeps the older rules. A project's own later upload or link of a file ClipForge already had no longer
-  keeps that file forever; choosing an earlier picture again takes no upload.
+  upload of the file in the day as another page's ("again", kept), also one made before the project. So does every
+  project made since ClipForge records this (`db._migrate_uploads_taken` notes when, `project_delete._marked_since`),
+  also one made from a file ClipForge got another way (a link, Find media), which owns no upload; a project made
+  before keeps the older rules. A project's own later upload or link of a file ClipForge already had no longer keeps
+  that file forever; choosing an earlier picture again takes no upload. A scene's picture is changed once per upload
+  (a failed change is tried again when the picture is dropped again, never by the page on its own), and a copy of a
+  file taken out of a draft comes back when it is added again under another name.
 - **Deleting** (`studio/project_delete.py`): inside its own step (`BEGIN IMMEDIATE`), nothing else can change the
   database, so it looks again at what names each file and at copies handed out since the window (`_handed_out`); those
   stay, and the answer is worked out again ("… stays in ClipForge because it was used again just now"). A video's bin
@@ -37,8 +41,9 @@ Follow-ups from the delete-projects review (PR #35), passed on by the coordinato
 - **Deleting an example's video file** (`studio/reference._drop_file`): the file stays when anything else names it
   (saved versions, shorts, imports; the delete's own check), when it was handed out again since the example was made,
   or when another page's upload or link of it that no project or example took finished in the last day (also before
-  the example); the Examples page's own uploads are the example's (`upload_ids` on `POST /api/studio/references`). The
-  check and the delete are one step.
+  the example); the Examples page's own uploads are the example's (`upload_ids` on `POST /api/studio/references`). A
+  copy handed out again since the example was made counts only within the hour and until its upload is recorded
+  (uploads a project took never keep it). The check and the delete are one step.
 - **Planning chat** (`brain/chat.open_chat(create=False)`, `studio/video_setup._think`): an answer for a video deleted
   while it is written stops and never makes a new, empty chat; a chat made just as its video is deleted goes again.
 - **Docs:** `docs/clipforge/ANIMATED_SHORTS.md` (tidying, the makers' originals, a scene's own picture),
@@ -47,18 +52,21 @@ Follow-ups from the delete-projects review (PR #35), passed on by the coordinato
 - **Tests:** `tests/test_studio_uploads_taken.py` (new), `test_studio_shorts_tidy.py` (new), and new cases in
   `test_studio_uploads.py`, `test_studio_shorts_voice.py`, `test_local_engines.py`, `test_video_setup_flow.py`,
   `test_studio_project_delete.py`, `test_studio_local_files.py`, `test_studio_reference.py`. Each fix has a test that
-  fails on the code before it. Four independent reviews; every confirmed finding fixed.
+  fails on the code before it. Five independent reviews; every confirmed finding fixed.
 - **Checked in the real app** (browser, fresh data folder): Make clips with the same file picked twice, Make a YouTube
   video with two copies of one file and a picture, Add files on the draft (a file it has already, and a new one), the
   delete window's words, and one big file dropped on two pages at once (each page got its own upload; deleting the
   first page's video kept the file and the second page started its video). Then: Add from this computer on Make a
   YouTube video (the link is the video's), Make clips with a file replaced while it uploaded and picked again (both
   uploads sent and taken), an example video (its upload is the example's; deleting it with its file kept the file
-  another page had uploaded), and Add from this computer in the editor.
+  another page had uploaded), Add from this computer in the editor, and a draft's file taken out and then added
+  again as a copy under another name (it came back, and its upload is the video's).
 - **Known limits (keeping is the safe side):** projects and examples made before this change took no uploads; such
   a project keeps the older rules, and such an example's file stays when it is deleted within a day of its upload.
-  An upload a page started and then removed from its list counts as another page's for a day. The owner's own files
-  are never touched.
+  A project made since then by something other than a page (an API call, ClipForge AI's tools) from a file the owner
+  uploaded keeps that file for a day after its upload if deleted, as the upload was not sent with it. An upload a
+  page started and then removed from its list counts as another page's for a day. The owner's own files are never
+  touched.
 
 ## Deleting projects, with a confirmation that says what goes and what stays — 2026-11-10 (Claude Code)
 

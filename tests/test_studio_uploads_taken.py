@@ -366,3 +366,25 @@ def test_a_bin_never_names_a_file_deleted_meanwhile(env):
         with pytest.raises(video_flow.VideoError):
             video_flow.add_media(vid, [pic["id"]])
     assert db.fetch("studio_projects", vid)["asset_ids"] == [clip["id"]]
+
+
+def test_a_project_made_another_way_never_counts_another_pages_upload_as_its_own(env):
+    """A page uploads a file and has not made its video yet (its upload stored the file). A clips project gets the
+    same file another way (a link's download, Find media: no upload is sent with it). Deleting that project keeps the
+    file for the page, whose Start still works: a project made since ClipForge records which project took an upload
+    owns only the uploads its page sent. A project made before that keeps the older rules."""
+    from clipfoundry import db
+    from clipfoundry.studio import clips_flow, project_delete, video_setup
+
+    clip = _had(1)
+    page = _uploaded(clip)
+    with db.connect() as conn:  # it started before the file was stored and stored it
+        conn.execute("UPDATE uploads SET created_at = ?, updated_at = ? WHERE id = ?",
+                     (clip["created_at"] - 5, clip["created_at"] + 1, page["id"]))
+    pid = clips_flow.create("local", "local", asset_id=clip["id"], mode="highlights")["id"]
+    plan = project_delete.plan("local", pid, "clips")
+    assert plan["counts"]["files_kept"] == 1 and _again(plan["stays"]), plan
+    project_delete.delete("local", pid, "clips", as_of=plan["as_of"])
+    assert db.fetch("assets", clip["id"]) and db.fetch("uploads", page["id"])["taken"] == ""
+    video_setup.start("local", "local", asset_ids=[clip["id"]], idea="a lake day", mode="ask",
+                      upload_ids=[page["id"]])  # the page's Start still works

@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from synthetic_media import make_video, needs_ffmpeg
+
 H = {"X-ClipFoundry": "1"}
 
 
@@ -536,3 +538,36 @@ def test_deleting_an_examples_file_keeps_it_while_another_pages_upload_has_it(en
         rid, _ = example(b)  # only the example's own upload
         out = reference.delete(rid, "local", delete_file=True)
         assert "The video file was deleted." in out["notes"] and db.fetch("assets", b["id"]) is None
+
+
+@needs_ffmpeg
+def test_an_examples_file_goes_when_every_upload_of_it_was_taken(env, monkeypatch):
+    """The owner adds a file as an example (the Examples page's upload is the example's), then uploads the same file
+    for a video, which takes that upload, and deletes the video: the file stays, the example uses it. Deleting the
+    example with its file then deletes it: every upload of it was for the example or the video, so no page holds it,
+    although ClipForge handed it out again after the example was made."""
+    import time
+
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete, reference, uploads, video_flow
+
+    _fake_analysis(monkeypatch)
+    file = make_video(env / "f.mp4", seconds=1.0)
+
+    def upload() -> dict:
+        data = file.read_bytes()
+        up = uploads.start("local", file.name, len(data))
+        uploads.put_chunk(up["id"], 0, data)
+        return uploads.complete(up["id"])
+
+    mine = upload()
+    ref = reference.create("local", mine["id"], {}, upload_ids=[mine["upload_id"]])
+    time.sleep(0.01)
+    page = upload()  # Make a YouTube video: ClipForge gives it the copy it has
+    assert page["id"] == mine["id"]
+    vid = video_flow.create("local", "local", name="V", asset_ids=[page["id"]], brief={}, style_id="settings",
+                            remember={"enabled": False}, upload_ids=[page["upload_id"]])["id"]
+    project_delete.delete("local", vid, "full_video", as_of=project_delete.plan("local", vid, "full_video")["as_of"])
+    assert db.fetch("assets", mine["id"])  # the example uses it
+    out = reference.delete(ref["id"], "local", delete_file=True)
+    assert "The video file was deleted." in out["notes"] and db.fetch("assets", mine["id"]) is None

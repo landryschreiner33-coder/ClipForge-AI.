@@ -184,10 +184,12 @@ def _drop_file(asset_id: str, workspace_id: str, made: float = 0.0) -> str:
     """Delete the example's video file when nothing else needs it. It stays when anything else names it (a project,
     any saved version of a video, an animated short, a media import, another example: project_delete's own check),
     or when, in the last day, the owner added the same file on a page whose upload no project or example took (also
-    before the example was made; Add from this computer leaves such an upload too) or ClipForge handed it out again
-    since the example was made: that page may be about to use it. The Examples page's own uploads are the
-    example's (create), so they do not count. The check and the delete are one step, so a hand-out waits for it
-    (uploads._reuse). What ClipForge made for a linked file goes; the owner's file never does."""
+    before the example was made; Add from this computer leaves such an upload too): that page may be about to use
+    it. The Examples page's own uploads are the example's (create), so they do not count, nor do uploads a project
+    took. A copy ClipForge handed out again since the example was made, within the hour, that nothing recorded yet
+    (no upload of it finished since; a build storing the same bytes records it elsewhere) stays too. The check and
+    the delete are one step, so a hand-out waits for it (uploads._reuse). What ClipForge made for a linked file
+    goes; the owner's file never does."""
     from . import project_delete
 
     asset = db.fetch("assets", asset_id)
@@ -200,10 +202,13 @@ def _drop_file(asset_id: str, workspace_id: str, made: float = 0.0) -> str:
         now = conn.execute("SELECT reused_at FROM assets WHERE id = ?", (asset_id,)).fetchone()
         if now is None:
             return "The video file was deleted."
-        day = time.time() - project_delete.AGAIN_S
-        if float(now[0] or 0) > max(made, day) or conn.execute(
+        handed, clock = float(now[0] or 0), time.time()
+        in_flight = handed > max(made, clock - uploads.REUSE_HOLD_S) and not conn.execute(
+            "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND updated_at >= ? LIMIT 1",
+            (asset_id, handed)).fetchone()
+        if in_flight or conn.execute(
                 "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ? "
-                "LIMIT 1", (asset_id, day)).fetchone():
+                "LIMIT 1", (asset_id, clock - project_delete.AGAIN_S)).fetchone():
             return "The video file stays because you added it again in the last day, and a page may be about to use it."
         for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"), ("assets", "id")):
             conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset_id,))
