@@ -179,8 +179,9 @@ def history(chat_id: str, budget_chars: int = 3000, *, as_json: bool = False, be
     messages as "user", ClipForge AI's and its helper agents' as "assistant" (an agent's words start with its name in
     brackets). The first message that does not fit whole goes in shortened (its start and end) when there is room
     for a useful part, so a long answer just before a follow-up ("make the intro shorter") is never lost; older ones
-    are left out. Answers still being written and failed ones are left out. `before`: only the messages written before
-    that message. `as_json`: assistant turns written the way the assistant answers ({"say": …}), so a model keeps
+    are left out. Answers still being written and failed ones are left out. What became of an answer's buttons, its
+    helpers' notes and the changes it could not offer (which the model was not asked about again) follow its words in
+    brackets. `before`: only the messages written before that message. `as_json`: assistant turns written the way the assistant answers ({"say": …}), so a model keeps
     answering in that shape."""
     rows = db.select("brain_chat_messages", "chat_id = ?", (chat_id,), "created_at ASC, rowid ASC")
     if before:
@@ -200,6 +201,8 @@ def history(chat_id: str, budget_chars: int = 3000, *, as_json: bool = False, be
         notes = [f"[{h['agent'].get('name')} wrote: {tools.clip(h.get('text'), 600)}]"
                  for h in data.get("helpers") or [] if isinstance(h, dict) and isinstance(h.get("agent"), dict)]
         notes += [_pending_note(p) for p in data.get("pending") or [] if isinstance(p, dict)]
+        notes += [f"[{s.get('label')}, so nothing was done: {tools.clip(s.get('why'), 300)}]"
+                  for s in data.get("steps") or [] if isinstance(s, dict) and s.get("not_offered")]
         if not text and not notes:
             continue
         said = "\n".join(x for x in [((f"[{agent}] " if agent else "") + text).strip(), *notes] if x)
@@ -513,9 +516,12 @@ def _add_step(out: Outcome, step: dict) -> None:
         out.steps.append(step)
 
 
-def _failed(name: str, words: str, why: str, out: Outcome) -> None:
-    """A failed step in the owner's words: "Could not look at Hike day", and why."""
-    _add_step(out, {"tool": name, "label": _could_not(words), "ok": False, "why": why})
+def _failed(name: str, words: str, why: str, out: Outcome, *, not_offered: bool = False) -> None:
+    """A failed step in the owner's words: "Could not look at Hike day", and why. `not_offered`: a change or delete
+    that could not even be shown as a button; the model is not asked again about it, so the next turns read it in the
+    conversation (`history`)."""
+    step = {"tool": name, "label": _could_not(words), "ok": False, "why": why}
+    _add_step(out, {**step, "not_offered": True} if not_offered else step)
 
 
 def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = "",
@@ -531,13 +537,13 @@ def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = 
     try:
         pv = tool.preview(ctx, args) if tool.preview else {}
     except ToolError as exc:  # the owner sees it could not be offered, and why
-        _failed(name, tool.words(args), str(exc), out)
+        _failed(name, tool.words(args), str(exc), out, not_offered=True)
         return f"{name}: not done, and no button was shown: {exc}", False
     except llm.Canceled:
         raise
     except Exception as exc:  # noqa: BLE001 - a preview that breaks fails its step, never the whole answer
         log.exception("the preview of %s failed", tool.name)
-        _failed(name, tool.words(args), f"it failed ({exc.__class__.__name__})", out)
+        _failed(name, tool.words(args), f"it failed ({exc.__class__.__name__})", out, not_offered=True)
         return f"{name}: not done, and no button was shown: it failed ({exc.__class__.__name__}).", False
     args = {**args, **(pv.get("args") or {})}
     if any(p["tool"] == tool.name and p["args"] == args for p in out.pending):

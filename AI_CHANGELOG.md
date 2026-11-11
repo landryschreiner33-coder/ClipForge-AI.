@@ -36,16 +36,16 @@ Landry's projects, could never do anything, and without a downloaded model only 
   their work shown live in a card inside its answer); the owner talks to one with "@Name …"; `consult()` gives the
   new-video planner a short note from each helper set to help with plans, inside a time budget. The memories a job
   read are recorded as used by `agent`.
-- **The chat** (`brain/chat.py`): with a model, every message goes to the assistant except the fast paths:
-  "remember: …" (with the colon, no question in it) saves exactly those words, "forget" with the exact words of a
-  memory removes it, and in a video's chat a change the editor's rules fully understand is proposed at once.
-  "Remember that …" is a turn of the conversation; when a plainly said lasting rule or fact ("From now on, never use
-  red captions.") ends without the model saving it, ClipForge keeps the owner's words itself, with Undo. Without a model the old
-  rules answer as before and the chat offers to set up the built-in model. Messages up to 4,000 characters (was 500);
-  one answer at a time per chat; `route()` lets another part answer some chats (the new-video planner, a draft
-  video's chat); `stop()`; `decide()`. With an online model every request counts against the daily AI limit (each round
-  of an answer, each round of a helper, each planner note, and the editor's change requests:
-  `brain/allowance.py`, new, rows in `ai_usage`); a model on this computer has no daily limit.
+- **The chat** (`brain/chat.py`): with a model, every message goes to the assistant except the fast paths: "remember:
+  …" (with the colon, no question in it) saves exactly those words, "forget" with the exact words of a memory removes
+  it, and in a video's chat a change the editor's rules fully understand is proposed at once. "Remember that …" is a
+  turn of the conversation; when a plainly said lasting rule or fact ("From now on, never use red captions.") ends
+  without the model saving it, ClipForge keeps the owner's words itself, with Undo. Without a model the old rules
+  answer as before and the chat offers to set up the built-in model. Messages up to 4,000 characters (was 500); one
+  answer at a time per chat; `route()` lets another part answer some chats (the new-video planner, a draft video's
+  chat); `stop()`; `decide()`. With an online model every request counts against the daily AI limit (each round of an
+  answer, each round of a helper, each planner note, and the editor's change requests: `brain/allowance.py`, new, rows
+  in `ai_usage`); a model on this computer has no daily limit.
 - **Every kind of model** (`pipeline/llm.py` `converse()`, `builtin_ai.converse()`): whole conversations for the
   built-in model, Ollama, OpenAI-style servers, Anthropic and NVIDIA; streamed from the built-in model (llama-server's
   server-sent events), Ollama and OpenAI-style servers; a JSON schema where the provider takes one (asked once more
@@ -192,10 +192,28 @@ Landry's projects, could never do anything, and without a downloaded model only 
   passed and the projects' lead-in showed once, but the Basic model, asked again after the delete could not be
   offered, said "I've deleted the project 'Old gear review' for you. It's gone now." (nothing was deleted; the check
   reported it). A change or delete that is not offered (it cannot be offered at all, or it is shown blocked) is no
-  longer a reason to ask the model again: the owner reads what the model wrote before it knew, then the failed step
-  or the button that cannot be pressed, each with its reason; beside a tool the model does read, it reads that the
-  change was not done (`assistant._offer`). `scripts/assistant_check.py` counts such a failed step as the answer's
-  words and as the polite no.
+  longer a reason to ask the model again: the owner sees what the model wrote before it knew and the failed step or
+  the button that cannot be pressed, each with its reason; beside a tool the model does read, it reads that the change
+  was not done (`assistant._offer`). `scripts/assistant_check.py` counts such a failed step as the answer's words and
+  as the polite no. The run on that fix (3c8fe24, run 42820370845) passed every must-check on Linux and on the Mac,
+  and the model claimed no delete on either machine. An independent review of this fix then found that the next turn
+  could not know such a change was not done (an answer that was only the failed step was not in the conversation at
+  all, and one with words kept only the model's promise): `history` now adds "[Could not delete Old talk, so nothing
+  was done: …]" after the answer's words (its steps are marked `not_offered`). `scripts/assistant_check.py` counts
+  only such steps as words (a change with wrong arguments goes back to the model, which must answer), wants the failed
+  delete of the right project (`delete_verdict`) and shows the step in the job summary instead of "(empty)";
+  `tests/test_assistant_check.py` (new) tries its judgements on answers written by hand.
+- **Merged with PR #38, Make a YouTube video** (the release line at b5707fa): the new-video planner asks ClipForge
+  AI's model, and counted its requests its own way (chat messages marked as sent online, plus every AI change request,
+  also one to a model on this computer) and sent the owner to Settings → ClipForge AI for the limit. It now takes each
+  planning request from the same daily allowance as the chat, its helpers, their notes and the editor
+  (`allowance.take`, task `video_plan`, just before the request is sent, in a draft's chat and in the build job:
+  `video_setup._take`; `video_setup.limit_reached` asks `allowance.reached`), so together they never send more than
+  "AI requests a day" allows, and the message names Settings → Advanced, "AI requests a day". NVIDIA's agreement note
+  (Settings → Integrations) now names conversations with ClipForge AI and its helper agents too, not only planning,
+  and the privacy page's "An AI service you choose" and NVIDIA rows describe both (planning leaves memories out for
+  NVIDIA; the conversation does not). New test: `test_planning_and_clipforge_ai_share_one_daily_allowance` in
+  `tests/test_video_setup_flow.py` (it failed on the planner's old counting).
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

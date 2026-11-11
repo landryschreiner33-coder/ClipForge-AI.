@@ -2,14 +2,14 @@
 
 ## ClipForge AI becomes a real assistant: conversation, actions, helper agents — 2026-11-08 (Claude Code, cloud session)
 
-**Plain-English summary:** Landry asked for a built-in AI to actually talk to like a real AI, and for agents that
-work alongside it. ClipForge AI now holds a real conversation in both chats (on each video, and Brain → Talk): it reads
-the conversation so far, knows Landry's projects and memories and its know-how, writes its answer word by word (Stop keeps
+**Plain-English summary:** Landry asked for a built-in AI to actually talk to like a real AI, and for agents that work
+alongside it. ClipForge AI now holds a real conversation in both chats (on each video, and Brain → Talk): it reads the
+conversation so far, knows Landry's projects and memories and its know-how, writes its answer word by word (Stop keeps
 what it wrote), and does things in ClipForge with twelve tools. Looking things up and making new things (a memory, a
-proposed change, a helper's work) happen at once; renaming, forgetting and deleting only happen when Landry presses
-OK on the card it shows. Helper agents (eight ready-made, or Landry's own, in Brain → Agents) are specialists that ClipForge
-AI hands jobs to, that Landry talks to with "@Name", and that give the new-video planner short notes. Without a model
-the old rules still answer, and the chat offers the built-in model in one press.
+proposed change, a helper's work) happen at once; renaming, forgetting and deleting only happen when Landry presses OK
+on the card it shows. Helper agents (eight ready-made, or Landry's own, in Brain → Agents) are specialists that
+ClipForge AI hands jobs to, that Landry talks to with "@Name", and that give the new-video planner short notes.
+Without a model the old rules still answer, and the chat offers the built-in model in one press.
 
 - **Branch / PR:** `claude/project-thread-sa113l` from the release line at 95a70e0 (PR #33 merged), PR #37. Landry's
   standing OK (Nov 9): merge finished work into the release line once its checks pass; no release without an explicit
@@ -80,14 +80,18 @@ the old rules still answer, and the chat offers the built-in model in one press.
   video"; press Stop on a long answer; in a video's chat ask "What would make this video better?".
 - **Judgement calls to know about:** the built-in model and Ollama get the smaller budgets (an 8,192-token context);
   change and delete tools never run on the model's word, even after a "yes" in the conversation: only the card's OK
-  runs them, and a change or delete that cannot be offered (or is blocked) is shown with its reason and never sent
-  back to the model (the Basic model, asked again, said a delete it could not offer was done); "remember: …" and an exact "forget …" skip the model, while "I like …" and "always …" now go to the
-  conversation, where the model saves lasting preferences with `remember` (and ClipForge keeps a plainly said one
-  itself when a small model forgets); `remember` saves at once only the owner's own words from this message and
-  never changes a memory the owner already has (anything else is a "Remember “…”?" card); a video's chat still proposes
-  the changes the editor's rules fully understand without the model; one answer at a time per chat, and at most two
-  being written in the whole app; helpers run one after another (inside an answer and in `consult`); every request
-  to an online model counts against the daily limit, `consult` notes included.
+  runs them, and a change or delete that cannot be offered (or is blocked) is shown with its reason and is no reason
+  to ask the model again (the Basic model, asked again, said a delete it could not offer was done); beside a tool the
+  model does read, it reads that it was not done, and the next turns read it in the conversation (`history`);
+  "remember: …" and an exact "forget …" skip the model, while "I like …" and "always …" now go to the conversation,
+  where the model saves lasting preferences with `remember` (and ClipForge keeps a plainly said one itself when a
+  small model forgets); `remember` saves at once only the owner's own words from this message and never changes a
+  memory the owner already has (anything else is a "Remember “…”?" card); a video's chat still proposes the changes
+  the editor's rules fully understand without the model; one answer at a time per chat, and at most two being written
+  in the whole app; helpers run one after another (inside an answer and in `consult`); every request to an online
+  model counts against the daily limit, `consult` notes and the new-video planner's requests included (since the merge
+  with PR #38 the planner takes each request from the same allowance: `allowance.take`, task `video_plan`, in
+  `video_setup._take`, and `video_setup.limit_reached` asks `allowance.reached`).
 - **Not done:** the real built-in model's answers could not be run here (the model hub is blocked): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (every must-check
   passed on d02bb25 and 56aae46; the small model rarely uses its tools itself, so ClipForge's safety nets do the

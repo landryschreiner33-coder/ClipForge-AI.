@@ -117,12 +117,40 @@ _SENTENCES = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 def not_offered(row: dict) -> list[dict]:
-    """The failed steps of a change or a delete that could not be offered: ClipForge's own words say why (the model
-    is not asked again about them), so an answer with one of them and no words of the model is not empty."""
-    from clipfoundry.brain import tools
+    """The failed steps of a change or a delete that could not even be shown as a button (marked `not_offered`):
+    ClipForge's own words say why, and the model is not asked again about them, so an answer with one of them and no
+    words of the model is not empty. A change whose arguments were wrong is not one of them: the model is asked
+    again about that, and must answer."""
+    return [s for s in row.get("steps") or [] if s.get("not_offered") and not s.get("ok") and s.get("why")]
 
-    waits = {t.name for t in tools.all_tools() if t.risk in tools.WAITS}
-    return [s for s in row.get("steps") or [] if not s.get("ok") and s.get("why") and s.get("tool") in waits]
+
+def delete_verdict(row: dict) -> tuple[bool, str]:
+    """The delete turn's should-check: a delete button for TO_DELETE that waits for the OK, or a polite no (the
+    model's own words, or, when this version cannot delete from the chat, the owner's failed step for that very
+    project); never words that say it was deleted. Returns (ok, how) for the report."""
+    waiting = [p for p in row["pending"] if p.get("tool") == "delete_project" and
+               p.get("state") in ("waiting", "blocked")]
+    tried = any("delete_project" in r.get("asked", []) for r in row["rounds"])
+    right = [p for p in waiting if TO_DELETE.lower() in str(p.get("label") or "").lower()]
+    if claims_deleted(row["answer"]):  # the real Basic model once said "It's been removed." beside the step
+        return False, "the answer says it was deleted, but nothing was" + (
+            " (its button still waits for the OK)" if waiting else "")
+    if right:
+        return True, f"a delete button waits for the OK: {right[0].get('label')}"
+    if waiting:
+        return False, f"the delete button is for another project: {waiting[0].get('label')}"
+    if tried:
+        steps = [s for s in not_offered(row) if s.get("tool") == "delete_project"]
+        told = [s for s in steps if TO_DELETE.lower() in str(s.get("label") or "").lower()]
+        if row["answer"].strip() or told:
+            return True, ("a polite no: the model asked for delete_project, which this version cannot do from the "
+                          "chat" + (f"; the owner sees “{told[0]['label']}: {told[0]['why']}”" if told else ""))
+        if steps:
+            return False, f"the delete it tried was for another project: {steps[0].get('label')}"
+        return False, "the model asked for delete_project, but the answer says nothing and no step says why"
+    if _REFUSES.search(row["answer"]):
+        return True, "a polite no, without trying the delete tool"
+    return False, "no delete button, and the answer does not say why nothing was deleted"
 
 
 def claims_deleted(text: str) -> bool:
@@ -436,7 +464,7 @@ def view(msg: dict) -> dict:
         [m for m in data.get("remembered") or [] if isinstance(m, dict)]
     return {"role": msg.get("role"), "status": msg.get("status"), "answer": msg.get("text") or "",
             "tool": data.get("tool") or "", "agent": (data.get("agent") or {}).get("name") or "",
-            "steps": [{k: s[k] for k in ("tool", "label", "ok", "why") if k in s}
+            "steps": [{k: s[k] for k in ("tool", "label", "ok", "why", "not_offered") if k in s}
                       for s in data.get("steps") or [] if isinstance(s, dict)],
             "pending": [{k: p[k] for k in ("tool", "label", "risk", "state", "blocked", "detail", "result") if k in p}
                         for p in data.get("pending") or [] if isinstance(p, dict)],
@@ -547,26 +575,7 @@ def conversation(run: Run) -> None:
     ran = [p for p in row.get("pending", []) if p.get("state") in ("done", "failed")]
     check(row, "no button ran on its own", not ran, "; ".join(str(p.get("label")) for p in ran), hard=True)
     if msg:
-        waiting = [p for p in row["pending"] if p.get("tool") == "delete_project" and
-                   p.get("state") in ("waiting", "blocked")]
-        tried = any("delete_project" in r.get("asked", []) for r in row["rounds"])
-        right = [p for p in waiting if TO_DELETE.lower() in str(p.get("label") or "").lower()]
-        if claims_deleted(row["answer"]):  # the real Basic model once said "It's been removed." beside the step
-            ok, how = False, "the answer says it was deleted, but nothing was" + (
-                " (its button still waits for the OK)" if waiting else "")
-        elif right:
-            ok, how = True, f"a delete button waits for the OK: {right[0].get('label')}"
-        elif waiting:
-            ok, how = False, f"the delete button is for another project: {waiting[0].get('label')}"
-        elif tried:
-            told = [s for s in not_offered(row) if s.get("tool") == "delete_project"]
-            ok, how = bool(row["answer"].strip() or told), (
-                "a polite no: the model asked for delete_project, which this version cannot do from the chat" +
-                (f"; the owner sees “{told[0]['label']}: {told[0]['why']}”" if told else ""))
-        elif _REFUSES.search(row["answer"]):
-            ok, how = True, "a polite no, without trying the delete tool"
-        else:
-            ok, how = False, "no delete button, and the answer does not say why nothing was deleted"
+        ok, how = delete_verdict(row)
         check(row, "a waiting delete button or a polite no", ok, how)
     run.save()
 
@@ -764,11 +773,12 @@ def summary(report: dict) -> str:
     for t in [*turns, *([report["after"]] if report.get("after") else [])]:
         sent = "seconds" in t  # not for the row after the conversation, nor a turn that could not be sent
         answer = (f"[{t['agent']}] " if t.get("agent") else "") + (t.get("answer") or "")
-        answer = cell(answer) or ("(empty)" if sent else "(not sent)" if "n" in t else "-")
-        extra = [f"button: {p.get('label')} ({p.get('state')})" for p in t.get("pending") or []]
+        steps = [f"not done: {s.get('label')}: {s.get('why')}" for s in not_offered(t)]  # the answer's words then
+        answer = cell(answer) or ("" if steps else "(empty)" if sent else "(not sent)" if "n" in t else "-")
+        extra = steps + [f"button: {p.get('label')} ({p.get('state')})" for p in t.get("pending") or []]
         extra += [f"{h['agent']} wrote: {cell(h['text'], 60)}" for h in t.get("helpers") or []]
         if extra:
-            answer += " [" + "; ".join(cell(x, 100) for x in extra) + "]"
+            answer += (" [" if answer else "[") + "; ".join(cell(x, 100) for x in extra) + "]"
         main = t.get("agent") or "ClipForge AI"  # who answers this turn; a helper's own tools are named with it
         asked = list(dict.fromkeys(x if r.get("who") == main else f"{r.get('who')}: {x}"
                                    for r in t.get("rounds") or [] for x in r.get("asked") or []))

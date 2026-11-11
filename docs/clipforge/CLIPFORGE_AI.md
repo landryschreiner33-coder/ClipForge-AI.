@@ -171,7 +171,9 @@ the question with status `done`; or `failed`, with the reason in plain words aft
 model could not answer: …"; for a model whose memory overflowed, "That was too much for my model to read at once.
 Ask about one thing at a time, or clear this chat and ask again."; for any other error, "The answer failed (…).",
 with "Nothing was changed." only when no making tool did anything). A tool that breaks never fails the answer: its
-own step fails ("Could not look at “Hike day”", with the reason) and the model reads that it failed.
+own step fails ("Could not look at “Hike day”", with the reason) and the model reads that it failed (a change or
+delete whose preview breaks cannot be offered: its step fails the same way, and the model is not asked again about it,
+see the table below; the next turns read it in the conversation).
 
 **Your plainly said rules are kept.** When your message is plainly a lasting fact or rule ("Remember that my channel
 is about mountain biking", "From now on, never use red captions.": one sentence on one line, not a question, not for
@@ -253,9 +255,9 @@ tool, at most 1,500 characters each). The model is asked again only when it has 
 |---|---|---|
 | a looking tool (`look`) | runs at once | yes: the model answers with the results |
 | a making tool (`make`) | runs at once | only when it failed, or when a helper worked and ClipForge AI has said nothing yet |
-| a changing or deleting tool (`change`, `delete`) | becomes a button with what it would do; nothing runs (the model reads that nothing is done yet); one that cannot be done now shows with the reason and no OK (`blocked`); when it cannot be offered at all, its step fails ("Could not delete …", with the reason) | no, whatever became of it: the button or the failed step says that, and asked again, the real Basic model said a delete it could not offer was done ("It's gone now."). Beside a tool the model does read, it reads that it was not done |
+| a changing or deleting tool (`change`, `delete`) | becomes a button with what it would do; nothing runs (the model reads that nothing is done yet); one that cannot be done now shows with the reason and no OK (`blocked`); when it cannot be offered at all, its step fails ("Could not delete …", with the reason) | no, whatever became of it: the button or the failed step says that, and asked again, the real Basic model said a delete it could not offer was done ("It's gone now."). Beside a tool the model does read, it reads that it was not done; the next turns read it in the conversation ("[Could not delete Old talk, so nothing was done: …]", `history`) |
 | an unknown tool, or arguments that do not pass the checks | nothing runs (wrong arguments show as a failed step) | yes: the model reads what was wrong (for an unknown tool, the tools it has) |
-| a tool that breaks (any error, not only a refusal) | its step fails ("Could not …", with the reason) | yes: the model reads that it did not work |
+| a looking or making tool that breaks (any error, not only a refusal) | its step fails ("Could not …", with the reason) | yes: the model reads that it did not work (a change or delete whose preview breaks: as in the row for changing tools) |
 
 The same failed step again in one answer (a model that asks for the same thing twice) is shown once (`_add_step`).
 

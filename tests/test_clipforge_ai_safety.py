@@ -208,7 +208,7 @@ def test_a_tool_that_breaks_fails_its_own_step_and_the_model_answers_on(data, mo
     m = settled(c["id"], _say(c["id"], "call it Summit")["id"])
     assert m["status"] == "done" and m["text"] == "" and m["data"]["pending"] == [] and len(fake.calls) == 1
     assert m["data"]["steps"] == [{"tool": "rename_project", "label": "Could not rename Hike day to Summit",
-                                   "ok": False, "why": "it failed (KeyError)"}]
+                                   "ok": False, "why": "it failed (KeyError)", "not_offered": True}]
     # beside a looking step the model reads, it reads that the change was not done
     fake = install(monkeypatch, say("", ("rename_project", {"project": "Hike day", "name": "Summit"}),
                                     ("find_projects", {})), say("Renaming did not work just now."))

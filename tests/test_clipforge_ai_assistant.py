@@ -1051,18 +1051,23 @@ def test_without_the_safe_delete_the_tool_fails_politely(data, monkeypatch):
     assert m["text"] == "" and len(fake.calls) == 1
     assert m["data"]["steps"] == [{"tool": "delete_project", "label": "Could not delete Old talk", "ok": False,
                                    "why": "This version of ClipForge cannot delete projects from the chat yet; use "
-                                          "the Projects page."}]
+                                          "the Projects page.", "not_offered": True}]
     # what the model said before it knew stays; nothing after it
     install(monkeypatch, say("I'll delete Old talk for you.", ("delete_project", {"project": "Old talk"})),
             say("It's been removed."))
     m = settled(c["id"], _say(c["id"], "please delete Old talk")["id"])
     assert m["text"] == "I'll delete Old talk for you." and [s["label"] for s in m["data"]["steps"]] == [
         "Could not delete Old talk"]
-    # a model that asks for it again (twice in a round, then once more) shows the same failure once
+    # a model that asks for it again (twice in a round, and in the next round, which a tool it does read brings)
+    # shows the same failure once; that next round reads that it was not done, and its own failed offer asks for no
+    # third round
     again = ("delete_project", {"project": "Old talk"})
-    install(monkeypatch, say("", again, again), say("Trying again.", again), say("I cannot delete it from here."))
+    fake = install(monkeypatch, say("", again, again, ("find_projects", {})), say("Trying again.", again),
+                   say("I cannot delete it from here."))
     m = settled(c["id"], _say(c["id"], "delete Old talk now")["id"])
-    assert [s["label"] for s in m["data"]["steps"]] == ["Could not delete Old talk"] and db.get_project(p["id"])
+    assert [s["label"] for s in m["data"]["steps"] if s["tool"] == "delete_project"] == ["Could not delete Old talk"]
+    assert len(fake.calls) == 2 and m["text"] == "Trying again." and db.get_project(p["id"])
+    assert "delete_project: not done, and no button was shown" in fake.calls[1]["messages"][-1]["content"]
     # a button shown earlier fails politely too when it is pressed
     msg = db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": "ai", "text": "x",
                                             "status": "done", "data": {"tool": "talk", "pending": [
@@ -1072,6 +1077,38 @@ def test_without_the_safe_delete_the_tool_fails_politely(data, monkeypatch):
     assert out["data"]["pending"][0]["state"] == "failed"
     assert out["data"]["pending"][0]["result"].startswith("This version of ClipForge cannot delete projects")
     assert db.get_project(p["id"]) and tools.get("delete_project").risk == "delete"
+
+
+def test_a_change_it_could_not_offer_is_in_the_next_turns_conversation(data, monkeypatch):
+    """The model is not asked again about a change or delete it could not offer, so the next turns read what became
+    of it in the conversation: without it a model read only its own "I'll delete Old talk for you.", and an answer
+    that was only the failed step was not in the conversation at all."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat
+
+    _no_deleter(monkeypatch)
+    db.create_project("Old talk", workspace_id=WS)
+    gone = ("delete_project", {"project": "Old talk"})
+    fake = install(monkeypatch, say("", gone), say("I'll delete Old talk for you.", gone),
+                   say("No: this version cannot delete projects from the chat. Use the Projects page."))
+    c = chat.open_chat(WS)
+    for text in ("delete Old talk", "please delete Old talk", "is it gone now?"):
+        settled(c["id"], _say(c["id"], text)["id"])
+    assert len(fake.calls) == 3
+    note = ("[Could not delete Old talk, so nothing was done: This version of ClipForge cannot delete projects from "
+            "the chat yet; use the Projects page.]")
+    turns = [(t["role"], json.loads(t["content"])["say"] if t["role"] == "assistant" else t["content"])
+             for t in fake.calls[2]["messages"][:-1]]
+    assert turns == [("user", "delete Old talk"), ("assistant", note), ("user", "please delete Old talk"),
+                     ("assistant", "I'll delete Old talk for you.\n" + note)]
+    # a change whose arguments were wrong was read by the model in that answer: nothing more is added
+    install(monkeypatch, say("", ("rename_project", {"project": "Old talk"})), say("What should I call it?"))
+    m = settled(c["id"], _say(c["id"], "rename Old talk")["id"])
+    assert m["text"] == "What should I call it?" and not any(s.get("not_offered") for s in m["data"]["steps"])
+    from clipfoundry.brain import assistant
+
+    said = [t["content"] for t in assistant.history(c["id"], 6000) if t["role"] == "assistant"]
+    assert said[-1] == "What should I call it?"
 
 
 def test_stop_keeps_the_words_so_far(data, monkeypatch):
