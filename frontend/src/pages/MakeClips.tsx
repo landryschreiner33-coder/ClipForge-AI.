@@ -75,7 +75,8 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
     setBusy(true);
     setProblem("");
     try {
-      const source = input === "file" ? { asset_id: file!.asset!.id } : { url: link.trim(), request_id: requestId };
+      const source = input === "file" ? { asset_id: file!.asset!.id, upload_id: file!.asset!.upload_id || "" }
+        : { url: link.trim(), request_id: requestId };
       const body: Record<string, unknown> = { ...source, mode, style_id: style, choices, reference_id: example };
       if (upload) {
         body.upload = { intent: "make_and_upload", destinations: dest, privacy, made_for_kids: kids === "yes",

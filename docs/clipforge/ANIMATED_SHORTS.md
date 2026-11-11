@@ -280,8 +280,10 @@ crash or a full disk) becomes a designed card with the reason.
   (`local_engines.discard_made`). The delete window says which originals go with the short and which stay in
   engines/made (made by a version from before shorts kept them, or the move failed). Voice samples
   (`voice-sample`) are not projects: their engine originals stay in engines/made.
-* A picture the owner chooses for a scene (`update_scene` with `picture_asset_id`) takes their upload of it
-  (`uploads.taken`), so deleting the short removes ClipForge's copy instead of keeping it as a file added again.
+* A picture the owner uploads for a scene (`update_scene` with `picture_asset_id` and the page's `upload_id`) takes
+  that upload (`uploads.taken`), so deleting the short removes ClipForge's copy instead of keeping it as a file added
+  again. Choosing an earlier picture again sends no upload and takes none (another page's upload of the same picture
+  stays that page's, and keeps the file).
 * `view(project)` is the `short` part of the editor page's video (`GET /api/studio/videos/<id>`): the options, stage
   and message, the scenes in the plan's order, progress, seconds (the video's length plus an estimate for scenes
   not in it yet), engines, `cards_to_swap` (designed cards a ready picture maker would replace: **Draw real

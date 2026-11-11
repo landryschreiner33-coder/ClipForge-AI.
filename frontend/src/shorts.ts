@@ -88,6 +88,8 @@ export type ScenePatch = {
   narration?: string; picture_prompt?: string; move?: string;
   /** The owner's uploaded image, or one of the scene's earlier pictures. */
   picture_asset_id?: string;
+  /** The page's upload of that image (none for an earlier picture chosen again). */
+  upload_id?: string;
   new_picture?: boolean; again?: boolean;
 };
 export type ShortOptionsPatch = Partial<{ voice: string; speed: number; look: string; music: string; captions: string;

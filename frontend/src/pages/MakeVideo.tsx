@@ -7,7 +7,7 @@ import { Banner, Dialog, Disclosure, Icon, LoadingPage, PageHead, Toggle, toast,
 import { PlanForm, PlanSheet, useChanged } from "../components/VideoPlan";
 import { useAppearance } from "../prefs";
 import { navigate, redirect, useLeaveGuard } from "../router";
-import { Asset, PlanFields, Script, SetupFile, SetupMessage, SetupMode, SetupQuestion, studio, VideoSetup } from "../studio";
+import { Asset, PlanFields, Script, SetupFile, SetupMessage, SetupMode, SetupQuestion, studio, uploadIds, VideoSetup } from "../studio";
 import "../videoSetup.css";
 
 const ACCEPT = "video/*,image/png,image/jpeg,image/webp,audio/*,.mkv,.m4v,.flac,.opus,.ogg";
@@ -96,7 +96,8 @@ function Start() {
     setProblem("");
     try {
       const v = await studio.startVideoSetup({
-        asset_ids: ordered.map((f) => f.asset!.id), idea: idea.trim(), mode: chosen, name: name.trim(), style_id: style,
+        asset_ids: ordered.map((f) => f.asset!.id), upload_ids: uploadIds(ordered.map((f) => f.asset)), idea: idea.trim(),
+        mode: chosen, name: name.trim(), style_id: style,
         reference_id: example, script, remember: { enabled: remembering, name: styleName.trim() } });
       if (chosen !== appearance.video_setup_mode) setAppearance({ video_setup_mode: chosen });  // for next time
       navigate(v.href);
@@ -471,31 +472,39 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
   const [local, setLocal] = useState<"unknown" | "yes" | "no">("unknown");
   const [browsing, setBrowsing] = useState(false);
   const added = useRef(new Set<string>());
+  const sent = useRef(new Set<string>());  // uploads sent with their file
   useEffect(() => {
     let alive = true;
     studio.localBrowse("").then(() => alive && setLocal("yes")).catch(() => alive && setLocal("no"));
     return () => { alive = false; };
   }, []);
-  const add = (assetIds: string[], again = false) => {
+  const inVideo = (id: string) => s.files.some((f) => f.id === id);
+  const add = (assets: Asset[], again = false) => {
     // picked on purpose: also one taken out before (one still in the video stays known, so taking it out later holds)
-    if (again) assetIds.filter((a) => !s.files.some((f) => f.id === a)).forEach((a) => added.current.delete(a));
-    const fresh = assetIds.filter((a) => !added.current.has(a) && !s.files.some((f) => f.id === a));
-    if (!fresh.length) return;
-    fresh.forEach((a) => added.current.add(a));
-    studio.addVideoMedia(s.id, fresh).then(onAdded).catch((e) => {
-      fresh.forEach((a) => added.current.delete(a));
+    if (again) assets.filter((a) => !inVideo(a.id)).forEach((a) => added.current.delete(a.id));
+    const fresh = assets.filter((a) => !added.current.has(a.id) && !inVideo(a.id));
+    // each upload is sent once with its file, also one of a file the video has already, so it is the video's own
+    const mine = assets.filter((a) => a.upload_id && !sent.current.has(a.upload_id) && (fresh.includes(a) || inVideo(a.id)));
+    if (!fresh.length && !mine.length) return;
+    const ups = uploadIds(mine);
+    fresh.forEach((a) => added.current.add(a.id));
+    ups.forEach((u) => sent.current.add(u));
+    studio.addVideoMedia(s.id, [...new Set([...fresh, ...mine].map((a) => a.id))], ups).then(onAdded).catch((e) => {
+      fresh.forEach((a) => added.current.delete(a.id));
+      ups.forEach((u) => sent.current.delete(u));
       onProblem(errorText(e));
     });
   };
   // files join the video in the order you dropped them, each as soon as it and the ones before it have uploaded
+  const have = s.files.map((f) => f.id).join(" ");
   useEffect(() => {
-    const ready: string[] = [];
+    const ready: Asset[] = [];
     for (const r of uploads) {
-      if (r.asset) ready.push(r.asset.id);
+      if (r.asset) ready.push(r.asset);
       else if (!r.error) break;
     }
     add(ready);
-  }, [uploads]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [uploads, have]);  // eslint-disable-line react-hooks/exhaustive-deps
   const sending = uploads.filter((r) => !r.asset && !r.error);
   useEffect(() => onUploading(sending.length), [sending.length]);  // eslint-disable-line react-hooks/exhaustive-deps
   const videos = s.files.filter((f) => f.kind === "video").length;
@@ -526,9 +535,9 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
       <Disclosure summary="Add files">
         <div className="stack-3">
           <FileDrop accept={ACCEPT} multiple label="Drop more videos, pictures and sounds" onAssets={setUploads}
-            onPicked={(keys) => add(uploads.filter((r) => keys.includes(r.key) && r.asset).map((r) => r.asset!.id), true)} />
+            onPicked={(keys) => add(uploads.filter((r) => keys.includes(r.key) && r.asset).map((r) => r.asset!), true)} />
           {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer</button>}
-          {browsing && <LocalFiles onLinked={(assets) => add(assets.map((a) => a.id), true)} onClose={() => setBrowsing(false)} />}
+          {browsing && <LocalFiles onLinked={(assets) => add(assets, true)} onClose={() => setBrowsing(false)} />}
         </div>
       </Disclosure>
     </section>

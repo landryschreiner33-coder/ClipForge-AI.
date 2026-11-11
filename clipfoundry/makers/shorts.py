@@ -1625,10 +1625,12 @@ def _narration(text: object) -> str:
 
 
 def update_scene(project: dict, scene_id: str, body: dict) -> None:
-    """Change a scene's words, picture idea, camera move or picture, or make it again."""
+    """Change a scene's words, picture idea, camera move or picture, or make it again. `upload_id` comes with a
+    picture the owner uploaded for the scene: that upload becomes the short's (uploads.taken); choosing an earlier
+    picture again sends none."""
     from . import motion, scenes
 
-    allowed = {"narration", "picture_prompt", "move", "picture_asset_id", "new_picture", "again"}
+    allowed = {"narration", "picture_prompt", "move", "picture_asset_id", "upload_id", "new_picture", "again"}
     unknown = set(body) - allowed
     if unknown:
         raise ShortError("Unknown change: " + ", ".join(sorted(unknown)))
@@ -1699,8 +1701,8 @@ def update_scene(project: dict, scene_id: str, body: dict) -> None:
         return out
 
     _change_scene(scene_id, put)
-    if chosen is not None or picture_info is not None:  # the owner's upload of their picture is this short's
-        uploads.taken(project["workspace_id"], [body["picture_asset_id"]], project["id"])
+    if picture_info is not None and body.get("upload_id"):  # the page's upload of the owner's picture
+        uploads.taken(project["workspace_id"], [body["upload_id"]], project["id"], [body["picture_asset_id"]])
     _rebuild(project)
 
 

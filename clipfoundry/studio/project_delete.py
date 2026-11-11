@@ -345,31 +345,37 @@ AGAIN_S = 24 * 3600  # how long a file added again stays protected while no proj
 def _added_again(asset: dict, row: dict, seen: float) -> bool:
     """The owner added this file again, so a page may be about to use it, and it stays. ClipForge keeps one copy per
     file, so every upload of the same bytes is this file. Only uploads that finished in the day before `seen` (when
-    the window was shown) count, and only uploads no project took (uploads.taken: every place a project takes the
-    owner's files marks the upload it came from; one a project took was for that project, also one deleted since).
-    The uploads that started before ClipForge had the file count as one drop (the one that stored it and the same
-    file sent alongside it, also when saving was slow). When this project took its own upload of the file, any other
-    such upload is another page's ("again"), apart from one of the same drop as its own. Otherwise (a project made
-    before uploads were marked, or by a path that does not mark them) it is "again" when, in that day:
+    the window was shown) count, and only uploads no project took (uploads.taken: each page sends the uploads it made
+    a project from or added to it, and those are that project's; one a project took was for that project, also one
+    deleted since). When this project took uploads of its own, the page sent all of them, so any other such upload
+    is another page's ("again"). Otherwise (a project made before uploads were marked, or only from files ClipForge
+    got another way) it is "again" when, in that day:
     * an upload finished after the project was made that did not make it: one that started after ClipForge had the
       file (also a file ClipForge got another way: Find media, a link, a short's build), or one that started before
       the project was made (another page's: a page makes its project only from finished uploads); or
     * the file was dropped twice: the project was made from one drop at most, so another page may hold the other.
-    The time the project was made is used, not the time it last changed: stopping its work (deleting does that
-    first) changes the project, and the answer must stay what the window said."""
+    The uploads that started before ClipForge had the file count as one drop (the one that stored it and the same
+    file sent alongside it, also when saving was slow). The time the project was made is used, not the time it last
+    changed: stopping its work (deleting does that first) changes the project, and the answer must stay what the
+    window said."""
     stored, made, day = float(asset.get("created_at") or 0), float(row.get("created_at") or 0), seen - AGAIN_S
     done = "FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ?"
-    mine = db.scalar("SELECT MIN(created_at) FROM uploads WHERE asset_id = ? AND taken = ?", (asset["id"], row["id"]))
-    if mine is not None:  # its own drop is known: the drop that stored the file, or a later one
-        same_drop = float(mine) <= stored
-        return bool(db.scalar(f"SELECT 1 {done} AND (created_at > ? OR ? = 0) LIMIT 1",
-                              (asset["id"], day, stored, int(same_drop))))
+    if db.scalar("SELECT 1 FROM uploads WHERE taken = ? LIMIT 1", (row["id"],)):  # its pages sent their uploads
+        return bool(db.scalar(f"SELECT 1 {done} LIMIT 1", (asset["id"], day)))
     if db.scalar(f"SELECT 1 {done} AND (created_at > ? OR created_at < ?) LIMIT 1",
                  (asset["id"], max(made, day), stored, made)):
         return True
     later = int(db.scalar(f"SELECT COUNT(*) {done} AND created_at > ?", (asset["id"], day, stored)) or 0)
     first = 1 if db.scalar(f"SELECT 1 {done} AND created_at <= ? LIMIT 1", (asset["id"], day, stored)) else 0
     return later + first >= 2
+
+
+def _handed_out(conn, asset_id: str, since: float) -> bool:
+    """ClipForge handed this copy to an upload of the same bytes (or to Add from this computer) after `since`, the
+    moment the window looked: a page holds it now, so it stays. Asked inside the delete's transaction, which such a
+    hand-out waits for (it marks the copy, assets.reused_at, before giving it)."""
+    row = conn.execute("SELECT reused_at FROM assets WHERE id = ?", (asset_id,)).fetchone()
+    return row is not None and float(row[0] or 0) > since
 
 
 def _pending() -> tuple[str | None, set[str]]:
@@ -808,6 +814,8 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
                     raise DeleteError(POSTING, 409, "blocked") from exc
     scope = f"project:{project_id}"
     with db.connect() as conn:  # one transaction: the project is either all there or all gone
+        conn.execute("BEGIN IMMEDIATE")  # an upload being handed a copy now waits for this (uploads._reuse)
+        handed = [a for a in s.drop if _handed_out(conn, a["id"], s.as_of)]
         have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         if kind == "clips":
             for table in db.CLIP_CHILDREN:
@@ -835,9 +843,14 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
         conn.execute("DELETE FROM brain_memory_uses WHERE memory_id IN (SELECT id FROM brain_memories WHERE "
                      "workspace_id = ? AND scope = ?)", (ws, scope))
         conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND scope = ?", (ws, scope))
+        s.drop = [a for a in s.drop if a not in handed]
         for asset in s.drop:
             for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"), ("assets", "id")):
                 conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset["id"],))
+    if handed:  # the answer says what happened
+        s.again += handed
+        s.freed_bytes -= sum(_bytes(f, shared_too=True) for f in (_asset_folder(a) for a in handed) if f)
+        out = _view(s)
     kept = s.keep + s.again
     stored = [a for a in s.drop + kept if not uploads.is_linked(a) and Path(a["path"]).is_file()]
     copies = {(st.st_dev, st.st_ino) for st in (os.stat(a["path"]) for a in stored)}

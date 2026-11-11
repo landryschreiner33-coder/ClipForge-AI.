@@ -436,18 +436,23 @@ def link_local(workspace_id: str, path: str) -> dict:
             return _stored_already(workspace_id, digest, folder)
 
 
-def taken(workspace_id: str, asset_ids, project_id: str) -> None:
-    """A project took these files: for each, the newest finished upload of it that no project took yet becomes this
-    project's. ClipForge keeps one copy per file, so the owner's upload of a file it already had gives that copy;
-    deleting a project keeps a file the owner uploaded again in the last day in case a page is about to use it
-    (project_delete._added_again), and only an upload no project took counts. The same file dropped on two pages at
-    the same moment is one upload: the first project to take it has it."""
+def taken(workspace_id: str, upload_ids, project_id: str, asset_ids) -> None:
+    """A project took the owner's uploads the page sent with it (`upload_ids`: the uploads it was made from or added
+    to it; `asset_ids`: the files it took). Each finished upload of one of those files that no project took yet
+    becomes this project's; any other id is left alone, so a project only ever takes the uploads its page made, never
+    another page's of the same file. ClipForge keeps one copy per file, so the owner's upload of a file it already had
+    gives that copy; deleting a project keeps a file the owner uploaded again in the last day in case a page is about
+    to use it (project_delete._added_again), and only an upload no project took counts. The same file dropped on two
+    pages while its first upload is still arriving resumes that one upload: the first project to take it has it."""
+    files = list(dict.fromkeys(str(a) for a in asset_ids or () if a))
+    if not files:
+        return
     with db.connect() as conn:
-        for aid in dict.fromkeys(str(a) for a in asset_ids or () if a):
+        for uid in dict.fromkeys(str(u) for u in upload_ids or () if u):
             conn.execute(
-                "UPDATE uploads SET taken = ? WHERE id = (SELECT id FROM uploads WHERE workspace_id = ? AND "
-                "asset_id = ? AND status = 'complete' AND taken = '' ORDER BY updated_at DESC, created_at DESC "
-                "LIMIT 1)", (project_id, workspace_id, aid))
+                f"UPDATE uploads SET taken = ? WHERE id = ? AND workspace_id = ? AND status = 'complete' AND "
+                f"taken = '' AND asset_id IN ({', '.join('?' * len(files))})",
+                (project_id, uid, workspace_id, *files))
 
 
 def store_file(workspace_id: str, path: Path, filename: str) -> dict:

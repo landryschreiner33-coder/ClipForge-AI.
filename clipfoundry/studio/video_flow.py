@@ -293,10 +293,11 @@ def remember_style(workspace_id: str, user_id: str, name: str, choices: dict, re
 
 
 def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], brief: dict, style_id: str = "saved",
-           remember: dict | None = None, reference_id: str = "", script=None) -> dict:
+           remember: dict | None = None, reference_id: str = "", script=None, upload_ids=None) -> dict:
     """A new project. `asset_ids` is the media bin in order (any number of videos, images and audio files; the rough
     cut uses the videos and images, audio stays in the bin until you place it, apart from the music and voiceovers
-    the brief names). `script`: the script the video follows (script_payload), when there is one."""
+    the brief names). `script`: the script the video follows (script_payload), when there is one. `upload_ids`: the
+    owner's uploads of these files that the page made the video from (they become this video's, uploads.taken)."""
     if not asset_ids:
         raise VideoError("Add at least one video or image.")
     script = script_payload(script)
@@ -315,8 +316,8 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
                   "commercial": bool(db.get_settings().get("autopilot_commercial_use", True))}})
     remember_style(workspace_id, user_id, name, choices, remember)
     music = [brief.get("music_asset_id")] if brief.get("music") == "supplied" else []
-    uploads.taken(workspace_id, [*asset_ids, *music, *(brief.get("voiceover_asset_ids") or [])],
-                  project["id"])  # the owner's uploads of its files are this video's
+    uploads.taken(workspace_id, upload_ids, project["id"],
+                  [*asset_ids, *music, *(brief.get("voiceover_asset_ids") or [])])  # the page's uploads of its files
     enqueue(workspace_id, "video_build", project["id"], 0)
     return project
 
@@ -839,9 +840,11 @@ def _smart_job(project: dict, job: dict, lease: Lease) -> dict:
 
 
 # ------------------------------------------------------------------ the media bin
-def add_media(project_id: str, asset_ids: list[str], *, yours: bool = False) -> dict:
+def add_media(project_id: str, asset_ids: list[str], *, upload_ids=()) -> dict:
     """Add files to the media bin (before or after the rough cut). Nothing in the plan changes until you place
-    them; new videos are listened to in the background so trims and captions can use their words."""
+    them; new videos are listened to in the background so trims and captions can use their words. `upload_ids`: the
+    owner's uploads of these files that the page added (they become this video's, uploads.taken, also an upload of a
+    file the bin has already); files added another way (Find media) send none."""
     project = db.fetch("studio_projects", project_id)
     if not asset_ids:
         raise VideoError("Choose at least one file.")
@@ -850,8 +853,7 @@ def add_media(project_id: str, asset_ids: list[str], *, yours: bool = False) -> 
         _owned(project["workspace_id"], aid)  # only your own files
         if aid not in project["asset_ids"]:
             added.append(aid)
-    if yours:  # the owner added them: their uploads of these files are this video's (also of one it has already)
-        uploads.taken(project["workspace_id"], asset_ids, project_id)
+    uploads.taken(project["workspace_id"], upload_ids, project_id, asset_ids)
     if added:
         bin_ids = list(project["asset_ids"]) + added
         db.update("studio_projects", project_id, asset_ids=bin_ids, updated_at=time.time())

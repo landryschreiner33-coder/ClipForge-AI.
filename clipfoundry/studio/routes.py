@@ -200,6 +200,7 @@ class ClipsRequest(BaseModel):
     skills_off: list[str] = []
     upload: dict = {}
     reference_id: str = ""
+    upload_id: str = ""  # the page's upload of the file (studio/uploads.taken)
 
 
 @router.post("/api/studio/clips")
@@ -220,7 +221,7 @@ def make_clips(body: ClipsRequest) -> dict:
             project = clips_flow.create(p.workspace_id, p.user_id, asset_id=body.asset_id, mode=body.mode,
                                         style_id=body.style_id, choices=body.choices, skills_on=body.skills_on,
                                         skills_off=body.skills_off, upload=body.upload,
-                                        reference_id=body.reference_id)
+                                        reference_id=body.reference_id, upload_id=body.upload_id)
     except link_import.LinkError as exc:
         return JSONResponse({"detail": f"{exc.why} {exc.fix}", "problem": exc.view()}, status_code=422)
     except clips_flow.FlowError as exc:
@@ -604,6 +605,7 @@ class VideoRequest(BaseModel):
     remember: dict = {}
     reference_id: str = ""
     script: dict | None = None  # the script the video follows (what /api/studio/scripts/parse returned)
+    upload_ids: list[str] = []  # the page's uploads of these files (studio/uploads.taken)
 
 
 def _video(video_id: str) -> dict:
@@ -619,7 +621,7 @@ def make_video(body: VideoRequest) -> dict:
     try:
         v = video_flow.create(p.workspace_id, p.user_id, name=body.name, asset_ids=body.asset_ids, brief=body.brief,
                               style_id=body.style_id, remember=body.remember, reference_id=body.reference_id,
-                              script=body.script)
+                              script=body.script, upload_ids=body.upload_ids)
     except (video_flow.VideoError, styles.StyleError) as exc:
         raise _bad(exc) from exc
     return video_flow.view(v)
@@ -647,6 +649,7 @@ class SetupStart(BaseModel):
     reference_id: str = ""
     script: dict | None = None
     remember: dict = {}
+    upload_ids: list[str] = []  # the page's uploads of these files (studio/uploads.taken)
 
 
 @router.post("/api/studio/videos/setup")
@@ -657,7 +660,7 @@ def start_video_setup(body: SetupStart) -> dict:
     try:
         return video_setup.start(p.workspace_id, p.user_id, asset_ids=body.asset_ids, idea=body.idea, mode=body.mode,
                                  name=body.name, style_id=body.style_id, reference_id=body.reference_id,
-                                 script=body.script, remember=body.remember)
+                                 script=body.script, remember=body.remember, upload_ids=body.upload_ids)
     except video_setup.SetupError as exc:
         raise _setup_bad(exc) from exc
 
@@ -887,6 +890,7 @@ def name_revision(video_id: str, revision: int, body: NameBody) -> dict:
 
 class MediaBody(BaseModel):
     asset_ids: list[str]
+    upload_ids: list[str] = []  # the page's uploads of these files, also of one the bin has already
 
 
 @router.post("/api/studio/videos/{video_id}/media")
@@ -894,7 +898,7 @@ def add_video_media(video_id: str, body: MediaBody) -> dict:
     """Add files to the project's media bin (also after the rough cut); place them with an insert or audio edit."""
     _video(video_id)
     try:
-        out = video_flow.add_media(video_id, body.asset_ids, yours=True)
+        out = video_flow.add_media(video_id, body.asset_ids, upload_ids=body.upload_ids)
     except video_flow.VideoError as exc:
         raise _bad(exc) from exc
     return {**out, **video_flow.view(_video(video_id))}

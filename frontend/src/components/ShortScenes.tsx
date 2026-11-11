@@ -246,12 +246,13 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
       if (seen.current.has(k) || (!wrong && !r.asset)) continue;
       seen.current.add(k);
       const assetId = r.asset?.id || "";
+      const uploadId = r.asset?.upload_id || "";
       window.setTimeout(() => {
         if (wrong) {
           setDrop((n) => n + 1);  // the old drop area goes, and its upload stops
           toast("That file is not a picture. Use a PNG, JPEG or WebP picture.", true);
         } else {
-          void patch({ picture_asset_id: assetId }, `Scene ${scene.n} uses your picture now.`)
+          void patch({ picture_asset_id: assetId, upload_id: uploadId }, `Scene ${scene.n} uses your picture now.`)
             .then((nv) => nv && setUploading(false));
         }
       }, 0);

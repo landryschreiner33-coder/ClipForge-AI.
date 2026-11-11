@@ -220,7 +220,7 @@ the ClipForge AI panel), `data.source` (`ai` or `rules`), `data.sent` and `data.
 
 | Route | What it does |
 |---|---|
-| `POST /api/studio/videos/setup` | start a draft: files, idea, mode, name, style, example, script, remember |
+| `POST /api/studio/videos/setup` | start a draft: files, idea, mode, name, style, example, script, remember, and `upload_ids` (the page's uploads of the files, which become the video's: `uploads.taken`) |
 | `GET /api/studio/videos/{id}/setup` | the draft (or built video's) setup: plan, mode, messages, files with listening state, model |
 | `POST /api/studio/videos/{id}/setup/say` | the owner says something (`text`, and `question_id` for a quick answer); returns the owner row, the AI row and the setup |
 | `POST /api/studio/videos/{id}/setup/stop` | stop the answer being written |
@@ -228,7 +228,7 @@ the ClipForge AI panel), `data.source` (`ai` or `rules`), `data.sent` and `data.
 | `POST /api/studio/videos/{id}/setup/build` | build the draft (plans first in the job when there is no plan) |
 | `PUT /api/studio/videos/{id}/plan` | after the build: change the plan and edit again as a new version |
 | `GET /api/studio/video-setup/model` | whether ClipForge AI has a model to plan with, its name, on this computer or not |
-| `POST /api/studio/videos/{id}/media` | (existing) add files, to a draft too |
+| `POST /api/studio/videos/{id}/media` | (existing) add files, to a draft too; `upload_ids` as above, also for a file the video has already |
 
 `POST /api/studio/videos` (the old one-step create) is unchanged for scripts and tests.
 
