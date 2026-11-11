@@ -1075,9 +1075,10 @@ def test_ok_on_a_forget_card_never_looks_for_memories_again(data, monkeypatch):
 def test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves(data, monkeypatch):
     """A quick reply the model offered goes to the conversation like typed words, but it never forgets at once: the
     model wrote those words, so the Forget card shows what goes before anything does. The “Which one?” buttons send a
-    memory's words in quotes, which forget only those words; a correction (“Forget that, keep the music low”) is a
-    turn of the conversation. OK on a card that names more memories than a card can show (an earlier build's)
-    forgets none of them."""
+    memory's words in quotes, which forget only those words (also words with quotes of their own); a correction
+    (“Forget that, keep the music low”, or with an emoji: “Forget that 😅 keep the music low”) is a turn of the
+    conversation. OK on a card that names more memories than a card can show (an earlier build's) forgets none of
+    them."""
     from fastapi.testclient import TestClient
 
     from clipfoundry import brain, db
@@ -1086,7 +1087,7 @@ def test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only
 
     fake = install(monkeypatch, say("Shall I forget it?", ("forget", {"memory": "Keep the music low"})),
                    say("Shall I forget it?", ("forget", {"memory": "Keep the music low"})),
-                   say("All right: the music stays low."))
+                   say("All right: the music stays low."), say("Got it: the music stays low."))
     rule = brain.remember(WS, "Keep the music low", kind="rule")
     twin = _twin("keep the music low", scope="platform:tiktok", platform="tiktok")
     c = chat.open_chat(WS)
@@ -1107,6 +1108,14 @@ def test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only
     assert len(brain.list_(WS)) == 3 and len(fake.calls) == 2
     m = settled(c["id"], _say(c["id"], "Forget that, keep the music low.")["id"])  # a correction
     assert m["text"] == "All right: the music stays low." and len(fake.calls) == 3 and len(brain.list_(WS)) == 3
+    m = settled(c["id"], _say(c["id"], "Forget that 😅 keep the music low")["id"])  # one with an emoji
+    assert m["text"] == "Got it: the music stays low." and len(fake.calls) == 4 and len(brain.list_(WS)) == 3
+    brain.remember(WS, "Call the series “Trail Notes”")
+    m = _say(c["id"], "forget “Call the series “Trail Notes””")  # a “Which one?” button: words with quotes in them
+    assert m["text"] == "Forgotten: “Call the series “Trail Notes””."
+    m = _say(c["id"], "forget “Call the series “Trail Notes””")  # pressed again: answered here, not by the model
+    assert m["text"] == "Nothing I remember says “Call the series “Trail Notes””, so nothing was forgotten."
+    assert len(fake.calls) == 4 and len(brain.list_(WS)) == 3
 
     more = [_twin("Keep the music low", scope=f"platform:p{i}", platform=f"p{i}")["id"]
             for i in range(toolbox.FORGET_MAX - 1)]

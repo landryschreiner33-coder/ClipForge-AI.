@@ -42,16 +42,19 @@ NO_MODEL = ("I need a model to think with before I can really talk. Set up the b
             "computer) with the button above, or choose an AI helper in Settings → ClipForge AI. Until then I can "
             "remember, forget and list what you tell me, and answer editing questions from my built-in know-how.")
 # whole words, and so is the "that" it leaves out: "Notes from the shoot …", "Note-taking …" and "Remember that's …"
-# keep every letter; a dash separates only after a space ("note - the drone shots …")
-_REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?=[\s:,])(?:\s+that(?=[\s:,]))?"
-                       r"(?:\s*[:,]|\s+-)?\s*(.+)$", re.I | re.S)
+# keep every letter; a dash separates only after a space ("note - the drone shots …"); "Remember that." leaves "."
+# (nothing to keep) and "Remember that. My intro is …" the sentence after it
+_REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?=[\s:,])"
+                       r"(?:\s+that(?![\w'’-])(?:[.!?…]+(?=\s))?)?(?:\s*[:,]|\s+-)?\s*(.+)$", re.I | re.S)
+_POINTERS = {"that", "this", "it", "these", "those", "that one", "this one"}  # words that only point at something else
 _STANDING = re.compile(r"^(?:from now on|always|never|i (?:like|love|want|prefer|hate|don't want|do not want|"
                        r"never want|always want))\b", re.I)
 _RULE_WORDS = re.compile(r"\b(always|never|don't|do not|only|every|from now on|must|should|no)\b", re.I)
 # "forget" and the words it skips are whole words: "Forgetting captions loses viewers", "Forget-me-nots …" and "forget
 # mystery music" are not "forget" + "ting captions …" or "forget my" + "stery music"; a word is skipped only with a
-# space and no punctuation after it, so "forget that, …" looks for "that, …"
-_GOES_ON = r"(?=[^\s.,;:!?…/\-–—])"  # what follows "forget" or a skipped word when the same request goes on
+# space and then a word or an opening quote, so "forget that, …" and "forget that 😅 …" look for "that, …" and
+# "that 😅 …"
+_GOES_ON = r"(?=[^\W_]|[“\"])"  # what follows "forget" or a skipped word when the same request goes on
 _FORGET = re.compile(r"^(?:please\s+)?forget(?![\w'’-])"
                      rf"(?:\s+(?:that|about|the|my|what i said about)(?=[ \t]+{_GOES_ON}))*\s*[:,]?\s*(.*)$",
                      re.I | re.S)
@@ -62,12 +65,15 @@ _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
 _HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b|\bhere\b", re.I)
 
 _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S)
-# What forgets at once: "forget" and a space or a colon, then the words. A comma, a full stop, a dash or a new line
-# after "forget" or after a skipped word ends the request ("Forget that, keep the music low" sets something aside and
-# says the rule again): the conversation, or without a model "Which one?", answers it.
+# What forgets at once: "forget" and a space or a colon, then the words, which start with a letter, a digit or an
+# opening quote. Anything else after "forget" or after a skipped word (a comma, a full stop, a dash, a new line, an
+# emoji, a bracket …) ends the request ("Forget that, keep the music low", or "Forget that 😅" and the rule on the
+# next line, set something aside and say the rule again): the conversation, or without a model "Which one?",
+# answers it.
 _FORGET_WORD = re.compile(rf"^(?:please\s+)?forget(?:[ \t]*:\s*|[ \t]+){_GOES_ON}", re.I)
 _FORGET_SKIPS = re.compile(rf"^(?:that|about|the|my|what i said about)[ \t]+{_GOES_ON}", re.I)
-_QUOTED = re.compile(r"[“\"]([^“”\"]+)[”\"][.!]?")  # what a "Which one?" button sends: those words, never fewer
+# what a "Which one?" button sends (“…”, around words that may have quotes of their own) or words typed in quotes
+_QUOTED = re.compile(r"“(.+)”[.!]?|\"([^\"]+)\"[.!]?", re.S)
 _EDGES = " \t\r\n.,;:!?-–—“”\"'‘’"  # around the words "forget …" looks for
 _lock = threading.Lock()
 _decide_lock = threading.Lock()
@@ -345,11 +351,12 @@ def _remember(ws: str, pid: str, said: str) -> dict:
     said = said.strip()
     if said.endswith(".") and not said.endswith(".."):
         said = said[:-1].rstrip()
-    if not said:
-        raise ChatError("Say what to remember, for example: remember that my intro is 3 seconds.")
     here = bool(pid) and bool(_HERE.search(said))
     if here:  # "for this video: …" / "… here" scopes the memory; the words themselves are not kept
         said = " ".join(_HERE.sub(" ", said).split()).strip(" :,-")
+    # "Remember that." or "remember: it" points at something said before, which only the conversation can read
+    if not any(ch.isalnum() for ch in said) or said.strip(_EDGES).lower() in _POINTERS:
+        raise ChatError("Say what to remember, for example: remember that my intro is 3 seconds.")
     if len(" ".join(said.split())) > memories.MAX_TEXT:
         raise ChatError(f"That is too long to remember: keep a memory under {memories.MAX_TEXT} characters.")
     kind = "rule" if _RULE_WORDS.search(said) else "fact"
@@ -367,13 +374,29 @@ def _said(text: str) -> tuple[list[str], bool]:
     head = _FORGET_WORD.match(text)
     rest, out = (text[head.end():].strip() if head else ""), []
     while rest:
-        quoted = _QUOTED.fullmatch(rest)
+        quoted = _quoted(rest)
         if quoted:
-            return [quoted.group(1).strip()], True
+            return [quoted], True
         out.append(rest)
         skip = _FORGET_SKIPS.match(rest)
         rest = rest[skip.end():].strip() if skip else ""
     return out, False
+
+
+def _quoted(words: str) -> str:
+    """The words inside quotes when they are all in quotes, else "". In curly quotes they run from the first “ to the
+    last ”, so a button for a memory that says “Trail Notes” or "hello" sends its words whole; curly quotes inside
+    must pair up, so “a” and “b” typed in one message stay two quotes, and so do "a" and "b" (straight quotes never
+    hold straight ones)."""
+    m = _QUOTED.fullmatch(words)
+    if not m:
+        return ""
+    inside, depth = (m.group(1) if m.group(1) is not None else m.group(2)), 0
+    for ch in inside:
+        depth += 1 if ch == "“" else -1 if ch == "”" else 0
+        if depth < 0:
+            return ""
+    return inside.strip() if depth == 0 else ""
 
 
 def _forget_words(ws: str, text: str) -> dict | None:

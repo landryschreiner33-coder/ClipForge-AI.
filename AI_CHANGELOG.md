@@ -484,6 +484,28 @@ Landry's projects, could never do anything, and without a downloaded model only 
     (`tests/test_clipforge_ai_assistant.py`); `frontend/dist` rebuilt. The click-through (outside the repo) checks
     that a quick reply is sent with `choice`, and that the "Which one?" button sends the words in quotes, forgets both
     twins, and pressed again forgets nothing.
+- **A look at those fixes** (one reviewer; each finding checked again by one who tried to refute it, and all three held
+  up; each fix has a test that failed before it):
+  - A correction with an emoji, a smiley, a bracket or an arrow after "forget" or "that" ("Forget that 😅 keep the
+    music low", "Forget :) keep …", "Forget that (keep …)", or "Forget that 🙈" with the rule on the next line) still
+    forgot the rule it says again, with its twins: only sentence punctuation ended the request, and a memory's words
+    count only letters and digits. "forget" and each word it skips now count only when a word (a letter or a digit)
+    or an opening quote follows the space (`chat._GOES_ON`); anything else goes to the conversation, or without a
+    model to "Which one?". Typing "forget" and the exact words of a memory that starts with an emoji or a "#" now
+    asks first too.
+  - Without a model, "Remember that.", "Note that." and "Keep in mind that." (and "Remember that!") kept a memory
+    saying "that" for every video. "that" is left out wherever it ends as a word; words that only point back ("that",
+    "this", "it" …) or have no letter or digit keep nothing and ask what to remember; "Remember that. The outro is 2
+    seconds" keeps the sentence after it.
+  - A "Which one?" button for a memory with quotes of its own ("Call the series “Trail Notes”", 'Say "hello" …') did
+    not count as quoted: pressed again it listed other memories (or, with a model, went to the model) instead of
+    saying "Nothing I remember says …". In curly quotes the quoted words now run from the first “ to the last ”, as
+    long as the curly quotes inside pair up (`chat._quoted`); “a” and “b” typed in one message stay two quotes.
+  - New cases in `test_a_correction_never_forgets_and_a_longer_word_is_never_cut` and
+    `test_which_one_lists_each_set_of_words_once_and_its_button_forgets_only_those_words`
+    (`tests/test_clipforge_ai_chat.py`) and in
+    `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`
+    (`tests/test_clipforge_ai_assistant.py`); no frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
