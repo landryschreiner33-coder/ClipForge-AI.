@@ -1304,6 +1304,25 @@ def test_a_video_deleted_while_its_answer_is_written_gets_no_new_chat(env, monke
     video_setup._think(v["id"], ai["id"], owner["id"], False)
     assert not armed  # the delete landed where the answer read the chat
     assert not real_select("brain_chats", "project_id = ?", (v["id"],))
-    with pytest.raises(chat_mod.ChatError):  # also a page that opens the chat of a video deleted meanwhile
-        armed.append(True)
-        chat_mod.open_chat(WS, v["id"])
+
+    # A page that opens a video's chat for the first time (ClipForge AI's panel) while the video is deleted: the
+    # delete lands after the video was read and before the chat is made, so the chat just made goes again.
+    other = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask")
+    with db.connect() as conn:
+        conn.execute("DELETE FROM brain_chat_messages WHERE chat_id IN (SELECT id FROM brain_chats WHERE "
+                     "project_id = ?)", (other["id"],))
+        conn.execute("DELETE FROM brain_chats WHERE project_id = ?", (other["id"],))
+    real_insert = db.insert
+
+    def deleted_before_insert(table, *a, **k):
+        if table == "brain_chats":
+            with db.connect() as conn:
+                conn.execute("DELETE FROM studio_projects WHERE id = ?", (other["id"],))
+        return real_insert(table, *a, **k)
+
+    monkeypatch.setattr(chat_mod.db, "select", real_select)
+    monkeypatch.setattr(chat_mod.db, "insert", deleted_before_insert)
+    with pytest.raises(chat_mod.ChatError) as refused:
+        chat_mod.open_chat(WS, other["id"])
+    assert refused.value.status == 404
+    assert not real_select("brain_chats", "project_id = ?", (other["id"],))
