@@ -180,7 +180,46 @@ def test_a_use_recorded_while_a_memory_is_forgotten_or_tidied_away_is_never_left
     assert db.scalar("SELECT COUNT(*) FROM brain_memory_uses u WHERE NOT EXISTS (SELECT 1 FROM brain_memories m "
                      "WHERE m.id = u.memory_id)") == 0
     assert {m["id"] for m in db.select("brain_memories", "workspace_id = ?", (WS,))} == {said["id"]}
-    assert len(brain.uses(WS, said["id"])) >= 2  # its own and its twin's moved to it
+    rows = db.scalar("SELECT COUNT(*) FROM brain_memory_uses WHERE memory_id = ?", (said["id"],))
+    assert rows >= 2 and brain.get(WS, said["id"])["used_count"] == rows  # its own and its twin's, all counted
+
+
+def test_a_twin_merged_into_a_memory_forgotten_meanwhile_leaves_no_use_behind(data, monkeypatch):
+    """Tidy merges a twin into the stronger memory of the two. When that one is forgotten while Tidy runs (after any
+    of its steps), the twin stays with the record of its own uses: none is moved to a memory that is gone."""
+    from contextlib import contextmanager
+
+    from clipfoundry import brain, db
+
+    real = db.connect
+    for step in range(1, 9):
+        for m in db.select("brain_memories", "workspace_id = ?", (WS,)):
+            brain.forget(WS, m["id"])
+        said = brain.remember(WS, "Captions in yellow")
+        twin = db.insert("brain_memories", {"workspace_id": WS, "kind": "fact", "text": "captions in yellow",
+                                            "norm": "captions in yellow", "source": "did", "confidence": 0.8,
+                                            "scope": "all", "tags": [], "data": {}, "meaning": None,
+                                            "meaning_model": "", "enabled": 1, "revision": 1, "used_count": 0})
+        brain.record_use(WS, [said["id"], twin["id"]], "chat", "msg-1")
+        brain.record_use(WS, [twin["id"]], "chat", "msg-2")
+        done = [0]
+
+        @contextmanager
+        def connect():
+            with real() as conn:
+                yield conn
+            done[0] += 1
+            if done[0] == step:  # the stronger one is forgotten right after this step of Tidy
+                brain.forget(WS, said["id"])
+
+        monkeypatch.setattr(db, "connect", connect)
+        brain.tidy(WS)
+        monkeypatch.setattr(db, "connect", real)
+        assert db.scalar("SELECT COUNT(*) FROM brain_memory_uses u WHERE NOT EXISTS (SELECT 1 FROM brain_memories m "
+                         "WHERE m.id = u.memory_id)") == 0, step
+        for m in db.select("brain_memories", "workspace_id = ?", (WS,)):
+            assert m["used_count"] == db.scalar("SELECT COUNT(*) FROM brain_memory_uses WHERE memory_id = ?",
+                                                (m["id"],)), step
 
 
 def test_guesses_expire_unless_confirmed_and_forget_removes_a_memory_with_its_uses(data):

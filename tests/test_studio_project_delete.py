@@ -890,7 +890,7 @@ def test_a_delete_given_its_confirmations_list_removes_no_more_than_that_or_noth
     day = _video("Summit day", [summit["id"]])["id"]
     night = _video("Summit night", [summit["id"]])["id"]
     shown = project_delete.plan("local", night, "full_video")
-    assert shown["removes"] == {"files": [], "source": False, "posts": [], "kept": []}
+    assert shown["removes"] == {"files": [], "source": False, "posts": [], "kept": [summit["id"]]}
     assert "“summit.mp4” stays in ClipForge because another project or example uses it." in shown["stays"]
     project_delete.delete("local", day, "full_video")  # meanwhile, the other video that used it goes
     with pytest.raises(project_delete.DeleteError) as changed:

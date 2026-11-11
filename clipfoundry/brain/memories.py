@@ -486,15 +486,21 @@ def tidy(ws: str) -> dict:
             continue
         twins.sort(key=lambda r: (-RANK[r["source"]], -float(r.get("confidence") or 0), -int(r.get("revision") or 1)))
         keep, rest = twins[0], twins[1:]
-        db.update("brain_memories", keep["id"], used_count=int(keep.get("used_count") or 0) +
-                  sum(int(r.get("used_count") or 0) for r in rest),
+        db.update("brain_memories", keep["id"],
                   tags=_tags(list(keep.get("tags") or []) + [t for r in rest for t in (r.get("tags") or [])]),
                   revision=int(keep.get("revision") or 1) + 1)
         for r in rest:
-            with db.connect() as conn:  # its uses move to the one kept as it goes: one transaction (as `forget`)
+            # One transaction (as `forget`): the twin's count as it is now and the record of its uses move to the one
+            # kept, and the twin goes. The kept one is written first, so forgetting it waits until this is done; when
+            # it was forgotten meanwhile, the twins stay as they are, each with its own uses.
+            with db.connect() as conn:
+                gained = conn.execute("UPDATE brain_memories SET used_count = used_count + COALESCE((SELECT "
+                                      "used_count FROM brain_memories WHERE id = ?), 0) WHERE id = ?",
+                                      (r["id"], keep["id"])).rowcount
+                if not gained:
+                    break
                 conn.execute("UPDATE brain_memory_uses SET memory_id = ? WHERE memory_id = ?", (keep["id"], r["id"]))
-                conn.execute("DELETE FROM brain_memories WHERE id = ?", (r["id"],))
-            merged += 1
+                merged += conn.execute("DELETE FROM brain_memories WHERE id = ?", (r["id"],)).rowcount
     return {"expired": len(expired), "merged": merged}
 
 

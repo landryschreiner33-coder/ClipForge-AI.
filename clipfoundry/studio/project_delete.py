@@ -25,8 +25,8 @@ happen; `delete` does it and returns the same sentences. The window's moment (`a
 a file the window said stays because it was added again is not deleted because the window stayed open past the day.
 Whether another project uses a file is judged when deleting; a confirmation that can wait long (ClipForge AI's delete
 card) also sends back what it listed beyond the project itself (`removes`: media files, the copy of the video it was
-made from, planned posts, and what ClipForge made for its scenes that it said stays), and when deleting would now
-remove more (the other project that used a file was deleted meanwhile, a post was planned), nothing is deleted. Work
+made from, planned posts, and the files it said stay), and when deleting would now remove more (the other project
+that used a file was deleted meanwhile, a post was planned), nothing is deleted. Work
 running for the project is stopped first. Autopilot's work, a post that is uploading (or may already be live) and a
 video still being copied in are never interrupted: deleting waits for them.
 """
@@ -502,11 +502,10 @@ def _view(s: _Survey) -> dict:
     return {"id": row["id"], "kind": s.kind, "name": row["name"], "blocked": s.blocked, "working": working,
             "goes": goes, "stays": stays, "freed_bytes": s.freed_bytes, "as_of": s.as_of,
             # what goes beyond the project itself, for a delete that must remove no more than was shown (`delete`),
-            # and what ClipForge made for its scenes that this says stays (another project uses it): that is not the
-            # project's own to delete later
+            # and the files this says stay (also what ClipForge made for its scenes that another project uses): none
+            # of them is the project's own to delete later
             "removes": {"files": [a["id"] for a in s.drop], "source": bool(s.source_copy),
-                        "posts": list(s.planned_posts),
-                        "kept": [a["id"] for a in s.keep + s.again if a["id"] in s.made]},
+                        "posts": list(s.planned_posts), "kept": [a["id"] for a in s.keep + s.again]},
             "counts": {"clips": s.clips, "versions": s.versions, "revisions": s.revisions, "renders": s.renders,
                        "files": len(s.drop) + (1 if s.source_copy else 0), "files_kept": len(s.keep) + len(s.again),
                        "planned_posts": len(s.planned_posts),
@@ -690,7 +689,7 @@ def _beyond(s: _Survey, removes: dict | None) -> str:
     """What deleting now would remove beyond what the confirmation listed (its plan's `removes`), in words: a media
     file, the copy of the video it was made from, a planned post. "" when nothing more. The project's own clips,
     versions, notes, chat and what ClipForge made for its scenes are the project: they go with it whatever their
-    number, but not a file it made that the confirmation said stays (`kept`: another project used it then)."""
+    number, but not a file the confirmation said stays (`kept`: another project used it then)."""
     if removes is None:
         return ""
     files, posts = set(removes.get("files") or []), set(removes.get("posts") or [])

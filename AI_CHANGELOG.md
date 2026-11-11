@@ -279,7 +279,7 @@ Landry's projects, could never do anything, and without a downloaded model only 
     for a short goes with it whatever its number, and that rule also covered a picture another project used when the
     card was shown (the owner put the same picture in another video, or two shorts share one; ClipForge keeps one
     file). When the other project was deleted meanwhile, OK deleted it. The plan's `removes` now also lists, as
-    `kept`, what ClipForge made for its scenes that it says stays, and `project_delete.delete(..., removes=)` counts
+    `kept`, the files it says stay, and `project_delete.delete(..., removes=)` counts
     such a file as more ("it would now also remove “Scene 1 picture.png”, which ClipForge made for its scenes and no
     other project uses now. Nothing was deleted."). What it makes for a new scene after the card was shown still goes
     with the short.
@@ -289,7 +289,7 @@ Landry's projects, could never do anything, and without a downloaded model only 
   - Forget and Tidy deleted a memory and the record of its uses in separate steps, so a use recorded in between was
     left over for nothing; Tidy's merge of twins likewise. Each is now one transaction.
   - `docs/clipforge/CLIPFORGE_AI.md` and `AI_HANDOFF.md` still said the editor counts with `allowance.counted` and its
-    own row; they now name `allowance.editor_request` and say only `ai_usage` rows count.
+    own row; they now name `allowance.editor_request` and say a part counts only through its `ai_usage` rows.
   - New tests: `test_a_delete_given_its_confirmations_list_never_removes_a_scene_picture_it_said_stays` in
     `tests/test_studio_project_delete.py`; `test_two_shorts_delete_cards_never_remove_a_scene_picture_one_said_stays`
     and `test_the_days_count_takes_no_longer_after_a_year_of_requests` (counted in SQLite's own steps, not time) in
@@ -298,6 +298,22 @@ Landry's projects, could never do anything, and without a downloaded model only 
     up: a card that waited for work to stop and then found more to delete says only that nothing was deleted (the
     earlier press said the work was being stopped), and the editor's two rows cannot be split by anything in ClipForge
     (each write waits up to 30 seconds for the database).
+- **A last check of these fixes** (two reviewers, each finding checked again) found two small things in Tidy and one
+  sentence too strong, each fixed with a test that failed before:
+  - Tidy's merge of twins wrote the kept memory's use count from what it read at the start, so uses recorded while it
+    ran were not counted; and when the kept memory was forgotten while Tidy ran, its twin's use records were moved to
+    a memory that was gone. Now one transaction per twin first adds the twin's count as it is at that moment to the
+    kept memory (so forgetting that one waits), then moves the records and deletes the twin; when the kept one was
+    forgotten meanwhile, the twins stay as they are, each with its own uses.
+  - `removes.kept` now lists every file the card says stays, not only what ClipForge made, so nothing it said stays
+    can go, whatever becomes ClipForge-made meanwhile.
+  - "Only `ai_usage` rows count" was too strong: the editor's change requests from before it wrote its own row still
+    count from their own rows; the docs say so.
+  - New test: `test_a_twin_merged_into_a_memory_forgotten_meanwhile_leaves_no_use_behind` in
+    `tests/test_clipforge_ai_brain.py`; the test of uses recorded during Forget and Tidy now also checks the count.
+    Two doubts did not hold up: a card saved without `kept` (only builds of this unreleased branch made one) and a
+    file the card said stays turning into one ClipForge made (a picture it makes comes from the scene's own random
+    seed).
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
