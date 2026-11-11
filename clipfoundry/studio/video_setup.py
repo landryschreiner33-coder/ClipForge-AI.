@@ -1517,10 +1517,10 @@ def answer_timeout(settings: dict) -> float:
 
 
 # ------------------------------------------------------------------ the chat of a draft
-def _chat(ws: str, project_id: str) -> dict:
+def _chat(ws: str, project_id: str, create: bool = True) -> dict:
     from ..brain import chat as chat_mod
 
-    return chat_mod.open_chat(ws, project_id)
+    return chat_mod.open_chat(ws, project_id, create)
 
 
 def _add(chat: dict, role: str, text: str, data: dict | None = None, status: str = "done") -> dict:
@@ -1797,10 +1797,16 @@ def _think(project_id: str, message_id: str, owner_id: str, first: bool) -> None
     settings = db.get_settings()
     answer, problem, extra = None, "", dict(_sent(settings))
     attempted = False
+    from ..brain import chat as chat_mod
+
+    try:
+        chat = _chat(project["workspace_id"], project_id, create=False)  # never a new chat for a deleted video
+    except chat_mod.ChatError:
+        _finish(message_id, status="failed", text="The video was built or deleted before I answered.")
+        return
     try:
         st = _setup(project)
         files = _files(project)
-        chat = _chat(project["workspace_id"], project_id)
         request, used, _summaries = _gather(project, st, files, settings, newest, chat)
         extra.update({k: v for k, v in used.items() if k != "memory_ids"})
         if used["memory_ids"]:
@@ -1878,10 +1884,12 @@ def _remember(value: object) -> dict:
 
 
 def start(ws: str, user_id: str, *, asset_ids: list[str], idea: str = "", mode: str = "", name: str = "",
-          style_id: str = "saved", reference_id: str = "", script=None, remember: dict | None = None) -> dict:
+          style_id: str = "saved", reference_id: str = "", script=None, remember: dict | None = None,
+          upload_ids=None) -> dict:
     """A new draft video from the files and the owner's idea. "Ask me questions": ClipForge AI answers with a plan
     (and maybe questions). "Just do it": the video is built at once (ClipForge AI plans first in the build job when a
-    model is set up). Every video is listened to from now on."""
+    model is set up). Every video is listened to from now on. `upload_ids`: the owner's uploads of the files that the
+    page sent (they become this video's, uploads.taken)."""
     if not isinstance(asset_ids, list) or not all(isinstance(a, str) for a in asset_ids):
         raise SetupError("asset_ids must be a list of file ids.")
     asset_ids = list(dict.fromkeys(asset_ids))
@@ -1911,6 +1919,7 @@ def start(ws: str, user_id: str, *, asset_ids: list[str], idea: str = "", mode: 
         "status": "draft", "message": DRAFT_MESSAGE, "asset_ids": asset_ids, "brief": {}, "style_id": "",
         "guidance": {}, "script": payload, "setup": st,
         "media": {"mode": "suggest", "commercial": bool(db.get_settings().get("autopilot_commercial_use", True))}})
+    uploads.taken(ws, upload_ids, project["id"], asset_ids)  # the page's uploads of the files dropped
     enqueue(ws, "video_media", project["id"], video_flow.bin_key(asset_ids))  # heard while you talk
     try:
         prefs.set_appearance(ws, user_id, {"video_setup_mode": mode}, None)

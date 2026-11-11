@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { ApplyChoice, ExampleVideo, Field, fmtEdit, studio } from "../studio";
-import { FileDrop, Picked, UploadRow } from "./studioParts";
+import { FileDrop, Picked, UploadRow, useUploadsByFile } from "./studioParts";
 import { Banner, ConfirmDialog, Dialog, EmptyState, Icon, Pill, ProgressBar, toast } from "./ui";
 
 const LIKES: [string, string][] = [["overall", "Overall style"], ["pacing", "Pacing and cuts"], ["captions", "Captions"],
@@ -89,6 +89,7 @@ function AddExample({ onClose, onAdded, projectOnly = false }: { onClose: () => 
   const [modes, setModes] = useState<string[]>([]);
   const [problem, setProblem] = useState("");
   const [busy, setBusy] = useState(false);
+  const uploaded = useUploadsByFile();  // the page's uploads of the file become the example's own
   const a = parseClock(from);
   const b = parseClock(to);
   const rangeBad = (a !== null || b !== null) && (a === null || b === null || Number.isNaN(a) || Number.isNaN(b) || b - a < 1000);
@@ -97,7 +98,8 @@ function AddExample({ onClose, onAdded, projectOnly = false }: { onClose: () => 
     setBusy(true);
     setProblem("");
     try {
-      const r = await studio.addExample({ asset_id: file!.asset!.id, title: title.trim(), likes, note, avoid,
+      const r = await studio.addExample({ asset_id: file!.asset!.id, upload_ids: uploaded.of([file!.asset!.id]),
+        title: title.trim(), likes, note, avoid,
         scope: avoid ? "chosen" : scope, modes: scope === "modes" ? modes : [], project_only: projectOnly,
         ranges: a !== null && b !== null ? [{ start_ms: a, end_ms: b }] : [] });
       toast(`Measuring “${r.title}”. You can keep working; it shows here when it is ready.`);
@@ -114,7 +116,8 @@ function AddExample({ onClose, onAdded, projectOnly = false }: { onClose: () => 
       <button type="button" className="btn btn-primary" disabled={!ok} onClick={submit}>{busy && <span className="inline-spinner" aria-hidden="true" />}Add and analyze</button>
     </>}>
       <div className="stack-3">
-        {!file?.asset ? <FileDrop accept="video/*,.mkv,.m4v" label="Drop the example video here" onAssets={(rows) => setFile(rows[0] || null)} />
+        {!file?.asset ? <FileDrop accept="video/*,.mkv,.m4v" label="Drop the example video here" onAssets={(rows) => setFile(rows[0] || null)}
+          onUploaded={uploaded.add} />
           : <UploadRow row={file} />}
         <label className="field"><span>Name</span><input value={title} maxLength={120} placeholder={file?.file.name.replace(/\.[^.]+$/, "") || "My favourite vlog"} onChange={(e) => setTitle(e.target.value)} /></label>
         <fieldset className="stack-2"><legend className="label">What do you like about this example?</legend>

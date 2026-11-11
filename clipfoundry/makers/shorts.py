@@ -16,6 +16,7 @@ levels, tracks, pictures over the video and the word fixes of unchanged scenes.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import errno
 import hashlib
@@ -62,6 +63,7 @@ MAX_SCRIPT = 20_000
 MAX_TOPIC = 300
 MAX_VOICES = 120       # recorded scene voices kept per short (going back to earlier words reuses them)
 LEFTOVER_S = 3600.0    # what an app closed in the middle of a build left behind goes once it is an hour old
+MAKER = "maker"        # a maker's original kept with what the short made from it: maker.<ext> and its note maker.json
 VIDEO_MAX_S = 5.0      # what the video engine is asked for at most per scene
 CLIP_RECIPE = 1        # part of every clip key: a changed recipe makes the clips again
 STATUS_TTL = 5.0       # seconds an engine's status is reused (the editor page asks every few seconds)
@@ -119,6 +121,12 @@ def short_dir(project_id: str) -> Path:
     d = video_flow.video_dir(project_id) / "short"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def voice_originals(project_id: str) -> Path:
+    """Where the local voice engine's originals of this short's voices are kept (`<voice key>.wav` and its note
+    `.json`), next to the voices made from them; not made here (deleting a project reads it)."""
+    return config.data_dir() / "videos" / project_id / "short" / "voice" / MAKER
 
 
 def is_short(project: dict | None) -> bool:
@@ -577,6 +585,7 @@ def build_job(job: dict, lease: Lease) -> dict:
     settings = db.get_settings()
     state = {"listened": False}
     _sweep(project_id)
+    _tidy_files(project_id, project["workspace_id"])  # what a stopped or failed build left
     try:
         short = project["short"]
         if short.get("mode") == "write" and not scene_rows(project_id):
@@ -617,6 +626,7 @@ def build_job(job: dict, lease: Lease) -> dict:
                 log.exception("releasing the speech model failed")
     project = _project(project_id)
     _tidy_voices(project_id, project["short"])
+    _tidy_files(project_id, project["workspace_id"])
     failed = [s for s in scene_rows(project_id) if s["status"] == "failed"]
     message = (f"{len(failed)} scene{'s' if len(failed) != 1 else ''} could not be made; see the scenes" if failed
                else "The short is ready; making a preview")
@@ -643,30 +653,114 @@ def _sweep(project_id: str) -> None:
             pass
 
 
-def _drop_unused(asset: dict, workspace_id: str) -> None:
-    """A file this build stored a moment ago and then threw away (its scene changed or went meanwhile) is deleted
-    when nothing uses it. The same bytes may be someone else's file (files are stored once): it then stays."""
-    aid, like = asset["id"], f'%"{asset["id"]}"%'
-    checks = (("SELECT COUNT(*) FROM short_scenes WHERE picture_asset_id = ? OR clip_asset_id = ? OR pictures LIKE ?",
-               (aid, aid, like)),
-              ("SELECT COUNT(*) FROM edit_plans WHERE plan LIKE ?", (like,)),
-              ("SELECT COUNT(*) FROM studio_projects WHERE asset_ids LIKE ? OR brief LIKE ? OR short LIKE ?",
-               (like, like, like)),
-              *((f"SELECT COUNT(*) FROM {table} WHERE asset_id = ?", (aid,))
-                for table in ("uploads", "link_imports", "reference_videos", "asset_sources", "media_imports")))
+def _list_file(project_id: str, workspace_id: str, asset_id: str) -> None:
+    """Put a file this short's build just stored on the short's list (short_files): tidying and deleting the short
+    find it there, also once no scene or saved version names it."""
+    db.execute("INSERT OR IGNORE INTO short_files (project_id, asset_id, workspace_id, created_at) VALUES (?, ?, ?, ?)",
+               (project_id, asset_id, workspace_id, time.time()))
+
+
+def _named(conn, asset_id: str, project_id: str) -> bool:
+    """Whether anything names this file now, read in the step that would delete it: a scene (its picture, earlier
+    pictures or clip), a saved version, a video, a clips project, an upload, a link, an example, an import, a source
+    note, or another short's list (files are stored once, so the same bytes may be someone else's)."""
+    like = f"%{asset_id}%"
+    text_cols = [r[1] for r in conn.execute("PRAGMA table_info(studio_projects)") if "TEXT" in str(r[2]).upper()]
+    checks = [("SELECT 1 FROM short_scenes WHERE picture_asset_id = ? OR clip_asset_id = ? OR pictures LIKE ? LIMIT 1",
+               (asset_id, asset_id, like)),
+              ("SELECT 1 FROM edit_plans WHERE plan LIKE ? LIMIT 1", (like,)),
+              (f"SELECT 1 FROM studio_projects WHERE {' OR '.join(f'{c} LIKE ?' for c in text_cols)} LIMIT 1",
+               tuple(like for _ in text_cols)),
+              ("SELECT 1 FROM short_files WHERE asset_id = ? AND project_id != ? LIMIT 1", (asset_id, project_id)),
+              *((f"SELECT 1 FROM {table} WHERE asset_id = ? LIMIT 1", (asset_id,))
+                for table in ("projects", "uploads", "link_imports", "reference_videos", "asset_sources",
+                              "media_imports"))]
+    return any(conn.execute(sql, args).fetchone() for sql, args in checks)
+
+
+def _drop(asset_id: str, workspace_id: str, project_id: str) -> bool:
+    """Delete a file this short's build stored, when nothing names it (checked again in the step that deletes its
+    row): its row, its place on the short's list and its folder (the read-only copy, its transcript, thumbnail and
+    a maker's original kept with it). Nothing outside ClipForge's data folder, and no file of the owner's, is ever
+    deleted. A file just handed out again (the same bytes uploaded or stored once more: the one it went to records
+    it a moment later) is left for a later tidy. True when it went."""
+    from ..studio import project_delete
+
+    row = db.fetch("assets", asset_id)
+    lock = uploads._content_lock(workspace_id, row["sha256"]) if row else None  # noqa: SLF001
+    with lock or contextlib.nullcontext(), db.connect() as conn:  # a save of the same bytes waits for this
+        conn.execute("BEGIN IMMEDIATE")
+        asset = db._decode("assets", conn.execute("SELECT * FROM assets WHERE id = ?",  # noqa: SLF001
+                                                  (asset_id,)).fetchone())
+        if asset is None:  # gone already: only the list entry is left
+            conn.execute("DELETE FROM short_files WHERE asset_id = ? AND project_id = ?", (asset_id, project_id))
+            return False
+        if asset["workspace_id"] != workspace_id or uploads.is_linked(asset) or \
+                float(asset.get("reused_at") or 0) > time.time() - uploads.REUSE_HOLD_S or \
+                project_delete._asset_folder(asset) is None or _named(conn, asset_id, project_id):  # noqa: SLF001
+            return False
+        conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+        conn.execute("DELETE FROM short_files WHERE asset_id = ?", (asset_id,))
+        conn.commit()
+        project_delete.remove_asset_files(asset)
+    return True
+
+
+def _own_names(project_id: str) -> str:
+    """Every asset id this short names itself: its scenes (each picture, earlier picture and clip), every saved
+    version of its plan, its own row and its media imports."""
+    with db.connect() as conn:
+        texts = [" ".join(str(v or "") for v in tuple(r)) for r in conn.execute(
+            "SELECT picture_asset_id, clip_asset_id, pictures FROM short_scenes WHERE project_id = ?", (project_id,))]
+        texts += [r[0] or "" for r in conn.execute("SELECT plan FROM edit_plans WHERE project_id = ?", (project_id,))]
+        texts += [" ".join(str(v or "") for v in tuple(r)) for r in conn.execute(
+            "SELECT * FROM studio_projects WHERE id = ?", (project_id,))]
+        texts += [r[0] or "" for r in conn.execute("SELECT asset_id FROM media_imports WHERE project_id = ?",
+                                                   (project_id,))]
+    return "\n".join(texts)
+
+
+def _tidy_files(project_id: str, workspace_id: str) -> int:
+    """Delete the files on this short's list that nothing names any more: a clip a later build replaced before any
+    version kept it (a build overtaken by a newer change saves no version), a picture that left a scene's earlier
+    pictures, a deleted scene's files that no version kept, a file a stopped build stored before a scene took it.
+    Whatever any saved version names stays, so undo can bring it back, and so does anything named outside the short.
+    Runs in the build (one build of a short runs at a time). Returns how many went; never fails a build."""
     try:
-        if any(db.scalar(sql, args) for sql, args in checks):
-            return
-        row = db.fetch("assets", aid)
-        if not row or row["workspace_id"] != workspace_id or uploads.is_linked(row):
-            return
-        folder = uploads.work_dir(row).resolve()
-        if config.data_dir().resolve() not in folder.parents:
-            return  # nothing outside ClipForge's data folder is ever deleted
-        db.execute("DELETE FROM assets WHERE id = ?", (aid,))
-        shutil.rmtree(folder, ignore_errors=True)
+        listed = [r["asset_id"] for r in db.select("short_files", "project_id = ?", (project_id,), "created_at")]
+        if not listed:
+            return 0
+        own = _own_names(project_id)
+        unnamed = [a for a in listed if a not in own]
+        if not unnamed:
+            return 0
+        from ..studio import project_delete
+
+        elsewhere = project_delete.named_elsewhere(workspace_id, "full_video", project_id)
+        return sum(1 for aid in unnamed if aid not in elsewhere and _drop(aid, workspace_id, project_id))
     except Exception:  # noqa: BLE001 - tidying never fails a build
-        log.exception("an unused scene file could not be deleted")
+        log.exception("tidying the files of short %s failed", project_id)
+        return 0
+
+
+def _take_original(original: object, folder: Path, stem: str = MAKER) -> None:
+    """Keep what a maker on this computer made for this short (its file, and its note: the same name with .json)
+    with what the short made from it: moved out of engines/made into `folder` as `stem` plus its suffix and
+    `stem`.json, so it goes when that does (tidying, deleting the short). Only files in engines/made are taken;
+    this never fails a build."""
+    if not original:
+        return
+    src = Path(str(original))
+    try:
+        if not local_engines.made_here(src):
+            return
+        folder.mkdir(parents=True, exist_ok=True)
+        for item, dest in ((src, folder / f"{stem}{src.suffix.lower()}"), (src.with_suffix(".json"),
+                                                                            folder / f"{stem}.json")):
+            if item.is_file():
+                shutil.move(str(item), str(dest))
+    except OSError as exc:
+        log.warning("a maker's original could not be kept with the short: %s", exc)
 
 
 def _plain(exc: BaseException, what: str = "scene") -> str:
@@ -853,6 +947,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
         db.update("short_scenes", sid, status="voice", message="Recording the voice", error="")
         step(0.02, f"Recording the voice of scene {n}")
         tmp = wav.with_name(f"{vkey}.part.wav")
+        got: dict = {}
         try:
             got = voice.speak(scene["narration"], tmp, voice=voice_id, speed=float(short.get("speed") or 1.0),
                               cancel=lease.canceled)
@@ -861,6 +956,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
                                           listen=True, cancel=lease.canceled, used=state)
         except BaseException:
             tmp.unlink(missing_ok=True)
+            local_engines.discard_made(got.get("original"))
             raise
         state["listened"] = state["listened"] or how == "listened"
         write_json(meta_path, {"duration_s": float(got["duration_s"]), "words": words, "timing": how,
@@ -868,6 +964,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
                                "voice_id": str(got.get("voice_id") or voice_id),
                                "fallback": got.get("fallback", ""), "rule": str(got.get("rule") or "")})
         tmp.replace(wav)
+        _take_original(got.get("original"), wav.parent / MAKER, vkey)  # the voice engine's own, kept with it
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     step(0.15, f"Scene {n}: the voice is ready")
     # ---- the picture
@@ -888,7 +985,13 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
                                     progress=lambda f=0.0, m="", *_: step(0.2 + 0.45 * float(f or 0),
                                                                           str(m or f"Making the picture of scene {n}")))
                 made_path = Path(got["path"])
-                stored = uploads.store_file(ws, made_path, f"Scene {n} picture{made_path.suffix}")
+                try:
+                    stored = uploads.store_file(ws, made_path, f"Scene {n} picture{made_path.suffix}")
+                except BaseException:
+                    local_engines.discard_made(got.get("note"))
+                    raise
+                _list_file(pid, ws, stored["id"])
+                _take_original(got.get("note"), uploads.work_dir(stored))  # the picture maker's note, kept with it
             engine_key, card_key = picture_keys(scene, short)
             made_key = engine_key if got["source"] == "engine" else card_key
             pic_info = {"source": got["source"], "engine": got.get("engine") or "", "why": got.get("why") or "",
@@ -923,16 +1026,22 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
     since = time.time()
     with tempfile.TemporaryDirectory(dir=short_dir(pid)) as tmpdir:
         out = Path(tmpdir) / f"scene-{n}.mp4"
-        result = None
+        result, original = None, None
         if _motion_mode(short) == "animate":
-            result, why = _animate(scene, short, look, picture, wav, out, duration_s, step, lease, n)
+            result, why, original = _animate(scene, short, look, picture, wav, out, duration_s, step, lease, n)
             how = "engine" if result else "camera"
         if result is None:
             result = motion.still_clip(Path(picture["path"]), wav, out, duration_s=duration_s, move=_move(scene),
                                        fps=FPS, size=SIZE, cancel=lease.canceled, background=look.bottom,
                                        progress=lambda f=0.0, *_: step(0.7 + 0.25 * float(f or 0),
                                                                        f"Moving the picture of scene {n}"))
-        clip = uploads.store_file(ws, Path(result["path"]), f"Scene {n}.mp4")
+        try:
+            clip = uploads.store_file(ws, Path(result["path"]), f"Scene {n}.mp4")
+        except BaseException:
+            local_engines.discard_made(original)
+            raise
+        _list_file(pid, ws, clip["id"])
+        _take_original(original, uploads.work_dir(clip))  # the video maker's clip and note, kept with this one
     duration_ms = int(round(float(result["duration_s"]) * 1000))
     _write_transcript(clip, scene["narration"], meta["words"], duration_ms / 1000)
     voice_info = {"engine": meta.get("engine", ""), "voice": meta.get("voice", ""), "timing": meta.get("timing", ""),
@@ -948,8 +1057,11 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
 
     row = _change_scene(sid, put_clip)
     if row is None or row["clip_asset_id"] != clip["id"]:
-        if float(clip.get("created_at") or 0) >= since:
-            _drop_unused(clip, ws)  # made for words or a picture that changed (or a scene that went) meanwhile
+        if float(clip.get("created_at") or 0) >= since:  # made for words or a picture that changed meanwhile
+            try:
+                _drop(clip["id"], ws, pid)
+            except Exception:  # noqa: BLE001 - tidying never fails a build: the file stays listed, the next tidy has it
+                log.exception("a thrown-away clip of short %s could not be deleted", pid)
         if row is not None:
             raise _Stale()
         return
@@ -957,15 +1069,16 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
 
 
 def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path, duration_s: float,
-             step: Callable[[float, str], None], lease: Lease, n: int) -> tuple[dict | None, str]:
-    """The video engine's motion for this scene, with the voice: (the clip, "") or (None, why the camera moves
-    instead)."""
+             step: Callable[[float, str], None], lease: Lease, n: int) -> tuple[dict | None, str, Path | None]:
+    """The video engine's motion for this scene, with the voice: (the clip, "", the video maker's own clip, which
+    the short keeps with this one) or (None, why the camera moves instead, None)."""
     from . import motion
 
     eng = local_engines.module()
     if eng is None:
-        return None, "This version of ClipForge does not have the local makers yet, so the camera moves instead."
+        return None, "This version of ClipForge does not have the local makers yet, so the camera moves instead.", None
     prompt, _negative = looks.prompt_for(look, scene["picture_prompt"], short.get("character") or "")
+    video = None
     try:
         video = eng.make_video(prompt, image=Path(picture["path"]), seconds=min(VIDEO_MAX_S, duration_s), width=720,
                                height=1280, seed=int(scene["seed"]),
@@ -973,21 +1086,26 @@ def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path
                                                                      str(m or f"Animating scene {n}")),
                                cancel=lease.canceled)
         return motion.video_clip(Path(video), wav, out, duration_s=duration_s, fps=FPS, size=SIZE,
-                                 cancel=lease.canceled), ""
+                                 cancel=lease.canceled), "", Path(video)
     except (Canceled, Cancelled):
+        local_engines.discard_made(video)
         raise
     except local_engines.errors() as exc:
+        local_engines.discard_made(video)
         if isinstance(exc, OSError):
             log.warning("animating scene %s: %s", scene["id"], exc)
-            return None, "The video maker's video for this scene could not be saved, so the camera moves instead."
-        return None, f"The video maker could not animate this scene ({str(exc)[:140]}); the camera moves instead."
+            return None, "The video maker's video for this scene could not be saved, so the camera moves instead.", \
+                None
+        return None, f"The video maker could not animate this scene ({str(exc)[:140]}); the camera moves instead.", \
+            None
     except Exception as exc:  # noqa: BLE001 - the camera move stands in
+        local_engines.discard_made(video)
         if lease.canceled():
             raise Canceled() from exc
         if exc.__class__.__name__ == "MotionError" and str(exc):
-            return None, f"{str(exc)[:200]} The camera moves instead."
+            return None, f"{str(exc)[:200]} The camera moves instead.", None
         log.exception("animating scene %s failed", scene["id"])
-        return None, "The video maker stopped with an error, so the camera moves instead."
+        return None, "The video maker stopped with an error, so the camera moves instead.", None
 
 
 def _write_transcript(clip: dict, narration: str, words: list[dict], duration_s: float) -> None:
@@ -1014,6 +1132,8 @@ def _tidy_voices(project_id: str, short: dict) -> None:
         if f.stem not in keep and not f.stem.endswith(".part"):
             f.unlink(missing_ok=True)
             f.with_suffix(".json").unlink(missing_ok=True)
+            for original in (folder / MAKER).glob(f"{f.stem}.*"):  # the voice engine's own, kept with it
+                original.unlink(missing_ok=True)
 
 
 # ------------------------------------------------------------------ the plan
@@ -1508,10 +1628,12 @@ def _narration(text: object) -> str:
 
 
 def update_scene(project: dict, scene_id: str, body: dict) -> None:
-    """Change a scene's words, picture idea, camera move or picture, or make it again."""
+    """Change a scene's words, picture idea, camera move or picture, or make it again. `upload_ids` come with a
+    picture the owner uploaded for the scene (every upload the page made of it, also one dropped again after a change
+    failed): those uploads become the short's (uploads.taken); choosing an earlier picture again sends none."""
     from . import motion, scenes
 
-    allowed = {"narration", "picture_prompt", "move", "picture_asset_id", "new_picture", "again"}
+    allowed = {"narration", "picture_prompt", "move", "picture_asset_id", "upload_ids", "new_picture", "again"}
     unknown = set(body) - allowed
     if unknown:
         raise ShortError("Unknown change: " + ", ".join(sorted(unknown)))
@@ -1582,6 +1704,8 @@ def update_scene(project: dict, scene_id: str, body: dict) -> None:
         return out
 
     _change_scene(scene_id, put)
+    if picture_info is not None and body.get("upload_ids"):  # the page's uploads of the owner's picture
+        uploads.taken(project["workspace_id"], body["upload_ids"], project["id"], [body["picture_asset_id"]])
     _rebuild(project)
 
 

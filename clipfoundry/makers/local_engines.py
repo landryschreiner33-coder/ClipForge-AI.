@@ -8,6 +8,7 @@ when the role is not ready, or when an engine call raises one of `errors()`.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 ROLES = ("image", "video", "voice")
 log = logging.getLogger(__name__)
@@ -24,6 +25,33 @@ def module():
 
 def available() -> bool:
     return module() is not None
+
+
+def made_here(path: Path | str) -> bool:
+    """Whether `path` is a file the makers saved in their own folder (<data>/engines/made): what a maker such as the
+    animated shorts takes into its project, with its note, instead of leaving a copy there."""
+    from .. import config
+
+    try:
+        made = (config.data_dir() / "engines" / "made").resolve()
+        target = Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return made in target.parents and target.is_file()
+
+
+def discard_made(path: Path | str | None) -> None:
+    """A file a maker saved in engines/made that the caller asked for and cannot use (unusable, or the work was
+    stopped) goes, with its note (the same name with .json). Nothing outside engines/made is ever touched, and this
+    never raises."""
+    if not path:
+        return
+    try:
+        if made_here(path):
+            Path(path).unlink(missing_ok=True)
+            Path(path).with_suffix(".json").unlink(missing_ok=True)
+    except OSError as exc:
+        log.warning("a maker's unused file could not be deleted: %s", exc)
 
 
 def status(role: str) -> dict:

@@ -6,7 +6,8 @@ needed, stopped when idle), or one already on this computer (the ComfyUI desktop
 
 Each job holds the graphics card the way transcription does (gpu.py), so the two never compete for its memory, and
 everything it makes is copied to <data>/engines/made/<kind>/<day>/ with a note next to it (model, licence, words,
-seed), which is how a made picture can be traced back.
+seed), which is how a made picture can be traced back. A maker that uses it (the animated shorts) takes the file and its
+note from there into its project, so they go when the project does.
 """
 from __future__ import annotations
 
@@ -287,7 +288,11 @@ def make_image(prompt: str, *, negative: str = "", style: str = "", width: int =
     path, info = _run("picture", "image", graph_for, {"prompt": words[:4000], "negative": negative[:2000], "seed": s,
                                                      "asked_width": width, "asked_height": height},
                       progress, cancel, timeout_s=1800)
-    w, h = png_size(path)
+    try:
+        w, h = png_size(path)
+    except EngineError:
+        _refused(path)
+        raise
     if (w, h) != (info["width"], info["height"]):
         log.info("picture came back %sx%s (asked %sx%s)", w, h, info["width"], info["height"])
     return path
@@ -315,8 +320,18 @@ def make_video(prompt: str, *, image: Path | str | None = None, seconds: float =
                                                     "asked_width": width, "asked_height": height},
                        progress, cancel, timeout_s=3 * 3600)
     if path.stat().st_size < 1000:
+        _refused(path)
         raise EngineError("ComfyUI handed back an empty video.")
     return path
+
+
+def _refused(path: Path) -> None:
+    """What ComfyUI handed back that is not a picture or a video is not kept: it goes with its note."""
+    for item in (path, path.with_suffix(".json")):
+        try:
+            item.unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("an unusable file in engines/made could not be deleted: %s", exc)
 
 
 def make_room(kind: str) -> None:

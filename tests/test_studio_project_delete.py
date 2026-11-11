@@ -13,6 +13,7 @@ import json
 import os
 import stat
 import time
+from pathlib import Path
 
 import pytest
 
@@ -750,10 +751,13 @@ def test_an_animated_shorts_scene_files_go_with_it_but_files_another_short_or_yo
     assert len(db.select("short_scenes", "project_id = ?", (other,))) == 1
 
 
-def test_one_upload_of_a_file_clipforge_got_another_way_is_added_again_but_the_upload_that_stored_it_is_not(env):
+def test_one_upload_of_a_file_clipforge_got_another_way_is_added_again_but_the_upload_that_stored_it_is_not(
+        env, monkeypatch):
     """A file ClipForge got itself (Find media, a link, a short's build) has no upload of its own, so one upload of
-    the same bytes for a new page is the owner adding it again, and it stays. The upload that first stored a file is
-    the project's own, also when the project was made before it (a planned video's files arrive after it)."""
+    the same bytes for a new page is the owner adding it again, and it stays. For a project made before ClipForge
+    recorded which project took an upload, the upload that first stored a file is the project's own, also when the
+    project was made before it (a planned video's files arrive after it). A project made since then owns only the
+    uploads its page sent, so that upload, which no project took, keeps the file."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
 
@@ -773,6 +777,9 @@ def test_one_upload_of_a_file_clipforge_got_another_way_is_added_again_but_the_u
                           "asset_id": own["id"], "created_at": own["created_at"] - 5})  # the upload that stored it,
     # started before ClipForge had the file and finished after the planned video was made
     planned = _video("Planned video", [own["id"]], status="draft", created_at=time.time() - 60)["id"]
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: 0.0)  # made since
+    assert project_delete.plan("local", planned, "full_video")["counts"]["files_kept"] == 1
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: float("inf"))  # made before
     assert project_delete.plan("local", planned, "full_video")["counts"]["files"] == 1
     project_delete.delete("local", planned, "full_video")
     assert db.fetch("assets", own["id"]) is None and not os.path.exists(own["path"])
@@ -789,8 +796,8 @@ def test_the_window_counts_the_files_it_does_not_name(env):
 def test_a_shorts_window_counts_what_clipforge_made_for_its_scenes_and_names_a_picture_you_chose(env):
     """The pictures and clips ClipForge made for a short's scenes are not copies of anything (ClipForge has the only
     one), and every remake of a picture has the same name, so the window counts them instead of naming them. A
-    picture the owner chose for a scene is ClipForge's copy of their file. The pictures and voices the makers on this
-    computer made keep their originals in their own folder, and the window says so under what stays."""
+    picture the owner chose for a scene is ClipForge's copy of their file. The originals the makers on this computer
+    made for the short are kept with what it made from them, so they go with it, and the window says so."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
 
@@ -814,22 +821,43 @@ def test_a_shorts_window_counts_what_clipforge_made_for_its_scenes_and_names_a_p
     assert "What ClipForge made for its scenes: 3 pictures and 3 clips." in plan["goes"]
     assert "ClipForge's copy of “my owl photo.png”, which no other project uses." in plan["goes"]
     assert not any("Scene" in line for line in plan["goes"])
-    assert ("The originals of the pictures and voices made for it on this computer stay in engines/made, each with a "
-            "note of the words it was made from.") in plan["stays"]
+    # the picture maker and the voice engine made some of it, and nothing of theirs is kept with the short (made by
+    # a version from before it kept them): their originals stay in engines/made, and the window says so
+    assert not any("originals" in line for line in plan["goes"])
+    left = ("Originals of the pictures and voices made for it on this computer that ClipForge could not keep with it "
+            "stay in engines/made, each with a note of the words it was made from.")
+    assert left in plan["stays"]
+    # what the picture maker and the voice engine made for it is kept with it: it goes too, and the window says so
+    from clipfoundry.makers import shorts
+
+    for pic in pics:
+        (Path(pic["path"]).parent / "maker.json").write_text('{"licence": "Apache-2.0"}')
+    voices = shorts.voice_originals(short)
+    voices.mkdir(parents=True)
+    (voices / "a1b2.wav").write_bytes(b"RIFF")
+    plan = project_delete.plan("local", short, "full_video")
+    assert ("What ClipForge made for its scenes: 3 pictures and 3 clips, with the originals of the pictures and "
+            "voices made for it on this computer.") in plan["goes"]
+    assert not any("engines/made" in line for line in plan["stays"])
     plain = _video("Plain video", [_stored(57)["id"]])["id"]
-    assert not any("engines/made" in line for line in project_delete.plan("local", plain, "full_video")["stays"])
+    assert not any("originals" in line for line in project_delete.plan("local", plain, "full_video")["goes"])
     out = project_delete.delete("local", short, "full_video")
     assert out["goes"] == plan["goes"]
     for gone in (*pics, clip1, clip2, old_clip, owl):
         assert db.fetch("assets", gone["id"]) is None and not os.path.exists(gone["path"])
+    assert not voices.exists()
 
 
-def test_an_upload_that_started_before_the_file_was_stored_is_the_projects_own_even_when_saving_was_slow(env):
-    """Whether an upload added a file again is decided by when it started, not by a guess at how long saving takes:
-    the upload that stored the file, and the same file dropped twice at once, started before ClipForge had the file,
-    so they are the project's own also when the database was busy for a while and they finished late."""
+def test_an_upload_that_started_before_the_file_was_stored_is_the_projects_own_even_when_saving_was_slow(
+        env, monkeypatch):
+    """For a project made before ClipForge recorded which project took an upload, whether an upload added a file
+    again is decided by when it started, not by a guess at how long saving takes: the upload that stored the file,
+    and the same file dropped twice at once, started before ClipForge had the file, so they are the project's own
+    also when the database was busy for a while and they finished late."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
+
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: float("inf"))  # made before
 
     asset = _stored(43, kind="image", filename="green.png")
     stored = float(asset["created_at"])
@@ -905,8 +933,8 @@ def test_a_shorts_window_reads_its_saved_versions_and_a_picture_waiting_to_be_re
     assert "What ClipForge made for its scenes: 2 pictures and 2 clips." in plan["goes"]
     assert "ClipForge's copy of “my owl photo.png”, which no other project uses." in plan["goes"]
     assert not any("Scene" in line for line in plan["goes"])
-    assert ("The originals of the pictures, video clips and voices made for it on this computer stay in "
-            "engines/made, each with a note of the words it was made from.") in plan["stays"]
+    assert ("Originals of the pictures, video clips and voices made for it on this computer that ClipForge could "
+            "not keep with it stay in engines/made, each with a note of the words it was made from.") in plan["stays"]
 
     stopped = _video("Stopped short", [], workflow="animated_short")["id"]
     db.insert("short_scenes", {"project_id": stopped, "workspace_id": "local", "position": 1, "narration": "Ants"})
@@ -914,19 +942,25 @@ def test_a_shorts_window_reads_its_saved_versions_and_a_picture_waiting_to_be_re
     notes.mkdir(parents=True)
     (notes / "k1.json").write_text(json.dumps({"engine": "engine", "voice": "F1"}))
     (notes / "k0.json").write_text("not json")
-    assert ("The originals of the voices made for it on this computer stay in engines/made, each with a note of the "
-            "words it was made from.") in project_delete.plan("local", stopped, "full_video")["stays"]
+    assert ("Originals of the voices made for it on this computer that ClipForge could not keep with it stay in "
+            "engines/made, each with a note of the words it was made from.") in project_delete.plan(
+        "local", stopped, "full_video")["stays"]
     (notes / "k1.json").write_text(json.dumps({"engine": "say", "voice": "Samantha"}))
     assert not any("engines/made" in line for line in project_delete.plan("local", stopped, "full_video")["stays"])
 
 
-def test_another_pages_upload_of_the_same_file_keeps_it_even_when_it_finished_before_or_after_the_project(env):
-    """A page makes a project only from finished uploads, so an upload that started before the project was made and
-    finished after it is another page's (the same file under another name, sent at the same time). And two drops of
-    a file in the last day mean another page may hold it: the project was made from one of them at most. Either way
-    the file stays. One drop (the uploads that started before ClipForge had the file count as one) still goes."""
+def test_another_pages_upload_of_the_same_file_keeps_it_even_when_it_finished_before_or_after_the_project(
+        env, monkeypatch):
+    """Projects made before ClipForge recorded which project took an upload keep these rules. A page makes a project
+    only from finished uploads, so an upload that started before the project was made and finished after it is
+    another page's (the same file under another name, sent at the same time). And two drops of a file in the last
+    day mean another page may hold it: the project was made from one of them at most. Either way the file stays. One
+    drop (the uploads that started before ClipForge had the file count as one) still goes. A project made since then
+    that took none of them (made another way) owns none of them, so the one drop stays too."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
+
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: float("inf"))  # all made before
 
     def upload(asset: dict, started: float, done: float) -> None:
         db.insert("uploads", {"workspace_id": "local", "filename": asset["filename"], "size": 3000,
@@ -955,6 +989,8 @@ def test_another_pages_upload_of_the_same_file_keeps_it_even_when_it_finished_be
     upload(once, t - 4, t + 0.5)
     vid3 = _video("Once", [once["id"]], created_at=t + 30)["id"]
     assert project_delete.plan("local", vid3, "full_video")["counts"]["files"] == 1
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: t)  # made since
+    assert project_delete.plan("local", vid3, "full_video")["counts"]["files_kept"] == 1
 
 
 def test_a_video_being_planned_goes_with_its_planning_chat_and_an_answer_written_after_changes_nothing(env,

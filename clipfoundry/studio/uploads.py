@@ -16,6 +16,8 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import sqlite3
+import stat
 import subprocess
 import threading
 import time
@@ -38,6 +40,7 @@ DISK_RESERVE = 2 << 30            # ...less this reserve, so the computer keeps 
 
 _locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
+_same_bytes = [threading.Lock() for _ in range(64)]  # one file is stored by one save at a time (see _store)
 
 
 class UploadError(ValueError):
@@ -50,6 +53,58 @@ class UploadError(ValueError):
 def _lock(upload_id: str) -> threading.Lock:
     with _guard:
         return _locks.setdefault(upload_id, threading.Lock())
+
+
+def _content_lock(workspace_id: str, digest: str) -> threading.Lock:
+    """The lock of one file's content: two saves of the same bytes (the same file dropped twice, or added on two
+    pages, finishing at the same moment) take turns, so the second finds what the first stored."""
+    key = hashlib.sha256(f"{workspace_id}\0{digest}".encode()).digest()
+    return _same_bytes[key[0] % len(_same_bytes)]
+
+
+def _discard(folder: Path) -> None:
+    """Remove a folder this module just made (a copy that was not kept). The stored copy in it is read-only, which
+    Windows refuses to delete until it is made writable again."""
+    def unlock(func, path, _exc):  # noqa: ANN001
+        try:
+            os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+
+    try:
+        shutil.rmtree(folder, onexc=unlock)  # type: ignore[call-arg]
+    except TypeError:  # Python < 3.12
+        shutil.rmtree(folder, onerror=unlock)
+    except OSError:
+        pass
+
+
+REUSE_HOLD_S = 3600.0  # how long a file handed out again is left alone by a short's tidying (makers/shorts._drop)
+
+
+def _reuse(workspace_id: str, digest: str) -> dict | None:
+    """The stored file with these bytes, marked as handed out again just now, or None. Whoever gets it records it a
+    moment later (an upload, a link, a short's scene); until then nothing names it, so tidying would see an unused
+    file: the mark keeps it (shorts._drop). The mark and the check are one step each in the database, so a file
+    deleted in between is not handed out."""
+    now = time.time()
+    with db.connect() as conn:
+        marked = conn.execute("UPDATE assets SET reused_at = ? WHERE workspace_id = ? AND sha256 = ?",
+                              (now, workspace_id, digest)).rowcount
+    rows = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest)) if marked else []
+    return rows[0] if rows else None
+
+
+def _stored_already(workspace_id: str, digest: str, folder: Path) -> dict | None:
+    """After a save was refused because the same bytes are stored already (another ClipForge program, such as
+    Autopilot's, stored them between the check and the save): that asset, with this save's own folder removed.
+    Refused (409, try again) when that asset was deleted again in the meantime."""
+    existing = _reuse(workspace_id, digest)
+    _discard(folder)
+    if existing is None:  # stored and deleted again in between: this save is refused, nothing is left behind
+        raise UploadError("ClipForge was saving the same file at that moment. Try again.", 409)
+    return existing
 
 
 def uploads_dir() -> Path:
@@ -249,11 +304,12 @@ def quick_hash(path: Path, size: int | None = None) -> str:
 
 
 def complete(upload_id: str) -> dict:
-    """Verify, probe and store the finished file as an asset (the same bytes are stored once per workspace)."""
+    """Verify, probe and store the finished file as an asset (the same bytes are stored once per workspace). The
+    answer is the asset with `upload_id`, the upload the page sends when it makes or adds to a project (taken)."""
     with _lock(upload_id):
         row = get(upload_id)
         if row["status"] == "complete":
-            return asset_view(db.fetch("assets", row["asset_id"]))  # type: ignore[arg-type]
+            return _again(row)
         if row["received"] != row["size"]:
             raise UploadError(f"Only {row['received']:,} of {row['size']:,} bytes arrived. Resume upload.", 409,
                               received=row["received"])
@@ -268,11 +324,33 @@ def complete(upload_id: str) -> dict:
             raise UploadError("The file arrived damaged (its fingerprint does not match). Upload it again.", 422)
         try:
             stored = _store(row["workspace_id"], part, row["filename"], row["kind"], digest, row["size"])
-        except UploadError:
-            db.update("uploads", upload_id, status="failed", error=f"Not a readable {row['kind']} file.")
+        except UploadError as exc:
+            db.update("uploads", upload_id, status="failed",
+                      error=str(exc) if exc.status == 409 else f"Not a readable {row['kind']} file.")
             raise
         db.update("uploads", upload_id, status="complete", asset_id=stored["id"])
-        return asset_view(stored)
+        return {**asset_view(stored), "upload_id": upload_id}
+
+
+def _again(row: dict) -> dict:
+    """A finished upload finished again: the same file dropped on two pages while its first upload was still
+    arriving resumes that one upload (start), so the second page finishes it too. That page gets an upload of its
+    own (a copy of the row, which no project took yet), so a project made on the first page never takes the second
+    page's, and deleting it keeps the file for the second page (project_delete._added_again). The file is marked
+    as handed out again, like any upload of bytes ClipForge has (_reuse), in one step with the copy of the row, so a
+    project being deleted either keeps the file or has deleted it already (409: upload it again)."""
+    mine, now = "up-" + os.urandom(8).hex(), time.time()
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute("UPDATE assets SET reused_at = ? WHERE id = ?", (now, row["asset_id"])).rowcount:
+            raise UploadError("The file was deleted meanwhile. Upload it again.", 409)
+        conn.execute("INSERT INTO uploads (id, workspace_id, filename, kind, size, received, sha256, status, "
+                     "asset_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'complete', ?, ?, ?)",
+                     (mine, row["workspace_id"], row["filename"], row["kind"], row["size"], row["size"],
+                      row["sha256"], row["asset_id"], now, now))
+        asset = db._decode("assets", conn.execute(  # noqa: SLF001
+            "SELECT * FROM assets WHERE id = ?", (row["asset_id"],)).fetchone())
+    return {**asset_view(asset), "upload_id": mine}  # type: ignore[arg-type]
 
 
 def _inspect(file: Path, kind: str, folder: Path, label: str = "This file") -> tuple[dict, str]:
@@ -296,30 +374,37 @@ def _inspect(file: Path, kind: str, folder: Path, label: str = "This file") -> t
 
 
 def _store(workspace_id: str, source: Path, filename: str, kind: str, digest: str, size: int) -> dict:
-    """Move a verified file into private asset storage (or reuse the asset with the same bytes) and probe it."""
-    existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
-    if existing:
-        source.unlink(missing_ok=True)
-        return existing[0]
-    asset_id = "as-" + os.urandom(8).hex()
-    folder = assets_dir(workspace_id) / asset_id
-    folder.mkdir(parents=True)
-    dest = folder / ("original" + Path(filename).suffix.lower())
-    shutil.move(str(source), dest)
-    os.chmod(dest, 0o440)  # immutable original: edits only ever reference it
-    try:
-        info, thumb = _inspect(dest, kind, folder)
-    except UploadError:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
-    return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": filename,
-                                "sha256": digest, "size": size, "path": str(dest), "thumb_path": thumb,
-                                "probe": info})
+    """Move a verified file into private asset storage (or reuse the asset with the same bytes) and probe it. Two
+    saves of the same bytes take turns; when another ClipForge program saved them in the meantime, its asset is used
+    and this copy is removed."""
+    with _content_lock(workspace_id, digest):
+        existing = _reuse(workspace_id, digest)
+        if existing is not None:
+            source.unlink(missing_ok=True)
+            return existing
+        asset_id = "as-" + os.urandom(8).hex()
+        folder = assets_dir(workspace_id) / asset_id
+        folder.mkdir(parents=True)
+        dest = folder / ("original" + Path(filename).suffix.lower())
+        shutil.move(str(source), dest)
+        os.chmod(dest, 0o440)  # immutable original: edits only ever reference it
+        try:
+            info, thumb = _inspect(dest, kind, folder)
+        except UploadError:
+            _discard(folder)
+            raise
+        try:
+            return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind,
+                                        "filename": filename, "sha256": digest, "size": size, "path": str(dest),
+                                        "thumb_path": thumb, "probe": info})
+        except sqlite3.IntegrityError:
+            return _stored_already(workspace_id, digest, folder)
 
 
 def link_local(workspace_id: str, path: str) -> dict:
     """Use a file on this computer where it is (desktop only): no copy, no upload. Returns the asset row (the same
-    one when the file was linked before; a linked file that moved is found again by its content). Refused in the
+    one when the file was linked before; a linked file that moved is found again by its content) with the page's
+    `upload_id` (_hand_out). Refused in the
     cloud, outside the folders ClipForge may read (local_files.roots), inside the data folder, and when the file
     is not a readable media file; the owner's file is never changed."""
     from . import local_files  # local_files lists media files with kind_of, so the import is made here
@@ -352,23 +437,68 @@ def link_local(workspace_id: str, path: str) -> dict:
     if size <= 0:
         raise UploadError("The file is empty.")
     digest = quick_hash(file, size)
-    existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
-    if existing:
-        if not Path(existing[0]["path"]).is_file():  # the same file, found again after it was moved
-            db.update("assets", existing[0]["id"], path=str(file))
-            return db.fetch("assets", existing[0]["id"]) or existing[0]
-        return existing[0]
-    asset_id = "as-" + os.urandom(8).hex()
-    folder = assets_dir(workspace_id) / asset_id
-    folder.mkdir(parents=True)
-    try:
-        info, thumb = _inspect(file, kind, folder, file.name)
-    except UploadError:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
-    return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": name,
-                                "sha256": digest, "size": size, "path": str(file), "thumb_path": thumb,
-                                "probe": info})
+    with _content_lock(workspace_id, digest):
+        existing = _reuse(workspace_id, digest)
+        if existing is not None:
+            if not Path(existing["path"]).is_file():  # the same file, found again after it was moved
+                db.update("assets", existing["id"], path=str(file))
+            return _hand_out(existing, name, again=True)
+        asset_id = "as-" + os.urandom(8).hex()
+        folder = assets_dir(workspace_id) / asset_id
+        folder.mkdir(parents=True)
+        try:
+            info, thumb = _inspect(file, kind, folder, file.name)
+        except UploadError:
+            _discard(folder)
+            raise
+        try:
+            stored, again = db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind,
+                                                 "filename": name, "sha256": digest, "size": size,
+                                                 "path": str(file), "thumb_path": thumb, "probe": info}), False
+        except sqlite3.IntegrityError:  # another ClipForge program linked it a moment ago
+            stored, again = _stored_already(workspace_id, digest, folder), True
+        return _hand_out(stored, name, again)
+
+
+def _hand_out(asset: dict, name: str, again: bool) -> dict:
+    """Add from this computer gave the page this file: the asset, with `upload_id`, a finished upload of it that no
+    project took yet, as an upload of the file leaves. The page sends it when it makes a project from the file or
+    adds the file to one (taken), so deleting a project tells the page's own link from another page's, also one made
+    before the project (project_delete._added_again; an example's delete, reference._drop_file). A file ClipForge
+    had already (`again`) is marked as handed out again (_reuse) in one step with that, so a project being deleted
+    either keeps the file or has deleted it already: then the page is told to add it again (409)."""
+    mine, now = "up-" + os.urandom(8).hex(), time.time()
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute("UPDATE assets SET reused_at = CASE WHEN ? THEN ? ELSE reused_at END WHERE id = ?",
+                            (int(again), now, asset["id"])).rowcount:
+            raise UploadError("The file was deleted meanwhile. Add it again.", 409)
+        conn.execute("INSERT INTO uploads (id, workspace_id, filename, kind, size, received, status, asset_id, "
+                     "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'complete', ?, ?, ?)",
+                     (mine, asset["workspace_id"], name, asset["kind"], asset["size"], asset["size"], asset["id"],
+                      now, now))
+        row = db._decode("assets", conn.execute(  # noqa: SLF001
+            "SELECT * FROM assets WHERE id = ?", (asset["id"],)).fetchone())
+    return {**row, "upload_id": mine}  # type: ignore[dict-item]
+
+
+def taken(workspace_id: str, upload_ids, project_id: str, asset_ids) -> None:
+    """A project took the owner's uploads the page sent with it (`upload_ids`: the uploads it was made from or added
+    to it; `asset_ids`: the files it took). Each finished upload of one of those files that no project took yet
+    becomes this project's; any other id is left alone, so a project only ever takes the uploads its page made, never
+    another page's of the same file. ClipForge keeps one copy per file, so the owner's upload of a file it already had
+    gives that copy; deleting a project keeps a file the owner uploaded again in the last day in case a page is about
+    to use it (project_delete._added_again), and only an upload no project took counts. The same file dropped on two
+    pages while its first upload is still arriving resumes that one upload: the first project to take it has it."""
+    files = list(dict.fromkeys(str(a) for a in asset_ids or () if a))
+    if not files:
+        return
+    with db.connect() as conn:
+        for uid in dict.fromkeys(str(u) for u in upload_ids or () if u):
+            conn.execute(
+                f"UPDATE uploads SET taken = ? WHERE id = ? AND workspace_id = ? AND status = 'complete' AND "
+                f"taken = '' AND asset_id IN ({', '.join('?' * len(files))})",
+                (project_id, uid, workspace_id, *files))
 
 
 def store_file(workspace_id: str, path: Path, filename: str) -> dict:

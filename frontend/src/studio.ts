@@ -7,7 +7,14 @@ export type Asset = { id: string; kind: "video" | "audio" | "image"; filename: s
   /** The owner's own file used where it is on this computer (desktop), not a copy ClipForge keeps. */
   linked?: boolean;
   /** A small preview copy of a big video exists (previews read it; the final render never does). */
-  proxy?: boolean };
+  proxy?: boolean;
+  /** The upload that brought this file on this page (uploadFile; the server gives each page its own). Sent with the
+   * file when the page makes or adds to a project, so that upload becomes the project's own and deleting the project
+   * can tell it from another page's. */
+  upload_id?: string };
+/** The uploads a page's files came with (none for a file used where it is). */
+export const uploadIds = (assets: (Asset | null | undefined)[]) =>
+  assets.flatMap((a) => (a?.upload_id ? [a.upload_id] : []));
 /** A folder of this computer the owner may pick footage from (desktop only). */
 export type LocalRoot = { label: string; path: string };
 export type LocalListing = { path: string; parent: string; roots: LocalRoot[];
@@ -346,8 +353,8 @@ export const studio = {
   createStoryClips: (pid: string, ids: string[] | null) => req<{ created: string[] }>("POST", `/api/projects/${pid}/stories/create`, { ids }),
   makeVideo: (body: Record<string, unknown>) => req<Video>("POST", "/api/studio/videos", body),
   /** A draft video from your files and your idea; ClipForge AI answers with a plan (or builds it: mode "auto"). */
-  startVideoSetup: (body: { asset_ids: string[]; idea: string; mode: SetupMode; name?: string; style_id?: string;
-    reference_id?: string; script?: Script | null; remember?: { enabled: boolean; name?: string } }) =>
+  startVideoSetup: (body: { asset_ids: string[]; upload_ids: string[]; idea: string; mode: SetupMode; name?: string;
+    style_id?: string; reference_id?: string; script?: Script | null; remember?: { enabled: boolean; name?: string } }) =>
     req<VideoSetup>("POST", "/api/studio/videos/setup", body),
   videoSetup: (id: string) => req<VideoSetup>("GET", `/api/studio/videos/${id}/setup`),
   /** Whether ClipForge AI has a model to plan with (else its built-in rules read what you say). */
@@ -391,7 +398,9 @@ export const studio = {
   linkLocal: (paths: string[]) => req<{ assets: Asset[]; problems: { path: string; detail: string }[] }>("POST", "/api/uploads/link", { paths }),
   /** Prepare a file in the background (its sound, transcript and preview copy), so the build starts faster. */
   prepareAsset: (id: string) => req<{ job: string; status: string }>("POST", `/api/assets/${id}/prepare`),
-  addVideoMedia: (id: string, asset_ids: string[]) => req<Video & { added: string[] }>("POST", `/api/studio/videos/${id}/media`, { asset_ids }),
+  /** Add files to a video's bin; `upload_ids` are the page's uploads of them (also of a file the bin has already). */
+  addVideoMedia: (id: string, asset_ids: string[], upload_ids: string[] = []) =>
+    req<Video & { added: string[] }>("POST", `/api/studio/videos/${id}/media`, { asset_ids, upload_ids }),
   styles: () => req<Style[]>("GET", "/api/studio/styles"),
   brainMap: () => req<BrainMap>("GET", "/api/studio/brain/map"),
   createStyle: (body: Record<string, unknown>) => req<Style>("POST", "/api/studio/styles", body),
@@ -489,7 +498,7 @@ export async function uploadFile(file: File, onProgress: (p: UploadProgress) => 
   const asset = await req<Asset>("POST", `/api/uploads/${up.id}/complete`);
   remember(fp, null);
   onProgress({ received: file.size, size: file.size, state: "done" });
-  return asset;
+  return { ...asset, upload_id: asset.upload_id || up.id };  // a file finished on two pages: each has its own
 }
 
 /** Seconds with tenths, for edit points (m:ss.t). */

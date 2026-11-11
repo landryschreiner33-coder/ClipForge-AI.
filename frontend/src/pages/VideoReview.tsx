@@ -11,7 +11,7 @@ import { ShortScenes } from "../components/ShortScenes";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
 import { redirect } from "../router";
-import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, studio, TrackName, Video } from "../studio";
+import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, studio, TrackName, uploadIds, Video } from "../studio";
 
 const PAGE = 60;  // sequence rows drawn at a time (the list stays light however long the project is)
 const ROLE_WORDS: Record<AudioRole, string> = { voiceover: "Voiceover", music: "Music", effect: "Sound effect" };
@@ -338,7 +338,7 @@ export default function VideoReview({ id }: { id: string }) {
   const [naming, setNaming] = useState<{ rev: number; name: string } | null>(null);
   const [local, setLocal] = useState<"unknown" | "yes" | "no">("unknown");
   const [browsing, setBrowsing] = useState(false);
-  const sent = useRef(new Set<string>());
+  const sent = useRef(new Set<string>());  // each upload, also each file added from this computer, is sent once
   useEffect(() => {
     let alive = true;
     studio.localBrowse("").then(() => alive && setLocal("yes")).catch(() => alive && setLocal("no"));
@@ -397,11 +397,13 @@ export default function VideoReview({ id }: { id: string }) {
   const pictures = bin.filter((a) => a.kind !== "audio");
   const sounds = bin.filter((a) => a.kind === "audio");
   const tracks = v.capabilities?.tracks || { source: "Sound from your videos", voiceover: "Voiceover", music: "Music", effects: "Sound effects" };
+  // each upload once, also one of a file the media has already: the page's uploads become this video's own
   const addFiles = (rows: Picked[]) => {
-    const fresh = rows.filter((r) => r.asset && !sent.current.has(r.asset.id)).map((r) => r.asset!.id);
+    const fresh = rows.flatMap((r) => (r.asset?.upload_id && !sent.current.has(r.asset.upload_id) ? [r.asset] : []));
     if (!fresh.length) return;
-    fresh.forEach((a) => sent.current.add(a));
-    void act(() => studio.addVideoMedia(v.id, fresh).then((r) => ({ ...r, note: `Added ${r.added.length} file${r.added.length === 1 ? "" : "s"} to your media` })));
+    fresh.forEach((a) => sent.current.add(a.upload_id!));
+    void act(() => studio.addVideoMedia(v.id, [...new Set(fresh.map((a) => a.id))], uploadIds(fresh)).then((r) => ({ ...r,
+      note: r.added.length ? `Added ${r.added.length} file${r.added.length === 1 ? "" : "s"} to your media` : "That is in your media already." })));
   };
 
   return (
@@ -520,9 +522,10 @@ export default function VideoReview({ id }: { id: string }) {
               <FileDrop accept="video/*,image/png,image/jpeg,image/webp,audio/*,.mkv,.m4v,.flac,.opus,.ogg" multiple label="Add more videos, images or sounds" onAssets={addFiles} />
               {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer (big files, nothing is copied)</button>}
               {browsing && <LocalFiles onClose={() => setBrowsing(false)} onLinked={(assets) => {
-                const fresh = assets.map((a) => a.id).filter((aid) => !sent.current.has(aid));
-                fresh.forEach((a) => sent.current.add(a));
-                if (fresh.length) void act(() => studio.addVideoMedia(v.id, fresh).then((r) => ({ ...r, note: `Added ${r.added.length} file${r.added.length === 1 ? "" : "s"} to your media, used where they are` })));
+                const fresh = assets.filter((a) => a.upload_id && !sent.current.has(a.upload_id));
+                fresh.forEach((a) => sent.current.add(a.upload_id!));
+                if (fresh.length) void act(() => studio.addVideoMedia(v.id, [...new Set(fresh.map((a) => a.id))], uploadIds(fresh)).then((r) => ({ ...r,
+                  note: r.added.length ? `Added ${r.added.length} file${r.added.length === 1 ? "" : "s"} to your media, used where ${r.added.length === 1 ? "it is" : "they are"}` : "That is in your media already." })));
               }} />}
               <p className="small muted">New files wait here until you insert them or add them to a track. Nothing is cut or deleted from your originals.</p>
               <Disclosure summary={`Files in this project (${bin.length})`}>

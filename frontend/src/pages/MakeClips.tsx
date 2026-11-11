@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { errorText } from "../api";
-import { DestinationPicker, ExampleSelect, FileDrop, Picked, StyleSelect, UsedFromBrain } from "../components/studioParts";
+import { DestinationPicker, ExampleSelect, FileDrop, Picked, StyleSelect, UsedFromBrain, useUploadsByFile } from "../components/studioParts";
 import { Banner, CAPTION_STYLES, Disclosure, Icon, PageHead, TRACKING } from "../components/ui";
 import { Appearance, useAppearance } from "../prefs";
 import { navigate } from "../router";
@@ -23,6 +23,7 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
   const [mode, setMode] = useState<string>(appearance.clips_mode);
   const [input, setInput] = useState<"file" | "link">(initialInput);
   const [file, setFile] = useState<Picked | null>(null);
+  const uploaded = useUploadsByFile();
   const [link, setLink] = useState("");
   const [checked, setChecked] = useState<LinkCheck | null>(null);
   const [requestId, setRequestId] = useState(newRequestId);
@@ -75,7 +76,8 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
     setBusy(true);
     setProblem("");
     try {
-      const source = input === "file" ? { asset_id: file!.asset!.id } : { url: link.trim(), request_id: requestId };
+      const source = input === "file" ? { asset_id: file!.asset!.id, upload_ids: uploaded.of([file!.asset!.id]) }
+        : { url: link.trim(), request_id: requestId };
       const body: Record<string, unknown> = { ...source, mode, style_id: style, choices, reference_id: example };
       if (upload) {
         body.upload = { intent: "make_and_upload", destinations: dest, privacy, made_for_kids: kids === "yes",
@@ -137,7 +139,8 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
               </label>
             </div>
             {input === "file" ? (
-              <FileDrop accept="video/*,.mkv,.m4v" label="Drop a video here" onAssets={(rows) => setFile(rows[0] || null)} />
+              <FileDrop accept="video/*,.mkv,.m4v" label="Drop a video here" onAssets={(rows) => setFile(rows[0] || null)}
+                onUploaded={uploaded.add} />
             ) : (
               <div className="stack-3">
                 <label className="field"><span>Link to one video</span>

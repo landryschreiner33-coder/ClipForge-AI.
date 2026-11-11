@@ -1,4 +1,4 @@
-import { DragEvent, useEffect, useRef, useState } from "react";
+import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Connection, ExampleVideo, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
 import { Icon } from "./ui";
 
@@ -16,13 +16,30 @@ export type Picked = { key: string; file: File; progress: UploadProgress | null;
 export const linkedRow = (asset: Asset): Picked => ({ key: `linked|${asset.id}`, file: new File([], asset.filename, { type: `${asset.kind}/*` }),
   progress: null, asset, error: "", linked: true });
 
+/** Every upload a page made, by file, also of a file picked again, taken out and added back, replaced by another
+ * file while it was still uploading, or added from this computer: all of them are the page's own, so they go with
+ * the file when the page makes its project (`of`), and none counts as another page's. */
+export function useUploadsByFile() {
+  const seen = useRef(new Map<string, Set<string>>());
+  return useMemo(() => ({
+    add: (asset: Asset) => {
+      if (!asset.upload_id) return;
+      const ids = seen.current.get(asset.id) || new Set<string>();
+      ids.add(asset.upload_id);
+      seen.current.set(asset.id, ids);
+    },
+    of: (assetIds: string[]) => [...new Set(assetIds.flatMap((a) => [...(seen.current.get(a) || [])]))],
+  }), []);
+}
+
 /** Uploads that run at the same time; the rest wait their turn (each one reads its file in chunks). */
 const PARALLEL = 3;
 
 /** File drop + picker. Any number of files, in as many batches as you like: each uploads in resumable chunks, a few
- * at a time, and each row shows bytes received (never a guess), with cancel and resume. */
-export function FileDrop({ accept, multiple, label, onAssets, onPicked }: { accept: string; multiple?: boolean; label: string;
-  onAssets: (rows: Picked[]) => void; onPicked?: (keys: string[]) => void }) {
+ * at a time, and each row shows bytes received (never a guess), with cancel and resume. `onUploaded` hears of every
+ * finished upload, also one whose row is gone (another file picked instead while it was still uploading). */
+export function FileDrop({ accept, multiple, label, onAssets, onPicked, onUploaded }: { accept: string; multiple?: boolean;
+  label: string; onAssets: (rows: Picked[]) => void; onPicked?: (keys: string[]) => void; onUploaded?: (asset: Asset) => void }) {
   const [rows, setRows] = useState<Picked[]>([]);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -46,7 +63,7 @@ export function FileDrop({ accept, multiple, label, onAssets, onPicked }: { acce
       running.current.set(key, ctl);
       update(key, { error: "" });
       uploadFile(file, (p) => update(key, { progress: p }), ctl.signal)
-        .then((asset) => update(key, { asset }))
+        .then((asset) => { onUploaded?.(asset); update(key, { asset }); })
         .catch((e) => update(key, { error: ctl.signal.aborted ? "Stopped. Resume upload to continue where it left off."
           : (e as Error).message }))
         .finally(() => { running.current.delete(key); pump(); });

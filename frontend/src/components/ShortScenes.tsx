@@ -4,7 +4,7 @@ import {
   SceneStatus, ScenePatch, ShortLook, ShortOptions, ShortOptionsPatch, ShortScene, ShortView, shorts,
 } from "../shorts";
 import { PlanClip, studio, Video } from "../studio";
-import { FileDrop, Picked } from "./studioParts";
+import { FileDrop, Picked, useUploadsByFile } from "./studioParts";
 import { announce, Banner, ConfirmDialog, Disclosure, Icon, IconName, Pill, ProgressBar, Tone, toast } from "./ui";
 import "../pages/shorts.css";
 
@@ -205,6 +205,7 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
   const [uploading, setUploading] = useState(false);
   const [drop, setDrop] = useState(0);  // a new number is a new, empty drop area
   const seen = useRef(new Set<string>());
+  const uploaded = useUploadsByFile();  // every upload of a picture, also one dropped again after a change failed
   const addButton = useRef<HTMLButtonElement>(null);
   const early = s.stage === "review" || s.stage === "writing";
   const writing = s.stage === "writing";
@@ -238,10 +239,11 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
     const got = fresh(await patch({ picture_prompt: text }, `The picture idea of scene ${scene.n} is saved.`));
     if (got) settleIdea(got.picture_prompt);
   };
-  // FileDrop reports its rows while it updates itself, so each file is dealt with a moment later, and only once.
+  // FileDrop reports its rows while it updates itself, so each upload is dealt with a moment later, and only once
+  // (a picture dropped again is a new upload, so a change that failed is tried again with it).
   const picked = (rows: Picked[]) => {
     for (const r of rows) {
-      const k = `${drop}|${r.key}`;
+      const k = `${drop}|${r.key}|${r.asset?.upload_id || ""}`;
       const wrong = !isPicture(r.file) || (!!r.asset && r.asset.kind !== "image");
       if (seen.current.has(k) || (!wrong && !r.asset)) continue;
       seen.current.add(k);
@@ -251,7 +253,7 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
           setDrop((n) => n + 1);  // the old drop area goes, and its upload stops
           toast("That file is not a picture. Use a PNG, JPEG or WebP picture.", true);
         } else {
-          void patch({ picture_asset_id: assetId }, `Scene ${scene.n} uses your picture now.`)
+          void patch({ picture_asset_id: assetId, upload_ids: uploaded.of([assetId]) }, `Scene ${scene.n} uses your picture now.`)
             .then((nv) => nv && setUploading(false));
         }
       }, 0);
@@ -359,7 +361,7 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
             {uploading && !writing && (
               <div className="scene-upload">
                 <FileDrop key={drop} accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
-                  label={`Drop a PNG, JPEG or WebP picture for scene ${scene.n}`} onAssets={picked} />
+                  label={`Drop a PNG, JPEG or WebP picture for scene ${scene.n}`} onAssets={picked} onUploaded={uploaded.add} />
               </div>
             )}
             {scene.earlier.length > 0 && (
