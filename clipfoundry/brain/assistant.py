@@ -37,6 +37,7 @@ WRITE_EVERY_S = 0.25          # how often a streaming answer is written to the c
 LOCAL_TURN_S = 300.0          # the whole answer, on this computer (the first one also loads the model)
 REMOTE_TURN_S = 120.0
 SAY_CHARS = 6000              # the most one answer shows
+MAX_DETAIL = 20               # lines a button shows of what OK does (a delete's plan has at most 16)
 
 PERSONA = (
     "You are ClipForge AI, the assistant built into ClipForge, a video-making app that runs on the owner's own "
@@ -551,7 +552,7 @@ def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = 
     blocked = str(pv.get("blocked") or "")
     out.pending.append({"id": f"a{len(out.pending) + 1}", "tool": tool.name, "args": args, "risk": tool.risk,
                         "label": str(pv.get("label") or tool.words(args)),
-                        "detail": [str(d) for d in pv.get("detail") or []][:10], "blocked": blocked,
+                        "detail": [str(d) for d in pv.get("detail") or []][:MAX_DETAIL], "blocked": blocked,
                         "state": "blocked" if blocked else "waiting", "result": ""})
     if blocked:
         return f"{name}: not done: shown to the owner as a button that cannot be pressed right now: {blocked}", False

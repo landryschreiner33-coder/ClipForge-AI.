@@ -75,12 +75,14 @@ def _fake_deleter(monkeypatch, blocked: str = "") -> types.ModuleType:
     mod.removes = []      # the removes each delete was given
     mod.changed = ""      # deleting would now remove more than the card listed: the real one's sentence
 
+    mod.goes = ["the video and its versions", "its chat with ClipForge AI"]
+    mod.stays = ["your files in the media library"]
+
     def plan(ws, project_id, kind):
         if mod.refuse:
             raise DeleteError("Project not found.", 404, "not_found")
         mod.planned.append(time.time())
-        return {"goes": ["the video and its versions", "its chat with ClipForge AI"],
-                "stays": ["your files in the media library"], "blocked": mod.blocked, "working": mod.working,
+        return {"goes": list(mod.goes), "stays": list(mod.stays), "blocked": mod.blocked, "working": mod.working,
                 "as_of": mod.planned[-1], "removes": {"files": [], "source": False, "posts": []}}
 
     def delete(ws, project_id, kind, *, wait=0.0, as_of=None, removes=None):
@@ -1047,6 +1049,23 @@ def test_a_delete_whose_work_is_still_stopping_keeps_its_button_for_another_pres
     assert pd.waits == [10.0, 10.0]  # running work gets as long to stop as on the Projects page
     assert pd.as_ofs == pd.planned * 2 and pd.removes == [act["args"]["removes"]] * 2
     assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "done"  # answered once
+
+
+def test_a_delete_card_shows_all_of_what_goes_and_what_stays(data, monkeypatch):
+    """The card shows the plan's sentences whole, however many there are (at most 16: what deleting stops, 8 lines
+    of what goes, 7 of what stays): nothing that goes is ever left off it."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat
+
+    pd = _fake_deleter(monkeypatch)
+    pd.working = "ClipForge is still working on it (making clips). Deleting stops that first."
+    pd.goes, pd.stays = [f"part {k} of it" for k in range(8)], [f"what stays {k}" for k in range(7)]
+    db.create_project("Busy talk", workspace_id=WS)
+    install(monkeypatch, say("", ("delete_project", {"project": "Busy talk"})), say("Press OK to delete it."))
+    c = chat.open_chat(WS)
+    m = settled(c["id"], _say(c["id"], "delete Busy talk")["id"])
+    assert m["data"]["pending"][0]["detail"] == [pd.working, *(f"Goes: part {k} of it" for k in range(8)),
+                                                 *(f"Stays: what stays {k}" for k in range(7))]
 
 
 def test_a_delete_that_must_wait_or_would_remove_more_since_its_card_was_shown_ends_the_card(data, monkeypatch):

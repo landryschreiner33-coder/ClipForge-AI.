@@ -531,7 +531,7 @@ def _delete_preview(ctx: Ctx, args: dict) -> dict:
     detail = [f"Goes: {s}" for s in plan.get("goes") or []] + [f"Stays: {s}" for s in plan.get("stays") or []]
     if plan.get("working"):  # "ClipForge is still working on it (...). Deleting stops that first."
         detail.insert(0, str(plan["working"]))
-    return {"label": f"Delete the {KIND_WORDS[p['kind']]} “{p['name']}”", "detail": detail[:10],
+    return {"label": f"Delete the {KIND_WORDS[p['kind']]} “{p['name']}”", "detail": detail,  # all: at most 16 lines
             "blocked": plan.get("blocked") or "", "args": {"project": p["id"], "kind": p["kind"],
                                                            "as_of": plan.get("as_of"),
                                                            "removes": plan.get("removes")}}

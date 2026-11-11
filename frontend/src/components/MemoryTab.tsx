@@ -60,6 +60,7 @@ export function MemoryTab() {
       await load();
     } catch (e) {
       toast(errorText(e), true);
+      await load();  // a memory forgotten or tidied away elsewhere meanwhile: show what is there now
     }
     setBusy(false);
   };

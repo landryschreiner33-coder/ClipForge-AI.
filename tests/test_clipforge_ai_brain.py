@@ -241,51 +241,91 @@ def test_a_twin_merged_into_a_memory_forgotten_meanwhile_leaves_no_use_behind(da
             assert result == {"expired": 0, "merged": 1} and left == [], step
 
 
-def test_what_the_owner_does_while_tidy_runs_is_never_lost(data, monkeypatch):
-    """Tidy deletes expired guesses and merges twins as they are when it does it, in one step nothing else comes
-    into. A guess confirmed, or a twin given other words, while Tidy runs (here: right after any of its steps) is
-    seen by Tidy (the confirmed guess stays, the edited memory is no twin any more) or done after it (the owner is
-    told the memory is gone): never confirmed or edited, then deleted anyway."""
-    from contextlib import contextmanager
+@pytest.mark.parametrize("what", ["confirm", "edit", "remember"])
+def test_what_the_owner_does_while_tidy_runs_waits_for_it_and_is_never_lost(data, monkeypatch, what):
+    """Tidy deletes expired guesses and merges twins in one locked step. A guess confirmed, a twin given other words
+    or the same words said again (another page, an answer) while Tidy looks at the memories waits until Tidy is done:
+    it is never done on what Tidy read before and then undone by it. Then it applies to the memory that is there now
+    (the same words said again keep what Tidy merged: every tag and use), or the owner is told the memory is gone."""
+    import threading
 
     from clipfoundry import brain, db
+    from clipfoundry.brain import memories
 
-    real = db.connect
-    for step in range(1, 10):
-        for m in db.select("brain_memories", "workspace_id = ?", (WS,)):
+    guess = brain.remember(WS, "You seem to like drone shots", source="guessed")
+    _did_twin("you seem to like drone shots", tags=["drone"])  # did: Tidy keeps it, the guess goes
+    said = brain.remember(WS, "Captions in yellow", tags=["style"])
+    twin = _did_twin("captions in yellow", tags=["look"], used_count=2)  # merged into `said`
+    act = {"confirm": lambda: brain.confirm(WS, guess["id"]),
+           "edit": lambda: brain.edit(WS, twin["id"], text="Captions in white"),
+           "remember": lambda: brain.remember(WS, "Captions in yellow", tags=["new"])}[what]
+    real, owner, outcome = memories._norm, [], {}  # noqa: SLF001
+
+    def do():
+        try:
+            outcome["row"] = act()
+        except brain.Invalid as exc:
+            outcome["gone"] = exc
+
+    def norm(text):  # Tidy reads the words of each memory inside its step: the owner acts right then
+        if not owner and threading.current_thread() is threading.main_thread():
+            owner.append(threading.Thread(target=do))
+            owner[0].start()
+            owner[0].join(1.0)
+            assert owner[0].is_alive(), "the owner's change did not wait for Tidy"
+        return real(text)
+
+    monkeypatch.setattr(memories, "_norm", norm)
+    assert brain.tidy(WS) == {"expired": 0, "merged": 2}
+    owner[0].join(30)
+    assert not owner[0].is_alive()
+    monkeypatch.setattr(memories, "_norm", real)
+    kept = brain.get(WS, said["id"])
+    if what == "remember":
+        assert outcome["row"]["id"] == said["id"] and outcome["row"]["tags"] == ["style", "look", "new"]
+        assert kept["tags"] == ["style", "look", "new"] and kept["used_count"] == 2 and kept["source"] == "said"
+    else:  # confirmed or edited after Tidy merged it away: the owner is told it is gone, and nothing was lost
+        assert outcome["gone"].status == 404 and str(outcome["gone"]) == "Memory not found."
+        assert kept["tags"] == ["style", "look"] and kept["used_count"] == 2
+        assert not db.select("brain_memories", "text = ?", ("Captions in white",))
+    assert brain.tidy(WS) == {"expired": 0, "merged": 0}
+
+
+def test_the_same_words_said_again_while_their_memory_changes_or_goes_are_kept(data, monkeypatch):
+    """Saying something ClipForge AI remembers already updates that memory. When it is forgotten, tidied into its
+    twin or changed between ClipForge reading it and writing it, ClipForge reads it again: the words are kept
+    (anew, in the twin Tidy kept, or with the change), and what the change wrote is never put back as it was."""
+    from clipfoundry import brain
+    from clipfoundry.brain import memories
+
+    real = memories.twin
+    for meanwhile in ("forget", "tidy", "edit"):
+        for m in brain.list_(WS):
             brain.forget(WS, m["id"])
-        guess = brain.remember(WS, "You seem to like drone shots", source="guessed")
-        db.update("brain_memories", guess["id"], expires_at=time.time() - 5)
-        brain.remember(WS, "Captions in yellow")
-        twin = _did_twin("captions in yellow")
-        done, outcome = [0], {}
+        first = brain.remember(WS, "Music under speech at -18 dB", tags=["sound"])
+        other = _did_twin("music under speech at -18 db", tags=["mix"])
+        brain.forget(WS, other["id"]) if meanwhile != "tidy" else None
+        once = []
 
-        def act(what, do):
-            try:
-                outcome[what] = do()
-            except brain.Invalid as exc:
-                assert exc.status == 404, (step, what, str(exc))
-                outcome[what] = None
+        def twin(ws, text, kind):
+            found = real(ws, text, kind)
+            if not once:
+                once.append(1)
+                if meanwhile == "forget":
+                    brain.forget(WS, first["id"])
+                elif meanwhile == "tidy":
+                    brain.tidy(WS)  # the `said` one is kept, with the twin's tag
+                else:
+                    brain.edit(WS, first["id"], tags=["sound", "voice"])
+            return found
 
-        @contextmanager
-        def connect():
-            with real() as conn:
-                yield conn
-            done[0] += 1
-            if done[0] == step:  # the owner acts right after this step of Tidy
-                monkeypatch.setattr(db, "connect", real)
-                act("confirm", lambda: brain.confirm(WS, guess["id"]))
-                act("edit", lambda: brain.edit(WS, twin["id"], text="Captions in white"))
-
-        monkeypatch.setattr(db, "connect", connect)
-        brain.tidy(WS)
-        monkeypatch.setattr(db, "connect", real)
-        if outcome.get("confirm"):  # confirmed: it is there, and stays
-            row = db.fetch("brain_memories", guess["id"])
-            assert row and row["expires_at"] is None and row["source"] == "said", step
-        if outcome.get("edit"):  # edited: it is there with its new words
-            row = db.fetch("brain_memories", twin["id"])
-            assert row and row["text"] == "Captions in white", step
+        monkeypatch.setattr(memories, "twin", twin)
+        row = brain.remember(WS, "Music under speech at -18 dB", tags=["music"])
+        monkeypatch.setattr(memories, "twin", real)
+        left = brain.list_(WS)
+        assert [m["id"] for m in left] == [row["id"]] and row["text"] == "Music under speech at -18 dB", meanwhile
+        assert row["tags"] == {"forget": ["music"], "tidy": ["sound", "mix", "music"],
+                               "edit": ["sound", "voice", "music"]}[meanwhile], meanwhile
 
 
 def test_a_confirmation_or_edit_of_a_memory_gone_meanwhile_says_it_is_gone(data, monkeypatch):
@@ -336,6 +376,28 @@ def test_tidy_merges_only_twins_kept_for_the_same_videos_and_switched_on_or_off_
     assert everywhere["id"] in brain.recall("captions in yellow", WS, project_id="p2").ids  # still for every video
     assert on["id"] in brain.recall("music under speech", WS).ids  # still on
     assert brain.tidy(WS) == {"expired": 0, "merged": 0}  # what stays apart stays apart
+
+
+def test_the_same_words_kept_for_every_video_and_for_one_are_read_once_and_left_to_the_owner(data):
+    """Twins Tidy keeps apart (one for every video, one for a video) both apply to that video: its prompt reads the
+    words once, so they take one rule's room. The brain check still shows them to the owner, saying that Tidy merges
+    only twins kept for the same videos."""
+    from clipfoundry import brain
+    from clipfoundry.brain import meaning
+
+    everywhere = brain.remember(WS, "Never use red captions", kind="rule")
+    vec, model = meaning.make("never use red captions")
+    here = _did_twin("never use red captions", kind="rule", scope="project:p1", project_id="p1", meaning=vec,
+                     meaning_model=model)
+    brain.remember(WS, "Keep the intro under five seconds", kind="rule")
+    got = brain.recall("captions", WS, project_id="p1")
+    assert sorted(m["text"].lower() for m in got.memories) == ["keep the intro under five seconds",
+                                                               "never use red captions"]
+    assert len({everywhere["id"], here["id"]} & set(got.ids)) == 1
+    assert everywhere["id"] in brain.recall("captions", WS, project_id="p2").ids
+    assert brain.tidy(WS) == {"expired": 0, "merged": 0}
+    assert [p["text"] for p in brain.check(WS)["problems"] if p["code"] == "duplicates"] == [
+        "1 memories look like twins (review them; Tidy merges exact twins kept for the same videos)"]
 
 
 def test_guesses_expire_unless_confirmed_and_forget_removes_a_memory_with_its_uses(data):
@@ -439,6 +501,34 @@ def test_a_brain_file_round_trips_and_merges_by_revision(data):
     assert brain.get(WS, a["id"])["text"] == "Never zoom in on faces or hands"
     with pytest.raises(brain.Invalid):
         brain.import_(WS, {"format": "something else"})
+
+
+def test_a_brain_file_never_makes_twins_and_a_memory_gone_meanwhile_gets_its_newer_words(data, monkeypatch):
+    """A brain file's newer revision of a memory is skipped when another memory says those words already (an edit
+    refuses that too), so a file never makes twins. When the memory is forgotten or tidied away between ClipForge
+    reading it and writing it, it is read again, and the file's newer words are added (not counted as updated and
+    then found nowhere)."""
+    from clipfoundry import brain
+    from clipfoundry.brain import memories
+
+    brain.remember(WS, "Never use red captions", kind="rule")
+    intro = brain.remember(WS, "Keep the intro short", kind="rule", project_id="p1")
+    mine = next(m for m in brain.export(WS)["memories"] if m["id"] == intro["id"])
+    twin = {"format": brain.FORMAT, "memories": [{**mine, "text": "never use RED captions", "revision": 5}]}
+    assert brain.import_(WS, twin) == {"added": 0, "updated": 0, "skipped": 1, "invalid": 0}
+    assert brain.get(WS, intro["id"])["text"] == "Keep the intro short"
+    real = memories._write_over  # noqa: SLF001
+
+    def write_over(old, fields):  # forgotten just before the file's words are written
+        brain.forget(WS, old["id"])
+        monkeypatch.setattr(memories, "_write_over", real)
+        return real(old, fields)
+
+    monkeypatch.setattr(memories, "_write_over", write_over)
+    newer = {"format": brain.FORMAT, "memories": [{**mine, "text": "Keep the intro under five seconds", "revision": 5}]}
+    assert brain.import_(WS, newer) == {"added": 1, "updated": 0, "skipped": 0, "invalid": 0}
+    row = brain.get(WS, intro["id"])
+    assert row["text"] == "Keep the intro under five seconds" and row["scope"] == "project:p1" and row["revision"] == 5
 
 
 def test_the_memory_api(client):

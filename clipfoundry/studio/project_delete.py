@@ -18,8 +18,8 @@ What goes is everything ClipForge keeps only for that project:
 What stays: the owner's own files where they are (never deleted, never changed), everything posted already (post
 history, results, and the clip fingerprints that stop a clip from being posted twice), the memories that apply to
 every video, a platform or a mode, the taste ClipForge AI learned from choices, and a file the owner added again
-within the last day (an upload no project took: a new page may be about to use it). Deleting a project is tidying up, not a verdict on its
-clips, so it is not a taste lesson.
+within the last day (an upload no project took: a new page may be about to use it). Deleting a project is tidying
+up, not a verdict on its clips, so it is not a taste lesson.
 
 `plan` says all of this in plain sentences without changing anything, so a confirmation can show exactly what will
 happen; `delete` does it and returns the same sentences. The window's moment (`as_of`) goes back with the delete, so
@@ -390,11 +390,20 @@ def _marked_since() -> float:
 
 
 def _handed_out(conn, asset_id: str, since: float) -> bool:
-    """ClipForge handed this copy out again after `since`, the moment the window looked (an upload of the same bytes,
-    Add from this computer, a build storing the same bytes): whoever got it holds it now, so it stays. Asked inside
-    the delete's transaction, which such a hand-out waits for (it marks the copy, assets.reused_at, first)."""
+    """ClipForge handed this copy out again after `since` (an upload of the same bytes, Add from this computer, a
+    build storing the same bytes): whoever got it may not have recorded it yet, so it stays. Asked inside the
+    delete's transaction, which such a hand-out waits for (it marks the copy, assets.reused_at, first)."""
     row = conn.execute("SELECT reused_at FROM assets WHERE id = ?", (asset_id,)).fetchone()
     return row is not None and float(row[0] or 0) > since
+
+
+def _hand_out_since(as_of: float) -> float:
+    """From when a copy handed out again keeps a file the delete would remove: since the window looked, and at most
+    for the hold a short's tidying waits too (uploads.REUSE_HOLD_S). Whoever got a copy records it a moment later
+    (an upload, a link, a short's scene), so one handed out before that is recorded by now, and the last look's
+    `_used_elsewhere` (or the survey's `_added_again`) says whether it stays. ClipForge AI's delete card can wait for
+    days: a copy handed out meanwhile to a project deleted since is named by nothing, and must not stay forever."""
+    return max(as_of, time.time() - uploads.REUSE_HOLD_S)
 
 
 def _pending() -> tuple[str | None, set[str]]:
@@ -601,7 +610,7 @@ def _view(s: _Survey) -> dict:
             "goes": goes, "stays": stays, "freed_bytes": s.freed_bytes, "as_of": s.as_of,
             # what goes beyond the project itself, for a delete that must remove no more than was shown (`delete`),
             # and the files this says stay (also what ClipForge made for its scenes that another project uses, and,
-            # in a delete's answer, a file handed out again meanwhile): none of them is the project's own to delete
+            # in a delete's answer, a file handed out again just now, which whoever got it may hold)
             "removes": {"files": [a["id"] for a in s.drop], "source": bool(s.source_copy),
                         "posts": list(s.planned_posts), "kept": [a["id"] for a in s.keep + s.again + s.handed]},
             "counts": {"clips": s.clips, "versions": s.versions, "revisions": s.revisions, "renders": s.renders,
@@ -892,7 +901,8 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
         conn.execute("BEGIN IMMEDIATE")
         named = _used_elsewhere(ws, kind, project_id) if s.drop else ""
         now_used = [a for a in s.drop if a["id"] in named]
-        handed = [a for a in s.drop if a not in now_used and _handed_out(conn, a["id"], s.as_of)]
+        since = _hand_out_since(s.as_of)
+        handed = [a for a in s.drop if a not in now_used and _handed_out(conn, a["id"], since)]
         have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         if kind == "clips":
             for table in db.CLIP_CHILDREN:

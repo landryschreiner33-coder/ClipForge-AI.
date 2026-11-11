@@ -157,8 +157,10 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
     if source == "guessed" and expires_at is None:
         expires_at = time.time() + GUESS_DAYS * 86400
     norm = _norm(text)
-    old = twin(ws, text, kind)
-    if old:
+    for _ in range(5):  # the twin changed or went between reading and writing it (Tidy, Forget, an edit): again
+        old = twin(ws, text, kind)
+        if not old:
+            break
         stronger = source if RANK[source] >= RANK[old["source"]] else old["source"]
         fields = {"text": text if RANK[source] >= RANK[old["source"]] else old["text"], "source": stronger,
                   "confidence": max(conf, float(old.get("confidence") or 0)),
@@ -172,8 +174,11 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
         fields["platform"] = merged[9:] if merged.startswith("platform:") else ""
         if fields["text"] != old["text"] or old.get("meaning_model") != meaning.model():
             fields["meaning"], fields["meaning_model"] = meaning.make(fields["text"])
-        db.update("brain_memories", old["id"], **fields)
-        return db.fetch("brain_memories", old["id"])
+        row = _write_over(old, fields)
+        if row:
+            return row
+    else:
+        raise Invalid("The memory changed while this was being saved. Try again.", 409)
     vec, vec_model = meaning.make(text)
     row = {"workspace_id": ws, "kind": kind, "text": text, "norm": norm, "source": source, "confidence": conf,
            "scope": scope, "project_id": project_id if scope.startswith("project:") else "",
@@ -244,6 +249,21 @@ def confirm(ws: str, memory_id: str) -> dict:
     db.update("brain_memories", memory_id, source="said", confidence=1.0, expires_at=None, enabled=1,
               revision=int(row.get("revision") or 1) + 1)
     return _written(memory_id)
+
+
+def _write_over(old: dict, fields: dict) -> dict | None:
+    """Write `fields` over the memory `old` in one step, only while it is still as `old` was read (its revision):
+    the memory as written, or None when it changed or went in between (Tidy merged it, Forget, a video's delete, an
+    edit), so the caller reads it again instead of putting back what it read before (tags, expiry, its words)."""
+    enc = db._encode("brain_memories", {**fields, "updated_at": time.time()})  # noqa: SLF001
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute(f"UPDATE brain_memories SET {', '.join(f'{k} = ?' for k in enc)} WHERE id = ? AND "
+                            "COALESCE(revision, 1) = ?", (*enc.values(), old["id"], int(old.get("revision") or 1))
+                            ).rowcount:
+            return None
+        return db._decode("brain_memories", conn.execute(  # noqa: SLF001
+            "SELECT * FROM brain_memories WHERE id = ?", (old["id"],)).fetchone())
 
 
 def _written(memory_id: str) -> dict:
@@ -340,13 +360,17 @@ def recall(query: str, ws: str, *, project_id: str = "", platform: str = "", mod
            rules: bool = True) -> Recall:
     """The few memories a model should read for `query`: every rule that applies (the most relevant first, at most
     MAX_RULES), then the best other memories with a score of at least MIN_SCORE, cut to `limit` memories and
-    `budget_chars` characters of memory lines (rules are never cut before facts)."""
+    `budget_chars` characters of memory lines (rules are never cut before facts). The same words are read once."""
     rows = candidates(ws, project_id=project_id, platform=platform, mode=mode, kinds=kinds)
     if not rows:
         return Recall()
     scores = _scores(query or "", rows, project_id)
-    scored = [{**view(r), "score": round(s[0], 4), "words": round(s[1], 3), "meaning": round(s[2], 3)}
-              for r, s in zip(rows, scores)]
+    scored, said = [], set()
+    for r, s in sorted(zip(rows, scores), key=lambda rs: -rs[1][0]):
+        if (r["kind"], _norm(r["text"])) in said:  # the same words kept twice (for every video and for this one,
+            continue                                # or two places that both apply here) are read once
+        said.add((r["kind"], _norm(r["text"])))
+        scored.append({**view(r), "score": round(s[0], 4), "words": round(s[1], 3), "meaning": round(s[2], 3)})
     chosen: list[dict] = []
     if rules:
         standing = [m for m in scored if m["kind"] == "rule"]
@@ -449,7 +473,8 @@ def check(ws: str) -> dict:
     for code, ids, text in (
             ("missing_meaning", missing, "memories have no meaning yet (Rebuild makes it)"),
             ("old_meaning", old, "memories were embedded by an older embedder (Rebuild updates them)"),
-            ("duplicates", [p[0] for p in pairs], "memories look like twins (review them; Tidy merges exact twins)"),
+            ("duplicates", [p[0] for p in pairs],
+             "memories look like twins (review them; Tidy merges exact twins kept for the same videos)"),
             ("stale_guesses", stale, f"guesses were not used for {STALE_DAYS} days (confirm or forget them)"),
             ("expired", expired, "memories have expired (Tidy removes them)")):
         if ids:
@@ -532,8 +557,9 @@ def export(ws: str) -> dict:
 
 
 def import_(ws: str, data: object) -> dict:
-    """Merge a brain file: a memory with a newer revision updates the one with the same id, an unknown id is added
-    (with a fresh id when that id belongs to another workspace), the rest are skipped. Nothing is deleted."""
+    """Merge a brain file: a memory with a newer revision updates the one with the same id (unless another memory
+    says those words already: a brain file never makes twins), an unknown id is added (with a fresh id when that id
+    belongs to another workspace), the rest are skipped. Nothing is deleted."""
     if not isinstance(data, dict) or data.get("format") != FORMAT or not isinstance(data.get("memories"), list):
         raise Invalid(f"This is not a ClipForge AI brain file ({FORMAT}).")
     if len(data["memories"]) > MAX_IMPORT:
@@ -560,23 +586,31 @@ def import_(ws: str, data: object) -> dict:
                   "expires_at": float(m["expires_at"]) if m.get("expires_at") else None,
                   "revision": max(1, int(m.get("revision") or 1)),
                   "meaning": vec, "meaning_model": vec_model}
-        existing = db.fetch("brain_memories", str(m.get("id") or "")) if m.get("id") else None
-        if existing and existing["workspace_id"] == ws:
-            if fields["revision"] > int(existing.get("revision") or 1):
-                db.update("brain_memories", existing["id"], **fields)
-                out["updated"] += 1
-            else:
-                out["skipped"] += 1
-            continue
-        if _same_words(ws, fields["kind"], text):
-            out["skipped"] += 1
-            continue
-        row = {**fields, "workspace_id": ws, "used_count": int(m.get("used_count") or 0),
-               "last_used_at": m.get("last_used_at") or None}
-        if m.get("id") and not existing:
-            row["id"] = str(m["id"])[:40]
-        if m.get("created_at"):
-            row["created_at"] = float(m["created_at"])
-        db.insert("brain_memories", row)
-        out["added"] += 1
+        for _ in range(3):  # None: the memory changed or went between reading and writing it, so again
+            done = _import_one(ws, m, fields, text)
+            if done:
+                break
+        out[done or "skipped"] += 1
     return out
+
+
+def _import_one(ws: str, m: dict, fields: dict, text: str) -> str | None:
+    """One memory of a brain file: "updated" (a newer revision of one with the same id), "added" (an unknown id),
+    "skipped" (not newer, or another memory says those words already, as an edit refuses too), or None when the
+    memory changed or went between reading and writing it (Tidy, Forget, an edit): then it is read again."""
+    existing = db.fetch("brain_memories", str(m.get("id") or "")) if m.get("id") else None
+    if existing and existing["workspace_id"] == ws:
+        if fields["revision"] <= int(existing.get("revision") or 1) or \
+                _same_words(ws, fields["kind"], text, other_than=existing["id"]):
+            return "skipped"
+        return "updated" if _write_over(existing, fields) else None
+    if _same_words(ws, fields["kind"], text):
+        return "skipped"
+    row = {**fields, "workspace_id": ws, "used_count": int(m.get("used_count") or 0),
+           "last_used_at": m.get("last_used_at") or None}
+    if m.get("id") and not existing:
+        row["id"] = str(m["id"])[:40]
+    if m.get("created_at"):
+        row["created_at"] = float(m["created_at"])
+    db.insert("brain_memories", row)
+    return "added"

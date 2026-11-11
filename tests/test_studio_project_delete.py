@@ -1039,6 +1039,32 @@ def test_a_file_the_confirmation_said_stays_is_not_removed_once_a_scene_of_the_s
     assert db.fetch("studio_projects", short) and db.fetch("assets", lake["id"]) and os.path.isfile(lake["path"])
 
 
+@pytest.mark.parametrize("ago, stays", [(2 * 3600, False), (600, True)])
+def test_a_confirmation_that_waited_for_days_keeps_only_a_file_handed_out_again_in_the_last_hour(env, ago, stays):
+    """ClipForge AI's delete card can wait for days. A file ClipForge handed out again meanwhile (the same bytes
+    uploaded or stored once more, for a video deleted since) stays when that was within the hour that a short's
+    tidying waits too (uploads.REUSE_HOLD_S: whoever got it may not have recorded it yet). One handed out before that
+    is named by nothing now: it goes, as the card said, instead of staying for ever."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    trip = _stored(64, filename="trip.mp4")
+    hike = _video("Hike", [trip["id"]])["id"]
+    shown = project_delete.plan("local", hike, "full_video")
+    assert shown["removes"] == {"files": [trip["id"]], "source": False, "posts": [], "kept": []}
+    with db.connect() as conn:
+        conn.execute("UPDATE assets SET reused_at = ? WHERE id = ?", (time.time() - ago, trip["id"]))
+    done = project_delete.delete("local", hike, "full_video", as_of=shown["as_of"] - 3 * 86400,
+                                 removes=shown["removes"])
+    assert done["deleted"] and db.fetch("studio_projects", hike) is None
+    if stays:
+        assert db.fetch("assets", trip["id"]) and os.path.isfile(trip["path"])
+        assert "“trip.mp4” stays in ClipForge because it was used again just now." in done["stays"]
+    else:
+        assert db.fetch("assets", trip["id"]) is None and not os.path.exists(trip["path"])
+        assert done["removes"]["kept"] == [] and done["counts"]["files"] == 1
+
+
 def test_a_shorts_window_reads_its_saved_versions_and_a_picture_waiting_to_be_replaced(env):
     """A short's saved versions keep each scene as it was (also a scene deleted since), so its picture and clip are
     counted as made there too. The owner's own picture stays theirs while a new picture waits to replace it. The

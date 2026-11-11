@@ -52,26 +52,32 @@ another embedder, and **Rebuild** recomputes them with the embedder in use.
    words found in the memory (weighted by how rare each word is in this brain) and meaning is the cosine; `said`
    +0.15, `did` +0.05, `guessed` −0.10, this project +0.10, used or made in the last 30 days +0.05; a memory needs a
    score of at least 0.2 to count;
-4. cut to `limit` memories and `budget_chars` characters, rules never cut before facts.
+4. cut to `limit` memories and `budget_chars` characters, rules never cut before facts. The same words of the same
+   kind kept in two places that both apply (for every video and for this one) are read once (the higher score).
 
 `Recall.prompt()` is the block a model gets: "What the owner has told ClipForge AI (standing rules first):" and
 one line per memory. `brain.record_use(ids, where, ref_id)` is called when an answer used them.
 
 **Writing.** `remember(ws, text, kind, source, scope, ...)` de-duplicates: the same words (case, spacing and
 punctuation ignored, in any language: Russian or Chinese words are words too) in the same workspace and kind update
-the memory (revision + 1, the stronger source and confidence win) instead of adding a twin. Memories saved before
+the memory (revision + 1, the stronger source and confidence win) instead of adding a twin. It writes only over the
+memory as it read it (its revision): one forgotten, tidied into its twin or changed in between is read again, so the
+words are kept and what Tidy or an edit wrote is never put back as it was. Memories saved before
 this rule are matched by their old form as well, and Tidy brings their stored form up to date. `forget(ws, memory_id)` deletes a memory and its uses; an answer that used it keeps
 its own copy of the words. `confirm` turns a guess into something you said. `export` gives one JSON file
-(`clipforge.brain-memories/v1`); `import_` merges by id and revision (a newer file wins, nothing is deleted).
+(`clipforge.brain-memories/v1`); `import_` merges by id and revision (a newer file wins, unless another memory says
+those words already: a brain file never makes twins; nothing is deleted).
 
 **Health** (`brain.check(ws)`): counts by kind and source, memories without a meaning or with an old embedder,
-near-duplicates (same kind, cosine ≥ 0.92), guesses unused for 90 days, expired memories, the size on disk. The
+near-duplicates (same kind, cosine ≥ 0.92: "review them; Tidy merges exact twins kept for the same videos"),
+guesses unused for 90 days, expired memories, the size on disk. The
 Brain page shows it; **Tidy** removes the expired ones and merges exact twins (the same words and kind, kept for the
 same videos and switched on or off alike: the one kept takes their uses, use count and tags, and lasts as long as the
 last of them would; twins kept for other videos, or switched on or off apart, stay as they are, so what ClipForge AI
 follows does not change), in one step nothing else comes into (`tidy` takes the database's write lock first: a guess
-confirmed or a memory changed meanwhile is never deleted or merged away; one deleted between an edit's reading and
-writing it answers "Memory not found."); **Rebuild** recomputes meanings. The existing backup includes the tables
+confirmed, a memory changed or the same words said again meanwhile wait for it, and are never deleted or merged
+away; one deleted between an edit's reading and writing it answers "Memory not found."); **Rebuild** recomputes
+meanings. The existing backup includes the tables
 (they are in the same database).
 
 **Privacy.** Memories never go to the finders. A remote model sees only the memories recalled for that one answer
@@ -464,7 +470,10 @@ two cards for videos that share a file) or a post was planned since, the card fa
 it removes has changed since this was shown: it would now also remove … Nothing was deleted. Ask again to see what
 deleting it removes now.", code `changed`), and asking again shows a card that lists it. The project's own clips,
 versions, notes and chat are the project, and so is what ClipForge makes for a short's scenes after the card was
-shown: they go with it whatever their number. `as_of` and `removes` are internal arguments
+shown: they go with it whatever their number. Only a file ClipForge handed out again within the last hour (the same
+bytes uploaded or stored once more, `uploads.REUSE_HOLD_S`) stays, since whoever got it may not have recorded it yet;
+a hand-out before that keeps a file only while something still names it, so a card that waited for days keeps no
+file that nothing uses (`project_delete._hand_out_since`). `as_of` and `removes` are internal arguments
 (`"internal": True` in the tool's schema): a model never reads them in the tool's line (`tools.signature`) and never
 gives them (`tools.check_args` keeps them only from the button's own saved arguments, `button=True` in
 `chat.decide`), and two cards that differ only there are one card (`tools.same_button`). Work still running on the
