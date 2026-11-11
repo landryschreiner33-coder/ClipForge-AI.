@@ -181,8 +181,8 @@ def history(chat_id: str, budget_chars: int = 3000, *, as_json: bool = False, be
     for a useful part, so a long answer just before a follow-up ("make the intro shorter") is never lost; older ones
     are left out. Answers still being written and failed ones are left out. What became of an answer's buttons, its
     helpers' notes and the changes it could not offer (which the model was not asked about again) follow its words in
-    brackets. `before`: only the messages written before that message. `as_json`: assistant turns written the way the assistant answers ({"say": …}), so a model keeps
-    answering in that shape."""
+    brackets. `before`: only the messages written before that message. `as_json`: assistant turns written the way
+    the assistant answers ({"say": …}), so a model keeps answering in that shape."""
     rows = db.select("brain_chat_messages", "chat_id = ?", (chat_id,), "created_at ASC, rowid ASC")
     if before:
         ids = [r["id"] for r in rows]
@@ -546,7 +546,7 @@ def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = 
         _failed(name, tool.words(args), f"it failed ({exc.__class__.__name__})", out, not_offered=True)
         return f"{name}: not done, and no button was shown: it failed ({exc.__class__.__name__}).", False
     args = {**args, **(pv.get("args") or {})}
-    if any(p["tool"] == tool.name and p["args"] == args for p in out.pending):
+    if any(p["tool"] == tool.name and tools.same_button(tool, p["args"], args) for p in out.pending):
         return f"{name}: already shown to the owner.", False
     blocked = str(pv.get("blocked") or "")
     out.pending.append({"id": f"a{len(out.pending) + 1}", "tool": tool.name, "args": args, "risk": tool.risk,

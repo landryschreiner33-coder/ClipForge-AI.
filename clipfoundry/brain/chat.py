@@ -517,7 +517,7 @@ def decide(ws: str, chat_id: str, message_id: str, action_id: str, do: bool) -> 
             try:
                 if tool is None or tool.risk not in tools.WAITS:
                     raise tools.ToolError("This action is not available any more.")
-                result = tool.run(ctx, tools.check_args(tool, act.get("args") or {}))
+                result = tool.run(ctx, tools.check_args(tool, act.get("args") or {}, button=True))
                 act["state"], act["result"] = ("done" if result.ok else "failed"), result.summary or result.text
             except tools.TryAgain as exc:  # not yet (a delete waits for running work to stop): the button stays
                 act["result"] = str(exc)

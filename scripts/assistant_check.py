@@ -11,9 +11,10 @@ then waiting until the answer is no longer "thinking", as the page does.
  5. "What is my channel about?": mountain biking.
  6. "What's my name?", four turns after saying it: Sam (the conversation so far reaches the model).
  7. "From now on, never use red captions.": a rule saved with the remember tool.
- 8. "Delete the project Old gear review": a delete button that waits for the owner's OK, or a polite no (this
-    version may not have the safe delete yet: then the owner sees a failed step that says why, and the model is not
-    asked again about it). The project must still be there afterwards.
+ 8. "Delete the project Old gear review": a delete button that waits for the owner's OK, with what the safe delete
+    (studio/project_delete.py) says goes and stays, or a polite no (a delete that could not be offered shows the
+    owner a failed step that says why, and the model is not asked again about it). The project must still be there
+    afterwards.
  9. The Script writer agent is added; "@Script writer write a two-line hook about mountain biking" talks to it.
 10. "Ask the script writer for a title for my biking video": ClipForge AI hands the job to the agent.
 11. agents.consult, the way the new-video planner asks the helpers for a note on a plan: one note.
@@ -126,8 +127,8 @@ def not_offered(row: dict) -> list[dict]:
 
 def delete_verdict(row: dict) -> tuple[bool, str]:
     """The delete turn's should-check: a delete button for TO_DELETE that waits for the OK, or a polite no (the
-    model's own words, or, when this version cannot delete from the chat, the owner's failed step for that very
-    project); never words that say it was deleted. Returns (ok, how) for the report."""
+    model's own words, or, when the delete could not be offered, the owner's failed step for that very project);
+    never words that say it was deleted. Returns (ok, how) for the report."""
     waiting = [p for p in row["pending"] if p.get("tool") == "delete_project" and
                p.get("state") in ("waiting", "blocked")]
     tried = any("delete_project" in r.get("asked", []) for r in row["rounds"])
@@ -143,8 +144,8 @@ def delete_verdict(row: dict) -> tuple[bool, str]:
         steps = [s for s in not_offered(row) if s.get("tool") == "delete_project"]
         told = [s for s in steps if TO_DELETE.lower() in str(s.get("label") or "").lower()]
         if row["answer"].strip() or told:
-            return True, ("a polite no: the model asked for delete_project, which this version cannot do from the "
-                          "chat" + (f"; the owner sees “{told[0]['label']}: {told[0]['why']}”" if told else ""))
+            return True, ("a polite no: the model asked for delete_project, which could not be offered" +
+                          (f"; the owner sees “{told[0]['label']}: {told[0]['why']}”" if told else ""))
         if steps:
             return False, f"the delete it tried was for another project: {steps[0].get('label')}"
         return False, "the model asked for delete_project, but the answer says nothing and no step says why"

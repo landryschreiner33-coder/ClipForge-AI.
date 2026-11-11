@@ -28,7 +28,7 @@ from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available, vi
 from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import connection_routes
-from .studio import local_routes, routes as studio_routes
+from .studio import local_routes, project_delete, routes as studio_routes
 from .craft import routes as craft_routes
 from .engines import routes as engine_routes
 from .makers import routes as maker_routes
@@ -74,6 +74,7 @@ async def lifespan(_: FastAPI):
         edit_requests.recover()  # an AI request cut off by the restart is reported, never sent again silently
         brain_chat.recover()  # a chat answer cut off by the restart is reported the same way
         link_import.clean_abandoned()  # partial downloads of canceled or failed links
+        project_delete.finish_later()  # files of deleted projects that were open in another program last time
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
         autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
@@ -118,6 +119,7 @@ app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(connection_routes.router)
 app.include_router(studio_routes.router)
 app.include_router(local_routes.router)  # desktop: files used where they are, and background preparation
+app.include_router(project_delete.router)  # what deleting a project does, and deleting a full video
 app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
 app.include_router(engine_routes.router)  # local makers: pictures, video, voice (before the UI catch-all)
 app.include_router(maker_routes.router)  # Make → Animated short
@@ -511,18 +513,11 @@ def cancel(project_id: str) -> dict:
     return {"ok": True}
 
 
-@app.delete("/api/projects/{project_id}")
-def delete_project(project_id: str) -> dict:
-    p = _project_or_404(project_id)
-    if worker.current == project_id:
-        raise HTTPException(409, "Cancel processing before deleting")
-    worker.cancel(project_id)
-    pdir = config.projects_dir() / project_id
-    db.delete_project(project_id)
-    root = config.projects_dir().resolve()
-    if pdir.resolve().parent == root and pdir.exists():
-        shutil.rmtree(pdir, ignore_errors=True)
-    return {"ok": True, "deleted": p["id"]}
+@app.delete("/api/projects/{project_id}", dependencies=[Depends(project_delete.from_this_computer)])
+def delete_project(project_id: str, as_of: float | None = None):
+    """The clips project and what only it uses; running work on it is stopped first (studio/project_delete.py).
+    `as_of` is the delete plan's moment, which the page sends back."""
+    return project_delete.answer_delete(project_id, "clips", as_of)
 
 
 @app.get("/api/projects/{project_id}/thumbnail")

@@ -22,8 +22,8 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   requests made in a video's chat and the online request records keep, and until when) and says which features send text
   to the AI helper you choose and what a conversation sends ("An AI service you choose", NVIDIA's row: web addresses
   starting with http://, https:// or www. and email addresses removed from everything, the size limit on each request's
-  words), and that downloading the built-in model contacts GitHub and Hugging Face. When deleting projects (PR #35)
-  lands, that part must say what a delete removes (the video's chat, its memories, its change requests). The public
+  words), and that downloading the built-in model contacts GitHub and Hugging Face. Since the merge with PR #35 it says
+  that deleting a project removes its chat, the memories kept for it alone and a video's change requests. The public
   website (gh-pages) is not updated: that needs Landry's OK.
 - **Code:** new `clipfoundry/brain/assistant.py`, `tools.py`, `toolbox.py`, `agents.py`, `allowance.py` (the daily
   limit, per request); changed `brain/chat.py`,
@@ -58,12 +58,14 @@ Without a model the old rules still answer, and the chat offers the built-in mod
     `allowance.counted(ws, settings, write)` when a part counts with a row of its own. A video counts as
     being planned (its chat and links open the setup page) only when it is a draft with its setup and the full_video
     workflow, the same rule as the planner's `video_setup.is_draft`.
-  - **The projects thread** (`claude/project-thread-8i3krg`, "Delete projects from the Projects page") adds
-    `clipfoundry/studio/project_delete.py`: `plan(ws, project_id, kind)` (`goes`, `stays`, `blocked`, `working`) and
-    `delete(ws, project_id, kind, *, wait)`, which raises `DeleteError` (code `stopping` while running work ends).
-    `delete_project` calls exactly these (`wait=10.0`; `stopping` keeps the button for another press). Until that
-    branch is merged here, the tool says deleting from the chat is not possible yet. `test_clipforge_ai_assistant.py`
-    tests both, with a stand-in for the safe delete.
+  - **Deleting projects** (PR #35, merged in) is `clipfoundry/studio/project_delete.py`: `plan(ws, project_id,
+    kind)` (`goes`, `stays`, `blocked`, `working`, `as_of`) and `delete(ws, project_id, kind, *, wait, as_of)`, which
+    raises `DeleteError` (`code`: `not_found`, `blocked`, `stopping`, `kind`). `delete_project` calls exactly these:
+    the card keeps the plan's `as_of` (an internal argument: `"internal": True` in the schema, hidden from the model,
+    kept only from the button's saved arguments) and OK sends it back with `wait=10.0`; `stopping` and `blocked` keep
+    the card for another press, `not_found` says the project was deleted already. Deleting a project also deletes
+    its chat (`chat.decide` answers `gone`). `test_clipforge_ai_assistant.py` tests the card with the real module
+    and the engine's corners with a stand-in.
   - Chat messages keep the `brain_chat_messages` table and its columns; roles are `owner`, `ai` and `agent`;
     `data.tool` values include "talk" (the assistant) and "plan" (the planner).
 - **Verify:** `python -m pytest -q tests/test_clipforge_ai_assistant.py tests/test_clipforge_ai_agents.py
@@ -101,6 +103,53 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   research for the Researcher, a model per helper, helpers in parallel, pictures in the chat, voice (CLIPFORGE_AI.md,
   "Not done yet").
 - **Waiting on Landry:** a try of the chat and the helpers on Landry's computer; the release (explicit OK).
+
+## Deleting projects — 2026-11-10 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked to be able to delete projects. Every card on the Projects page now has a
+trash button. It opens a window that lists exactly what will be deleted for good and what stays, and nothing happens
+until "Delete project" is pressed. Deleting removes what ClipForge keeps only for that project (its clips or edit
+history, renders, its own copy of the video when nothing else uses it, its ClipForge AI chat and the notes kept only
+for it, planned posts not yet sent). The owner's own files, media another project uses, anything already posted and
+what ClipForge AI learned for all videos stay. Work running on the project is stopped first; while Autopilot or a
+post is busy with it, or the video is still being copied in, the window says why it has to wait. A file that is open
+in another program (Windows) is deleted the next time ClipForge starts.
+
+- **Branch / PR:** `claude/project-thread-8i3krg` from the release line at 95a70e0 (story clips, PR #40, animated
+  shorts, PR #36, the local makers, PR #39, the safety follow-ups, PR #41, and Make a YouTube video's planning,
+  PR #38, merged in on top), PR #35 into `claude/project-thread-x72wkd`,
+  merged under Landry's standing word to merge finished work.
+  Not released: a release still needs Landry's explicit OK.
+- **Code:** new `clipfoundry/studio/project_delete.py`, `frontend/src/components/DeleteProject.tsx` / `.css`,
+  `tests/test_studio_project_delete.py`; changed `clipfoundry/api.py` (router, `DELETE /api/projects/{id}` with the
+  `from_this_computer` guard, `finish_later()` at start), `frontend/src/pages/Projects.tsx`, `Studio.tsx`
+  (`LibraryCard` `onDelete`), `components/libParts.tsx`, `prefs.tsx` (`forgetPin`), `e2e/tests/library.spec.ts`,
+  `tests/test_integration.py` (the page's header on its delete); `frontend/dist` rebuilt. Details:
+  [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **For other work:** a table that belongs to one project goes in `VIDEO_TABLES` or `CLIPS_TABLES` (a listed table that
+  does not exist yet is skipped). A new place that keeps asset ids must be read by `_used_elsewhere` (and by
+  `_video_asset_ids` when it names a video's own files, as an animated short's scenes do), or deleting another
+  project can remove a file it still needs. Work a delete cannot see (a thread, not a studio job) must re-check that
+  its project still exists before it writes anything for it: the planning answer (`video_setup._think`) opens the
+  project's chat with `open_chat`, which makes a new empty chat if the delete lands between its two reads. ClipForge AI's delete tool calls `plan()` and `delete()` (pass the
+  plan's `as_of` to `delete` when a person read the plan first); deleting from a project's own chat deletes that
+  chat too. A new kind of file ClipForge makes for one project should be recorded where `_video_asset_ids` reads it,
+  or it stays after the project is deleted.
+- **Verify:** `python -m pytest -q tests/test_studio_project_delete.py`; the fast and slow suites; `cd frontend && npm
+  run build`; in the app, delete a full video and a clips project from Projects and read the window first.
+- **Not done:** a real Windows PC check (read-only and in-use files are simulated); a Delete action on a full video's
+  own page (the Projects page has it). Deleting only works in
+  the browser on the computer that runs ClipForge (like Autopilot and memories), not from another device on the
+  network. A file used where it is and added again for a page that has not saved it yet is not protected the way a
+  re-upload is (only ClipForge's prepared data for it goes; the owner's file never does). Passed on to the shorts,
+  makers and upload code: scene files no scene or saved version names any more stay after a short is deleted; the
+  makers' originals in engines/made stay (the window says so); two identical uploads finishing at the same moment
+  give an error and leave a stray copy; a project's own later upload of a file ClipForge already had counts as
+  "added again", so it is left behind (needs a record of which project took an upload); the planning answer's
+  `open_chat` race above (at most one empty chat row). Known limit: the same file
+  dropped on two pages at the very same moment shares one upload, so deleting the project made on one page can
+  remove the file the other page is about to use (dropping it again fixes it).
+- **Waiting on Landry:** the release (explicit OK); a try on a real Windows PC and on Landry's Mac.
 
 ## Make a YouTube video: plan it with ClipForge AI — 2026-11-08, review fixes 2026-11-10 (Claude Code, cloud session)
 

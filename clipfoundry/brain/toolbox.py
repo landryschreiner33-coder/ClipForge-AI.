@@ -353,7 +353,10 @@ def _already(ctx: Ctx, twin: dict, here: bool) -> Result:
 
 
 def _keep(ctx: Ctx, text: str, kind: str, here: bool) -> Result:
-    """A new memory, as said by the owner; the only result that carries it (and so its Undo chip)."""
+    """A new memory, as said by the owner; the only result that carries it (and so its Undo chip). Nothing is kept for
+    a video deleted while this answer was written: its memories went with it (studio/project_delete.py)."""
+    if here and not db.fetch("studio_projects", ctx.project_id):
+        raise ToolError("This video was deleted, so nothing is kept for it.")
     try:
         row = memories.remember(ctx.ws, text, kind=kind, source="said", project_id=ctx.project_id if here else "")
     except memories.Invalid as exc:
@@ -475,8 +478,20 @@ def _rename_preview(ctx: Ctx, args: dict) -> dict:
             "args": {"project": p["id"], "name": args["name"]}}
 
 
+GONE = "That project is not there any more: it was deleted."
+
+
+def _named(ctx: Ctx, args: dict) -> dict:
+    """The project an OK button names. Its preview put the project's id there, so a project not found by that id was
+    deleted since (on the Projects page, or by another button)."""
+    hit = [p for p in projects(ctx.ws) if p["id"] == args.get("project")]
+    if not hit:
+        raise ToolError(GONE)
+    return hit[0]
+
+
 def _rename(ctx: Ctx, args: dict) -> Result:
-    p = find(ctx.ws, args.get("project", ""), ctx.project_id)
+    p = _named(ctx, args)
     name = args["name"][:120]
     if p["kind"] == "clips":
         db.update_project(p["id"], name=name, updated_at=time.time())
@@ -486,39 +501,40 @@ def _rename(ctx: Ctx, args: dict) -> Result:
                   {"links": [{"label": f"Open “{name}”", "href": p["href"]}]})
 
 
-def _deleter():
-    try:
-        from ..studio import project_delete  # the safe delete (its own module): plan() says what goes, delete() does it
-    except ImportError as exc:
-        raise ToolError("This version of ClipForge cannot delete projects from the chat yet; use the Projects "
-                        "page.") from exc
-    return project_delete
-
-
 def _delete_preview(ctx: Ctx, args: dict) -> dict:
+    """What deleting the project does, in the safe delete's own words (studio/project_delete.py, as the window on the
+    Projects page says it). The moment it was judged goes on the button (`as_of`), so pressing OK later deletes no file
+    the button said stays."""
+    from ..studio import project_delete as pd
+
     p = find(ctx.ws, args.get("project", ""), ctx.project_id)
-    pd = _deleter()
     try:
         plan = pd.plan(ctx.ws, p["id"], p["kind"])
     except pd.DeleteError as exc:
-        raise ToolError(str(exc)) from exc
+        raise ToolError(GONE if exc.code == "not_found" else str(exc)) from exc
     detail = [f"Goes: {s}" for s in plan.get("goes") or []] + [f"Stays: {s}" for s in plan.get("stays") or []]
     if plan.get("working"):  # "ClipForge is still working on it (...). Deleting stops that first."
         detail.insert(0, str(plan["working"]))
     return {"label": f"Delete the {KIND_WORDS[p['kind']]} “{p['name']}”", "detail": detail[:10],
-            "blocked": plan.get("blocked") or "", "args": {"project": p["id"], "kind": p["kind"]}}
+            "blocked": plan.get("blocked") or "", "args": {"project": p["id"], "kind": p["kind"],
+                                                           "as_of": plan.get("as_of")}}
 
 
 def _delete(ctx: Ctx, args: dict) -> Result:
-    p = find(ctx.ws, args.get("project", ""), ctx.project_id)
-    pd = _deleter()
-    try:
-        done = pd.delete(ctx.ws, p["id"], p["kind"], wait=10.0)  # running work gets 10 s to stop, as on Projects
+    from ..studio import project_delete as pd
+
+    p = _named(ctx, args)
+    try:  # running work gets 10 s to stop, as on the Projects page
+        done = pd.delete(ctx.ws, p["id"], p["kind"], wait=10.0, as_of=args.get("as_of"))
     except pd.DeleteError as exc:
-        if getattr(exc, "code", "") == "stopping":  # its work was asked to stop and has not yet: OK works in a moment
+        # its work was asked to stop and has not yet, or Autopilot or a post started on it since the button was
+        # shown (deleting waits for them): the button stays, and OK works once that has ended
+        if exc.code in ("stopping", "blocked"):
             raise TryAgain(str(exc)) from exc
-        raise ToolError(str(exc)) from exc
-    return Result(f"Deleted the {KIND_WORDS[p['kind']]} “{p['name']}”.", f"Deleted “{p['name']}”",
+        raise ToolError(GONE if exc.code == "not_found" else str(exc)) from exc
+    later = (". A few of its files were open in another program; ClipForge removes them the next time it starts."
+             if done.get("left_behind") else "")  # as the Projects page says it
+    return Result(f"Deleted the {KIND_WORDS[p['kind']]} “{p['name']}”{later or '.'}", f"Deleted “{p['name']}”{later}",
                   {"deleted": {"id": p["id"], "kind": p["kind"], "name": done.get("name") or p["name"]}})
 
 
@@ -565,6 +581,8 @@ register(Tool("rename_project", "rename a project or video",
                "required": ["name"]}, _rename, "change", "Rename {project} to {name}", preview=_rename_preview,
               for_agents=False))
 register(Tool("delete_project", "delete a project or video and what belongs only to it",
-              {"type": "object", "properties": {"project": TEXT, "kind": {"type": "string",
-                                                                           "enum": ["clips", "full_video"]}}},
+              {"type": "object", "properties": {"project": TEXT,
+                                                "kind": {"type": "string", "enum": ["clips", "full_video"]},
+                                                # when its preview was shown: only the button keeps it
+                                                "as_of": {"type": "number", "internal": True}}},
               _delete, "delete", "Delete {project}", preview=_delete_preview, for_agents=False))

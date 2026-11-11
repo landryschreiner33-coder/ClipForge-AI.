@@ -174,10 +174,12 @@ def _coerce(value: object, spec: dict) -> object:
     return value
 
 
-def check_args(tool: Tool, args: object) -> dict:
+def check_args(tool: Tool, args: object, *, button: bool = False) -> dict:
     """The arguments as the tool will get them: known names only, simple types coerced (\"3\" -> 3), strings
     made whole (`whole`), trimmed and cut to their maxLength, enums and required ones checked. Raises ToolError with
-    what is wrong."""
+    what is wrong. An argument marked "internal" is one a preview put on the owner's button (the moment a delete's
+    window was shown): it is kept only from the button's own saved arguments (`button`), never from a model, which
+    does not read it either (`signature`)."""
     if args is None:
         args = {}
     if not isinstance(args, dict):
@@ -186,7 +188,7 @@ def check_args(tool: Tool, args: object) -> dict:
     props = (tool.args or {}).get("properties") or {}
     out: dict = {}
     for name, spec in props.items():
-        if name not in args or args[name] in (None, ""):
+        if name not in args or args[name] in (None, "") or (spec.get("internal") and not button):
             continue
         value = _coerce(args[name], spec)
         kind = spec.get("type", "string")
@@ -220,12 +222,25 @@ def signature(tool: Tool) -> str:
     need = set((tool.args or {}).get("required") or [])
     parts = []
     for name, spec in props.items():
+        if spec.get("internal"):  # only a button keeps it (check_args)
+            continue
         kind = "|".join(f'"{v}"' for v in spec["enum"]) if "enum" in spec else \
             {"string": "text", "integer": "number", "number": "number", "boolean": "true|false",
              "array": "list of text"}.get(spec.get("type", "string"), "text")
         parts.append(f"{name}{'' if name in need else '?'}: {kind}")
     waits = " Waits for the owner's OK." if tool.risk in WAITS else ""
     return f"- {tool.name}({', '.join(parts)}): {tool.description}{waits}"
+
+
+def same_button(tool: Tool, a: dict, b: dict) -> bool:
+    """Two buttons of `tool` do the same thing: their arguments differ at most in internal ones (check_args), such as
+    the moment each delete's window was shown."""
+    props = (tool.args or {}).get("properties") or {}
+
+    def shown(args: dict) -> dict:
+        return {k: v for k, v in args.items() if not (props.get(k) or {}).get("internal")}
+
+    return shown(a) == shown(b)
 
 
 def describe(tools: list[Tool]) -> str:

@@ -1,0 +1,15 @@
+/* Deleting a project: the trash button on a card (the Pin button's twin, top left) and the confirmation window. */
+.lib-del-btn { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; border-radius: var(--r-pill); border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(5, 6, 10, 0.78); color: var(--text); cursor: pointer; backdrop-filter: blur(4px); }
+.lib-del-btn:hover, .lib-del-btn:focus-visible { border-color: var(--bad); color: var(--bad); }
+
+.del-checking { display: flex; gap: var(--s2); align-items: center; }
+/* the announced place for "It can't be deleted right now": always there, so it is read out when the reason appears,
+   but while empty it takes no row (and no gap) in the window */
+.del-alert:empty { position: absolute; }
+.del-plan { display: grid; gap: var(--s3); }
+.del-head { display: flex; gap: 6px; align-items: center; margin: 0 0 4px; font-size: var(--fs-small); font-weight: 600; }
+.del-head.bad { color: var(--bad); }
+.del-list { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; font-size: var(--fs-small); }
+.del-list li { line-height: 1.45; }

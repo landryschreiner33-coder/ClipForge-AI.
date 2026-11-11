@@ -443,11 +443,19 @@ Undo chip, since nothing new was kept); switched off, kept for one video or one 
 says so and links to Brain → Memory, where you decide. Undo on a chip only ever forgets a memory that answer added.
 
 `delete_project` uses the safe delete of the Projects page (`clipfoundry/studio/project_delete.py`: `plan()` says
-what goes, what stays and what would block it; `delete()` does it). Work still running on the project is asked to
-stop and given 10 seconds; when it has not stopped yet, the card keeps its OK with that message, and a press a
-moment later works (`tools.TryAgain`). Deleting the video whose chat this is removes the chat too: the page says so
-and goes to Projects. The safe delete comes from the projects thread; until it is in this code, the tool says that
-deleting from the chat is not possible yet and points to the Projects page, and no button is shown.
+what goes, what stays and what would block it; `delete()` does it). The card shows the plan's own sentences ("Goes:
+…", "Stays: …", and first what work deleting stops), and it keeps the moment the plan was judged (`as_of`) with its
+arguments: OK sends it back, so a file the card said stays still stays however long the card waited. `as_of` is an
+internal argument (`"internal": True` in the tool's schema): a model never reads it in the tool's line
+(`tools.signature`) and never gives it (`tools.check_args` keeps it only from the button's own saved arguments,
+`button=True` in `chat.decide`), and two cards that differ only there are one card (`tools.same_button`). Work still
+running on the project is asked to stop and given 10 seconds; when it has not stopped yet, or Autopilot or a post
+started on the project since the card was shown, the card keeps its OK with that message, and a press later works
+(`tools.TryAgain`). A card whose project was deleted since (on the Projects page, or by another card) fails with
+"That project is not there any more: it was deleted." (`toolbox.GONE`; a rename card too). Deleting the video whose
+chat this is removes the chat too: the page says so, takes the project off its pins, as the Projects page does, and
+goes to Projects. A memory "for this video" that an answer saves after its video was deleted is not kept
+(`toolbox._keep`): the video's memories went with it.
 
 **Other parts add their own tools** with `tools.register(tools.Tool(...))` (a later registration with the same name
 replaces the earlier one; `unregister` takes one away). `run(ctx, args)` gets a `tools.Ctx` (the workspace, the
@@ -563,7 +571,6 @@ request; nothing a model writes can send it.
 - **Pictures in the chat.** The built-in models can read pictures (the eyes use that, [SMARTER_AI.md](SMARTER_AI.md)),
   but the chat sends and shows words only.
 - **Voice.** You cannot talk to it out loud or hear its answers.
-- **Deleting a project from the chat** waits for the safe delete (`studio/project_delete.py`) of the projects thread.
 - From the plan's later phases: finders and makers in the chat (finding music and pictures, making music and effects),
   settings in words beyond one video's own, a brain shared with the online studio (export/import moves it by hand),
   and the editing adapter.

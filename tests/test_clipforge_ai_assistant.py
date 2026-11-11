@@ -45,15 +45,20 @@ def _row(message_id: str) -> dict:
     return db.fetch("brain_chat_messages", message_id)
 
 
+GONE = "That project is not there any more: it was deleted."  # brain/toolbox.py
+
+
 def _fake_deleter(monkeypatch, blocked: str = "") -> types.ModuleType:
-    """A stand-in for studio/project_delete.py, the safe delete another part of ClipForge adds: plan() says what goes
-    and what stays, delete() removes the project with its chat (and that chat's messages)."""
+    """A stand-in for studio/project_delete.py, the safe delete: plan() says what goes and what stays, and when it
+    judged that (`as_of`); delete() removes the project with its chat (and that chat's messages). `refuse`: plan()
+    finds the project gone, as when it is deleted on the Projects page while ClipForge AI offers it. The real one is
+    used in test_the_chat_deletes_with_the_safe_delete_of_the_projects_page."""
     from clipfoundry import db, studio
 
     mod = types.ModuleType("clipfoundry.studio.project_delete")
 
     class DeleteError(ValueError):  # like the real one: a status and a code beside the sentence
-        def __init__(self, message, status=400, code="error"):
+        def __init__(self, message, status=422, code=""):
             super().__init__(message)
             self.status, self.code = status, code
 
@@ -61,15 +66,23 @@ def _fake_deleter(monkeypatch, blocked: str = "") -> types.ModuleType:
     mod.blocked = blocked
     mod.working = ""      # "ClipForge is still working on it (...). Deleting stops that first."
     mod.stopping = 0      # how many presses find its running work not stopped yet
+    mod.refuse = False
     mod.deleted = []
     mod.waits = []
+    mod.planned = []      # the moment each plan was judged (its as_of)
+    mod.as_ofs = []       # the as_of each delete was given
 
     def plan(ws, project_id, kind):
+        if mod.refuse:
+            raise DeleteError("Project not found.", 404, "not_found")
+        mod.planned.append(time.time())
         return {"goes": ["the video and its versions", "its chat with ClipForge AI"],
-                "stays": ["your files in the media library"], "blocked": mod.blocked, "working": mod.working}
+                "stays": ["your files in the media library"], "blocked": mod.blocked, "working": mod.working,
+                "as_of": mod.planned[-1]}
 
-    def delete(ws, project_id, kind, *, wait=0.0):
+    def delete(ws, project_id, kind, *, wait=0.0, as_of=None):
         mod.waits.append(wait)
+        mod.as_ofs.append(as_of)
         if mod.blocked:
             raise DeleteError(mod.blocked, 409, "blocked")
         if mod.stopping:
@@ -90,14 +103,6 @@ def _fake_deleter(monkeypatch, blocked: str = "") -> types.ModuleType:
     monkeypatch.setitem(sys.modules, "clipfoundry.studio.project_delete", mod)
     monkeypatch.setattr(studio, "project_delete", mod, raising=False)
     return mod
-
-
-def _no_deleter(monkeypatch) -> None:
-    """This version of ClipForge without studio/project_delete.py (whether or not another part has added it)."""
-    from clipfoundry import studio
-
-    monkeypatch.setitem(sys.modules, "clipfoundry.studio.project_delete", None)
-    monkeypatch.delattr(studio, "project_delete", raising=False)
 
 
 # ------------------------------------------------------------------ reading what a model wrote
@@ -925,12 +930,12 @@ def test_pressing_ok_runs_a_change_no_skips_it_and_a_second_press_changes_nothin
     assert "[The owner pressed OK and it was done: Renamed to “Summit day”]" in hist[1]["content"]
     assert "[The owner said no to: Forget “Never zoom in on faces”]" in hist[3]["content"]
 
-    # an action that fails is reported on its button
+    # an action that fails is reported on its button: here the project was deleted since (on the Projects page)
     m = settled(c["id"], _say(c["id"], "now call it Lake day")["id"])
     db.execute("DELETE FROM projects WHERE id = ?", (p["id"],))
     failed = chat.decide(WS, c["id"], m["id"], "a1", True)
     assert failed["data"]["pending"][0]["state"] == "failed"
-    assert failed["data"]["pending"][0]["result"].startswith("No project is called")
+    assert failed["data"]["pending"][0]["result"] == GONE  # not "No project is called “3f2a…”": its id
     p2 = db.create_project("Summit day", workspace_id=WS)
     m = settled(c["id"], _say(c["id"], "call it Sea day")["id"])
 
@@ -981,7 +986,7 @@ def test_deleting_the_chats_own_video_says_the_chat_is_gone(env, monkeypatch):
     m = settled(c["id"], _say(c["id"], "delete this video")["id"])
     act = m["data"]["pending"][0]
     assert act["label"] == "Delete the YouTube video “Hike”" and act["risk"] == "delete" and act["state"] == "waiting"
-    assert act["args"] == {"project": p["id"], "kind": "full_video"}
+    assert act["args"] == {"project": p["id"], "kind": "full_video", "as_of": pd.planned[0]}
     assert act["detail"] == ["Goes: the video and its versions", "Goes: its chat with ClipForge AI",
                              "Stays: your files in the media library"]
     assert pd.deleted == [] and db.fetch("studio_projects", p["id"])  # nothing goes before the press
@@ -990,6 +995,7 @@ def test_deleting_the_chats_own_video_says_the_chat_is_gone(env, monkeypatch):
     assert out["gone"] is True and out["id"] == m["id"] and out["text"] == "Deleted “Hike”"
     assert out["data"]["pending"][0]["state"] == "done"
     assert pd.deleted == [(WS, p["id"], "full_video")] and db.fetch("studio_projects", p["id"]) is None
+    assert pd.as_ofs == pd.planned  # judged as the button said, however long it waited for the OK
     with pytest.raises(chat.ChatError) as e:
         chat.messages(WS, c["id"])
     assert e.value.status == 404
@@ -1031,18 +1037,92 @@ def test_a_delete_whose_work_is_still_stopping_keeps_its_button_for_another_pres
     second = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
     assert second["state"] == "done" and pd.deleted == [(WS, p["id"], "clips")]
     assert pd.waits == [10.0, 10.0]  # running work gets as long to stop as on the Projects page
+    assert pd.as_ofs == pd.planned * 2
     assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "done"  # answered once
 
 
-def test_without_the_safe_delete_the_tool_fails_politely(data, monkeypatch):
+def test_a_delete_that_must_wait_since_its_button_was_shown_keeps_the_button(data, monkeypatch):
+    """Autopilot or a post can start on the project after the button was shown: OK then says what it waits for, and
+    the button stays for a later press (deleting waits for them, as on the Projects page). The same delete asked for
+    twice is one button, although each preview judged it at its own moment."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat
+
+    pd = _fake_deleter(monkeypatch)
+    p = db.create_project("Busy talk", workspace_id=WS)
+    again = ("delete_project", {"project": "Busy talk"})
+    install(monkeypatch, say("", again, again), say("Press OK to delete it."))
+    c = chat.open_chat(WS)
+    m = settled(c["id"], _say(c["id"], "delete Busy talk")["id"])
+    assert [a["state"] for a in m["data"]["pending"]] == ["waiting"] and len(pd.planned) == 2
+    pd.blocked = "One of its clips is being posted right now."
+    first = chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]
+    assert first["state"] == "waiting" and first["result"] == "One of its clips is being posted right now."
+    assert pd.deleted == [] and db.get_project(p["id"])
+    pd.blocked = ""
+    assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "done"
+    assert pd.deleted == [(WS, p["id"], "clips")] and pd.as_ofs == [pd.planned[0]] * 2
+
+
+def test_the_chat_deletes_with_the_safe_delete_of_the_projects_page(env, monkeypatch):
+    """With studio/project_delete.py itself: the button shows its words for what goes and what stays and carries the
+    moment they were judged (`as_of`, which a model neither reads nor gives); OK deletes the video with its chat and
+    the memories kept only for it, judged at that moment, and the memories for every video stay."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat, memories, tools
+    from clipfoundry.studio import project_delete as pd
+
+    p = _project(env)
+    c = chat.open_chat(WS, p["id"])
+    mine = memories.remember(WS, "Keep the summit shot in", kind="rule", project_id=p["id"])
+    every = memories.remember(WS, "Captions in yellow", kind="rule")
+    seen = []
+    real = pd.delete
+    monkeypatch.setattr(pd, "delete", lambda *a, **kw: seen.append(kw) or real(*a, **kw))
+    install(monkeypatch, say("Press OK and it goes.", ("delete_project", {"as_of": 1.0})))
+    m = settled(c["id"], _say(c["id"], "delete this video")["id"])
+    act = m["data"]["pending"][0]
+    assert act["state"] == "waiting" and act["label"] == "Delete the YouTube video “Hike”"
+    # its build is still queued here: said first, and stopped by the delete
+    assert act["detail"][0] == "ClipForge is still working on it (building the video). Deleting stops that first."
+    assert act["detail"][1].startswith("Goes: The video project “Hike”")
+    assert "Goes: 1 note ClipForge AI kept only for this project and its chat about it (2 messages)." in act["detail"]
+    assert "Stays: Your own files on this computer stay where they are, unchanged." in act["detail"]
+    assert act["args"]["project"] == p["id"] and act["args"]["kind"] == "full_video"
+    assert act["args"]["as_of"] != 1.0 and time.time() - act["args"]["as_of"] < 60  # its plan's moment
+    assert "as_of" not in tools.signature(tools.get("delete_project"))
+    out = chat.decide(WS, c["id"], m["id"], "a1", True)
+    assert out["gone"] is True and out["data"]["pending"][0]["state"] == "done" and out["text"] == "Deleted “Hike”"
+    assert seen == [{"wait": 10.0, "as_of": act["args"]["as_of"]}]
+    assert db.fetch("studio_projects", p["id"]) is None and db.fetch("brain_chats", c["id"]) is None
+    assert db.fetch("brain_memories", mine["id"]) is None and db.fetch("brain_memories", every["id"])
+
+
+def test_nothing_is_kept_for_a_video_deleted_while_the_answer_was_written(env, monkeypatch):
+    """Its memories went with it (studio/project_delete.py): a remember for this video that comes after that must not
+    leave one behind for a video that is gone."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat, memories, tools
+
+    p = _project(env)
+    c = chat.open_chat(WS, p["id"])
+    ctx = tools.Ctx(ws=WS, chat=c, project_id=p["id"], owner_text="Remember to keep the summit shot in this video")
+    db.execute("DELETE FROM studio_projects WHERE id = ?", (p["id"],))  # deleted on the Projects page meanwhile
+    with pytest.raises(tools.ToolError, match="This video was deleted, so nothing is kept for it."):
+        tools.get("remember").run(ctx, {"text": "keep the summit shot", "scope": "this_video"})
+    assert memories.list_(WS) == []
+
+
+def test_a_delete_it_cannot_offer_fails_politely(data, monkeypatch):
     from clipfoundry import db
     from clipfoundry.brain import chat, tools
 
-    _no_deleter(monkeypatch)
+    pd = _fake_deleter(monkeypatch)
+    pd.refuse = True  # deleted on the Projects page while ClipForge AI offered it: its plan finds it gone
     p = db.create_project("Old talk", workspace_id=WS)
-    # asked again here, the real Basic model said "It's been removed." and then "I've deleted the project ... It's
-    # gone now." on GitHub's machines (runs 42777938926 and 42818369465): it is not asked again about it, and the
-    # owner sees that it could not be offered, and why
+    # asked again about a delete it could not offer, the real Basic model said "It's been removed." and then "I've
+    # deleted the project ... It's gone now." on GitHub's machines (runs 42777938926 and 42818369465): it is not
+    # asked again about it, and the owner sees that it could not be offered, and why
     fake = install(monkeypatch, say("", ("delete_project", {"project": "Old talk"})),
                    say("I've deleted the project 'Old talk' for you. It's gone now."))
     c = chat.open_chat(WS)
@@ -1050,8 +1130,7 @@ def test_without_the_safe_delete_the_tool_fails_politely(data, monkeypatch):
     assert m["status"] == "done" and m["data"]["pending"] == [] and db.get_project(p["id"])
     assert m["text"] == "" and len(fake.calls) == 1
     assert m["data"]["steps"] == [{"tool": "delete_project", "label": "Could not delete Old talk", "ok": False,
-                                   "why": "This version of ClipForge cannot delete projects from the chat yet; use "
-                                          "the Projects page.", "not_offered": True}]
+                                   "why": GONE, "not_offered": True}]
     # what the model said before it knew stays; nothing after it
     install(monkeypatch, say("I'll delete Old talk for you.", ("delete_project", {"project": "Old talk"})),
             say("It's been removed."))
@@ -1068,15 +1147,18 @@ def test_without_the_safe_delete_the_tool_fails_politely(data, monkeypatch):
     assert [s["label"] for s in m["data"]["steps"] if s["tool"] == "delete_project"] == ["Could not delete Old talk"]
     assert len(fake.calls) == 2 and m["text"] == "Trying again." and db.get_project(p["id"])
     assert "delete_project: not done, and no button was shown" in fake.calls[1]["messages"][-1]["content"]
-    # a button shown earlier fails politely too when it is pressed
+    # a button shown earlier for a project deleted since (on the Projects page) fails politely when it is pressed
+    pd.refuse = False
+    older = db.create_project("Older talk", workspace_id=WS)
     msg = db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": "ai", "text": "x",
                                             "status": "done", "data": {"tool": "talk", "pending": [
                                                 {"id": "a1", "tool": "delete_project", "risk": "delete",
-                                                 "args": {"project": p["id"], "kind": "clips"}, "state": "waiting"}]}})
+                                                 "args": {"project": older["id"], "kind": "clips", "as_of": 1.0},
+                                                 "state": "waiting"}]}})
+    db.delete_project(older["id"])
     out = chat.decide(WS, c["id"], msg["id"], "a1", True)
-    assert out["data"]["pending"][0]["state"] == "failed"
-    assert out["data"]["pending"][0]["result"].startswith("This version of ClipForge cannot delete projects")
-    assert db.get_project(p["id"]) and tools.get("delete_project").risk == "delete"
+    assert out["data"]["pending"][0]["state"] == "failed" and out["data"]["pending"][0]["result"] == GONE
+    assert pd.deleted == [] and db.get_project(p["id"]) and tools.get("delete_project").risk == "delete"
 
 
 def test_a_change_it_could_not_offer_is_in_the_next_turns_conversation(data, monkeypatch):
@@ -1086,17 +1168,16 @@ def test_a_change_it_could_not_offer_is_in_the_next_turns_conversation(data, mon
     from clipfoundry import db
     from clipfoundry.brain import chat
 
-    _no_deleter(monkeypatch)
+    _fake_deleter(monkeypatch).refuse = True  # deleted on the Projects page while it was offered
     db.create_project("Old talk", workspace_id=WS)
     gone = ("delete_project", {"project": "Old talk"})
     fake = install(monkeypatch, say("", gone), say("I'll delete Old talk for you.", gone),
-                   say("No: this version cannot delete projects from the chat. Use the Projects page."))
+                   say("It was deleted already, so there is nothing left to delete."))
     c = chat.open_chat(WS)
     for text in ("delete Old talk", "please delete Old talk", "is it gone now?"):
         settled(c["id"], _say(c["id"], text)["id"])
     assert len(fake.calls) == 3
-    note = ("[Could not delete Old talk, so nothing was done: This version of ClipForge cannot delete projects from "
-            "the chat yet; use the Projects page.]")
+    note = f"[Could not delete Old talk, so nothing was done: {GONE}]"
     turns = [(t["role"], json.loads(t["content"])["say"] if t["role"] == "assistant" else t["content"])
              for t in fake.calls[2]["messages"][:-1]]
     assert turns == [("user", "delete Old talk"), ("assistant", note), ("user", "please delete Old talk"),

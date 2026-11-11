@@ -7,6 +7,7 @@ import {
   Chat, ChatAction, ChatActionState, ChatAgent, ChatAi, chatApi, ChatAsk, ChatData, ChatMessage, ChatStep, HelperWork,
   MAX_CHAT_TEXT, Memory, memoryApi,
 } from "../brain";
+import { useAppearance } from "../prefs";
 import { navigate } from "../router";
 import { ChangeRequest, Video } from "../studio";
 import { BuiltinProgress } from "./AiHelperSettings";
@@ -178,6 +179,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
     alive.current = true;
     return () => { alive.current = false; };
   }, []);
+  const { forgetPin } = useAppearance();
 
   const open = useCallback(async () => {
     const n = ++opened.current;
@@ -357,6 +359,8 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
     try {
       const r = await chatApi.decide(chat.id, m.id, a.id, doIt);
       const now = (r.data?.pending || []).find((p) => p.id === a.id);
+      // a deleted project leaves this page's pins too, as on the Projects page (the saved pins lost it already)
+      if (a.tool === "delete_project" && (r.gone || now?.state === "done")) forgetPin(String(a.args.project || ""));
       if (r.gone) {
         toast(`${sentence(now?.result || "Done")} Its chat went with it.`);
         if (alive.current) navigate("#/projects");  // only from its own page: you may have gone somewhere else meanwhile

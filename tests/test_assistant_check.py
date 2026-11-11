@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-WHY = "This version of ClipForge cannot delete projects from the chat yet; use the Projects page."
+WHY = "That project is not there any more: it was deleted."  # brain/toolbox.py GONE: deleted while it was offered
+TWO = "More than one project fits “gear review”: “Old gear review”, “Old gear review 2”. Ask the owner which one."
 
 
 @pytest.fixture(scope="module")
@@ -20,9 +21,9 @@ def check():
     return mod
 
 
-def _not_offered(project: str) -> dict:
+def _not_offered(project: str, why: str = WHY) -> dict:
     """A delete that could not even be shown as a button, as ClipForge AI saves it (assistant._offer)."""
-    return {"tool": "delete_project", "label": f"Could not delete {project}", "ok": False, "why": WHY,
+    return {"tool": "delete_project", "label": f"Could not delete {project}", "ok": False, "why": why,
             "not_offered": True}
 
 
@@ -56,14 +57,20 @@ def test_the_delete_turn_wants_the_right_project_and_never_a_false_claim(check):
     ok, _how = check.delete_verdict(_turn("I can't delete projects from the chat; use the Projects page.", [],
                                           asked=()))
     assert ok
+    button = {"tool": "delete_project", "label": "Delete the clips project “Old gear review”", "state": "waiting"}
+    ok, how = check.delete_verdict({**_turn("Press OK to delete it."), "pending": [button]})
+    assert ok and how == "a delete button waits for the OK: Delete the clips project “Old gear review”"
+    ok, how = check.delete_verdict({**_turn("It's been deleted."), "pending": [button]})
+    assert not ok and how.endswith("(its button still waits for the OK)")
 
 
 def test_the_summary_shows_the_step_that_is_the_answers_words(check):
     report = {"computer": {"platform": "Linux", "memory_mb": 16384, "cpus": 4}, "setup": {}, "level": "basic",
               "model": "stand-in", "mode": "fake", "problems": [], "misses": [],
-              "turns": [_turn("", [_not_offered("Old gear review")]), _turn("", [WRONG_ARGS])]}
+              "turns": [_turn("", [_not_offered("gear review", TWO)]), _turn("", [WRONG_ARGS])]}
     rows = [ln for ln in check.summary(report).splitlines() if ln.startswith("| 8 |")]
     assert len(rows) == 2
-    assert "[not done: Could not delete Old gear review: This version of ClipForge cannot" in rows[0]  # clipped
+    assert "[not done: Could not delete gear review: More than one project fits “gear review”: “Old gear" in rows[0]
+    assert "Ask the owner which one" not in rows[0]  # each part is clipped
     assert "(empty)" not in rows[0]
     assert "(empty)" in rows[1]  # the model was asked again and said nothing
