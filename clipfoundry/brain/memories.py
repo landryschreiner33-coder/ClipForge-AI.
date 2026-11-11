@@ -9,6 +9,7 @@ page can show what a memory did. Nothing here ever runs anything: memories are d
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -234,7 +235,7 @@ def edit(ws: str, memory_id: str, *, text: object = None, kind: str | None = Non
             raise Invalid("Another memory already says that.", 409)
     fields["revision"] = int(row.get("revision") or 1) + 1
     db.update("brain_memories", memory_id, **fields)
-    return db.fetch("brain_memories", memory_id)
+    return _written(memory_id)
 
 
 def confirm(ws: str, memory_id: str) -> dict:
@@ -242,7 +243,16 @@ def confirm(ws: str, memory_id: str) -> dict:
     row = get(ws, memory_id)
     db.update("brain_memories", memory_id, source="said", confidence=1.0, expires_at=None, enabled=1,
               revision=int(row.get("revision") or 1) + 1)
-    return db.fetch("brain_memories", memory_id)
+    return _written(memory_id)
+
+
+def _written(memory_id: str) -> dict:
+    """The memory as an edit or a confirmation just wrote it. Forgotten or tidied away between their reading it and
+    writing it, it is not there any more, and the owner is told so (instead of an error)."""
+    row = db.fetch("brain_memories", memory_id)
+    if not row:
+        raise Invalid("Memory not found.", 404)
+    return row
 
 
 def forget(ws: str, memory_id: str) -> dict:
@@ -466,42 +476,48 @@ def rebuild(ws: str) -> int:
 
 
 def tidy(ws: str) -> dict:
-    """Remove expired memories and merge exact twins (the same words and kind), keeping the stronger one."""
+    """Remove expired memories and merge exact twins, keeping the stronger one. Twins say the same words as the same
+    kind (`_norm`), apply in the same place (scope) and are switched on or off alike; the one kept stands for all of
+    them (their uses, use count, last use and tags, and it expires only when the last of them would), so what
+    ClipForge AI follows does not change. Twins kept for other videos, or switched on or off apart, stay as they are:
+    one memory could not stand for both.
+
+    One step nothing else comes into (it takes the database's write lock first): a guess confirmed, or a memory
+    changed, forgotten or used while it runs is seen here or happens after it, never lost in between. Each memory
+    goes with the record of its uses (as `forget`). Returns how many went."""
     now = time.time()
-    expired = db.select("brain_memories", "workspace_id = ? AND expires_at IS NOT NULL AND expires_at <= ?",
-                        (ws, now))
-    with db.connect() as conn:  # each with the record of its uses, in one transaction (as `forget`)
-        for r in expired:
-            conn.execute("DELETE FROM brain_memory_uses WHERE memory_id = ?", (r["id"],))
-            conn.execute("DELETE FROM brain_memories WHERE id = ?", (r["id"],))
-    merged = 0
-    groups: dict[tuple[str, str], list[dict]] = {}
-    for r in db.select("brain_memories", "workspace_id = ?", (ws,), "created_at ASC"):
-        norm = _norm(r["text"])
-        if norm != r["norm"]:  # stored before Nov 9 2026, when every memory in another script had the same norm
-            db.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (norm, r["id"]))
-        groups.setdefault((r["kind"], norm), []).append(r)
-    for twins in groups.values():
-        if len(twins) < 2:
-            continue
-        twins.sort(key=lambda r: (-RANK[r["source"]], -float(r.get("confidence") or 0), -int(r.get("revision") or 1)))
-        keep, rest = twins[0], twins[1:]
-        db.update("brain_memories", keep["id"],
-                  tags=_tags(list(keep.get("tags") or []) + [t for r in rest for t in (r.get("tags") or [])]),
-                  revision=int(keep.get("revision") or 1) + 1)
-        for r in rest:
-            # One transaction (as `forget`): the twin's count as it is now and the record of its uses move to the one
-            # kept, and the twin goes. The kept one is written first, so forgetting it waits until this is done; when
-            # it was forgotten meanwhile, the twins stay as they are, each with its own uses.
-            with db.connect() as conn:
-                gained = conn.execute("UPDATE brain_memories SET used_count = used_count + COALESCE((SELECT "
-                                      "used_count FROM brain_memories WHERE id = ?), 0) WHERE id = ?",
-                                      (r["id"], keep["id"])).rowcount
-                if not gained:
-                    break
+    expired = merged = 0
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        for (mid,) in conn.execute("SELECT id FROM brain_memories WHERE workspace_id = ? AND expires_at IS NOT NULL "
+                                   "AND expires_at <= ?", (ws, now)).fetchall():
+            conn.execute("DELETE FROM brain_memory_uses WHERE memory_id = ?", (mid,))
+            expired += conn.execute("DELETE FROM brain_memories WHERE id = ?", (mid,)).rowcount
+        groups: dict[tuple, list[dict]] = {}
+        for raw in conn.execute("SELECT * FROM brain_memories WHERE workspace_id = ? ORDER BY created_at ASC",
+                                (ws,)).fetchall():
+            r = db._decode("brain_memories", raw)  # noqa: SLF001 - read inside this step's own transaction
+            norm = _norm(r["text"])
+            if norm != r["norm"]:  # stored before Nov 9 2026, when every memory in another script had the same norm
+                conn.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (norm, r["id"]))
+            groups.setdefault((r["kind"], norm, r["scope"], bool(r["enabled"])), []).append(r)
+        for twins in groups.values():
+            if len(twins) < 2:
+                continue
+            twins.sort(key=lambda r: (-RANK[r["source"]], -float(r.get("confidence") or 0),
+                                      -int(r.get("revision") or 1)))
+            keep, rest = twins[0], twins[1:]
+            ends = [t.get("expires_at") for t in twins]
+            used = [t["last_used_at"] for t in twins if t.get("last_used_at")]
+            conn.execute("UPDATE brain_memories SET used_count = ?, last_used_at = ?, tags = ?, expires_at = ?, "
+                         "revision = ?, updated_at = ? WHERE id = ?",
+                         (sum(int(t.get("used_count") or 0) for t in twins), max(used) if used else None,
+                          json.dumps(_tags([tag for t in twins for tag in (t.get("tags") or [])])),
+                          None if None in ends else max(ends), int(keep.get("revision") or 1) + 1, now, keep["id"]))
+            for r in rest:
                 conn.execute("UPDATE brain_memory_uses SET memory_id = ? WHERE memory_id = ?", (keep["id"], r["id"]))
                 merged += conn.execute("DELETE FROM brain_memories WHERE id = ?", (r["id"],)).rowcount
-    return {"expired": len(expired), "merged": merged}
+    return {"expired": expired, "merged": merged}
 
 
 # ------------------------------------------------------------------ files

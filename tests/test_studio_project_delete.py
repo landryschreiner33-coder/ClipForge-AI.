@@ -989,6 +989,28 @@ def test_a_delete_given_its_confirmations_list_never_removes_a_scene_picture_it_
     assert not os.path.exists(picture["path"])
 
 
+def test_a_file_the_confirmation_said_stays_is_not_removed_once_a_scene_of_the_short_takes_it(env):
+    """`kept` lists every file the confirmation said stays, not only what ClipForge had made for the short's scenes
+    then: a picture another video used when it was shown, that a scene of the short takes before OK (so it is now one
+    ClipForge made for its scenes), still stays when that other video is deleted meanwhile, and nothing is deleted."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    lake = _stored(63, kind="image", filename="Lake.png")
+    short = _video("Lake facts", [lake["id"]], workflow="animated_short")["id"]
+    trip = _video("Lake trip", [lake["id"]])["id"]
+    shown = project_delete.plan("local", short, "full_video")
+    assert "“Lake.png” stays in ClipForge because another project or example uses it." in shown["stays"]
+    assert shown["removes"] == {"files": [], "source": False, "posts": [], "kept": [lake["id"]]}
+    db.insert("short_scenes", {"project_id": short, "workspace_id": "local", "position": 1, "narration": "Lake",
+                               "picture_asset_id": lake["id"], "info": {"picture": {"source": "engine"}}})
+    project_delete.delete("local", trip, "full_video")
+    with pytest.raises(project_delete.DeleteError) as changed:
+        project_delete.delete("local", short, "full_video", as_of=shown["as_of"], removes=shown["removes"])
+    assert changed.value.status == 409 and changed.value.code == "changed" and "“Lake.png”" in str(changed.value)
+    assert db.fetch("studio_projects", short) and db.fetch("assets", lake["id"]) and os.path.isfile(lake["path"])
+
+
 def test_a_shorts_window_reads_its_saved_versions_and_a_picture_waiting_to_be_replaced(env):
     """A short's saved versions keep each scene as it was (also a scene deleted since), so its picture and clip are
     counted as made there too. The owner's own picture stays theirs while a new picture waits to replace it. The

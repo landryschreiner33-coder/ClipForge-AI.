@@ -689,7 +689,8 @@ def _beyond(s: _Survey, removes: dict | None) -> str:
     """What deleting now would remove beyond what the confirmation listed (its plan's `removes`), in words: a media
     file, the copy of the video it was made from, a planned post. "" when nothing more. The project's own clips,
     versions, notes, chat and what ClipForge made for its scenes are the project: they go with it whatever their
-    number, but not a file the confirmation said stays (`kept`: another project used it then)."""
+    number, but not a file the confirmation said stays (`kept`: another project used it then, or the owner had just
+    added it again)."""
     if removes is None:
         return ""
     files, posts = set(removes.get("files") or []), set(removes.get("posts") or [])

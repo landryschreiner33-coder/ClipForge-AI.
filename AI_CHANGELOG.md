@@ -314,6 +314,29 @@ Landry's projects, could never do anything, and without a downloaded model only 
     Two doubts did not hold up: a card saved without `kept` (only builds of this unreleased branch made one) and a
     file the card said stays turning into one ClipForge made (a picture it makes comes from the scene's own random
     seed).
+- **A check of that last round** (one reviewer, each finding checked again by one who tried to refute it) confirmed
+  its fixes and found three rare problems in Tidy that are older than this branch, one sentence that said too little
+  and two tests that checked too little:
+  - Tidy read the expired memories and deleted them by id in a later step, so a guess confirmed (or said again) in
+    between was deleted anyway, with its uses, and a confirmation that came a moment later answered with an error. Its
+    merge of twins likewise worked on the twins as it had read them: a twin given other words meanwhile was merged
+    away, and the kept memory's tags were written from what it had read. Tidy is now one step that takes the
+    database's write lock first (`BEGIN IMMEDIATE`) and works on what is there then. An edit or a confirmation of a
+    memory deleted between its reading and writing it answers "Memory not found." (`memories._written`).
+  - Tidy merged twins kept for different videos, or switched on or off apart, into the stronger one as it was: a
+    memory for every video could shrink to one video (and go when that video was deleted), and one switched on could
+    end up switched off. Twins now merge only when they apply in the same place and are switched on or off alike; the
+    one kept takes their uses, use count, last use and tags, and lasts as long as the last of them would
+    (`memories.tidy`). The design notes say so.
+  - `project_delete._beyond`'s docstring named one of the two reasons a file is in `kept`; the owner having just added
+    it again is the other.
+  - New tests, in `tests/test_clipforge_ai_brain.py`: `test_what_the_owner_does_while_tidy_runs_is_never_lost`,
+    `test_a_confirmation_or_edit_of_a_memory_gone_meanwhile_says_it_is_gone` and
+    `test_tidy_merges_only_twins_kept_for_the_same_videos_and_switched_on_or_off_alike` (each failed before);
+    `test_a_twin_merged_into_a_memory_forgotten_meanwhile_leaves_no_use_behind` now also checks that the twin stays
+    with its own uses and what Tidy says it merged. In `tests/test_studio_project_delete.py`,
+    `test_a_file_the_confirmation_said_stays_is_not_removed_once_a_scene_of_the_short_takes_it`: the case `kept` was
+    widened for, which the made-only list deleted.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

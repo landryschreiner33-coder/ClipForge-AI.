@@ -184,25 +184,37 @@ def test_a_use_recorded_while_a_memory_is_forgotten_or_tidied_away_is_never_left
     assert rows >= 2 and brain.get(WS, said["id"])["used_count"] == rows  # its own and its twin's, all counted
 
 
+def _did_twin(text: str, **fields) -> dict:
+    """A twin of a memory: the same words and kind, saved apart (two answers at the same moment, or a brain file)."""
+    from clipfoundry import db
+    from clipfoundry.brain import memories
+
+    return db.insert("brain_memories", {"workspace_id": WS, "kind": "fact", "text": text,
+                                        "norm": memories._norm(text), "source": "did",  # noqa: SLF001
+                                        "confidence": 0.8, "scope": "all", "tags": [], "data": {}, "meaning": None,
+                                        "meaning_model": "", "enabled": 1, "revision": 1, "used_count": 0, **fields})
+
+
 def test_a_twin_merged_into_a_memory_forgotten_meanwhile_leaves_no_use_behind(data, monkeypatch):
-    """Tidy merges a twin into the stronger memory of the two. When that one is forgotten while Tidy runs (after any
-    of its steps), the twin stays with the record of its own uses: none is moved to a memory that is gone."""
+    """Tidy merges a twin into the stronger memory of the two. When that one is forgotten before Tidy merges them,
+    the twin stays with the record of its own uses and nothing is merged; forgotten after (here: after any of Tidy's
+    steps), it goes with every use, its twin's too. None is ever moved to a memory that is gone."""
     from contextlib import contextmanager
 
     from clipfoundry import brain, db
 
     real = db.connect
-    for step in range(1, 9):
+    for step in range(0, 9):
         for m in db.select("brain_memories", "workspace_id = ?", (WS,)):
             brain.forget(WS, m["id"])
         said = brain.remember(WS, "Captions in yellow")
-        twin = db.insert("brain_memories", {"workspace_id": WS, "kind": "fact", "text": "captions in yellow",
-                                            "norm": "captions in yellow", "source": "did", "confidence": 0.8,
-                                            "scope": "all", "tags": [], "data": {}, "meaning": None,
-                                            "meaning_model": "", "enabled": 1, "revision": 1, "used_count": 0})
+        twin = _did_twin("captions in yellow")
         brain.record_use(WS, [said["id"], twin["id"]], "chat", "msg-1")
         brain.record_use(WS, [twin["id"]], "chat", "msg-2")
-        done = [0]
+        done, forgot = [0], [False]
+        if step == 0:  # forgotten before Tidy starts
+            brain.forget(WS, said["id"])
+            forgot[0] = True
 
         @contextmanager
         def connect():
@@ -211,15 +223,119 @@ def test_a_twin_merged_into_a_memory_forgotten_meanwhile_leaves_no_use_behind(da
             done[0] += 1
             if done[0] == step:  # the stronger one is forgotten right after this step of Tidy
                 brain.forget(WS, said["id"])
+                forgot[0] = True
+
+        monkeypatch.setattr(db, "connect", connect)
+        result = brain.tidy(WS)
+        monkeypatch.setattr(db, "connect", real)
+        assert db.scalar("SELECT COUNT(*) FROM brain_memory_uses u WHERE NOT EXISTS (SELECT 1 FROM brain_memories m "
+                         "WHERE m.id = u.memory_id)") == 0, step
+        left = [(m["id"], m["used_count"], db.scalar("SELECT COUNT(*) FROM brain_memory_uses WHERE memory_id = ?",
+                                                     (m["id"],))) for m in db.select("brain_memories",
+                                                                                     "workspace_id = ?", (WS,))]
+        if not forgot[0]:  # merged: one memory with every use
+            assert result == {"expired": 0, "merged": 1} and left == [(said["id"], 3, 3)], step
+        elif db.fetch("brain_memories", twin["id"]):  # forgotten before the merge: the twin stays as it was
+            assert result == {"expired": 0, "merged": 0} and left == [(twin["id"], 2, 2)], step
+        else:  # forgotten after the merge: with every use, its twin's too
+            assert result == {"expired": 0, "merged": 1} and left == [], step
+
+
+def test_what_the_owner_does_while_tidy_runs_is_never_lost(data, monkeypatch):
+    """Tidy deletes expired guesses and merges twins as they are when it does it, in one step nothing else comes
+    into. A guess confirmed, or a twin given other words, while Tidy runs (here: right after any of its steps) is
+    seen by Tidy (the confirmed guess stays, the edited memory is no twin any more) or done after it (the owner is
+    told the memory is gone): never confirmed or edited, then deleted anyway."""
+    from contextlib import contextmanager
+
+    from clipfoundry import brain, db
+
+    real = db.connect
+    for step in range(1, 10):
+        for m in db.select("brain_memories", "workspace_id = ?", (WS,)):
+            brain.forget(WS, m["id"])
+        guess = brain.remember(WS, "You seem to like drone shots", source="guessed")
+        db.update("brain_memories", guess["id"], expires_at=time.time() - 5)
+        brain.remember(WS, "Captions in yellow")
+        twin = _did_twin("captions in yellow")
+        done, outcome = [0], {}
+
+        def act(what, do):
+            try:
+                outcome[what] = do()
+            except brain.Invalid as exc:
+                assert exc.status == 404, (step, what, str(exc))
+                outcome[what] = None
+
+        @contextmanager
+        def connect():
+            with real() as conn:
+                yield conn
+            done[0] += 1
+            if done[0] == step:  # the owner acts right after this step of Tidy
+                monkeypatch.setattr(db, "connect", real)
+                act("confirm", lambda: brain.confirm(WS, guess["id"]))
+                act("edit", lambda: brain.edit(WS, twin["id"], text="Captions in white"))
 
         monkeypatch.setattr(db, "connect", connect)
         brain.tidy(WS)
         monkeypatch.setattr(db, "connect", real)
-        assert db.scalar("SELECT COUNT(*) FROM brain_memory_uses u WHERE NOT EXISTS (SELECT 1 FROM brain_memories m "
-                         "WHERE m.id = u.memory_id)") == 0, step
-        for m in db.select("brain_memories", "workspace_id = ?", (WS,)):
-            assert m["used_count"] == db.scalar("SELECT COUNT(*) FROM brain_memory_uses WHERE memory_id = ?",
-                                                (m["id"],)), step
+        if outcome.get("confirm"):  # confirmed: it is there, and stays
+            row = db.fetch("brain_memories", guess["id"])
+            assert row and row["expires_at"] is None and row["source"] == "said", step
+        if outcome.get("edit"):  # edited: it is there with its new words
+            row = db.fetch("brain_memories", twin["id"])
+            assert row and row["text"] == "Captions in white", step
+
+
+def test_a_confirmation_or_edit_of_a_memory_gone_meanwhile_says_it_is_gone(data, monkeypatch):
+    """Tidy (or Forget) can delete a memory between a confirmation or an edit reading it and writing it: the owner is
+    told it is not there any more, instead of an error."""
+    from clipfoundry import brain, db
+
+    guess = brain.remember(WS, "You seem to like drone shots", source="guessed")
+    other = brain.remember(WS, "Fade the music out at the end")
+    real = db.update
+
+    def update(table, value, key="id", **fields):
+        if table == "brain_memories" and value in (guess["id"], other["id"]):
+            brain.forget(WS, value)  # just before the change is written
+        return real(table, value, key, **fields)
+
+    monkeypatch.setattr(db, "update", update)
+    for do in (lambda: brain.confirm(WS, guess["id"]), lambda: brain.edit(WS, other["id"], text="Fade out slowly")):
+        with pytest.raises(brain.Invalid) as gone:
+            do()
+        assert gone.value.status == 404 and str(gone.value) == "Memory not found."
+
+
+def test_tidy_merges_only_twins_kept_for_the_same_videos_and_switched_on_or_off_alike(data):
+    """Twins (the same words and kind) come from two answers saving at the same moment or from a brain file. Tidy
+    merges those that apply in the same place and are switched on or off alike, and the one it keeps stands for all
+    of them: every use, every tag, and it expires only when the last of them would. The others stay as they are, so a
+    memory for every video never shrinks to one video (and goes when that video is deleted), and one that is
+    switched on stays on."""
+    from clipfoundry import brain, db
+
+    here = brain.remember(WS, "Captions in yellow", project_id="p1")  # said, for one video
+    everywhere = _did_twin("captions in yellow")  # for every video
+    same = _did_twin("captions in yellow", scope="project:p1", project_id="p1", used_count=2, tags=["look"],
+                     last_used_at=time.time() - 60)  # for the same video
+    off = brain.remember(WS, "Music under speech at -18 dB")
+    brain.edit(WS, off["id"], enabled=False)  # said, switched off
+    on = _did_twin("music under speech at -18 db")  # switched on
+    guess = brain.remember(WS, "You seem to like drone shots", source="guessed", project_id="p1")
+    later = _did_twin("you seem to like drone shots", scope="project:p1", project_id="p1", source="guessed",
+                      confidence=0.5, expires_at=guess["expires_at"] + 86400)  # guessed again, a day later
+    assert brain.tidy(WS) == {"expired": 0, "merged": 2}  # `same` into `here`, `later` into `guess`
+    assert db.fetch("brain_memories", same["id"]) is None and db.fetch("brain_memories", later["id"]) is None
+    kept = brain.get(WS, here["id"])
+    assert kept["used_count"] == 2 and kept["tags"] == ["look"] and kept["last_used_at"]
+    assert kept["scope"] == "project:p1" and kept["source"] == "said"
+    assert brain.get(WS, guess["id"])["expires_at"] == later["expires_at"]  # as long as the later guess would last
+    assert everywhere["id"] in brain.recall("captions in yellow", WS, project_id="p2").ids  # still for every video
+    assert on["id"] in brain.recall("music under speech", WS).ids  # still on
+    assert brain.tidy(WS) == {"expired": 0, "merged": 0}  # what stays apart stays apart
 
 
 def test_guesses_expire_unless_confirmed_and_forget_removes_a_memory_with_its_uses(data):

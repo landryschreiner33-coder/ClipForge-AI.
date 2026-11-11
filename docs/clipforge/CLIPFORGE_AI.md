@@ -66,8 +66,13 @@ its own copy of the words. `confirm` turns a guess into something you said. `exp
 
 **Health** (`brain.check(ws)`): counts by kind and source, memories without a meaning or with an old embedder,
 near-duplicates (same kind, cosine ≥ 0.92), guesses unused for 90 days, expired memories, the size on disk. The
-Brain page shows it; **Tidy** removes the expired ones and merges exact duplicates; **Rebuild** recomputes meanings.
-The existing backup includes the tables (they are in the same database).
+Brain page shows it; **Tidy** removes the expired ones and merges exact twins (the same words and kind, kept for the
+same videos and switched on or off alike: the one kept takes their uses, use count and tags, and lasts as long as the
+last of them would; twins kept for other videos, or switched on or off apart, stay as they are, so what ClipForge AI
+follows does not change), in one step nothing else comes into (`tidy` takes the database's write lock first: a guess
+confirmed or a memory changed meanwhile is never deleted or merged away; one deleted between an edit's reading and
+writing it answers "Memory not found."); **Rebuild** recomputes meanings. The existing backup includes the tables
+(they are in the same database).
 
 **Privacy.** Memories never go to the finders. A remote model sees only the memories recalled for that one answer
 (and what its `recall` tool finds), and the disclosure line says so. `data` never goes anywhere.
