@@ -39,7 +39,8 @@
     <li>If you enable the optional phone dashboard, a paired phone receives a small read-only status snapshot
       directly from your PC. It includes video titles, work progress, posting counts and system-check status.
       Account credentials, media, transcripts and Brain notes are excluded. We receive none of it.</li>
-    <li>Deleting a project removes its project media, clips and transcript. A separately submitted input copy,
+    <li>Deleting a project removes its project media, clips and transcript, its ClipForge AI chat and the notes
+      kept only for it. A separately submitted input copy,
       its source request and post history stay until you remove the data folder (section 7). Deleting does not remove a video you already
       posted on YouTube or TikTok. You do that on the platform.</li>
   </ul>
@@ -494,8 +495,12 @@
     Missions → Submitted videos → Cancel video to stop its future work/uploads. Turning off separate standing
     permission affects its own unstarted approvals; it does not revoke a different input-scoped request.
     Completed and uncertain uploads retain their history/session. TikTok posts always require per-post consent.</li>
-  <li><b>Delete a video and its clips:</b> in the Library. This deletes ClipFoundry's copy of the video, its clips,
-    transcript and analysis. Your own original is not touched. A separate uploaded source copy under
+  <li><b>Delete a project:</b> in Projects (the trash button on its card) or on a clips project's own page; a window
+    first lists what goes and what stays. This deletes the project's clips or a video's versions, transcript and
+    analysis, its ClipForge AI chat and the notes kept only for it, and ClipFoundry's copy of the video when nothing
+    else uses it; planned posts that have not started uploading are canceled. Your own original is not touched,
+    and a copy of a file you added again in the last day stays (another page may be about to use it). Notes for all
+    your videos stay. A separate uploaded source copy under
     <code>submitted/</code>, its request and source history remain until you delete the data folder. Some records stay until you delete
     the data folder: the history of posts that were planned or published; for each clip Autopilot made, a short
     fingerprint (its title words, which video it came from, its start and end time, and short codes made from its
