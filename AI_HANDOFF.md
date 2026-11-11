@@ -94,9 +94,11 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   runs them, and a change or delete that cannot be offered (or is blocked) is shown with its reason and is no reason
   to ask the model again (the Basic model, asked again, said a delete it could not offer was done); beside a tool the
   model does read, it reads that it was not done, and the next turns read it in the conversation (`history`);
-  "remember: …" and an exact "forget …" skip the model (forgetting every memory that says those words, its twins too:
-  `memories.forget_words`; the Forget card names each one and its OK forgets only those, each only while it still says
-  the card's words), while "I like …" and "always …" now go to the conversation,
+  "remember: …" and an exact "forget …" skip the model (forgetting every memory that says the words after "forget",
+  its twins too, `memories.forget_words`, or those after a leading "my", "that", "the" or "about" only when no memory
+  says them all; "forget", "remember" and "note" are whole words; the Forget card names each memory, at most 16, and
+  its OK forgets only those, each only while it still says the card's words, and never looks again: a card saved by
+  an earlier build forgets only the memory it named), while "I like …" and "always …" now go to the conversation,
   where the model saves lasting preferences with `remember` (and ClipForge keeps a plainly said one itself when a
   small model forgets); `remember` saves at once only the owner's own words from this message and never changes a
   memory the owner already has (anything else is a "Remember “…”?" card); a video's chat still proposes the changes

@@ -41,11 +41,14 @@ HELP = ("Right now I have no model to think with, so I only follow a few rules: 
 NO_MODEL = ("I need a model to think with before I can really talk. Set up the built-in model (free, it runs on this "
             "computer) with the button above, or choose an AI helper in Settings → ClipForge AI. Until then I can "
             "remember, forget and list what you tell me, and answer editing questions from my built-in know-how.")
-_REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?:\s+that)?\s*[:,\-]?\s*(.+)$", re.I | re.S)
+_REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)\b(?:\s+that)?\s*[:,\-]?\s*(.+)$",
+                       re.I | re.S)  # a whole word: "Notes from the shoot …" is not "note" + "s from the shoot …"
 _STANDING = re.compile(r"^(?:from now on|always|never|i (?:like|love|want|prefer|hate|don't want|do not want|"
                        r"never want|always want))\b", re.I)
 _RULE_WORDS = re.compile(r"\b(always|never|don't|do not|only|every|from now on|must|should|no)\b", re.I)
-_FORGET = re.compile(r"^(?:please\s+)?forget(?:\s+(?:that|about|the|my|what i said about))*\s*[:,]?\s*(.*)$",
+# "forget" and the words it skips are whole words: "Forgetting captions loses viewers" and "forget mystery music" are
+# not "forget" + "ting captions …" or "forget my" + "stery music"
+_FORGET = re.compile(r"^(?:please\s+)?forget\b(?:\s+(?:that|about|the|my|what i said about)\b)*\s*[:,]?\s*(.*)$",
                      re.I | re.S)
 _LIST = re.compile(r"^(?:what do you (?:know|remember)|what have you learned|what (?:is|'s) in your brain|"
                    r"(?:show|list)(?: me)?(?: your| my)? memor(?:y|ies))\b\s*(?:about|of|on)?\s*(.*)$", re.I | re.S)
@@ -55,6 +58,7 @@ _HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b|\bhere\b", re.
 
 _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S)
 _FORGET_WORD = re.compile(r"^(?:please\s+)?forget\b\s*[:,]?\s*", re.I)
+_FORGET_SKIPS = re.compile(r"^(?:that|about|the|my|what i said about)\b\s*[:,]?\s*", re.I)
 _lock = threading.Lock()
 _decide_lock = threading.Lock()
 _routes: list[tuple[Callable[[dict, dict | None], bool], Callable[[str, str, str], dict]]] = []
@@ -244,7 +248,7 @@ def _answer(chat: dict, text: str, base_revision: int | None) -> dict:
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
     if m and m.group(1).strip():
-        forgot = _forget_words(ws, text, m.group(1).strip())
+        forgot = _forget_words(ws, text)
         if forgot:
             return forgot
     mention = agents.mentioned(ws, text)
@@ -343,26 +347,37 @@ def _remember(ws: str, pid: str, said: str) -> dict:
             "data": {"tool": "remember", "memory": memories.view(row), "used": []}}
 
 
-def _forget_words(ws: str, text: str, words: str) -> dict | None:
-    """“forget …” with the exact words of a memory, also when they start with a word the pattern skips ("forget my
-    intro is …"): every memory that says them goes, its twins too (kept for one video, switched off, another kind),
-    so nothing still follows them. None when no memory says those words."""
-    gone = memories.forget_words(ws, words)
-    whole = _FORGET_WORD.sub("", text).strip()
-    if whole and memories._norm(whole) != memories._norm(words):  # noqa: SLF001
-        gone += memories.forget_words(ws, whole)
-    if not gone:
-        return None
-    n = len(gone)
-    also = "" if n == 1 else f" (I had it {n} times; {'both' if n == 2 else f'all {n}'} are gone)"
-    return {"text": f"Forgotten: “{gone[0]['text']}”{also}.",
-            "data": {"tool": "forget", "forgotten": gone[0], "used": []}}
+def _said(text: str) -> list[str]:
+    """The words a "forget …" message may name a memory by, longest first: all of them after "forget", then without
+    each leading word the pattern skips in turn ("forget that my intro is …": "that my intro is …", "my intro is …",
+    "intro is …")."""
+    rest, out = _FORGET_WORD.sub("", text, count=1).strip(), []
+    while rest:
+        out.append(rest)
+        skip = _FORGET_SKIPS.match(rest)
+        rest = rest[skip.end():].strip() if skip else ""
+    return out
 
 
-def _forget(ws: str, pid: str, query: str, text: str = "") -> dict:
+def _forget_words(ws: str, text: str) -> dict | None:
+    """“forget …” with the exact words of a memory: every memory that says them goes, its twins too (kept for one
+    video, switched off, another kind), so nothing still follows them. The words are the first of `_said` that a
+    memory says: "forget my intro is 3 seconds" (what the chip of the one picked sends) forgets "my intro is 3
+    seconds", and "intro is 3 seconds" only when no memory says "my intro is 3 seconds". None when none is said."""
+    for words in _said(text):
+        gone = memories.forget_words(ws, words)
+        if gone:
+            n = len(gone)
+            also = "" if n == 1 else f" (I had it {n} times; {'both' if n == 2 else f'all {n}'} are gone)"
+            return {"text": f"Forgotten: “{gone[0]['text']}”{also}.",
+                    "data": {"tool": "forget", "forgotten": gone[0], "used": []}}
+    return None
+
+
+def _forget(ws: str, pid: str, query: str, text: str) -> dict:
     if not query:
         raise ChatError("Say what to forget, for example: forget the rule about zooms.")
-    forgot = _forget_words(ws, text or query, query)
+    forgot = _forget_words(ws, text)
     if forgot:
         return forgot
     found = memories.list_(ws, q=query, limit=CANDIDATES)

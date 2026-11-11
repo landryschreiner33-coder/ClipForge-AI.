@@ -124,6 +124,40 @@ def test_forget_with_the_exact_words_forgets_every_memory_that_says_them(env):
     assert brain.list_(WS) == []
 
 
+def test_forget_takes_only_the_words_the_owner_named_and_only_as_a_whole_word(env):
+    """“forget my intro is 3 seconds” forgets the memory that says “my intro is 3 seconds” (what the Forget chip of
+    “Which one?” sends), never also another that says “intro is 3 seconds”; the words after a leading “my”, “that”
+    or “the” count only when no memory says them all. A sentence that starts with “Forgetting …” or a word that starts
+    with “note” is not a request to forget or to remember anything."""
+    from clipfoundry import brain
+    from clipfoundry.brain import chat
+
+    c = chat.open_chat(WS)
+    for words in ("intro is 3 seconds", "my intro is 3 seconds", "intro is 3 seconds for shorts"):
+        brain.remember(WS, words)
+    m = _say(c["id"], "forget my intro")  # close, not exact: which one?
+    assert sorted(x["text"] for x in m["data"]["candidates"]) == ["intro is 3 seconds", "intro is 3 seconds for shorts",
+                                                                   "my intro is 3 seconds"]
+    m = _say(c["id"], "forget my intro is 3 seconds")  # the chip of the one picked
+    assert m["text"] == "Forgotten: “my intro is 3 seconds”."
+    assert m["data"]["forgotten"]["text"] == "my intro is 3 seconds"
+    assert sorted(x["text"] for x in brain.list_(WS)) == ["intro is 3 seconds", "intro is 3 seconds for shorts"]
+    m = _say(c["id"], "forget that my intro is 3 seconds")  # no memory says it all: the words after “that my”
+    assert m["text"] == "Forgotten: “intro is 3 seconds”."
+    assert [x["text"] for x in brain.list_(WS)] == ["intro is 3 seconds for shorts"]
+
+    brain.remember(WS, "Forgetting captions loses viewers")
+    brain.remember(WS, "mystery music works")
+    m = _say(c["id"], "Forgetting captions loses viewers")  # said again: not “forget ting captions …”
+    assert m["data"]["tool"] != "forget"
+    m = _say(c["id"], "forget mystery music")  # not “forget my” + “stery music”
+    assert [x["text"] for x in m["data"]["candidates"]] == ["mystery music works"]
+    m = _say(c["id"], "Notes from the shoot are in the folder")  # not “note” + “s from the shoot …”
+    assert m["data"]["tool"] != "remember"
+    assert sorted(x["text"] for x in brain.list_(WS)) == ["Forgetting captions loses viewers",
+                                                          "intro is 3 seconds for shorts", "mystery music works"]
+
+
 def test_a_videos_chat_proposes_checked_changes_that_apply_as_versions_and_explains_them(env, monkeypatch):
     from clipfoundry import brain, db
     from clipfoundry.brain import chat

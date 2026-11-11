@@ -930,7 +930,7 @@ def test_pressing_ok_runs_a_change_no_skips_it_and_a_second_press_changes_nothin
     m = settled(c["id"], _say(c["id"], "I don't mind zooms any more")["id"])
     act = m["data"]["pending"][0]
     assert act["label"] == "Forget “Never zoom in on faces”" and act["args"]["memory_ids"] == [zoom["id"]]
-    assert act["detail"] == ["It is a rule you taught me."]
+    assert act["detail"] == ["It is a rule you taught me, for every video."]
     no = chat.decide(WS, c["id"], m["id"], "a1", False)
     assert no["data"]["pending"][0]["state"] == "skipped" and brain.get(WS, zoom["id"])
     assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "skipped"
@@ -1021,7 +1021,55 @@ def test_forget_takes_every_memory_that_says_those_words_and_its_button_only_wha
     assert failed["state"] == "failed" and brain.get(WS, music["id"])["text"] == "keep the music very low"
     assert failed["result"] == "That memory was changed since the card was shown, so nothing was forgotten."
     assert len(fake.calls) == 2
-    assert tools.check_args(tools.get("forget"), {"memory": "x", "memory_ids": [music["id"]]}) == {"memory": "x"}
+    assert tools.check_args(tools.get("forget"), {"memory": "x", "memory_ids": [music["id"]], "memory_id": "y"}) == \
+        {"memory": "x"}
+
+
+def test_ok_on_a_forget_card_never_looks_for_memories_again(data, monkeypatch):
+    """A Forget card saved by an earlier build names one memory (`memory_id`): its OK forgets that one only, and only
+    while it still says the card's words; never its twin, and never the closest other memory when it is gone. A card
+    names at most FORGET_MAX memories: one that would need more cannot be pressed, and says how to forget them all."""
+    from clipfoundry import brain, db
+    from clipfoundry.brain import chat, toolbox
+
+    c = chat.open_chat(WS)
+
+    def old_card(memory: dict) -> dict:
+        act = {"id": "a1", "tool": "forget", "args": {"memory": memory["text"], "memory_id": memory["id"]},
+               "risk": "change", "label": f"Forget “{memory['text']}”", "detail": ["It is a rule you taught me."],
+               "blocked": "", "state": "waiting", "result": ""}
+        return db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": "ai", "text": "x",
+                                                   "status": "done", "data": {"tool": "talk", "pending": [act]}})
+
+    zoom = brain.remember(WS, "Never zoom in on faces", kind="rule")
+    other = brain.remember(WS, "Zoom in on faces in interviews", kind="rule")
+    card = old_card(zoom)
+    brain.forget(WS, zoom["id"])  # in Brain → Memory, before OK
+    out = chat.decide(WS, c["id"], card["id"], "a1", True)["data"]["pending"][0]
+    assert (out["state"], out["result"]) == ("failed", "Memory not found.") and brain.get(WS, other["id"])
+    music = brain.remember(WS, "Keep the music low")
+    twin = _twin("keep the music low", scope="platform:tiktok", platform="tiktok")
+    card = old_card(music)
+    out = chat.decide(WS, c["id"], card["id"], "a1", True)["data"]["pending"][0]
+    assert (out["state"], out["result"]) == ("done", "Forgot “Keep the music low”") and brain.get(WS, twin["id"])
+
+    fake = install(monkeypatch, say("Shall I forget it?", ("forget", {"memory": "keep the music low"})),
+                   say("They do, so I keep captions on."))
+    for i in range(toolbox.FORGET_MAX):  # with the twin, one more than a card can name
+        _twin("Keep the music low", scope=f"platform:p{i}", platform=f"p{i}")
+    m = settled(c["id"], _say(c["id"], "music can be loud now")["id"])
+    act = m["data"]["pending"][0]
+    n = toolbox.FORGET_MAX + 1
+    assert act["state"] == "blocked" and act["args"] == {"memory": "keep the music low"} and len(fake.calls) == 1
+    assert act["blocked"] == (f"I keep these words {n} times, more than one card can show. To forget them all, say "
+                              "“forget” and the exact words, or use Brain → Memory.")
+    m = _say(c["id"], "forget keep the music low")
+    assert m["text"] == f"Forgotten: “keep the music low” (I had it {n} times; all {n} are gone)."
+    assert [x["text"] for x in brain.list_(WS)] == ["Zoom in on faces in interviews"]
+    brain.remember(WS, "Forgetful viewers need on-screen captions")
+    m = settled(c["id"], _say(c["id"], "Forgetful viewers need on-screen captions")["id"])  # said again, not "forget"
+    assert m["text"] == "They do, so I keep captions on." and len(fake.calls) == 2
+    assert len(brain.list_(WS)) == 2
 
 
 def test_a_button_cannot_be_pressed_while_its_answer_is_written(data, monkeypatch):

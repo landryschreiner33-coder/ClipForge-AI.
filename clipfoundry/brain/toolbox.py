@@ -461,20 +461,21 @@ def _ask_agent(ctx: Ctx, args: dict) -> Result:
 
 
 # ------------------------------------------------------------------ changing and deleting (after the owner's OK)
-FORGET_MAX = 50  # the memories one Forget card can name (twins of the same words: usually two or three)
+FORGET_MAX = 16  # the memories one Forget card names, a line each (twins of the same words: usually two or three);
+#                  with its first line this fits the lines a card shows (assistant.MAX_DETAIL)
 
 
 def _memories_for(ctx: Ctx, words: str) -> list[dict]:
     """What a Forget card is about: every memory that says these words (`memories.saying`: its twins too, kept for one
     video, switched off or as another kind), else every one that says the words of the closest memory; oldest
-    first."""
+    first. Only the preview looks: OK forgets what its card named."""
     same = memories.saying(ctx.ws, words)
     if not same:
         found = memories.list_(ctx.ws, q=words, limit=5)
         if not found:
             raise ToolError("Nothing like that is in the memory.")
         same = memories.saying(ctx.ws, found[0]["text"]) or [found[0]]
-    return same[:FORGET_MAX]
+    return same
 
 
 def _a(kind: str) -> str:
@@ -490,26 +491,34 @@ def _where(m: dict, names: dict[str, str]) -> str:
 
 
 def _forget_preview(ctx: Ctx, args: dict) -> dict:
-    """The Forget card names every memory that says those words, so OK leaves no twin that still follows them."""
+    """The Forget card names every memory that says those words, where each applies, so OK leaves no twin that still
+    follows them. One that would name more than FORGET_MAX cannot be pressed: OK must never forget what it did not
+    show, and the exact words said in the chat forget them all (`chat._forget_words`)."""
     same = _memories_for(ctx, args["memory"])
-    first = same[0]
-    if len(same) == 1:
-        detail = [f"It is {_a(first['kind'])} you taught me."]
+    first, n = same[0], len(same)
+    label = f"Forget “{clip(first['text'], 120)}”"
+    if n > FORGET_MAX:
+        return {"label": label, "detail": [], "args": {"memory": first["text"]},
+                "blocked": f"I keep these words {n} times, more than one card can show. To forget them all, say "
+                           "“forget” and the exact words, or use Brain → Memory."}
+    names = {p["id"]: p["name"] for p in projects(ctx.ws)}
+    if n == 1:
+        detail = [f"It is {_a(first['kind'])} you taught me, {_where(first, names)}."]
     else:
-        names = {p["id"]: p["name"] for p in projects(ctx.ws)}
-        detail = [f"I keep these words {len(same)} times, and OK forgets them all:"] + \
+        detail = [f"I keep these words {n} times, and OK forgets them all:"] + \
                  [f"{_a(m['kind'])} {_where(m, names)}" for m in same]
-    return {"label": f"Forget “{clip(first['text'], 120)}”", "detail": detail, "blocked": "",
+    return {"label": label, "detail": detail, "blocked": "",
             "args": {"memory": first["text"], "memory_ids": [m["id"] for m in same]}}
 
 
 def _forget(ctx: Ctx, args: dict) -> Result:
-    """After the owner's OK: forgets the memories the card named, each only while it still says the card's words (one
-    changed since stays as it is now; one forgotten, or tidied into its twin, meanwhile is gone already)."""
-    words, ids = args["memory"], args.get("memory_ids")
+    """After the owner's OK: forgets the memories the card named (`memory_ids`; a card saved by an earlier build named
+    one, `memory_id`), each only while it still says the card's words: one changed since stays as it is now, and one
+    forgotten, or tidied into its twin, meanwhile is gone already. It never looks for memories again."""
+    words = args["memory"]
+    ids = args.get("memory_ids") or ([args["memory_id"]] if args.get("memory_id") else [])
     if not ids:
-        same = _memories_for(ctx, words)
-        words, ids = same[0]["text"], [m["id"] for m in same]
+        raise ToolError("This button does not say which memories it forgets: ask me again.")
     gone, changed = [], 0
     for mid in ids:
         try:
@@ -635,9 +644,11 @@ register(Tool("ask_agent", "hand a job to one of the owner's helper agents and g
                "required": ["agent", "task"]}, _ask_agent, "make", "Asked {agent}", for_agents=False))
 register(Tool("forget", "remove something from the memory (memory: its words)",
               {"type": "object", "properties": {"memory": {"type": "string", "maxLength": memories.MAX_TEXT},
-                                                # the memories its card named: only the button keeps them
+                                                # the memories its card named (one on a card saved by an earlier
+                                                # build): only the button keeps them
                                                 "memory_ids": {"type": "array", "items": {"type": "string"},
-                                                               "maxItems": FORGET_MAX, "internal": True}},
+                                                               "maxItems": FORGET_MAX, "internal": True},
+                                                "memory_id": {"type": "string", "internal": True}},
                "required": ["memory"]},
               _forget, "change", "Forget {memory}", preview=_forget_preview, for_agents=False))
 register(Tool("rename_project", "rename a project or video",

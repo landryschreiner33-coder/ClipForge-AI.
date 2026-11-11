@@ -433,6 +433,28 @@ Landry's projects, could never do anything, and without a downloaded model only 
   `test_forget_with_the_exact_words_forgets_every_memory_that_says_them` (`tests/test_clipforge_ai_chat.py`) and
   `test_forget_takes_every_memory_that_says_those_words_and_its_button_only_what_it_listed`
   (`tests/test_clipforge_ai_assistant.py`).
+- **A look at that fix** (one reviewer; each finding checked again by one who tried to refute it, and all five held up;
+  each fix has a test that failed before it):
+  - A Forget card saved by an earlier build of this branch named one memory (`memory_id`), which the new arguments
+    dropped, so its OK looked for memories again: it could forget the closest other memory ("Zoom in on faces in
+    interviews" when "Never zoom in on faces" was forgotten meanwhile) or twins the card never named. `memory_id` is a
+    button-only argument again, and OK forgets only the memories its card named; it never looks again.
+  - "forget" was not a whole word: saying again a memory that starts with "Forgetting …" or "Forgetful …" deleted it (in
+    the chat without a model since that fix, with a model before it), and "forget mystery music" read as "forget my" and
+    "stery music". "forget" and the words it skips are whole words now, and so are "remember" and "note" in the chat
+    without a model ("Notes from the shoot …" was kept as the memory "s from the shoot …" since phase A).
+  - "forget my intro is 3 seconds" (what the Forget chip of "my intro is 3 seconds" sends) also forgot a memory that
+    says "intro is 3 seconds", and named that one. The words after "forget" come first now; those after a leading "my",
+    "that", "the", "about" or "what I said about" count only when no memory says them all (`chat._said`).
+  - A Forget card showed at most 19 of the memories it forgot (a card shows 20 lines) yet forgot up to 50, and with more
+    than 50 it said "them all" and left some. A card names at most 16 (`toolbox.FORGET_MAX`); one that would need more
+    cannot be pressed and says to use the exact words in the chat, which forget them all, or Brain → Memory.
+  - The design notes said "remember" and a brain file keep the words of a memory tidied into its twin "as a memory of
+    their own": "remember" writes into the twin Tidy kept, and a brain file whose words a memory says is skipped. A
+    Forget card for one memory now also says where it applies.
+  - New tests: `test_forget_takes_only_the_words_the_owner_named_and_only_as_a_whole_word`
+    (`tests/test_clipforge_ai_chat.py`) and `test_ok_on_a_forget_card_never_looks_for_memories_again`
+    (`tests/test_clipforge_ai_assistant.py`).
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
