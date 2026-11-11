@@ -342,7 +342,7 @@ def test_a_file_another_video_took_while_this_one_was_deleted_stays(env, monkeyp
     out = project_delete.delete("local", vid, "full_video", as_of=plan["as_of"])
     assert out["counts"]["files"] == 0 and out["counts"]["files_kept"] == 2
     assert db.fetch("assets", pic["id"]) and os.path.isfile(pic["path"])
-    assert any(line.startswith("“file91.mp4”, “file92.png” stay") or line.startswith("“file92.png”, “file91.mp4” stay")
+    assert any(line.startswith(("“file91.mp4”, “file92.png” stay", "“file92.png”, “file91.mp4” stay"))
                for line in out["stays"]), out["stays"]
 
 
