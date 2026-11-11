@@ -88,6 +88,8 @@ No release.
 - **With Make a YouTube video's planning (PR #38, merged in):** a video being planned is a full video with status
   `draft`; deleting it stops the reading of its files, removes its planning chat with an answer still being written,
   and that answer finishing afterwards makes no chat or message again (a test drives the setup page's own `start`).
+- **Docs:** `docs/legal/privacy.html` says what deleting a project removes and keeps (its ClipForge AI chat and
+  notes, the copy of a file added again); `docs/clipforge/ROUTE_MAP.md` lists the routes and the trash button.
 - **Tests:** `tests/test_studio_project_delete.py` (27 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
   slow suite 27 passed, 1 skipped (espeak-ng installed); a click-through of the real app in a browser
   (deleting a video, an Autopilot project that has to wait, a clips project from its own page, phone width)
@@ -100,7 +102,10 @@ No release.
   it, a refusal shown at once with focus on Close), the window loads in development mode, and the two e2e delete
   tests pass against a seeded app (a deletable and a waiting project). After the
   last review's fixes (41d54e8): every test, fast and slow together, 2,233 passed and 3 skipped; the click-through
-  passed 31 of 31 (now also: Delete sends the moment the window was judged); the two e2e delete tests pass.
+  passed 31 of 31 (now also: Delete sends the moment the window was judged); the two e2e delete tests pass. With
+  the safety follow-ups (#41) and Make a YouTube video's planning (#38) merged in (2e63fef): every test, fast and
+  slow together, 2,392 passed and 4 skipped (the fourth is a video-setup test that waits for the assistant's chat
+  routes, PR #37); the click-through passed 31 of 31 and the two e2e delete tests pass.
 - **Not verified:** a real Windows PC (the read-only and in-use file handling is simulated in tests); Landry's Mac.
 - **Known limit:** a file used where it is ("Add from this computer") that is added again for a new page that has
   not saved it yet is not protected the way an upload is (adding it again leaves no record). Only what ClipForge made

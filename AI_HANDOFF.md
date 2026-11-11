@@ -34,14 +34,15 @@ in another program (Windows) is deleted the next time ClipForge starts.
 - **Verify:** `python -m pytest -q tests/test_studio_project_delete.py`; the fast and slow suites; `cd frontend && npm
   run build`; in the app, delete a full video and a clips project from Projects and read the window first.
 - **Not done:** a real Windows PC check (read-only and in-use files are simulated); a Delete action on a full video's
-  own page (the Projects page has it; that page is being changed by the edit-setup thread). Deleting only works in
+  own page (the Projects page has it). Deleting only works in
   the browser on the computer that runs ClipForge (like Autopilot and memories), not from another device on the
   network. A file used where it is and added again for a page that has not saved it yet is not protected the way a
   re-upload is (only ClipForge's prepared data for it goes; the owner's file never does). Passed on to the shorts,
   makers and upload code: scene files no scene or saved version names any more stay after a short is deleted; the
   makers' originals in engines/made stay (the window says so); two identical uploads finishing at the same moment
   give an error and leave a stray copy; a project's own later upload of a file ClipForge already had counts as
-  "added again", so it is left behind (needs a record of which project took an upload). Known limit: the same file
+  "added again", so it is left behind (needs a record of which project took an upload); the planning answer's
+  `open_chat` race above (at most one empty chat row). Known limit: the same file
   dropped on two pages at the very same moment shares one upload, so deleting the project made on one page can
   remove the file the other page is about to use (dropping it again fixes it).
 - **Waiting on Landry:** the release (explicit OK); a try on a real Windows PC and on Landry's Mac.
