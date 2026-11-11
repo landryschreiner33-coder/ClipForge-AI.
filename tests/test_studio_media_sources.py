@@ -568,6 +568,40 @@ def test_automatic_supporting_media_is_one_undoable_revision_for_that_project_on
     assert db.fetch("studio_projects", other["id"])["plan_revision"] == other_rev
 
 
+def test_a_pick_is_in_the_videos_media_before_the_next_one_downloads(env, monkeypatch):
+    """The automatic round puts each pick in the video's media as soon as it is imported, as one import does. It
+    used to add them all after the last download: another project deleted meanwhile with the same file (a delete
+    card that waited, or the Projects window) found nothing naming it here and removed it, and the round then
+    failed with "Asset not found.". A copy handed out again keeps its file only for an hour, and nothing else marks
+    an item imported before (`existing`), so the round names what it takes at once."""
+    from clipfoundry import db
+    from clipfoundry.studio import media_sources as ms
+    from clipfoundry.studio import project_delete
+
+    _key()
+    earlier = _project(env, name="Old trip", n0=11)
+    ms.start_import("local", f"openverse:image:{OV_IMG}", project_id=earlier["id"])  # the same picture, before
+    shared = db.select("asset_sources", "external_id = ?", (OV_IMG,))[0]["asset_id"]
+    card = project_delete.plan("local", earlier["id"], "full_video")
+    assert shared in card["removes"]["files"]
+    project = _project(env, brief={"music": "find", "find_media": "auto"})
+    real, calls = ms.import_one, []
+
+    def import_one(*args, **kwargs):  # while the next pick downloads, the card's OK deletes the other project
+        if calls:
+            project_delete.delete("local", earlier["id"], "full_video", as_of=card["as_of"], removes=card["removes"])
+        calls.append(args[3])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ms, "import_one", import_one)
+    ms.find_for_project(project["id"], "local")
+    latest = ms.suggestions_view(project["id"])["latest"]
+    assert calls[0] == OV_IMG and len(calls) >= 2 and not db.fetch("studio_projects", earlier["id"])
+    assert latest["status"] == "ready", latest
+    assert db.fetch("assets", shared) and shared in db.fetch("studio_projects", project["id"])["asset_ids"]
+    assert shared in {a["asset_id"] for a in latest["added"]}
+
+
 def test_routes_isolate_workspaces_and_validate_rules(env):
     from fastapi.testclient import TestClient
 

@@ -1234,7 +1234,11 @@ def suggest_job(job: dict, lease: Lease) -> dict:
             try:
                 asset, prov = import_one(ws, provider, kind, external_id, rules=rules, lease=None,
                                          label=o["query"])
-            except (ProviderError, MediaError) as exc:
+                # in the video's media at once, as one import does: the next picks may take long to download, and
+                # until the bin names this file a delete of another project that has it (the same item imported
+                # before, or the same bytes, whose hand-out counts only for an hour) would remove it
+                video_flow.add_media(project_id, [asset["id"]])
+            except (ProviderError, MediaError, video_flow.VideoError) as exc:
                 problems.append(f"{pick['title']}: {exc}")
                 continue
             picks.append((o, asset, prov))

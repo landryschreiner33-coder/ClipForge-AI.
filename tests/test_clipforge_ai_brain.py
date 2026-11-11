@@ -331,18 +331,21 @@ def test_the_same_words_said_again_while_their_memory_changes_or_goes_are_kept(d
 def test_a_confirmation_or_edit_of_a_memory_gone_meanwhile_says_it_is_gone(data, monkeypatch):
     """Tidy (or Forget) can delete a memory between a confirmation or an edit reading it and writing it: the owner is
     told it is not there any more, instead of an error."""
-    from clipfoundry import brain, db
+    from clipfoundry import brain
+    from clipfoundry.brain import memories
 
     guess = brain.remember(WS, "You seem to like drone shots", source="guessed")
     other = brain.remember(WS, "Fade the music out at the end")
-    real = db.update
+    real, forgotten = memories.get, set()
 
-    def update(table, value, key="id", **fields):
-        if table == "brain_memories" and value in (guess["id"], other["id"]):
-            brain.forget(WS, value)  # just before the change is written
-        return real(table, value, key, **fields)
+    def get(ws, memory_id):
+        row = real(ws, memory_id)
+        if memory_id in (guess["id"], other["id"]) and memory_id not in forgotten:
+            forgotten.add(memory_id)
+            brain.forget(WS, memory_id)  # read, then forgotten before the change is written
+        return row
 
-    monkeypatch.setattr(db, "update", update)
+    monkeypatch.setattr(memories, "get", get)
     for do in (lambda: brain.confirm(WS, guess["id"]), lambda: brain.edit(WS, other["id"], text="Fade out slowly")):
         with pytest.raises(brain.Invalid) as gone:
             do()
@@ -503,20 +506,37 @@ def test_a_brain_file_round_trips_and_merges_by_revision(data):
         brain.import_(WS, {"format": "something else"})
 
 
-def test_a_brain_file_never_makes_twins_and_a_memory_gone_meanwhile_gets_its_newer_words(data, monkeypatch):
-    """A brain file's newer revision of a memory is skipped when another memory says those words already (an edit
-    refuses that too), so a file never makes twins. When the memory is forgotten or tidied away between ClipForge
-    reading it and writing it, it is read again, and the file's newer words are added (not counted as updated and
-    then found nowhere)."""
+def test_a_brain_files_newer_revision_is_applied_beside_a_twin_and_a_memory_gone_meanwhile_gets_its_newer_words(
+        data, monkeypatch):
+    """A brain file's newer revision of a memory is applied, also when another memory says those words: switched off
+    or retagged on the other computer, or given the words of a rule this computer has already. Skipping it kept the
+    replaced words in force beside the new ones and counted the change as already known. The twins it leaves are read
+    once, and Tidy merges those kept for the same videos and switched on or off alike. When the memory is forgotten or
+    tidied away between ClipForge reading it and writing it, it is read again, and the file's newer words are added
+    (not counted as updated and then found nowhere)."""
     from clipfoundry import brain
     from clipfoundry.brain import memories
 
-    brain.remember(WS, "Never use red captions", kind="rule")
-    intro = brain.remember(WS, "Keep the intro short", kind="rule", project_id="p1")
-    mine = next(m for m in brain.export(WS)["memories"] if m["id"] == intro["id"])
-    twin = {"format": brain.FORMAT, "memories": [{**mine, "text": "never use RED captions", "revision": 5}]}
-    assert brain.import_(WS, twin) == {"added": 0, "updated": 0, "skipped": 1, "invalid": 0}
-    assert brain.get(WS, intro["id"])["text"] == "Keep the intro short"
+    here = brain.remember(WS, "Captions in yellow", kind="rule", project_id="p1")
+    _did_twin("captions in yellow", kind="rule")  # the same words for every video
+    mine = next(m for m in brain.export(WS)["memories"] if m["id"] == here["id"])
+    off = {"format": brain.FORMAT, "memories": [{**mine, "enabled": 0, "tags": ["look"], "revision": 2}]}
+    assert brain.import_(WS, off) == {"added": 0, "updated": 1, "skipped": 0, "invalid": 0}
+    row = brain.get(WS, here["id"])
+    assert row["enabled"] == 0 and row["tags"] == ["look"] and row["revision"] == 2
+    intro = brain.remember(WS, "Keep the intro under five seconds", kind="rule")
+    brain.remember(WS, "keep the intro under three seconds", kind="rule")
+    theirs = next(m for m in brain.export(WS)["memories"] if m["id"] == intro["id"])
+    shorter = {"format": brain.FORMAT, "memories": [{**theirs, "text": "Keep the intro under three seconds",
+                                                     "revision": 2}]}
+    assert brain.import_(WS, shorter) == {"added": 0, "updated": 1, "skipped": 0, "invalid": 0}
+    said = [m["text"].lower() for m in brain.recall("how long should the intro be", WS).memories]
+    assert [t for t in said if "intro" in t] == ["keep the intro under three seconds"]
+    assert brain.tidy(WS)["merged"] == 1
+    assert [m["text"].lower() for m in brain.list_(WS) if "intro" in m["text"].lower()] == [
+        "keep the intro under three seconds"]
+    opening = brain.remember(WS, "Open with the best shot", kind="rule", project_id="p2")
+    first = next(m for m in brain.export(WS)["memories"] if m["id"] == opening["id"])
     real = memories._write_over  # noqa: SLF001
 
     def write_over(old, fields):  # forgotten just before the file's words are written
@@ -525,10 +545,79 @@ def test_a_brain_file_never_makes_twins_and_a_memory_gone_meanwhile_gets_its_new
         return real(old, fields)
 
     monkeypatch.setattr(memories, "_write_over", write_over)
-    newer = {"format": brain.FORMAT, "memories": [{**mine, "text": "Keep the intro under five seconds", "revision": 5}]}
+    newer = {"format": brain.FORMAT, "memories": [{**first, "text": "Open with the loudest shot", "revision": 5}]}
     assert brain.import_(WS, newer) == {"added": 1, "updated": 0, "skipped": 0, "invalid": 0}
-    row = brain.get(WS, intro["id"])
-    assert row["text"] == "Keep the intro under five seconds" and row["scope"] == "project:p1" and row["revision"] == 5
+    row = brain.get(WS, opening["id"])
+    assert row["text"] == "Open with the loudest shot" and row["scope"] == "project:p2" and row["revision"] == 5
+
+
+@pytest.mark.parametrize("act", ["edit", "confirm"])
+def test_an_edit_or_a_confirmation_writes_only_over_the_memory_as_it_read_it(data, monkeypatch, act):
+    """Like `remember`, an edit or a confirmation writes only over the memory as it read it (`memories._write_over`).
+    When an answer says the same words again in between, it reads the memory again and writes the next revision, so
+    no two different memories share one: written blindly as its read + 1, another answer that had read the one said
+    in between wrote over the edit (its old words back, beside the edit's stored form and meaning) or undid the
+    confirmation."""
+    from clipfoundry import brain
+    from clipfoundry.brain import memories
+
+    source = "guessed" if act == "confirm" else "said"
+    m = brain.remember(WS, "Captions in yellow", source=source)
+    real, said = memories.get, []
+
+    def get(ws, memory_id):  # the owner's change has read it; an answer says the same words before it is written
+        row = real(ws, memory_id)
+        if not said:
+            said.append(brain.remember(WS, "captions in yellow", source=source, tags=["look"]))
+        return row
+
+    monkeypatch.setattr(memories, "get", get)
+    out = brain.edit(WS, m["id"], text="Captions in white") if act == "edit" else brain.confirm(WS, m["id"])
+    monkeypatch.setattr(memories, "get", real)
+    assert said[0]["revision"] == 2 and out["revision"] == 3
+    row = brain.get(WS, m["id"])
+    assert row["tags"] == ["look"] and row["revision"] == 3  # what was said in between stays
+    if act == "edit":
+        assert row["text"] == "Captions in white" and row["norm"] == "captions in white"
+    else:
+        assert row["source"] == "said" and row["confidence"] == 1.0 and row["expires_at"] is None
+    # an answer that read it as it was said in between (revision 2) cannot write over the change now
+    assert memories._write_over(said[0], {"text": "captions in yellow", "revision": 3}) is None  # noqa: SLF001
+    assert brain.get(WS, m["id"])["revision"] == 3
+
+
+def test_twins_are_read_once_from_those_that_fit_the_question(data, monkeypatch):
+    """Twins kept apart (one for every video, one for this video) are read once: the best of those that fit the
+    question. Picked before the relevance floor, the twin with the higher score (for this video, used yesterday, its
+    meaning still from the embedder used before, until Rebuild) was kept and then fell under the floor, so the memory
+    was not read at all, though its twin fits the question by meaning."""
+    import numpy as np
+
+    from clipfoundry import db, embedder
+    from clipfoundry.brain import meaning, memories
+
+    rng = np.random.default_rng(1)
+    q = rng.normal(size=embedder.DIM).astype(np.float32)
+    q /= np.linalg.norm(q)
+    u = rng.normal(size=embedder.DIM).astype(np.float32)
+    u -= q * float(np.dot(u, q))
+    u /= np.linalg.norm(u)
+    monkeypatch.setattr(meaning, "model", lambda settings=None: embedder.MODEL)  # the question's meaning is q
+    monkeypatch.setattr(meaning, "embed", lambda text, which=None, settings=None:
+                        q if (which or embedder.MODEL) == embedder.MODEL else meaning.hash_embed(text))
+    now, sim = time.time(), 0.4
+    fits = (sim * q + np.sqrt(1 - sim ** 2) * u).astype(np.float32)
+    base = {"workspace_id": WS, "kind": "fact", "text": "Captions in yellow", "norm": "captions in yellow",
+            "confidence": 1.0, "tags": [], "data": {}, "enabled": 1, "revision": 1, "used_count": 0}
+    db.insert("brain_memories", {**base, "id": "every", "source": "did", "scope": "all", "created_at": now - 40 * 86400,
+                                 "meaning": meaning.pack(fits), "meaning_model": embedder.MODEL})
+    db.insert("brain_memories", {**base, "id": "this", "source": "said", "scope": "project:p1", "project_id": "p1",
+                                 "meaning": meaning.pack(meaning.hash_embed("captions in yellow")),
+                                 "meaning_model": meaning.HASH_MODEL, "created_at": now - 40 * 86400 + 1,
+                                 "last_used_at": now - 86400})
+    got = memories.recall("how should subtitles look", WS, project_id="p1").memories
+    assert [m["id"] for m in got] == ["every"]
+    assert memories.recall("captions in yellow", WS, project_id="p1").ids == ["this"]  # both fit: the best is read
 
 
 def test_the_memory_api(client):

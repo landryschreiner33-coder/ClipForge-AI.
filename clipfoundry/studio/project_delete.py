@@ -400,9 +400,10 @@ def _handed_out(conn, asset_id: str, since: float) -> bool:
 def _hand_out_since(as_of: float) -> float:
     """From when a copy handed out again keeps a file the delete would remove: since the window looked, and at most
     for the hold a short's tidying waits too (uploads.REUSE_HOLD_S). Whoever got a copy records it a moment later
-    (an upload, a link, a short's scene), so one handed out before that is recorded by now, and the last look's
-    `_used_elsewhere` (or the survey's `_added_again`) says whether it stays. ClipForge AI's delete card can wait for
-    days: a copy handed out meanwhile to a project deleted since is named by nothing, and must not stay forever."""
+    (an upload, a link, a short's scene, a Find media pick in the video's media), so one handed out before that is
+    recorded by now, and the last look's `_used_elsewhere` (or the survey's `_added_again`) says whether it stays.
+    ClipForge AI's delete card can wait for days: a copy handed out meanwhile to a project deleted since is named by
+    nothing, and must not keep the file for good."""
     return max(as_of, time.time() - uploads.REUSE_HOLD_S)
 
 

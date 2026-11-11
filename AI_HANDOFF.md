@@ -106,10 +106,14 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   under the database's write lock and merges only twins kept for the same videos and switched on or off alike, so
   tidying never changes what ClipForge AI follows; what the owner does meanwhile waits for it and is never undone by
   it (a confirmation or an edit of a memory Tidy removed answers "Memory not found."; the same words said again are
-  kept, because `remember` and a brain file write only over the revision they read, `memories._write_over`); twins
-  Tidy keeps apart are read once in a prompt and left to the owner by the brain check; since the merge with PR #42,
-  the delete's last look counts a copy handed out again only within `uploads.REUSE_HOLD_S` (an hour), so a delete
-  card that waited for days keeps no file nothing names (`project_delete._hand_out_since`).
+  kept, because `remember`, an edit, a confirmation and a brain file write only over the revision they read,
+  `memories._write_over`, so no two states of a memory share a revision); a brain file's newer revision applies
+  also beside a twin; twins Tidy keeps apart are read once in a prompt (the best of those that fit the question)
+  and left to the owner (the brain check names those switched on); since the merge with PR #42, the delete's last
+  look counts a copy handed out again only within `uploads.REUSE_HOLD_S` (an hour,
+  `project_delete._hand_out_since`), so a delete card that waited for days keeps a file nothing names only when it
+  was handed out within the hour before OK; Find media's automatic round puts each pick in the video's media as it
+  is imported, so it names its copy at once.
 - **Not done:** the real built-in model's answers could not be run here (the model hub is blocked): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (every must-check
   passed on d02bb25 and 56aae46; the small model rarely uses its tools itself, so ClipForge's safety nets do the

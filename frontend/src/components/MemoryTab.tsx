@@ -75,7 +75,8 @@ export function MemoryTab() {
   };
   const showUses = async (m: Memory) => {
     if (uses[m.id]) { setUses(({ [m.id]: _gone, ...rest }) => rest); return; }
-    try { setUses({ ...uses, [m.id]: await memoryApi.uses(m.id) }); } catch (e) { toast(errorText(e), true); }
+    try { setUses({ ...uses, [m.id]: await memoryApi.uses(m.id) }); }
+    catch (e) { toast(errorText(e), true); await load(); }  // gone meanwhile: show what is there now
   };
 
   if (rows === null) return <p className="muted">Loading ClipForge AI's memory…</p>;
@@ -188,7 +189,11 @@ export function MemoryTab() {
         onConfirm={async () => { try { setTaste(await api.tasteForget()); toast("Forgotten. It learns again from your next choices."); } catch (e) { toast(errorText(e), true); } setForgetTaste(false); }}>
         <p>Every lesson from clips you left out, put back, exported or published is removed. Clips already scored keep their scores.</p></ConfirmDialog>}
       {del && <ConfirmDialog title={`Forget “${del.text.slice(0, 80)}${del.text.length > 80 ? "…" : ""}”?`} danger confirmLabel="Forget" onClose={() => setDel(null)}
-        onConfirm={async () => { await memoryApi.forget(del.id); setDel(null); await load(); }}>
+        onConfirm={async () => {
+          // forgotten or tidied away elsewhere meanwhile: the list shows what is there now, the dialog says why
+          try { await memoryApi.forget(del.id); } catch (e) { await load(); throw e; }
+          setDel(null); await load();
+        }}>
         <p>ClipForge AI will not use it again. Versions it already helped make keep their edits.</p></ConfirmDialog>}
     </div>
   );

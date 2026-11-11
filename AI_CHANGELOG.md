@@ -337,6 +337,86 @@ Landry's projects, could never do anything, and without a downloaded model only 
     with its own uses and what Tidy says it merged. In `tests/test_studio_project_delete.py`,
     `test_a_file_the_confirmation_said_stays_is_not_removed_once_a_scene_of_the_short_takes_it`: the case `kept` was
     widened for, which the made-only list deleted.
+- **Merged with PR #42** (the release line at e5912bf, merge 4dca7f7: leftover files and upload races after deleting
+  projects). PR #42's last look inside the delete's write lock (a file another project took meanwhile, or a copy handed
+  out again, stays), `_added_again` with `_marked_since` and `uploads.taken`, and `_maker_originals` are kept as they
+  are; the delete card's `removes.kept` now also lists the files a delete's answer says were handed out again
+  (`s.handed`), so all of them count as staying. That last look only ever takes files out of what goes, so it never
+  conflicts with the card's "no more than it listed" check. `brain.chat.open_chat(create=False)` merged cleanly; the
+  change logs keep both sides' entries; `frontend/dist` was rebuilt from the merged sources.
+- **A review of how the two fit together** (four reviewers: the delete card, the chat, the docs, Tidy; each finding
+  checked again by one who tried to refute it, though two of those checks did not run, so every fix below was first
+  shown by a test that failed without it) found:
+  - A delete card can wait for days, and PR #42's last look kept every file handed out again since the card was shown
+    (the same bytes uploaded, added or stored once more), also when it went to a project deleted since or to the
+    project itself: the file then stayed with nothing naming it, though the card had said it goes (three reviewers
+    found it; two checks confirmed it end to end). A copy handed out again now keeps a file only within the hour a
+    short's tidying waits too (`uploads.REUSE_HOLD_S`, `project_delete._hand_out_since`); one handed out before that
+    is recorded by now, and what names the file then decides. The design notes, the `_view` comment and the privacy
+    page say so.
+  - `remember` read the memory with the same words and wrote over it later: when Tidy, Forget or a video's delete
+    came in between, it returned nothing (adding a memory answered 500, the chat said something went wrong), or put
+    back the tags and expiry Tidy had just merged. It now writes only over the revision it read
+    (`memories._write_over`, one locked step) and reads again otherwise (409 "The memory changed while this was being
+    saved. Try again." after five tries). A brain file's import does the same, counts a memory gone meanwhile as
+    added with the file's words, and never makes a twin (an edit refuses one too).
+  - No test acted while Tidy held its write lock (the tests passed without it). They now do, from another thread:
+    a confirmation, an edit and the same words said again wait for Tidy, then apply or answer "Memory not found.".
+  - Twins Tidy keeps apart (one for every video and one for a video) were both read into that video's prompt; the
+    same kind and words are now read once. The brain check says Tidy merges only exact twins kept for the same videos.
+  - The delete card cut its lines at ten, so a long plan could leave off what goes; it shows all of them (at most 16).
+  - The Memory tab kept showing a memory that was gone after "Memory not found."; it reloads after a failed action.
+  - The privacy page now says a project can be deleted by asking ClipForge AI, that a copy stays only when added again
+    on another page in the last day and not used there yet, or handed out again within the hour before deleting, and
+    that Tidy merges twins kept for the same videos; one over-long docstring line in `project_delete` was wrapped; the
+    hand-off no longer says nothing the owner does during Tidy is lost (a confirmation of a memory Tidy removed
+    answers "Memory not found.").
+  - New tests: `test_a_confirmation_that_waited_for_days_keeps_only_a_file_handed_out_again_in_the_last_hour` in
+    `tests/test_studio_project_delete.py`; in `tests/test_clipforge_ai_brain.py`,
+    `test_what_the_owner_does_while_tidy_runs_waits_for_it_and_is_never_lost` (replaces
+    `test_what_the_owner_does_while_tidy_runs_is_never_lost`, whose owner acted only after Tidy),
+    `test_the_same_words_said_again_while_their_memory_changes_or_goes_are_kept`,
+    `test_a_brain_file_never_makes_twins_and_a_memory_gone_meanwhile_gets_its_newer_words` and
+    `test_the_same_words_kept_for_every_video_and_for_one_are_read_once_and_left_to_the_owner`; in
+    `tests/test_clipforge_ai_assistant.py`, `test_a_delete_card_shows_all_of_what_goes_and_what_stays`.
+  - Left for PR #42's owners (told): a project's own build or upload that stores the same bytes again within the hour
+    before its delete still keeps that copy with nothing naming it (on the Projects page too, while its window is
+    open); the privacy page does not yet describe PR #42's upload records, a short's list of stored files or where
+    the makers' originals go.
+- **A last look at those fixes** (two reviewers, the memories and the delete; each finding checked again by one who
+  tried to refute it, and all ten held up; each code fix has a test that failed before it):
+  - A brain file's newer revision of a memory was skipped whenever another memory said those words: also when it only
+    switched the memory off or retagged it, and when the owner had given it the words of a rule this computer already
+    had, the replaced words stayed in force beside the new ones (counted as "already known"). A newer revision is
+    applied again, as before 3719ab0; the twins it leaves are read once, and Tidy merges those kept for the same videos
+    and switched on or off alike.
+  - Twins were read once by keeping the higher score before the relevance floor: when that twin fell under the floor
+    (its meaning still from the embedder used before Rebuild), the memory was not read at all. The one read is now
+    chosen among those that fit the question (`memories._once`).
+  - An edit and a confirmation wrote their own read + 1 as the revision, so two different states of a memory could
+    share one, and an answer saying the same words again meanwhile wrote over the edit (its old words back, beside the
+    edit's stored form and meaning) or undid the confirmation. Both now write only over the memory as they read it
+    (`memories._write_over`) and read it again otherwise, like `remember`.
+  - The Memory tab's Forget (and Where it was used) on a memory forgotten elsewhere meanwhile left the gone row listed;
+    it reloads the list (the dialog says "Memory not found.").
+  - Find media's automatic round imported every pick first and put them in the video's media only after the last
+    download. A delete of another project with the same file in between (the same item imported before, which no
+    hand-out marks, or the same bytes handed out more than an hour before) removed it, and the round failed with "Asset
+    not found.". Each pick now goes into the video's media as it is imported, as one import does.
+  - Docs: the privacy page says what the card's OK removes (no file, video copy or planned post it did not list; what
+    belongs to the project goes however much there is by then), that a copy added again since the day before the list
+    was shown stays, and that Tidy merges twins switched on or off alike; the design notes and the hand-off no longer
+    say an old card keeps no file nothing names (one handed out within the hour before OK still stays) or that what
+    the owner does during Tidy is never merged away.
+  - New tests: in `tests/test_clipforge_ai_brain.py`,
+    `test_a_brain_files_newer_revision_is_applied_beside_a_twin_and_a_memory_gone_meanwhile_gets_its_newer_words` (in
+    place of `test_a_brain_file_never_makes_twins_and_a_memory_gone_meanwhile_gets_its_newer_words`),
+    `test_an_edit_or_a_confirmation_writes_only_over_the_memory_as_it_read_it` and
+    `test_twins_are_read_once_from_those_that_fit_the_question`; in `tests/test_studio_media_sources.py`,
+    `test_a_pick_is_in_the_videos_media_before_the_next_one_downloads`.
+    `test_a_confirmation_or_edit_of_a_memory_gone_meanwhile_says_it_is_gone` now forgets the memory right after it is
+    read (it hooked `db.update`, which an edit no longer calls). The click-through presses Forget on a memory forgotten
+    elsewhere meanwhile.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
