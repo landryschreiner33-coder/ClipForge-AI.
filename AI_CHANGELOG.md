@@ -1,5 +1,116 @@
 # AI changelog
 
+## Deleting projects, with a confirmation that says what goes and what stays — 2026-11-10 (Claude Code)
+
+Landry asked to be able to delete projects. Branch `claude/project-thread-8i3krg` from the release line at 95a70e0.
+No release.
+
+- **One delete for both kinds** (`clipfoundry/studio/project_delete.py`, new): `plan(ws, id, kind)` says in plain
+  sentences what goes and what stays without changing anything; `delete(ws, id, kind, wait=)` does it in one
+  transaction and returns the same sentences. Kinds: `clips` (Highlights and Full stories) and `full_video`. Used by
+  the Projects page, a clips project's own page and ClipForge AI's delete tool (the assistant thread).
+- **What goes:** the clips with their versions, scores, blueprints, analyses and suggested post text, the transcript
+  windows, story proposals and link imports; or a video's edit history (every revision), previews and finished videos,
+  change requests, media searches and imports, and an animated short's scenes; the project's folder; an upload copy or
+  downloaded link that nothing else uses (another clips project, an example, any other video or any of its saved
+  revisions), and for a file used where it is only what ClipForge made from it; the project's ClipForge AI chat and the
+  memories that apply to it only; planned posts that have not started uploading (canceled, they stay in the history);
+  its place on the pinned list.
+- **What stays:** the owner's own files (never deleted, never made writable); media something else uses (kept, still
+  read-only); anything posted (post history, results, the fingerprints that stop a clip being posted twice); memories
+  for every video, a platform or a mode; the taste lessons; Autopilot's record of the video it found (its link to the
+  project is cleared, so the Autopilot page no longer opens a missing project and the entry can be removed).
+- **Waits instead of deleting** (409, code `blocked`, with the reason): Autopilot still working on the project, its
+  clips or its source; a post uploading or being checked; a video still being copied in (status `uploading` and the
+  folder changed in the last minute; a copy that stopped halfway can be deleted). Running work (making clips, renders,
+  studio jobs, link downloads, media imports, preparing a file that goes) is canceled first; a delete request waits up
+  to 10 s for it, else 409 `stopping`, and the window asks again for up to 90 s.
+- **Routes:** `GET /api/projects/{id}/delete-plan`, `GET /api/studio/videos/{id}/delete-plan`,
+  `DELETE /api/studio/videos/{id}` (new); `DELETE /api/projects/{id}` now runs the same code (before, it refused while
+  clips were being made and left the upload copy, the chat and the project's memories behind). Both DELETEs take the
+  plan's `as_of` (`?as_of=`), which the window sends back.
+- **Screens:** `frontend/src/components/DeleteProject.tsx` and `.css` (new): a trash button on every Projects card (top
+  left, the Pin button's twin; `LibraryCard` takes an optional `onDelete`, so the Studio page's cards have none) and one
+  confirmation window ("Deleted for good" and "Stays" from the server, "This can't be undone", focus starts on "Keep
+  it"; while blocked only "Check again" and "Close"). A clips project's own page uses the same window
+  (`libParts.tsx` `DeleteProjectDialog`). `frontend/dist` rebuilt.
+- **After a second review (same day):** work that was asked to stop but is still running (its row already says
+  canceled) counts as running, so a second delete never deletes from under it; a step that ends while a delete waits
+  and queues the next step has that one stopped too; a planned post that starts uploading between the check and the
+  cancel stops the delete (409 `blocked`) instead of being ignored; a post whose publish step is already running
+  blocks; memories go by their scope only (a memory saved again for another project keeps its first project_id); a
+  file the owner uploaded again after the project was made, within the last day, stays (ClipForge keeps one copy per
+  file, and a new page may be about to use it; counted from the project's `created_at`, which deleting's own stop
+  cannot move, and the upload that first stored the file is the project's own); a clips project's own copy of its
+  video (a live recording, a download) is named in what goes; folders with a file still open in another program (Windows) are listed in `data/delete-later.json` and
+  deleted at the next start (`finish_later`, only ClipForge's own project, video, link and upload folders), and the
+  answer says so (`left_behind`); both DELETE routes only answer ClipForge's own page on this computer (the
+  `app_request` guard the Autopilot and memory routes have, in words about deleting). Window: it cannot be closed
+  while a delete is on its way, a refusal shows at once in an announced area, a project already deleted elsewhere
+  just closes it, it works in development mode (StrictMode), focus moves to the next card, and the page no longer
+  saves its own pinned list (the server already unpinned it; `forgetPin` in `prefs.tsx`). The e2e library test
+  follows the new window.
+- **After a third, independent look at those fixes:** a writable file that cannot be deleted is in use even when it
+  has a second link (a render reused after undo or restore), so its folder is listed for the next start; the
+  start-up sweep knows ClipForge's own read-only upload copies (a leftover link to a copy another project still uses
+  is removed and the copy is read-only again, instead of the folder being dropped from the list with the link still
+  in it); the space freed counts a reused render once; "added again" no longer flips to "goes" when the delete's
+  own stop changes the project; while deleting, the buttons keep keyboard focus inside the window (aria-disabled)
+  and after a refusal focus moves to Close; a failed pin save that is retried no longer pins a deleted project.
+- **After the animated shorts and story clips joined the release line (2026-11-10):** an animated short's scene
+  files (each scene's picture, its earlier pictures and the scene's clip, also one not in the plan yet) go with
+  it when nothing else uses them; a file another short's scene names, or any media import (also one made for no
+  project), counts as a use and stays; the window names a short's build ("making the short"); one upload of a
+  file ClipForge got another way (Find media, a link) counts as added again; and a window that lists more than
+  four files says "and 2 more", not "and 2 mores". Story parts projects are clips projects and need nothing new.
+- **After a last independent look on the combined code (2026-11-10):** a short's scene pictures and clips are not
+  copies of anything and every remake has the same name, so the window counts them on their own line ("What
+  ClipForge made for its scenes: 3 pictures and 3 clips."); a picture the owner chose for a scene, uploads, downloads
+  and ClipForge's library sounds keep "ClipForge's copy of …". When the makers on this computer made a short's
+  pictures, video clips or voices, the window says under Stays that their originals stay in engines/made with a note
+  of the words (the makers keep everything they make; deleting does not reach that folder). "Added again" is decided
+  by when an upload started: only one that started after ClipForge had the file counts, so a slow save or the same
+  file dropped twice at once no longer keeps a project's own file (this replaces a 5-second guess). The plan answers
+  with `as_of`, the window sends it with Delete, and the delete judges "added again" at that moment, so a file the
+  window said stays is not deleted because the window stayed open past the day. Passed on to the shorts and upload
+  code (not this change): scene files that no scene or saved version names any more (a replaced clip, a deleted
+  scene's files) stay after the short is deleted; the makers' originals could be removed with the short; two
+  identical files finishing their upload at the same moment give an error and leave a stray copy.
+- **After one more independent look at those fixes (same day):** a short's files are also read from every saved
+  version (a deleted scene's picture is counted as made, not named as a copy); the owner's own photo stays "ClipForge's
+  copy of …" while a new picture waits to replace it (who made a scene's picture is its info.picture.source); the
+  makers' line also shows after the voice or motion was switched, a scene was deleted or a build was stopped (saved
+  versions and the short's voice notes); and "added again" also keeps a file when another page's upload of it started
+  before the project was made and finished after it (the same file under two names), or when the file was dropped
+  twice in the day (the project was made from one drop at most). Passed on: a project's own later upload of a file
+  ClipForge already had counts as added again, so that file is left behind (needs a record of which project took an
+  upload); the same file dropped on two pages at the very same moment shares one upload, so it can still go.
+- **With Make a YouTube video's planning (PR #38, merged in):** a video being planned is a full video with status
+  `draft`; deleting it stops the reading of its files, removes its planning chat with an answer still being written,
+  and that answer finishing afterwards makes no chat or message again (a test drives the setup page's own `start`).
+- **Docs:** `docs/legal/privacy.html` says what deleting a project removes and keeps (its ClipForge AI chat and
+  notes, the copy of a file added again); `docs/clipforge/ROUTE_MAP.md` lists the routes and the trash button.
+- **Tests:** `tests/test_studio_project_delete.py` (27 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
+  slow suite 27 passed, 1 skipped (espeak-ng installed); a click-through of the real app in a browser
+  (deleting a video, an Autopilot project that has to wait, a clips project from its own page, phone width)
+  passed 18 of 18 checks. After the review fixes, on the code merged with the release line at e3ad759 (story
+  clips): every test, fast and slow together, 2,064 passed and 3 skipped (two model folders and opentimelineio are
+  not on this machine); one timing test (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, which gives a
+  render 2.5 s to reach the GPU wait) failed once under load and passes on its own (3 of 3) and with its file; it
+  does not touch deleting. `pytest -m slow` on its own: 29 passed, 1 skipped. The click-through passed 30 of 30
+  checks (now also: focus after deleting, no pinned-list save, the window held open while deleting with focus inside
+  it, a refusal shown at once with focus on Close), the window loads in development mode, and the two e2e delete
+  tests pass against a seeded app (a deletable and a waiting project). After the
+  last review's fixes (41d54e8): every test, fast and slow together, 2,233 passed and 3 skipped; the click-through
+  passed 31 of 31 (now also: Delete sends the moment the window was judged); the two e2e delete tests pass. With
+  the safety follow-ups (#41) and Make a YouTube video's planning (#38) merged in (2e63fef): every test, fast and
+  slow together, 2,392 passed and 4 skipped (the fourth is a video-setup test that waits for the assistant's chat
+  routes, PR #37); the click-through passed 31 of 31 and the two e2e delete tests pass.
+- **Not verified:** a real Windows PC (the read-only and in-use file handling is simulated in tests); Landry's Mac.
+- **Known limit:** a file used where it is ("Add from this computer") that is added again for a new page that has
+  not saved it yet is not protected the way an upload is (adding it again leaves no record). Only what ClipForge made
+  from it goes, never the owner's file; the file may then need to be added again on that page.
+
 ## Make a YouTube video: review fixes — 2026-11-10 (Claude Code)
 
 Two reviews of PR #38 (branch `claude/project-thread-2wwa4c`) found misreadings and rough edges; all fixed with a
