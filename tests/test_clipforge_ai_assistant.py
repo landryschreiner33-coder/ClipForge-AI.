@@ -804,26 +804,38 @@ def test_remember_with_a_colon_needs_words_that_name_something_and_offers_no_und
 
 
 def test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model(env, monkeypatch):
-    """“remember: that for this video”, “remember: it here” and “remember: it, from now on” name nothing: they point
-    at something said before and say only where or when, so the conversation reads them, in a video's chat and in the
-    general one (where “that for this video” was kept as a memory). Words that name something are kept whole, “here”
-    with them. “Forget that” with the rule on the next line is a turn of the conversation whatever the line break. A
-    “Which one?” button's words, sent apart from the message, are forgotten exactly, without the model; sent as a
-    quick reply they are refused, because a quick reply never forgets."""
+    """“remember: that for this video”, “remember: it here”, “remember: it, from now on” and a quote mark alone name
+    nothing: they point at something said before and say only where or when, so the conversation reads them, in a
+    video's chat and in the general one (where “that for this video” was kept as a memory). Words that name something
+    are kept whole at once, “here” with them, and so is a fact made of everyday words (“I am not in the videos”,
+    “I'm in the US” went to the conversation, which may keep nothing); words that mention this video but speak of
+    the next ones are kept for every video. “Forget that” with the rule on the next line is a turn of the
+    conversation whatever the line break. A “Which one?” button's words, sent apart from the message, are forgotten
+    exactly, without the model; sent as a quick reply they are refused, because a quick reply never forgets."""
     from clipfoundry import brain
     from clipfoundry.brain import chat
 
     fake = install(monkeypatch, say("Which part?"), say("Keep what here?"), say("Which video do you mean?"),
-                   say("What should I keep from now on?"), *[say("Noted: the music stays low.") for _ in range(5)])
+                   say("What should I keep from now on?"), say("What should I remember?"),
+                   *[say("Noted: the music stays low.") for _ in range(5)])
     p = _project(env)
     c, general = chat.open_chat(WS, p["id"]), chat.open_chat(WS)
     for where, said in ((c, "remember: that for this video"), (c, "remember: it here"),
-                        (general, "remember: that for this video"), (general, "remember: it, from now on")):
+                        (general, "remember: that for this video"), (general, "remember: it, from now on"),
+                        (general, "remember: '")):
         m = settled(where["id"], _say(where["id"], said)["id"])
         assert m["data"]["tool"] == "talk" and m["status"] == "done", said
-    assert len(fake.calls) == 4 and brain.list_(WS) == []
+    assert len(fake.calls) == 5 and brain.list_(WS) == []
     m = _say(c["id"], "remember: -3 dB on the voice here")
     assert m["text"] == "Remembered: “-3 dB on the voice here”. It applies to this video. Say “forget …” to remove it."
+    for where, words in ((general, "I am not in the videos"), (general, "I'm in the US"), (c, "one video at a time"),
+                         (c, "use this video as the template for the next ones")):
+        m = _say(where["id"], f"remember: {words}")  # kept at once, as said: no turn of the conversation
+        assert m["text"] == f"Remembered: “{words}”. It applies to every video. Say “forget …” to remove it.", words
+    assert len(fake.calls) == 5 and len(brain.list_(WS)) == 5
+    for m in brain.list_(WS):
+        if m["scope"] == "all":
+            brain.forget(WS, m["id"])
     brain.remember(WS, "Keep the music low", kind="rule")
     for br in ("\u2028", "\u2029", "\x85", "\x0b", "\x0c"):
         m = settled(c["id"], _say(c["id"], f"Forget that{br}Keep the music low")["id"])
@@ -833,14 +845,14 @@ def test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_need
     m = _say(c["id"], f"forget “{words}”", forget=words)
     assert m["text"] == f"Forgotten: “{words}”." and len(brain.list_(WS)) == 2
     m = _say(c["id"], f"forget “{words}”", forget=words)  # pressed again
-    assert m["text"] == f"Nothing I remember says “{words}”, so nothing was forgotten." and len(fake.calls) == 9
+    assert m["text"] == f"Nothing I remember says “{words}”, so nothing was forgotten." and len(fake.calls) == 10
     brain.remember(WS, words)
     before = len(chat.messages(WS, c["id"]))
     with pytest.raises(chat.ChatError) as refused:
         chat.send(WS, c["id"], f"forget “{words}”", forget=words, choice=True)
     assert str(refused.value) == "A quick reply cannot forget a memory: press the memory's own Forget button."
     assert refused.value.status == 422 and len(chat.messages(WS, c["id"])) == before  # nothing said, nothing forgotten
-    assert [x["text"] for x in brain.list_(WS) if x["text"] == words] == [words] and len(fake.calls) == 9
+    assert [x["text"] for x in brain.list_(WS) if x["text"] == words] == [words] and len(fake.calls) == 10
 
 
 def test_at_name_talks_to_a_helper_agent_with_its_own_persona_and_tools(data, monkeypatch):

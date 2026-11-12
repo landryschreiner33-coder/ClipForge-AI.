@@ -158,6 +158,44 @@ def test_forget_takes_only_the_words_the_owner_named_and_only_as_a_whole_word(en
                                                           "intro is 3 seconds for shorts", "mystery music works"]
 
 
+def test_forget_offers_the_memories_that_say_or_hold_the_words_named_whatever_they_start_with(env):
+    """Without a model. Words that start with a sign, a bracket or other quote marks never forget at once (what
+    follows “forget” there may set something aside), and the search by meaning reads only longer Latin words, so
+    “forget -3 dB here”, “forget -6 dB” or the words of a memory in Russian were answered “I have nothing like that
+    in my memory”. Now the memories that say exactly the words named, then the ones that hold them as a part of
+    theirs, are offered to pick from; nothing goes before the pick, and the button forgets exactly its words."""
+    from clipfoundry import brain
+    from clipfoundry.brain import chat
+
+    c, video = chat.open_chat(WS), chat.open_chat(WS, _project(env)["id"])
+    assert _say(video["id"], "remember: -3 dB here")["data"]["memory"]["scope"].startswith("project:")
+    for words in ("+3 dB on the voice", "-6 dB on the music", "-6 dB", "-3 дБ на голос", "«Привет, друзья» в начале"):
+        assert _say(c["id"], f"remember: {words}")["data"]["memory"]["text"] == words
+    brain.remember(WS, "!")  # taught on the Memory page: a mark alone
+    both = ["-6 dB", "-6 dB on the music"]  # the one that says the words, then the one that holds them
+    for said, offered in (("forget -3 dB here", ["-3 dB here"]), ("forget -3 dB", ["-3 dB here"]),
+                          ("forget -6 dB", both), ("Forget: -6 dB.", both), ("forget that -6 dB", both),
+                          ("forget (-6 dB)", both), ("forget the -6 dB on the music", ["-6 dB on the music"]),
+                          ("forget -3 дБ на голос", ["-3 дБ на голос"]), ("forget на голос", ["-3 дБ на голос"]),
+                          ("forget «Привет, друзья» в начале", ["«Привет, друзья» в начале"]),
+                          ("forget друзья", ["«Привет, друзья» в начале"]), ("forget !", ["!"]),
+                          ("forget dB on the", ["-6 dB on the music", "+3 dB on the voice"])):
+        for where, quick in ((c, False), (video, False), (c, True)):  # pressed as a quick reply: the same list
+            m = _say(where["id"], said, choice=quick)
+            assert m["text"].startswith("Which one? I will forget the one you pick:"), said
+            assert [x["text"] for x in m["data"]["candidates"]] == offered, said
+            assert len(brain.list_(WS)) == 7, said  # nothing went
+    for said in ("forget -9 dB", "forget that", "forget 3 dB", "forget it, please", "forget about penguins"):
+        m = _say(c["id"], said)
+        assert m["text"] == "I have nothing like that in my memory." and m["data"]["candidates"] == [], said
+    m = _say(c["id"], "forget ?")
+    assert m["status"] == "failed" and m["text"].startswith("Say what to forget, for example: ")
+    assert _say(c["id"], "forget “-6 dB”", forget="-6 dB")["text"] == "Forgotten: “-6 dB”."  # its button
+    assert _say(c["id"], "forget “!”", forget="!")["text"] == "Forgotten: “!”."
+    assert sorted(x["text"] for x in brain.list_(WS)) == ["+3 dB on the voice", "-3 dB here", "-3 дБ на голос",
+                                                          "-6 dB on the music", "«Привет, друзья» в начале"]
+
+
 def test_a_correction_never_forgets_and_a_longer_word_is_never_cut(env):
     """“Forget that, keep the music low” sets something aside and says the rule again: it never forgets that rule at
     once (without a model it asks which one, so nothing goes before a press). “forget”, and each word it skips,
@@ -226,7 +264,8 @@ def test_remembering_words_a_memory_already_says_offers_no_undo(env):
     """The memory that already says the words, as a rule or as a fact, is switched on and kept for every video, and
     the answer says what it was before (switched off, only a guess, kept for one platform, other symbols) with no
     Undo chip: Undo forgets the memory, and that one was there before the answer. New words get their chip; words
-    that differ in a sign, a symbol, a colon between digits, a mark of a letter or an emoji are new words."""
+    that differ in a sign, a symbol, a colon between digits, a mark of a letter, an emoji or a mark that stands alone
+    (“end every caption with !”, “… with .”, kept with its full stop) are new words."""
     from clipfoundry.brain import chat, memories
 
     c = chat.open_chat(WS)
@@ -260,14 +299,21 @@ def test_remembering_words_a_memory_already_says_offers_no_undo(env):
            "keep peaks within +/-3 dB", "keep peaks within -3 dB", "raise the voice by +.5 dB",
            "raise the voice by -.5 dB", "raise the voice by .5 dB", "音量を＋３ｄＢにする", "音量を－３ｄＢにする",
            "keep the intro <3 s", "keep the intro >3 s", "clips ≤ 60 s", "clips ≥ 60 s", "captions at 50%",
-           "captions at 50", "mute the music 🔇", "mute the music 🔊", "use b-roll", "use b roll")
+           "captions at 50", "mute the music 🔇", "mute the music 🔊", "use b-roll", "use b roll",
+           "end every caption with !", "end every caption with …", "end every caption with .",
+           'use "!" in titles', 'use "?" in titles', "the voice sits at - 3 dB", "the voice sits at 3 dB",
+           "trink in Maßen", "trink in Massen", "garde la musique basse !", "garde la musique basse")
     for said in new:
         m = _say(c["id"], f"remember: {said}")
         assert m["text"].startswith("Remembered: “") and m["data"]["memory"]["revision"] == 1, said
     assert memories.get(WS, tiktok["id"])["text"] == "Voice at +3 dB" and len(memories.list_(WS)) == 5 + len(new)
     # forgetting one of a pair leaves the other: only the words named go
     for said, other in (("亮度+10", "亮度-10"), ("shoot at EV+1", "shoot at EV-1"), ("keep the intro <3 s",
-                        "keep the intro >3 s"), ("keep peaks within -3 dB", "keep peaks within +/-3 dB")):
+                        "keep the intro >3 s"), ("keep peaks within -3 dB", "keep peaks within +/-3 dB"),
+                        ("end every caption with !", "end every caption with …"),
+                        ("end every caption with .", "end every caption with …"),
+                        ("the voice sits at 3 dB", "the voice sits at - 3 dB"), ("trink in Massen", "trink in Maßen"),
+                        ("garde la musique basse", "garde la musique basse !")):
         assert _say(c["id"], f"forget {said}")["text"].lower() == f"forgotten: “{said}”.".lower(), said
         assert memories.twin(WS, other, ("fact", "rule")) and not memories.twin(WS, said, ("fact", "rule")), said
     # the same words typed with a full-width keyboard, or with the accent typed apart, are the same words
@@ -372,10 +418,12 @@ def test_forget_that_with_the_rule_on_the_next_line_forgets_nothing_whatever_the
 
 def test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule(env):
     """Without a model, words that only point back, ask nicely or say when or where (“Remember this, please”,
-    “Remember that for later”, “Remember that from now on”, “I like that”, “Always.”, “Always for this video”) keep
-    nothing and ask what to remember, in the general chat and in a video's; “Never mind” is not a rule, and its
-    answer says only what is true of that message. Words that name something are kept, with such words around them
-    too."""
+    “Remember that for later”, “Remember that from now on”, “I like that”, “Always.”, “Always for this video”,
+    “Always keep that in mind”, “Never do that again”, a quote mark alone) keep nothing and ask what to remember, in
+    the general chat and in a video's; “Never mind” is not a rule, and its answer says only what is true of that
+    message. Words that name something are kept, with such words around them too, and so is a fact or a rule made
+    of everyday words (“I am not in the videos”, “I'm in the US”, “one video at a time”, “one video for every
+    project”, “just me”): only turns of speech that point, ask or say when or where name nothing."""
     from clipfoundry import brain
     from clipfoundry.brain import chat
 
@@ -388,7 +436,13 @@ def test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule(env):
                "Always for this video.", "Never for this video", "From now on, for this video",
                "I like that for this video", "I want that in this video", "I prefer it for this project",
                "remember: that for this video", "Remember that for this video", "Remember for this video: that",
-               "Remember here: 👍")
+               "Remember here: 👍", "remember: '", "remember: '👍'", "Remember that ’", "remember: “that”",
+               "Always keep that in mind", "remember: keep it in mind, please", "Always bear this in mind",
+               "Remember that at all times", "remember: that one for all my videos, ok?", "Never do that again",
+               "Always do it for all of my next videos", "Remember this video", "I like this video",
+               "Remember everything", "remember: all of them", "Remember that one thing", "Remember that for me",
+               "remember: the same thing for the next one, thank you", "Remember that for tomorrow",
+               "remember: THAT ONE, PLEASE")
     c, video = chat.open_chat(WS), chat.open_chat(WS, _project(env)["id"])
     for said in nothing:
         for where in (c, video):
@@ -406,14 +460,74 @@ def test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule(env):
     assert _say(c["id"], "Never zoom in on faces")["data"]["memory"]["kind"] == "rule"
     m = _say(c["id"], "remember: thanks to the drone, the summit shots look great")
     assert m["data"]["memory"]["text"] == "thanks to the drone, the summit shots look great"
+    # everyday words that say something: each is kept, whole, in either chat
+    everyday = (("remember: I am not in the videos", "I am not in the videos"),
+                ("Remember that I am not in my videos", "I am not in my videos"),
+                ("I never want to be in the video", "I never want to be in the video"),
+                ("I don't want to be in my videos", "I don't want to be in my videos"),
+                ("remember: I'm in the US", "I'm in the US"),
+                ("remember: my videos are for the US", "my videos are for the US"),
+                ("remember: one video at a time", "one video at a time"), ("Always be on time", "Always be on time"),
+                ("remember: I'm never in my videos", "I'm never in my videos"),
+                ("remember: no one but me is in the videos", "no one but me is in the videos"),
+                ("remember: my videos are about me", "my videos are about me"),
+                ("remember: my videos are about IT", "my videos are about IT"),
+                ("remember: each video is about one thing", "each video is about one thing"),
+                ("remember: she/her", "she/her"), ("I hate being in videos", "I hate being in videos"),
+                ("I prefer to do one video at a time", "I prefer to do one video at a time"),
+                ("Never have me in the video", "Never have me in the video"),
+                ("Keep in mind that we are in the UK", "we are in the UK"),
+                ("remember: keep all my videos", "keep all my videos"),
+                ("remember: it's my last video", "it's my last video"),
+                ("Always keep the drone in mind", "Always keep the drone in mind"),
+                ("remember: one video for every project", "one video for every project"),
+                ("remember: all in one video", "all in one video"), ("remember: just me", "just me"),
+                ("remember: just one video", "just one video"),
+                ("I want me in every video", "I want me in every video"),
+                ("remember: one thing at a time", "one thing at a time"), ("remember: not that one", "not that one"),
+                ("remember: every video on time", "every video on time"), ("Never in the US", "Never in the US"))
+    for where in (c, video):
+        for said, words in everyday:
+            m = _say(where["id"], said)
+            assert m["status"] == "done" and m["data"]["tool"] == "remember", said
+            assert (m["data"].get("memory") or m["data"]["kept"])["text"] == words, said
+            assert ("memory" in m["data"]) == (where is c), said  # said again in the video's chat: the same memory
+    assert sorted(x["text"] for x in brain.list_(WS)) == sorted(
+        [w for _said, w in everyday] + ["Never zoom in on faces", "thanks to the drone, the summit shots look great"])
+    assert all(x["scope"] == "all" for x in brain.list_(WS))
+
+
+def test_a_long_message_of_repeated_words_is_read_at_once(env):
+    """What a message names, and where it applies, is read in a few short steps per word, however its words repeat:
+    a pattern that tried every way to split “one one one …” into turns of speech would never finish."""
+    import time
+
+    from clipfoundry.brain import chat
+
+    c, video = chat.open_chat(WS), chat.open_chat(WS, _project(env)["id"])
+    units = ("one ", "the one ", "that ", "for all of my ", "all of that ", "do the same one thing ", "never ",
+             "not only here ", "from here on ", "this video ", "every other ", "keep ", "' ", ":) ", "here: ")
+    start = time.monotonic()
+    for unit in units:
+        words = (unit * (chat.MAX_TEXT // len(unit)))[:chat.MAX_TEXT - 20]
+        for said in (words, words + "zebra", "x " + words):
+            chat._names_nothing(said), chat._for_this_video(said), chat._kept_words("p1", said), chat._named(said)
+    took = time.monotonic() - start
+    assert took < 10, took  # a fraction of a second, even on a slow machine
+    for said in ("remember: " + "one " * 900 + "z", "Always " + "the one " * 400, "forget " + "that " * 700 + "z"):
+        for where in (c, video):
+            assert _say(where["id"], said)["status"] in ("done", "failed")
 
 
 def test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole(env):
-    """In a video's chat, “this video”, “for this one” and “here” as a word of its own keep the memory to the video,
-    whatever follows them (“here, please”, “here too”, a smiley, a bracket). The words are kept as said: nothing is
-    cut out of them (“never zoom in here” was kept as “never zoom”, “in this video's intro” as “'s intro”), and only
-    a label in front, set apart by a colon, a comma or a spaced dash, is left out. “here's”, and a title with a
-    capital “Here”, are other words and keep the memory for every video."""
+    """In a video's chat, “for this video”, “for this one” and “here” as a word of its own keep the memory to the
+    video, whatever follows them (“here, please”, “here too”, a smiley, a bracket), and so do words that mention
+    this video (“this video is for kids”). The words are kept as said: nothing is cut out of them (“never zoom in
+    here” was kept as “never zoom”, “in this video's intro” as “'s intro”), and only a label in front, set apart by
+    a colon, a comma or a spaced dash, is left out. “here's”, and a title with a capital “Here”, are other words and
+    keep the memory for every video; so do words that reach further than this video (“not only in this video”,
+    “than here”, “from here on”), and words that mention it but speak of other videos or of later (“use this video
+    as the template for the next ones”, “never use the music from this video again”)."""
     from clipfoundry import brain
     from clipfoundry.brain import chat
 
@@ -428,7 +542,10 @@ def test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_
              "zoom in on this one shot", "the logo goes here!", "the banner goes here...",
              "no captions on this one, ever", "captions in yellow (for this video)",
              "keep the music low – for this video", "this video is for kids", "NO SUBTITLES HERE",
-             "Here, There and Everywhere is the outro song")
+             "Here, There and Everywhere is the outro song", "keep this video under 60 s",
+             "I want this video to be fun", "this project is due on Friday", "this video's title is Hike 2",
+             "this video needs the intro again", "the next clip in this video is the summit",
+             "all the clips of this video are vertical", "my office is here in Lyon")
     for words in whole:
         m = _say(c["id"], f"remember: {words}")
         assert m["text"] == f"Remembered: “{words}”. It applies to this video. Say “forget …” to remove it.", words
@@ -445,13 +562,24 @@ def test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_
                         ("Never use captions here, please", "Never use captions here, please")):
         m = _say(c["id"], said)
         assert m["text"] == f"Remembered: “{words}”. It applies to this video. Say “forget …” to remove it.", said
-    for words in ("here's the plan: intro 3 s", "Here Comes the Sun is the outro song", "where the summit is"):
-        m = _say(c["id"], f"remember: {words}")
+    every = ("here's the plan: intro 3 s", "Here Comes the Sun is the outro song", "where the summit is",
+             "Never use the music from this video again", "use this video as the template for the next ones",
+             "From now on, make every intro like this video's intro",
+             "Always keep the voice up in every video, not only this video",
+             "this applies to all videos, not only this project: no stock music",
+             "from here on, captions are always yellow", "From here on out, no stock music",
+             "Always keep the voice up, not only in this video", "no stock music anywhere, not just here",
+             "the next videos should be shorter than this video", "use more b-roll than in this video",
+             "unlike here, the other intros stay under 5 s", "next time, start like this video",
+             "don't use this video's font again", "in future, grade like this project",
+             "use this video's intro for all my other videos", "this video is the template for each new one")
+    for words in every:
+        m = _say(c["id"], words if words.startswith(("Never ", "From now on", "Always ")) else f"remember: {words}")
         assert m["text"] == f"Remembered: “{words}”. It applies to every video. Say “forget …” to remove it.", words
     g = chat.open_chat(WS)  # the general chat has no video to keep it to: the words stay whole there too
     m = _say(g["id"], "remember: for this video: keep the outro short")
     assert m["text"].startswith("Remembered: “for this video: keep the outro short”. It applies to every video.")
-    assert len(brain.list_(WS)) == len(whole) + 11 + 3 + 1
+    assert len(brain.list_(WS)) == len(whole) + 11 + len(every) + 1
 
 
 def test_which_one_lists_each_set_of_words_once_and_its_button_forgets_only_those_words(env):

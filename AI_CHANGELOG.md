@@ -622,6 +622,61 @@ Landry's projects, could never do anything, and without a downloaded model only 
     (`tests/test_clipforge_ai_chat.py`);
     `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
     (`tests/test_clipforge_ai_assistant.py`): all seven failed on the code before. No frontend change.
+- **A look at the strict comparison** (two reviewers, eight findings; two were checked again by one who tried to
+  refute them and held up, the second check of the other six could not run, so I reproduced each of those myself on
+  the code as it was; each code fix has a test that failed before it):
+  - The list of words that name nothing had grown to 169 everyday words ("I", "is", "not", "in", "one", "time" …),
+    so facts made only of such words were refused, or with a model sent to the conversation: "remember: I am not in
+    the videos", "remember: I'm in the US", "remember: one video at a time", "Always be on time". Words now name
+    nothing only when all they do is point back, ask nicely or say when or where, read as turns of speech and not
+    word by word (`chat._names_nothing`: "that one, please", "it from now on", "keep that in mind", "do that
+    again", "for all my videos"). When in doubt they are kept (their answer has an Undo). A first version of this
+    was one pattern over the whole message, which never finished on a long run of "one one one …"; it is read turn
+    by turn now, a few short matches per word (`test_a_long_message_of_repeated_words_is_read_at_once`).
+  - Words that are only a quote mark ("remember: '") were kept as a memory with nothing in it. They name nothing.
+  - In a video's chat every mention of "this video" kept the memory to that video, also when the words are about
+    other videos or about later: "use this video as the template for the next ones", "Never use the music from this
+    video again", "Always keep the voice up, not only in this video". Now "for/in/on this video" and "here" say
+    where the words apply, unless "not only", "not just", "than" or "unlike" stands right before them, or it is
+    "from here on" (from now on); words that only mention this video are kept for it when they speak of no other
+    video and of no later time (`chat._for_this_video`). On purpose "here" always means this video, also as a place:
+    "my office is here in Lyon" said in a video's chat is kept for that video.
+  - Marks that stand alone were left out of the comparison, so "Never end a caption with !" and "… with ?" were the
+    same words, as were "- 3 dB" and "3 dB", "!= 30" and "= 30", ":)" and ":(": the second was written over the
+    first, and forgetting one forgot both. Any other mark at the edge of a word was dropped too ("5*" was "5",
+    "٥٠٪" was "٥٠"), and folding capitals made "Maßen" and "Massen" one word. `memories._norm` now lists what it
+    leaves out, and nothing else is: around a word that has a letter or a digit its quotes and brackets, ¿ or ¡
+    before it and the marks that end a sentence after it; whatever stands alone between spaces counts exactly as it
+    is; capitals are made small, not folded. The new comparison only tells more words apart than the one before
+    (checked on 600,000 texts made from the tests' sentences with marks, capitals and spacing added: no two that
+    differed before are the same now). What follows from "when in doubt, different", and is documented: a mark
+    typed with a space before it, as French does ("basse !"), makes other words than "basse!" (a second memory at
+    worst); "- keep it low" is not "keep it low". The known limit stays: 5' and 5" are both 5.
+  - A sentence's last full stop is left out of the words kept only when it ends a word: "Never end a caption with ."
+    keeps its mark.
+  - Without a model, "forget -3 dB here" (words that start with a sign never forget at once) answered "I have
+    nothing like that in my memory" although a memory said exactly that; so did "forget -3 dB" for the memory "-3
+    dB here", and words in another script: the search by meaning reads only Latin words longer than two letters.
+    "Which one?" now lists first the memories that say exactly the words named, then those that hold them as whole
+    words in that order (`memories.holding`, read from the words themselves), then what the search finds. Not
+    changed: "what do you know about …" still uses that search alone.
+  - Tidy as the first thing after a start, on memories an earlier build stored, had no test: a version of Tidy that
+    trusted the stored form passed the whole suite. `test_tidy_first_thing_after_a_start_goes_by_the_words_and_not_
+    by_a_form_an_earlier_build_stored` fails for it.
+  - Docs: CLIPFORGE_AI.md (what the comparison leaves out, where a memory applies in a video's chat, words that
+    name nothing, what "Which one?" lists) and the handoff. The privacy page needed no change: what is stored, sent,
+    kept and deleted is the same.
+  - Tests: `test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words` (new pairs),
+    `test_tidy_first_thing_after_a_start_goes_by_the_words_and_not_by_a_form_an_earlier_build_stored` and
+    `test_memories_that_hold_the_words_named_are_found_by_their_words_in_any_script`
+    (`tests/test_clipforge_ai_brain.py`); `test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule`,
+    `test_a_long_message_of_repeated_words_is_read_at_once`,
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole`,
+    `test_remembering_words_a_memory_already_says_offers_no_undo` and
+    `test_forget_offers_the_memories_that_say_or_hold_the_words_named_whatever_they_start_with`
+    (`tests/test_clipforge_ai_chat.py`);
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`). No frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

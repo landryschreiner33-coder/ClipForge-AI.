@@ -103,20 +103,30 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   a correction); quoted words go only as they are, also with quotes of their own (`chat._quoted`), and only when the
   quote holds all the words ("Forget the “🔇”, keep …" is a correction too); a "Which one?" button sends its
   memory's words apart from the message (`forget`, `chat._forget_picked`), so its quote marks change nothing (sent
-  together with `choice` it is refused, 422); words are compared strictly by `memories._norm`: only capitals,
-  spacing, how an accent or a full-width character was typed, the kind of dash or apostrophe, unseen characters and
-  the quotes, brackets and sentence marks around a word are left out, so a sign, a symbol, an emoji, a hyphen inside
-  a word and the marks of a letter all count ("-3 dB" is not "+3 dB", "EV+1" not "EV-1", "<3 s" not ">3 s", "50%"
-  not "50"; when in doubt words are different, and two memories stand side by side); a memory an earlier build
+  together with `choice` it is refused, 422); words are compared strictly by `memories._norm`, which lists what it
+  leaves out: capitals (lowered, not folded: "Maßen" is not "Massen"), spacing, how an accent or a full-width
+  character was typed, the kind of dash or apostrophe, unseen characters and, around a word that has a letter or a
+  digit, its quotes and brackets, ¿ or ¡ before it and the sentence marks after it; so a sign, a symbol, an emoji, a
+  hyphen inside a word, the marks of a letter and whatever stands alone between spaces all count ("-3 dB" is not
+  "+3 dB", "EV+1" not "EV-1", "<3 s" not ">3 s", "50%" not "50", "never end a caption with !" not "… with ?"; when
+  in doubt words are different, and two memories stand side by side: French spacing, "basse !", is not "basse!";
+  the one known limit is that 5' and 5" are both 5); a memory an earlier build
   stored gets its stored form brought up to date at the first lookup after a start (`memories._refresh_norms`, once
   per database and process; a test that writes an old form calls `memories._norms_current.clear()` for "a
   restart"); words that name nothing on their own, also when they only ask nicely or say when or where ("Remember
   that one", "Remember this, please", "Remember that from now on", "Always for this video", "remember: that for
-  this video", `chat._names_nothing` with the word list `chat._NO_CONTENT`) keep nothing in either chat, and with a
-  model they go to the conversation; "Never mind" keeps nothing and says only that (`chat.NEVER_MIND`: what was
-  kept before stays); in a video's chat "this video", "for this one" or "here" as a word of its own only says where
-  the memory applies (`chat._HERE`), and the words are kept whole ("never zoom in here" stays every word), with
-  only a label in front left out ("for this video: …", "here: …", `chat._LABEL`); the same words said for another
+  this video", "Never do that again") keep nothing in either chat, and with a model they go to the conversation:
+  `chat._names_nothing` reads them as turns of speech (`chat._TURN`, a few short matches per word, never one
+  pattern over the whole message), not word by word, so a fact made of everyday words ("I am not in the videos",
+  "one video at a time") is kept, and when in doubt the words are kept; "Never mind" keeps nothing and says only
+  that (`chat.NEVER_MIND`: what was kept before stays); in a video's chat "for this video", "for this one" or
+  "here" as a word of its own says where the memory applies, and so does a bare mention of this video unless the
+  words speak of other videos or of later (`chat._for_this_video`: "use this video as the template for the next
+  ones", "not only in this video", "than here" and "from here on" are for every video; "here" always means this
+  video, also in "my office is here in Lyon"), and the words are kept whole ("never zoom in here" stays every
+  word), with only a label in front left out ("for this video: …", "here: …", `chat._LABEL`); without a model
+  "forget …" lists first the memories that say exactly the words named, then those that hold them as whole words
+  (`memories.holding`, any script, numbers, short words), then the search's; the same words said for another
   video move that memory to the new place, as `memories.remember` always did, and the answer says where it was
   before; "remember: …" on words a memory of either kind
   already says answers "I already remember …" or "I already had “…”; it now says “…”" with what changed and no Undo

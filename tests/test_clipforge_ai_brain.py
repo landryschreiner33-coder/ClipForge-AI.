@@ -97,10 +97,11 @@ def test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words(data):
     """Words are compared strictly: only what cannot change their meaning is left out (capitals, spacing, how a
     letter with an accent or a full-width character was typed, the kind of dash or apostrophe, and quotes, brackets
     and sentence marks around a word). A Thai tone mark, an Indic vowel sign, a sign, a symbol, an emoji, a hyphen
-    inside a word and a point, comma, colon or slash inside a number all belong to the words. Until Nov 12 2026 some
-    were left out, so "-3 dB" and "+3 dB", then "亮度+10" and "亮度-10", "EV+1" and "EV-1" or "<3 s" and ">3 s" were
-    twins: the second replaced the first, and forgetting one forgot both. Memories saved with an earlier form are
-    told apart by their words too."""
+    inside a word and a point, comma, colon or slash inside a number all belong to the words, and so does whatever
+    stands alone between spaces: a mark a rule names, a minus set apart, a dash, a smiley. Until Nov 12 2026 some
+    were left out, so "-3 dB" and "+3 dB", then "亮度+10" and "亮度-10", "EV+1" and "EV-1" or "<3 s" and ">3 s", then
+    "never end a caption with !" and "… with ?" or "Maßen" and "Massen" were twins: the second replaced the first,
+    and forgetting one forgot both. Memories saved with an earlier form are told apart by their words too."""
     import re
     import unicodedata
 
@@ -115,7 +116,17 @@ def test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words(data):
              ("音量を＋３ｄＢ", "音量を－３ｄＢ"), ("Intro <3 s", "Intro >3 s"), ("Clips ≤ 60 s", "Clips ≥ 60 s"),
              ("Captions at 50%", "Captions at 50"), ("Mute the music 🔇", "Mute the music 🔊"),
              ("Use b-roll", "Use b roll"), ("Tag it #1", "Tag it 1"), ("Credit @trailnotes", "Credit trailnotes"),
-             ("Budget $5", "Budget €5"), ("Speed x2", "Speed ×2"), ("Colour C++ blue", "Colour C blue")]
+             ("Budget $5", "Budget €5"), ("Speed x2", "Speed ×2"), ("Colour C++ blue", "Colour C blue"),
+             # what stands alone between spaces counts as it is, and so does every sign at the edge of a word
+             ('Never use "!" in titles', 'Never use "?" in titles'), ("Never end a caption with !",
+                                                                    "Never end a caption with …"),
+             ("Never end a title with .", "Never end a title with ?"), ("No , before and", "No ; before and"),
+             ("The voice sits at - 3 dB", "The voice sits at 3 dB"), ("The music sits at − 6 dB",
+                                                                    "The music sits at + 6 dB"),
+             ("Trink in Maßen", "Trink in Massen"), ("الشفافية ٥٠٪", "الشفافية ٥٠"), ("Opacity 50﹪", "Opacity 50"),
+             ("Rate it 5*", "Rate it 5"), ("End titles with ‼️", "End titles with ⁉️"),
+             ("Width != 30", "Width = 30"), ("End on :)", "End on :("), ("Music low - voice up", "Music low voice up"),
+             ("- keep it low", "keep it low"), ("Garde la musique basse !", "Garde la musique basse")]
     kept = []
     for one, other in pairs:
         a, b = brain.remember(WS, one), brain.remember(WS, other)
@@ -124,16 +135,23 @@ def test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words(data):
     norm = memories._norm  # noqa: SLF001
     assert norm("cafe\u0301") == norm("caf\u00e9") == "caf\u00e9"  # an accent typed apart is the same letter
     assert norm("−3 dB") == norm("-3 dB") == norm("–3 dB") == "-3 db" and norm("2-3 s") == "2-3 s"
-    assert norm("a-3") == "a-3" and norm("music low - voice up") == norm("music low — voice up") == "music low voice up"
+    assert norm("a-3") == "a-3" and norm("music low - voice up") == norm("music low — voice up") \
+        == "music low - voice up"  # whichever dash it is, it counts
     assert norm("1,000 views at 16:9") == "1,000 views at 16:9" and norm("The end. 5 more") == "the end 5 more"
-    assert norm("＋３ｄＢ　ＯＫ") == norm("+3dB ok") == "+3db ok" and norm("Straße") == norm("STRASSE") == "strasse"
+    assert norm("＋３ｄＢ　ＯＫ") == norm("+3dB ok") == "+3db ok" and norm("STRASSE") == norm("Strasse") == "strasse"
+    assert norm("Straße") == norm("STRAßE") == "straße"  # capitals are left out, "ß" is not "ss"
     assert norm("Call it “Trail Notes”!") == norm("call it (trail notes)") == norm("call it 'Trail Notes'.") \
         == "call it trail notes"
     assert norm("keep\u200b the music\u00ad low\ufeff") == "keep the music low"  # what nobody sees is left out
     assert norm("\u202bאל תזיז\u202c") == "אל תזיז"
     # a joiner makes another emoji or word
     assert norm("👨\u200d👩\u200d👧") != norm("👨👩👧") and norm("می\u200cخواهم") != norm("میخواهم")
-    assert norm("- keep it low") == norm("• keep it low") == norm("**Keep** it low…") == "keep it low"
+    assert norm("- keep it low") == norm("– keep it low") == "- keep it low"
+    assert norm("• keep it low") == "• keep it low"
+    assert norm("**Keep** it low…") == "**keep** it low" and norm("¿Por qué?") == norm("por qué") == "por qué"
+    assert norm('Never use "!" in titles.') == 'never use "!" in titles'  # a mark alone is kept as it is, quotes too
+    assert norm("(Keep it low),") == norm("“keep it low”!?") == norm("`keep` it low...") == "keep it low"
+    assert norm("End on :)") == "end on :)" and norm("5' or 5\"") == "5 or 5"  # the one known limit
     assert norm("fade in over .5 s.") == "fade in over .5 s" and norm("it’s") == norm("it's") == "it's"
     assert norm("❤️") == norm("❤") and norm("...") == "..." and norm("  ") == ""
     assert [m["text"] for m in memories.forget_words(WS, "voice at -3 dB")] == ["Voice at -3 dB"]
@@ -173,6 +191,58 @@ def test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words(data):
     still = [m for m in left if m["id"] not in (kept[0]["id"], kept[15]["id"])] + [apart]
     assert {m["id"] for m in brain.list_(WS)} == {m["id"] for m in still}
     assert all(db.fetch("brain_memories", m["id"])["norm"] == norm(m["text"]) for m in still)
+
+
+def test_tidy_first_thing_after_a_start_goes_by_the_words_and_not_by_a_form_an_earlier_build_stored(data):
+    """Tidy run before any memory was looked up since the start. Memories an earlier build stored with one form for
+    different words ("-3 dB" and "+3 dB" were both "3 db") are not twins, so none of them is merged away; two that
+    say the same words but were stored with different forms (an accent typed apart made other letters) are, and one
+    stands for both. Every stored form is the current one afterwards."""
+    from clipfoundry import brain, db
+    from clipfoundry.brain import memories
+
+    quiet, loud = brain.remember(WS, "Voice at -3 dB"), brain.remember(WS, "Voice at +3 dB")
+    bang = brain.remember(WS, "Never end a caption with !", kind="rule")
+    dots = brain.remember(WS, "Never end a caption with …", kind="rule")
+    cafe, apart = brain.remember(WS, "Café music in the intro"), brain.remember(WS, "its twin, typed apart")
+    db.execute("UPDATE brain_memories SET text = ?, norm = ? WHERE id = ?",
+               ("Cafe\u0301 music in the intro", "cafe music in the intro", apart["id"]))
+    for row, stored in ((quiet, "voice at 3 db"), (loud, "voice at 3 db"), (bang, "never end a caption with"),
+                        (dots, "never end a caption with"), (cafe, "caf music in the intro")):
+        db.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (stored, row["id"]))
+    memories._norms_current.clear()  # noqa: SLF001  (a new start of the app: nothing was looked up yet)
+    assert brain.tidy(WS) == {"expired": 0, "merged": 1}
+    left = db.select("brain_memories", "workspace_id = ?", (WS,))
+    assert {m["id"] for m in left} == {quiet["id"], loud["id"], bang["id"], dots["id"], cafe["id"]}
+    assert all(m["norm"] == memories._norm(m["text"]) for m in left)  # noqa: SLF001
+    assert {m["norm"] for m in left} == {"voice at -3 db", "voice at +3 db", "never end a caption with !",
+                                         "never end a caption with …", "café music in the intro"}
+    assert brain.tidy(WS) == {"expired": 0, "merged": 0}
+
+
+def test_memories_that_hold_the_words_named_are_found_by_their_words_in_any_script(data):
+    """`holding` finds the memories whose words hold the words named, whole and in that order, whatever the script
+    and however short (the search by meaning reads only longer Latin words): what "forget …" offers to pick from."""
+    from clipfoundry import brain, db
+    from clipfoundry.brain import memories
+
+    for text in ("-3 dB here", "The voice sits at -3 dB.", "+3 dB on the music", "3 dB of headroom",
+                 "«Привет, друзья» в начале", "Garde la musique basse !"):
+        brain.remember(WS, text)
+
+    def held(words: str) -> list[str]:
+        return sorted(m["text"] for m in memories.holding(WS, words))
+
+    assert held("-3 dB") == ["-3 dB here", "The voice sits at -3 dB."]  # whole words: not "+3 dB", not "3 dB"
+    assert held("3 db") == ["3 dB of headroom"] and held("3") == ["3 dB of headroom"]
+    assert held("DB") == ["+3 dB on the music", "-3 dB here", "3 dB of headroom", "The voice sits at -3 dB."]
+    assert held("друзья") == held("“Привет, друзья”") == ["«Привет, друзья» в начале"]
+    assert held("garde la musique basse") == ["Garde la musique basse !"] and held("sits at") == held("-3 dB.")[1:]
+    assert held("dB -3") == held("penguins") == held("  ") == held("") == []
+    assert [m["text"] for m in memories.holding(WS, "dB", 2)] == ["3 dB of headroom", "+3 dB on the music"]  # newest
+    db.execute("UPDATE brain_memories SET norm = '3 db here' WHERE text = '-3 dB here'")  # an earlier build's form
+    memories._norms_current.clear()  # noqa: SLF001  (a new start of the app)
+    assert held("-3 dB") == ["-3 dB here", "The voice sits at -3 dB."]
 
 
 def test_recall_puts_the_rules_first_finds_by_meaning_and_keeps_to_the_scope_and_budget(data):

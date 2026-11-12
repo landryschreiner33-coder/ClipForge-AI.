@@ -52,21 +52,23 @@ _REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?=[\s:,])
                        r"(?:\s+that(?=[\s:,]|[.!?…]+(?:\s|$))(?:[.!?…]+(?=\s))?)?"
                        r"(?:[:,]|\s+[:,](?!\S)|\s+-(?=\s))?\s*(.+)$", re.I | re.S)
 # Words that name nothing to remember on their own ("Remember that one, please", "I like it!", "Remember that from
-# now on", "Always for this video"): they point at something said before, ask nicely, or only say when, where or how
-# surely. Words to remember need one word that is not among them.
-_NO_CONTENT = frozenset("""
-    a an the this that these those it its it's that's them they their there here such so one ones thing things stuff
-    i i'm i'll i'd i've me my mine we we'll we're us our ours you you're you'll your yours he she him her his hers
-    am is are was were be been being do does did done doing don't doesn't didn't have has had having will won't would
-    wouldn't shall should shouldn't can can't cannot could couldn't may might must let's
-    and or but if then than as of at by for from in into on onto to with without about over under
-    again once now later soon today tomorrow tonight always never ever forever still yet already next last time times
-    future going forward onwards
-    all any every each both some more most no not yes yeah yep nope ok okay sure fine
-    please pls plz thanks thank thx kindly just also too well very really
-    remember forget note keep mind know
-    video videos project
-""".split())
+# now on", "Always for this video", "Never do that again"): all they do is point at something said before, ask
+# nicely, say when or where, or repeat the request. They are read as turns of speech and not word by word, so a fact
+# made of everyday words ("I am not in the videos", "I'm in the US", "one video at a time", "one video for every
+# project", "just me") names something and is kept. When in doubt the words are kept: their answer has an Undo.
+_POINTS = (r"(?:do(?:ing)? )?(?:that|this|it|these|those|them|all|everything"
+           r"|(?:(?:that|this|the|these|those) )?(?:(?:last|next|other|same|one) )?(?:ones?|things?|stuff)"
+           r"|(?:that|this|these|those) (?:videos?|projects?)|all (?:of )?(?:that|this|it|them|these|those))")
+_ASKS = (r"please|pls|plz|thanks|thank you|thx|kindly|ok|okay|too|also|as well|just|and|for me"
+         r"|(?:will|would|could|can) you|remember|forget")
+_WHEN = (r"now|later|again|always|never|ever|forever|for (?:now|later|ever|good|today|tomorrow|tonight)"
+         r"|from (?:now|here) on(?:wards?)?(?: out)?|(?:for )?(?:the )?(?:next|last) time|(?:this|every|each) time"
+         r"|all the time|at all times|(?:for|in) (?:the )?future|going forward")
+_WHERE = (r"here|everywhere|(?:for|in|on) (?:(?:all|each|every|this|that|these|those|the|my|of|next|other|future"
+          r"|new) )+(?:videos?|projects?|ones?)")
+_TURN = re.compile(rf"{_POINTS}|{_ASKS}|{_WHEN}|{_WHERE}")  # one turn of speech
+_TURN_WORDS = 8  # none is read longer than this
+_IN_MIND = re.compile(r"\b(?:keep|bear)\b(.*?)\bin mind\b")  # "keep that in mind": the request, around its words
 _WORD = re.compile(r"(?:[^\W_]|')+")
 _SMILEY = re.compile(r"(?<!\w)(?:[:;=][-'^o]?[()\[\]{}<>|/\\*$@DPpOo03]+|<3+)(?!\w)")  # ":D", ";-)", "<3"
 _STANDING = re.compile(r"^(?:from now on|always|never(?!\s*mind\b)|i (?:like|love|want|prefer|hate|don['’]t want|"
@@ -85,13 +87,26 @@ _LIST = re.compile(r"^(?:what do you (?:know|remember)|what have you learned|wha
                    r"(?:show|list)(?: me)?(?: your| my)? memor(?:y|ies))\b\s*(?:about|of|on)?\s*(.*)$", re.I | re.S)
 _EXPLAIN = re.compile(r"^(?:why\b|what did you use|explain\b|how did you decide)", re.I)
 _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
-# What keeps a memory to the video, in a video's chat: "this video" or "this project", "for/in/on this one", and
-# "here" as a word of its own, in small letters or all capitals ("no captions here, please", "never zoom in here");
-# with a capital only in front of the words ("Here: …", "Here, …"), so a title such as "Here Comes the Sun" is not it,
-# and "here's" and "where" are other words. They only say where the memory applies: the words are kept as they were
-# said, with nothing cut out of them ("never zoom in here" does not become "never zoom").
-_HERE = re.compile(r"(?i:\bthis\s+(?:video|project)\b|\b(?:for|in|on)\s+this\s+one\b|^\s*here\s*[:,])"
-                   r"|(?<![\w'’-])(?:here|HERE)(?![\w'’-])")
+# In a video's chat, what keeps a memory to the video. The words say where they apply: "for/in/on this video" (or
+# "this one", "this project"), or "here" as a word of its own, in small letters or all capitals ("no captions here,
+# please", "never zoom in here"; with a capital only in front of the words, "Here: …" or "Here, …", so a title such
+# as "Here Comes the Sun" is not it, and "here's" and "where" are other words). Or they mention it ("this video is
+# for kids", "keep this project under a minute"). The words are kept as they were said, with nothing cut out of them
+# ("never zoom in here" does not become "never zoom").
+_SAYS_WHERE = re.compile(r"(?i:\b(?:for|in|on) this (?:video|one|project)\b)|(?<![\w'’-])(?:here|HERE)(?![\w'’-])")
+_HERE_FIRST = re.compile(r"here ?[:,]", re.I)
+_MENTIONS = re.compile(r"(?<!\bfor )(?<!\bin )(?<!\bon )\bthis (?:video|project)\b", re.I)
+# What keeps them for every video all the same. Right before "in this video", "here" or the mention: "not only" or
+# "not just" (the words reach further), "than" or "unlike" (they compare with it). "From here on" means from now on.
+# And words that only mention this video are about other videos, or about later, when they say so: "every video",
+# "all my videos", "the next ones", "other projects", "never … again", "next time", "from now on", "in future",
+# "going forward" ("use this video as the template for the next ones", "never use the music from this video again").
+_REACHES = re.compile(r"\b(?:not (?:only|just)|than|unlike) $", re.I)
+_FROM_HERE_ON = (re.compile(r"\bfrom $", re.I), re.compile(r" (?:on(?:wards?)?|out)\b", re.I))
+_ELSEWHERE = re.compile(
+    r"\b(?:every|each|all|other|another|next|future)(?: (?:of|my|the|your|our|other|next|new|few|future))* "
+    r"(?:videos?|projects?|ones?)\b|\b(?:never|don['’]t|do not|no more)\b.*\bagain\b"
+    r"|\bnext time\b|\bfrom now on\b|\bin (?:the )?future\b|\bgoing forward\b", re.I)
 # The one thing left out: a label in front of the words, which says only where they apply and is set apart from them
 # by a colon, a comma or a dash with spaces ("for this video: …", "only for this one, …", "for this video only – …",
 # "here: …"). "Here, There and Everywhere" keeps every word.
@@ -106,6 +121,7 @@ _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S
 # something aside and say the rule again): the conversation, or without a model "Which one?", answers it.
 _FORGET_WORD = re.compile(rf"^(?:please\s+)?forget(?:[ \t]*:\s*|[ \t]+){_GOES_ON}", re.I)
 _FORGET_SKIPS = re.compile(rf"^(?:that|about|the|my|what i said about)[ \t]+{_GOES_ON}", re.I)
+_SKIPPED = re.compile(r"^(?:that|about|the|my|what i said about)(?:[ \t]+|$)", re.I)  # the same, whatever follows
 # what a "Which one?" button sends (“…”, around words that may have quotes of their own) or words typed in quotes
 _QUOTED = re.compile(r"“(.+)”[.!]?|\"([^\"]+)\"[.!]?", re.S)
 _EDGES = " \t\r\n.,;:!?-–—“”\"'‘’"  # around the words "forget …" looks for
@@ -407,23 +423,48 @@ NEVER_MIND = ("All right, I did nothing with that. What I kept or forgot before 
 
 
 def _names_nothing(words: str) -> bool:
-    """Words that name nothing to remember on their own: no letter or digit once smileys are left out ("😅", ":D"),
-    or only words that point at something said before, ask nicely, or say when or where ("that one, please", "this
-    for later", "it 👍", "that from now on", "always for this video"): `_NO_CONTENT`."""
-    said = _WORD.findall(_SMILEY.sub(" ", words).lower().replace("’", "'"))
-    return all(w.strip("'") in _NO_CONTENT for w in said)
+    """Words that name nothing to remember on their own: no letter or digit once smileys are left out ("😅", ":D",
+    a quote mark alone), or only turns of speech that point at something said before, ask nicely, or say when or
+    where ("that one, please", "this for later", "it 👍", "that from now on", "always for this video", "keep that in
+    mind"): one `_TURN` after another, to the last word."""
+    said = " ".join(_SMILEY.sub(" ", words).lower().replace("’", "'").split())
+    said = [w for w in (w.strip("'") for w in _WORD.findall(_IN_MIND.sub(r"\1", said))) if w]
+    reached = {0}  # how many of the words the turns of speech read so far account for
+    for start in range(len(said)):  # a few short matches per word, however the words repeat
+        if start in reached:
+            reached.update(end for end in range(start + 1, min(len(said), start + _TURN_WORDS) + 1)
+                           if _TURN.fullmatch(" ".join(said[start:end])))
+    return len(said) in reached
+
+
+def _for_this_video(said: str) -> bool:
+    """Whether words said in a video's chat are kept for that video: they say so ("for this video", "here"), or they
+    mention this video and speak of no other and of no later (`_SAYS_WHERE` and the patterns after it)."""
+    said = " ".join(said.split())
+    if _HERE_FIRST.match(said):
+        return True
+    for m in _SAYS_WHERE.finditer(said):
+        before, after = said[:m.start()], said[m.end():]
+        if _REACHES.search(before):  # "not only in this video", "longer than here"
+            continue
+        if m.group().lower() == "here" and _FROM_HERE_ON[0].search(before) and _FROM_HERE_ON[1].match(after):
+            continue  # "from here on": from now on
+        return True
+    return any(not _REACHES.search(said[:m.start()]) for m in _MENTIONS.finditer(said)) \
+        and not _ELSEWHERE.search(said)
 
 
 def _kept_words(pid: str, said: str) -> tuple[str, bool]:
     """The words "remember …" keeps, and whether they are kept for this video only. The words are the ones said, whole
-    (one full stop at the end left out): in a video's chat "here" or "for this video" (`_HERE`) only says where the
-    memory applies, and nothing is cut out of the words ("never zoom in here" stays "never zoom in here", kept for
-    this video, where it is read). Only a label in front of them goes (`_LABEL`): "for this video: -14 LUFS" keeps
-    "-14 LUFS"."""
+    (one full stop that ends the last word left out; one that stands alone is a mark the words name, "never end a
+    caption with ."): in a video's chat "here" or "for this video" only says where the memory applies
+    (`_for_this_video`), and nothing is cut out of the words ("never zoom in here" stays "never zoom in here", kept
+    for this video, where it is read). Only a label in front of them goes (`_LABEL`): "for this video: -14 LUFS"
+    keeps "-14 LUFS"."""
     said = said.strip()
-    if said.endswith(".") and not said.endswith(".."):
+    if said.endswith(".") and not said.endswith("..") and not said[-2:-1].isspace():
         said = said[:-1].rstrip()
-    here = bool(pid) and bool(_HERE.search(said))
+    here = bool(pid) and _for_this_video(said)
     return (_LABEL.sub("", said, count=1) if here else said), here
 
 
@@ -556,20 +597,38 @@ def _forget_picked(ws: str, words: object) -> dict:
     return _forgotten(gone) if gone else _nothing_says(said[:memories.MAX_TEXT])
 
 
+def _named(words: str) -> list[str]:
+    """The words after "forget" as they were typed, then without each leading word the request skips, in turn."""
+    out, rest = [], words.strip()
+    while rest:
+        out.append(rest)
+        skip = _SKIPPED.match(rest)
+        rest = rest[skip.end():].strip() if skip else ""
+    return out
+
+
 def _forget(ws: str, pid: str, query: str, text: str, at_once: bool = True) -> dict:
     """Without a model: a memory's exact words forget it at once (_forget_words); other words list the memories they
-    could mean, each set of words once (its twins go with it). `at_once` False, for a quick reply you pressed: the
-    list only, so nothing goes before you pick."""
-    query = query.strip(_EDGES)
-    if not query:
-        raise ChatError("Say what to forget, for example: forget the rule about zooms.")
+    could mean, each set of words once (its twins go with it). First in the list are the memories that say exactly
+    the words named: words that start with a sign, a bracket or other quote marks ("forget -3 dB here", "forget
+    «…» …") never forget at once (what follows "forget" there may set something aside), so their memory is offered.
+    Then the memories that hold the words named as a part of theirs ("forget -3 dB" for "-3 dB here"; read from the
+    words themselves, so a number, a short word or another script is found), then the ones the search finds like
+    them. `at_once` False, for a quick reply you pressed: the list only, so nothing goes before you pick."""
+    say_what = "Say what to forget, for example: forget the rule about zooms."
+    if not query.strip():
+        raise ChatError(say_what)
     if at_once:
         forgot = _forget_words(ws, text)
         if forgot:
             return forgot
+    like, named = query.strip(_EDGES), _named(query)
+    could = [m for words in named for m in memories.saying(ws, words)[:1]]
+    could += [m for words in named if not _names_nothing(words) and not _SKIPPED.fullmatch(words)  # not "about"
+              for m in memories.holding(ws, words, CANDIDATES * 4)]
     found: list[list[dict]] = []
     listed: set[str] = set()
-    for m in memories.list_(ws, q=query, limit=CANDIDATES * 4):
+    for m in could + (memories.list_(ws, q=like, limit=CANDIDATES * 4) if like else []):
         if m["id"] in listed:
             continue
         same = memories.saying(ws, m["text"]) or [m]  # every memory that says these words, oldest first
@@ -577,6 +636,8 @@ def _forget(ws: str, pid: str, query: str, text: str, at_once: bool = True) -> d
         found.append(same)
         if len(found) == CANDIDATES:
             break
+    if not found and not like:
+        raise ChatError(say_what)
     if not found:
         return {"text": "I have nothing like that in my memory.", "data": {"tool": "forget", "candidates": []}}
     lines = []

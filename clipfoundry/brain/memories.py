@@ -66,48 +66,49 @@ _UNSEEN = ("\u00ad\u200b\u2060\ufeff\u200e\u200f\u061c\u180e\u202a\u202b\u202c\u
            "\ufe0e\ufe0f")
 _PLAIN = {**{c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}, 0x3000: 0x20,
           **{ord(c): "-" for c in "‐‑‒–—―−﹣"}, **{ord(c): "'" for c in "’‘ʼ"}, **{ord(c): None for c in _UNSEEN}}
-_KEPT_MARKS = frozenset("#%&/@\\‰‱′″‴§¶")  # punctuation that says something: "50%", "#1", "@name", "and/or"
-_QUOTE_LIKE = frozenset("`´")
+# The only marks `_norm` leaves out, and only at the edge of a word that has a letter or a digit: quotes and brackets
+# on either side (`_around`), ¿ and ¡ in front, and behind it the marks that end a sentence or a part of one.
+_QUOTES = frozenset("'\"`´")
+_OPENING = frozenset("¿¡")
+_STOPS = frozenset(".,;:!?…。、،؛؟۔।॥")
 
 
-def _edge(ch: str) -> bool:
-    """Punctuation that only separates words or ends a sentence, in any script: quotes, brackets, and marks such as
-    . , ; : ! ? … 。 、 ؟ । (but not the ones in `_KEPT_MARKS`)."""
-    cat = unicodedata.category(ch)
-    return cat in ("Ps", "Pe", "Pi", "Pf") or (cat == "Po" and ch not in _KEPT_MARKS) or ch in _QUOTE_LIKE
-
-
-def _point(token: str, i: int) -> bool:
-    """A point in front of a digit, which belongs to the number: ".5" is not "5"."""
-    return token[i] == "." and token[i + 1:i + 2].isdigit()
+def _around(ch: str) -> bool:
+    """A quote or a bracket, in any script."""
+    return ch in _QUOTES or unicodedata.category(ch) in ("Ps", "Pe", "Pi", "Pf")
 
 
 def _norm(text: object) -> str:
     """The words of a memory as they are compared: two memories with the same norm say the same thing, so one is
-    written over, merged or forgotten for the other. Only what cannot change what the words say is left out: capital
+    written over, merged or forgotten for the other. What is left out is listed here, and nothing else is: capital
     letters, spacing, how a letter with an accent was typed (composed first), full-width forms, the kind of dash or
-    apostrophe, characters nobody sees (`_PLAIN`), and the quotes, brackets and sentence marks around a word
-    (`_edge`), with a dash or a bullet standing alone. Everything else counts, in any language: every letter and mark
-    of a letter (Thai tone marks, Indic vowel signs), digits with what stands in or before them ("-3" is not "+3",
-    "3" or "<3"; "0:42" not "0.42"; ".5" not "5"), signs and symbols ("EV+1" is not "EV-1", "50%" not "50"), a
-    hyphen inside a word ("b-roll" is not "b roll") and emoji. Text with nothing but such marks keeps itself.
+    apostrophe, characters nobody sees (`_PLAIN`), and around a word that has a letter or a digit its quotes and
+    brackets, ¿ or ¡ in front of it and the sentence marks behind it (. , ; : ! ? … and their like in other scripts).
+    Everything else counts, in any language: every letter and mark of a letter (Thai tone marks, Indic vowel signs;
+    "Maßen" is not "Massen"), digits with what stands in or before them ("-3" is not "+3", "3" or "<3"; "0:42" not
+    "0.42"; ".5" not "5"), signs and symbols ("EV+1" is not "EV-1", "50%" not "50", "5*" not "5"), a hyphen inside a
+    word ("b-roll" is not "b roll"), emoji, and whatever stands alone between spaces, as it is: a mark a rule names
+    ("never end a caption with !" is not "… with ?"), a minus set apart ("- 3 dB" is not "3 dB"), a dash or a bullet
+    ("music low - voice up" is not "music low voice up"), a smiley.
 
     When in doubt the words count as different: two memories then stand side by side, where a wrong match would
-    write one over the other or forget both. One known limit: a quote mark right after a number is a quote here, so
-    5' and 5" (feet and inches, minutes and seconds) are both 5; ′ and ″, "ft", "in", "min" and "s" are told apart."""
+    write one over the other or forget both. So French spacing ("basse !") makes other words than "basse!": a second
+    memory at worst, never a lost one. One known limit the other way: a quote mark right after a number is a quote
+    here, so 5' and 5" (feet and inches, minutes and seconds) are both 5; ′ and ″, "ft", "in", "min" and "s" are told
+    apart."""
     t = unicodedata.normalize("NFC", str(text or "").translate(_PLAIN))
-    t = unicodedata.normalize("NFC", t.casefold())  # "Straße" is "STRASSE"
+    t = unicodedata.normalize("NFC", t.lower())  # lower, not casefold: "Maßen" and "Massen" are two words
     words = []
     for token in t.split():
-        start, end = 0, len(token)
-        while start < end and _edge(token[start]) and not _point(token, start):
-            start += 1
-        while end > start and _edge(token[end - 1]):
-            end -= 1
-        word = token[start:end]
-        if word.strip("-"):  # a dash on its own only separates: "music low - voice up"
-            words.append(word)
-    return " ".join(words) or " ".join(t.split())
+        if any(ch.isalnum() for ch in token):  # a word: its letters and digits end both loops
+            start, end = 0, len(token)
+            while _around(token[start]) or token[start] in _OPENING:
+                start += 1
+            while _around(token[end - 1]) or token[end - 1] in _STOPS:
+                end -= 1
+            token = token[start:end]
+        words.append(token)
+    return " ".join(words)
 
 
 _norms_current: set[str] = set()  # the databases whose stored norms this process has brought up to date
@@ -139,6 +140,20 @@ def saying(ws: str, text: object, kinds: tuple[str, ...] = KINDS) -> list[dict]:
     where = f"workspace_id = ? AND kind IN ({', '.join('?' for _ in kinds)}) AND norm = ?"
     rows = db.select("brain_memories", where, (ws, *kinds, norm), "created_at ASC")
     return [r for r in rows if _norm(r["text"]) == norm]
+
+
+def holding(ws: str, text: object, limit: int = 20) -> list[dict]:
+    """The memories of the workspace whose words hold the words of `text` as they stand and in that order (`_norm`;
+    whole words, so "3 dB" is not in "-3 dB"), newest first: what "forget …" offers when the words named are a part
+    of a memory. It reads the words themselves, so it finds a memory in any script and by a number or a short word,
+    which the search by meaning (`list_`) leaves out."""
+    part = _norm(text)
+    if not part:
+        return []
+    _refresh_norms()
+    rows = db.select("brain_memories", "workspace_id = ? AND instr(' ' || norm || ' ', ?) > 0", (ws, f" {part} "),
+                     "created_at DESC", max(1, min(int(limit), 1000)))
+    return [r for r in rows if f" {part} " in f" {_norm(r['text'])} "]
 
 
 def _same_words(ws: str, kind: str, text: object, *, other_than: str = "") -> dict | None:
