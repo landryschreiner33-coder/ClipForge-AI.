@@ -51,12 +51,23 @@ NO_MODEL = ("I need a model to think with before I can really talk. Set up the b
 _REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?=[\s:,])"
                        r"(?:\s+that(?=[\s:,]|[.!?…]+(?:\s|$))(?:[.!?…]+(?=\s))?)?"
                        r"(?:[:,]|\s+[:,](?!\S)|\s+-(?=\s))?\s*(.+)$", re.I | re.S)
-# Words that name nothing to remember on their own ("Remember that one, please", "I like it!"): only words that point
-# at something said before, and words that only ask nicely or say when
-_POINTING = {"that", "this", "it", "these", "those", "them", "one", "ones", "here", "there", "that's", "it's", "so",
-             "the"}
-_FILLER = {"please", "pls", "plz", "thanks", "thank", "you", "thx", "ok", "okay", "too", "also", "as", "well", "and",
-           "just", "for", "me", "now", "later", "next", "time", "again"}
+# Words that name nothing to remember on their own ("Remember that one, please", "I like it!", "Remember that from
+# now on", "Always for this video"): they point at something said before, ask nicely, or only say when, where or how
+# surely. Words to remember need one word that is not among them.
+_NO_CONTENT = frozenset("""
+    a an the this that these those it its it's that's them they their there here such so one ones thing things stuff
+    i i'm i'll i'd i've me my mine we we'll we're us our ours you you're you'll your yours he she him her his hers
+    am is are was were be been being do does did done doing don't doesn't didn't have has had having will won't would
+    wouldn't shall should shouldn't can can't cannot could couldn't may might must let's
+    and or but if then than as of at by for from in into on onto to with without about over under
+    again once now later soon today tomorrow tonight always never ever forever still yet already next last time times
+    future going forward onwards
+    all any every each both some more most no not yes yeah yep nope ok okay sure fine
+    please pls plz thanks thank thx kindly just also too well very really
+    remember forget note keep mind know
+    video videos project
+""".split())
+_WORD = re.compile(r"(?:[^\W_]|')+")
 _SMILEY = re.compile(r"(?<!\w)(?:[:;=][-'^o]?[()\[\]{}<>|/\\*$@DPpOo03]+|<3+)(?!\w)")  # ":D", ";-)", "<3"
 _STANDING = re.compile(r"^(?:from now on|always|never(?!\s*mind\b)|i (?:like|love|want|prefer|hate|don['’]t want|"
                        r"do not want|never want|always want))\b", re.I)
@@ -74,12 +85,18 @@ _LIST = re.compile(r"^(?:what do you (?:know|remember)|what have you learned|wha
                    r"(?:show|list)(?: me)?(?: your| my)? memor(?:y|ies))\b\s*(?:about|of|on)?\s*(.*)$", re.I | re.S)
 _EXPLAIN = re.compile(r"^(?:why\b|what did you use|explain\b|how did you decide)", re.I)
 _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
-# what keeps a memory to the video, in a video's chat: "for this video" anywhere, "here" only where the words end (or
-# "Here:" before them), so "here's the plan" and a title like "Here Comes the Sun" keep every letter
-_HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b"
-                   r"|(?<![\w'’-])(?:(?:in|right|over)\s+)?here(?=\s*[.!]*\s*$)|^\s*here\s*[:,]", re.I)
-# what "for this video" or "here" leaves at either end of the words: ": ", ", ", " - ", never a minus of a number
-_SCOPE_EDGES = re.compile(r"^(?:[\s:,]|-(?=\s|$))+|(?:[\s:,]|(?<=\s)-)+$")
+# What keeps a memory to the video, in a video's chat: "this video" or "this project", "for/in/on this one", and
+# "here" as a word of its own, in small letters or all capitals ("no captions here, please", "never zoom in here");
+# with a capital only in front of the words ("Here: …", "Here, …"), so a title such as "Here Comes the Sun" is not it,
+# and "here's" and "where" are other words. They only say where the memory applies: the words are kept as they were
+# said, with nothing cut out of them ("never zoom in here" does not become "never zoom").
+_HERE = re.compile(r"(?i:\bthis\s+(?:video|project)\b|\b(?:for|in|on)\s+this\s+one\b|^\s*here\s*[:,])"
+                   r"|(?<![\w'’-])(?:here|HERE)(?![\w'’-])")
+# The one thing left out: a label in front of the words, which says only where they apply and is set apart from them
+# by a colon, a comma or a dash with spaces ("for this video: …", "only for this one, …", "for this video only – …",
+# "here: …"). "Here, There and Everywhere" keeps every word.
+_LABEL = re.compile(r"^\s*(?:(?:(?:only|just)\s+)?(?:for|in|on)\s+this\s+(?:video|one|project)(?:\s+only)?\s*"
+                    r"(?:[:,]|\s[-–—](?=\s))|here\s*:)\s*", re.I)
 
 _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S)
 # What forgets at once: "forget" and a space or a colon, then the words, which start with a letter or a digit, or
@@ -256,6 +273,8 @@ def send(ws: str, chat_id: str, text: object, base_revision: int | None = None, 
         raise ChatError("Say something first.")
     if len(text) > MAX_TEXT:
         raise ChatError(f"Keep a message under {MAX_TEXT} characters.")
+    if forget is not None and choice:  # a quick reply's words are the model's or the editor's: it never forgets
+        raise ChatError("A quick reply cannot forget a memory: press the memory's own Forget button.")
     handle = _routed(chat)
     if handle is not None:
         return handle(ws, chat.get("project_id") or "", text)
@@ -287,8 +306,8 @@ def _answer(chat: dict, text: str, base_revision: int | None, choice: bool = Fal
         return _rules(chat, text, base_revision, choice)
     m = _REMEMBER_EXACT.match(text)
     # "remember: is my intro too long?" is a question for the conversation, and "remember: that" (also "remember: that
-    # for this video") points at something only the conversation can read
-    if m and "?" not in m.group(1) and not _names_nothing(_kept_words(pid, m.group(1))[0]):
+    # for this video" or "remember: it from now on") points at something only the conversation can read
+    if m and "?" not in m.group(1) and not _names_nothing(m.group(1)):
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
     if m and m.group(1).strip() and not choice:  # a quick reply's words are the model's: its Forget card shows them
@@ -312,13 +331,14 @@ def _rules(chat: dict, text: str, base_revision: int | None, choice: bool = Fals
     if _HELP.match(text):
         return {"text": HELP, "data": {"tool": "help"}}
     if _NEVER_MIND.match(text):
-        return {"text": "All right: nothing was kept or forgotten.", "data": {"tool": "help"}}
+        return {"text": NEVER_MIND, "data": {"tool": "help"}}
     m = _REMEMBER.match(text)
     if m:
         return _remember(ws, pid, m.group(1).strip())
     m = _STANDING.match(text)
     if m:
-        if _names_nothing(text[m.end():]):  # "Always.", "Never again", "I like that": no rule or fact of its own
+        # "Always.", "Never again", "I like that", "Always for this video": no rule or fact of its own
+        if _names_nothing(text[m.end():]):
             raise ChatError(_SAY_WHAT)
         return _remember(ws, pid, text)
     m = _FORGET.match(text)
@@ -381,29 +401,30 @@ def _talk(chat: dict, text: str, agent: dict | None) -> dict:
 
 
 _SAY_WHAT = "Say what to remember, for example: remember that my intro is 3 seconds."
+# true of this message only: what an answer before it kept or forgot is not taken back by it
+NEVER_MIND = ("All right, I did nothing with that. What I kept or forgot before stays as it is: to remove a memory, "
+              "press Undo on its answer or say “forget …”.")
 
 
 def _names_nothing(words: str) -> bool:
     """Words that name nothing to remember on their own: no letter or digit once smileys are left out ("😅", ":D"),
-    or only words that point at something said before and words that only ask nicely or say when ("that one,
-    please", "this for later", "it 👍")."""
-    words = _SMILEY.sub(" ", words)
-    if not any(ch.isalnum() for ch in words):
-        return True
-    return all(w in _POINTING or w in _FILLER for w in memories._norm(words).split())  # noqa: SLF001
+    or only words that point at something said before, ask nicely, or say when or where ("that one, please", "this
+    for later", "it 👍", "that from now on", "always for this video"): `_NO_CONTENT`."""
+    said = _WORD.findall(_SMILEY.sub(" ", words).lower().replace("’", "'"))
+    return all(w.strip("'") in _NO_CONTENT for w in said)
 
 
 def _kept_words(pid: str, said: str) -> tuple[str, bool]:
-    """The words "remember …" keeps, and whether they are kept for this video only: one full stop at the end left
-    out, and in a video's chat the words that keep a memory to the video (`_HERE`), with the separators they leave
-    (`_SCOPE_EDGES`): "Remember -3 dB here" keeps "-3 dB"."""
+    """The words "remember …" keeps, and whether they are kept for this video only. The words are the ones said, whole
+    (one full stop at the end left out): in a video's chat "here" or "for this video" (`_HERE`) only says where the
+    memory applies, and nothing is cut out of the words ("never zoom in here" stays "never zoom in here", kept for
+    this video, where it is read). Only a label in front of them goes (`_LABEL`): "for this video: -14 LUFS" keeps
+    "-14 LUFS"."""
     said = said.strip()
     if said.endswith(".") and not said.endswith(".."):
         said = said[:-1].rstrip()
     here = bool(pid) and bool(_HERE.search(said))
-    if here:
-        said = _SCOPE_EDGES.sub("", " ".join(_HERE.sub(" ", said).split()))
-    return said, here
+    return (_LABEL.sub("", said, count=1) if here else said), here
 
 
 def _as_typed(text: str) -> str:

@@ -12,15 +12,13 @@ from __future__ import annotations
 import json
 import logging
 import math
-import re
 import time
 import unicodedata
 from dataclasses import dataclass, field
 
 import numpy as np
 
-from .. import db
-from ..pipeline.text_utils import tokens
+from .. import config, db
 from . import meaning
 
 log = logging.getLogger("clipfoundry.brain")
@@ -59,60 +57,87 @@ class Invalid(ValueError):
         self.status = status
 
 
-_WORDS = re.compile(r"(?:[^\W_]|')+")
-# in front of a number: "-3 dB" is not "+3 dB", "±3 dB" or "3 dB", and ".5 s" is not "5 s"
-_SIGNS = {"-": "-", "+": "+", "−": "-", "–": "-", "±": "±", ".": "."}
-_BETWEEN_DIGITS = ".,:/"  # "0:42" is not "0.42", "16:9" not "169"
+# What never changes what words say, so `_norm` leaves it out: full-width letters, digits and signs (typed with an
+# Asian keyboard) are their plain forms, every dash and minus is "-", every apostrophe "'", and what nobody sees goes:
+# the soft hyphen, the zero-width space, word joiner and byte-order mark, the marks that only set the writing
+# direction, and the ones that only pick how an emoji is drawn. (The zero-width joiner and non-joiner stay: they
+# make other emoji and, in Persian or Hindi, other words.)
+_UNSEEN = ("\u00ad\u200b\u2060\ufeff\u200e\u200f\u061c\u180e\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+           "\ufe0e\ufe0f")
+_PLAIN = {**{c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}, 0x3000: 0x20,
+          **{ord(c): "-" for c in "‐‑‒–—―−﹣"}, **{ord(c): "'" for c in "’‘ʼ"}, **{ord(c): None for c in _UNSEEN}}
+_KEPT_MARKS = frozenset("#%&/@\\‰‱′″‴§¶")  # punctuation that says something: "50%", "#1", "@name", "and/or"
+_QUOTE_LIKE = frozenset("`´")
+
+
+def _edge(ch: str) -> bool:
+    """Punctuation that only separates words or ends a sentence, in any script: quotes, brackets, and marks such as
+    . , ; : ! ? … 。 、 ؟ । (but not the ones in `_KEPT_MARKS`)."""
+    cat = unicodedata.category(ch)
+    return cat in ("Ps", "Pe", "Pi", "Pf") or (cat == "Po" and ch not in _KEPT_MARKS) or ch in _QUOTE_LIKE
+
+
+def _point(token: str, i: int) -> bool:
+    """A point in front of a digit, which belongs to the number: ".5" is not "5"."""
+    return token[i] == "." and token[i + 1:i + 2].isdigit()
 
 
 def _norm(text: object) -> str:
-    """The words of a memory, lower-cased and single-spaced, in any language: the letters and digits of every script,
-    with the marks that belong to a letter (Thai tone marks, Indic vowel signs, accents typed apart) and apostrophes;
-    a sign or a point in front of a number, and a point, comma, colon or slash between two digits, count too. Other
-    punctuation and spacing are ignored: two memories with the same norm say the same thing. Text without a letter or
-    a digit (only emoji) keeps itself. Memories an earlier build stored with its own norm are found too (`saying`)."""
-    t = unicodedata.normalize("NFC", str(text or "")).lower().replace("’", "'")
-    words: list[str] = []
-    word = ""
-    for i, ch in enumerate(t):
-        after = t[i + 1:i + 2]
-        if ch.isalnum() or ch == "'" or (word and unicodedata.category(ch).startswith("M")):
-            word += ch
-        elif ch in _BETWEEN_DIGITS and word[-1:].isdigit() and after.isdigit():
-            word += ch
-        elif ch in _SIGNS and not word and after.isdigit():
-            word = _SIGNS[ch]
-        elif word:
+    """The words of a memory as they are compared: two memories with the same norm say the same thing, so one is
+    written over, merged or forgotten for the other. Only what cannot change what the words say is left out: capital
+    letters, spacing, how a letter with an accent was typed (composed first), full-width forms, the kind of dash or
+    apostrophe, characters nobody sees (`_PLAIN`), and the quotes, brackets and sentence marks around a word
+    (`_edge`), with a dash or a bullet standing alone. Everything else counts, in any language: every letter and mark
+    of a letter (Thai tone marks, Indic vowel signs), digits with what stands in or before them ("-3" is not "+3",
+    "3" or "<3"; "0:42" not "0.42"; ".5" not "5"), signs and symbols ("EV+1" is not "EV-1", "50%" not "50"), a
+    hyphen inside a word ("b-roll" is not "b roll") and emoji. Text with nothing but such marks keeps itself.
+
+    When in doubt the words count as different: two memories then stand side by side, where a wrong match would
+    write one over the other or forget both. One known limit: a quote mark right after a number is a quote here, so
+    5' and 5" (feet and inches, minutes and seconds) are both 5; ′ and ″, "ft", "in", "min" and "s" are told apart."""
+    t = unicodedata.normalize("NFC", str(text or "").translate(_PLAIN))
+    t = unicodedata.normalize("NFC", t.casefold())  # "Straße" is "STRASSE"
+    words = []
+    for token in t.split():
+        start, end = 0, len(token)
+        while start < end and _edge(token[start]) and not _point(token, start):
+            start += 1
+        while end > start and _edge(token[end - 1]):
+            end -= 1
+        word = token[start:end]
+        if word.strip("-"):  # a dash on its own only separates: "music low - voice up"
             words.append(word)
-            word = ""
-    if word:
-        words.append(word)
     return " ".join(words) or " ".join(t.split())
 
 
-def _nov9_norm(text: object) -> str:
-    """The norm stored from Nov 9 to Nov 12 2026: the letters and digits of every script, without the marks that
-    belong to a letter and without signs, so Thai or Hindi words that differ only in such a mark, and "-3 dB" and
-    "+3 dB", stored the same one."""
-    t = str(text or "").lower().replace("’", "'")
-    return " ".join(_WORDS.findall(t)) or " ".join(t.split())
+_norms_current: set[str] = set()  # the databases whose stored norms this process has brought up to date
 
 
-def _legacy_norm(text: object) -> str:
-    """The norm stored before Nov 9 2026: a-z and 0-9 words only, so every memory in another script stored ''."""
-    return " ".join(tokens(str(text or "")))
+def _refresh_norms() -> None:
+    """Store every memory's norm as `_norm` makes it now, once per database in this process, so a lookup by norm
+    finds every memory: one kept by an earlier build has that build's norm until then (a-z and 0-9 words only, in
+    the builds released before this one), and so has one a brain file or an older build added since. One step
+    under the database's write lock; a memory's words, revision and dates stay as they are."""
+    path = str(config.db_path())
+    if path in _norms_current:
+        return
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        for mid, text, norm in conn.execute("SELECT id, text, norm FROM brain_memories").fetchall():
+            now = _norm(text)
+            if now != norm:
+                conn.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (now, mid))
+    _norms_current.add(path)
 
 
 def saying(ws: str, text: object, kinds: tuple[str, ...] = KINDS) -> list[dict]:
     """Every memory of the workspace that says the same words as `text` (`_norm`) as one of these kinds, oldest first,
-    wherever it applies and switched on or off. A norm stored by an earlier build (`_nov9_norm`, `_legacy_norm`) is
-    found too, and every memory found is compared again by its text: those norms were the same for words that differ
-    (every memory in another script before Nov 9; a tone mark, a vowel sign or a sign until Nov 12)."""
+    wherever it applies and switched on or off. Memories an earlier build stored are found too: their stored norms
+    are brought up to date first (`_refresh_norms`), and each memory found is compared again by its words."""
+    _refresh_norms()
     norm = _norm(text)
-    keys = sorted({norm, _nov9_norm(text), _legacy_norm(text)})
-    where = (f"workspace_id = ? AND kind IN ({', '.join('?' for _ in kinds)}) "
-             f"AND norm IN ({', '.join('?' for _ in keys)})")
-    rows = db.select("brain_memories", where, (ws, *kinds, *keys), "created_at ASC")
+    where = f"workspace_id = ? AND kind IN ({', '.join('?' for _ in kinds)}) AND norm = ?"
+    rows = db.select("brain_memories", where, (ws, *kinds, norm), "created_at ASC")
     return [r for r in rows if _norm(r["text"]) == norm]
 
 
@@ -172,7 +197,7 @@ def view(row: dict) -> dict:
 def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said", scope: str | None = None,
              project_id: str = "", platform: str = "", mode: str = "", tags: object = (), data: dict | None = None,
              confidence: float | None = None, expires_at: float | None = None) -> dict:
-    """Keep a memory. The same words (case and spacing ignored) of the same kind in this workspace update the
+    """Keep a memory. The same words (as `_norm` compares them) of the same kind in this workspace update the
     existing memory instead of adding a twin (`twin`): the stronger source and confidence win, the scope widens to
     `all` when the new one says so (otherwise it takes the new scope, its video or platform with it), and a confirmed
     guess no longer expires."""
@@ -222,7 +247,7 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
 
 
 def twin(ws: str, text: object, kind: str | tuple[str, ...]) -> dict | None:
-    """The memory of this workspace that already says `text` (the same words, case and spacing ignored) as this kind
+    """The memory of this workspace that already says `text` (the same words, as `_norm` compares them) as this kind
     (or as one of these kinds, the first found first), or None: with one kind, the one `remember` updates instead of
     adding a twin."""
     for k in (kind,) if isinstance(kind, str) else kind:
@@ -608,7 +633,7 @@ def tidy(ws: str) -> dict:
                                 (ws,)).fetchall():
             r = db._decode("brain_memories", raw)  # noqa: SLF001 - read inside this step's own transaction
             norm = _norm(r["text"])
-            if norm != r["norm"]:  # stored by an earlier build (`saying`): the words it stands for are told apart now
+            if norm != r["norm"]:  # stored by an earlier build and not looked up since (`_refresh_norms`)
                 conn.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (norm, r["id"]))
             groups.setdefault((r["kind"], norm, r["scope"], bool(r["enabled"])), []).append(r)
         for twins in groups.values():

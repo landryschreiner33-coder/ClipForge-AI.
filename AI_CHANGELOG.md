@@ -578,6 +578,50 @@ Landry's projects, could never do anything, and without a downloaded model only 
     `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
     (`tests/test_clipforge_ai_assistant.py`). Frontend: the Undo chip and the "Which one?" button (`ClipForgeAI.tsx`,
     `brain.ts`), `frontend/dist` rebuilt.
+- **A look at the Undo and marks fix** (two reviewers, thirteen findings; six were checked again by one who tried to
+  refute them and held up, the second check of the other seven could not run, so I reproduced each of those myself;
+  each code fix has a test that failed before it). Three rounds in a row had found one more mark or one more phrase
+  the rules missed, so this round changes the rules themselves instead of adding cases:
+  - Words that differ only in a sign after a letter ("亮度+10" and "亮度-10", "EV+1" and "EV-1", "UTC+2" and "UTC-2"),
+    in how a sign is written ("+/-3 dB" and "-3 dB", "+.5" and "-.5", full-width "＋３" and "－３") or in a symbol
+    ("<3 s" and ">3 s") still counted as the same words: the second was written over the first, and forgetting one
+    forgot both. Words are now compared strictly (`memories._norm`). Only what cannot change what they say is left
+    out: capitals, spacing, how an accent or a full-width character was typed, the kind of dash or apostrophe,
+    characters nobody sees, and the quotes, brackets and sentence marks around a word. Every sign, symbol, emoji,
+    hyphen inside a word and mark of a letter counts. When in doubt words are different, so two memories stand side
+    by side instead of one replacing the other. Known limit: a quote mark right after a number is read as a quote,
+    so 5' and 5" are both 5.
+  - A memory an earlier build stored was looked up by guessing that build's stored form from the new words, which
+    missed one whose accent was typed apart ("Café" was stored as "cafe" and asked for as "caf"). The stored forms
+    are now brought up to date once, at the first lookup after a start (`memories._refresh_norms`: one step, the
+    words, revision and dates stay), and every lookup uses the one current form.
+  - In a video's chat, "here" followed by a polite word, a comma, a bracket, a smiley or "too" no longer kept the
+    memory to the video (the last fix broke that), and cutting the place words out of the sentence broke the words:
+    "never zoom in here" was kept as "never zoom", "the music in this video's intro" as "the music 's intro", "slow
+    motion only for this one clip" as "slow motion only clip". "this video", "for this one" and "here" as a word of
+    its own now only say where the memory applies, and the words are kept whole ("Remember -3 dB here" keeps "-3 dB
+    here", for this video). Only a label in front goes: "for this video: -14 LUFS" keeps "-14 LUFS".
+  - "Always for this video.", "Remember that from now on", "Remember it forever" and, in the general chat,
+    "remember: that for this video" were kept as memories. One list of words that name nothing (`chat._NO_CONTENT`:
+    words that point back, ask nicely, or say when or where) now decides it the same way in both chats.
+  - "Never mind" answered "nothing was kept or forgotten" even right after an answer that had kept a memory. It now
+    says it did nothing with that message, that what was kept or forgotten before stays, and how to remove a memory.
+  - A message sent with both `choice` and `forget` forgot at once, against the rule that a quick reply never forgets.
+    It is refused now (422); the page never sends both.
+  - Not changed, on purpose: the same words said again for another video still move that memory there
+    (`memories.remember`, as released, documented and tested); the answer says where it was kept before.
+  - Docs: CLIPFORGE_AI.md (how words compare, earlier builds' memories, "here" and the label, words that name
+    nothing, "never mind", the API list with `POST /api/brain/memories/{id}/undo` and the `forget` field) and the
+    handoff. The privacy page needed no change: what is stored, sent, kept and deleted is the same.
+  - Tests: `test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words` and
+    `test_memories_in_any_language_are_twins_only_when_they_say_the_same_words` (`tests/test_clipforge_ai_brain.py`);
+    `test_remembering_words_a_memory_already_says_offers_no_undo`,
+    `test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule`,
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole` and
+    `test_a_which_one_button_forgets_exactly_the_words_it_shows_whatever_quotes_they_hold`
+    (`tests/test_clipforge_ai_chat.py`);
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`): all seven failed on the code before. No frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

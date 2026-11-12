@@ -102,13 +102,23 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   an emoji, other quote marks …, and a line break of any kind) forgets nothing ("Forget that, keep the music low" is
   a correction); quoted words go only as they are, also with quotes of their own (`chat._quoted`), and only when the
   quote holds all the words ("Forget the “🔇”, keep …" is a correction too); a "Which one?" button sends its
-  memory's words apart from the message (`forget`, `chat._forget_picked`), so its quote marks change nothing; words
-  are compared by `memories._norm`, which keeps the marks of a letter (Thai, Hindi …), the sign or point in front of
-  a number and a point, colon, comma or slash between digits ("-3 dB" is not "+3 dB", "0:42" not "0.42"), and older
-  stored forms are still found (`saying`); words that name nothing on their own, also when they only ask nicely or
-  say when ("Remember that one", "Remember this, please", "remember: that for this video", `chat._names_nothing`)
-  keep nothing, and with a model they go to the conversation; "Never mind" keeps nothing; in a video's chat "here"
-  counts only where the words end (or as "here:" before them); "remember: …" on words a memory of either kind
+  memory's words apart from the message (`forget`, `chat._forget_picked`), so its quote marks change nothing (sent
+  together with `choice` it is refused, 422); words are compared strictly by `memories._norm`: only capitals,
+  spacing, how an accent or a full-width character was typed, the kind of dash or apostrophe, unseen characters and
+  the quotes, brackets and sentence marks around a word are left out, so a sign, a symbol, an emoji, a hyphen inside
+  a word and the marks of a letter all count ("-3 dB" is not "+3 dB", "EV+1" not "EV-1", "<3 s" not ">3 s", "50%"
+  not "50"; when in doubt words are different, and two memories stand side by side); a memory an earlier build
+  stored gets its stored form brought up to date at the first lookup after a start (`memories._refresh_norms`, once
+  per database and process; a test that writes an old form calls `memories._norms_current.clear()` for "a
+  restart"); words that name nothing on their own, also when they only ask nicely or say when or where ("Remember
+  that one", "Remember this, please", "Remember that from now on", "Always for this video", "remember: that for
+  this video", `chat._names_nothing` with the word list `chat._NO_CONTENT`) keep nothing in either chat, and with a
+  model they go to the conversation; "Never mind" keeps nothing and says only that (`chat.NEVER_MIND`: what was
+  kept before stays); in a video's chat "this video", "for this one" or "here" as a word of its own only says where
+  the memory applies (`chat._HERE`), and the words are kept whole ("never zoom in here" stays every word), with
+  only a label in front left out ("for this video: …", "here: …", `chat._LABEL`); the same words said for another
+  video move that memory to the new place, as `memories.remember` always did, and the answer says where it was
+  before; "remember: …" on words a memory of either kind
   already says answers "I already remember …" or "I already had “…”; it now says “…”" with what changed and no Undo
   chip (Undo would forget that older memory); Undo forgets only while the memory is as its answer added it
   (`memories.undo`, `POST /api/brain/memories/{id}/undo`: revision 1 and the chip's words, otherwise 409 and it

@@ -56,7 +56,8 @@ def test_a_memory_said_twice_is_one_memory_with_the_stronger_source(data):
 def test_memories_in_any_language_are_twins_only_when_they_say_the_same_words(data):
     """Words of every script count (before Nov 9 2026 only a-z and 0-9 did, so all memories in Russian, Chinese or
     Arabic had the same norm: a second one merged into the first and replaced its words, and Tidy deleted all but one).
-    Memories saved with that old norm are told apart by their words too."""
+    Memories saved with that old norm are told apart by their words too: the stored form is brought up to date the
+    first time the memories are looked at after a start."""
     from clipfoundry import brain, db
     from clipfoundry.brain import memories
 
@@ -71,7 +72,7 @@ def test_memories_in_any_language_are_twins_only_when_they_say_the_same_words(da
     assert memories.twin(WS, "我的频道是关于山地车的", ("rule", "fact")) is None
     assert brain.remember(WS, "我的频道是关于山地车的")["id"] not in (channel["id"], other["id"], rule["id"])
     assert memories._norm("Café au lait, s'il vous plaît!") == "café au lait s'il vous plaît"  # noqa: SLF001
-    assert memories._norm("Keep my intro < 3 s") == memories._legacy_norm("Keep my intro < 3 s")  # noqa: SLF001
+    assert memories._norm("Keep my intro < 3 s") == "keep my intro < 3 s"  # noqa: SLF001
     assert memories._norm("🔥🔥") == "🔥🔥" and memories.twin(WS, "👍", "fact") is None  # noqa: SLF001
     with pytest.raises(brain.Invalid):  # an edit into another memory's words is refused, in any language
         brain.edit(WS, other["id"], text="Мой канал о велоспорте в горах")
@@ -80,7 +81,9 @@ def test_memories_in_any_language_are_twins_only_when_they_say_the_same_words(da
     # saved before: every one of these had the norm ''
     for row in (channel, other, rule):
         db.execute("UPDATE brain_memories SET norm = '' WHERE id = ?", (row["id"],))
+    memories._norms_current.clear()  # noqa: SLF001  (a new start of the app)
     assert memories.twin(WS, "Мой канал о походах", "fact")["id"] == other["id"]
+    assert db.fetch("brain_memories", rule["id"])["norm"] == "никогда не используй красные субтитры"
     assert memories.twin(WS, "Мой канал о рыбалке", "fact") is None
     assert brain.tidy(WS) == {"expired": 0, "merged": 0}  # nothing deleted: they say different things
     assert len(brain.list_(WS)) == 4
@@ -91,44 +94,85 @@ def test_memories_in_any_language_are_twins_only_when_they_say_the_same_words(da
 
 
 def test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words(data):
-    """A Thai tone mark, an Indic vowel sign and the sign or point in front of a number belong to the words, and so
-    does a point, comma, colon or slash between two digits: until Nov 12 2026 they were left out, so "-3 dB" and
-    "+3 dB" were twins (the second replaced the first, and forgetting one forgot both). Memories saved with that norm
-    are told apart by their words too, and Tidy stores the new one."""
+    """Words are compared strictly: only what cannot change their meaning is left out (capitals, spacing, how a
+    letter with an accent or a full-width character was typed, the kind of dash or apostrophe, and quotes, brackets
+    and sentence marks around a word). A Thai tone mark, an Indic vowel sign, a sign, a symbol, an emoji, a hyphen
+    inside a word and a point, comma, colon or slash inside a number all belong to the words. Until Nov 12 2026 some
+    were left out, so "-3 dB" and "+3 dB", then "亮度+10" and "亮度-10", "EV+1" and "EV-1" or "<3 s" and ">3 s" were
+    twins: the second replaced the first, and forgetting one forgot both. Memories saved with an earlier form are
+    told apart by their words too."""
     import re
+    import unicodedata
 
     from clipfoundry import brain, db
     from clipfoundry.brain import memories
 
     pairs = [("ตัดคลิปข่าวออก", "ตัดคลิปข้าวออก"), ("संगीत तेज़ रखो", "संगीत ताज़ा रखो"),
              ("Voice at -3 dB", "Voice at +3 dB"), ("The cut at 0:42 stays", "The cut at 0.42 stays"),
-             ("Fade in over .5 s", "Fade in over 5 s"), ("Music ±2 dB", "Music 2 dB")]
+             ("Fade in over .5 s", "Fade in over 5 s"), ("Music ±2 dB", "Music 2 dB"),
+             ("亮度+10", "亮度-10"), ("Shoot at EV+1", "Shoot at EV-1"), ("Post at 18:00 UTC+2", "Post at 18:00 UTC-2"),
+             ("Peaks within +/-3 dB", "Peaks within -3 dB"), ("Gain +.5 dB", "Gain -.5 dB"),
+             ("音量を＋３ｄＢ", "音量を－３ｄＢ"), ("Intro <3 s", "Intro >3 s"), ("Clips ≤ 60 s", "Clips ≥ 60 s"),
+             ("Captions at 50%", "Captions at 50"), ("Mute the music 🔇", "Mute the music 🔊"),
+             ("Use b-roll", "Use b roll"), ("Tag it #1", "Tag it 1"), ("Credit @trailnotes", "Credit trailnotes"),
+             ("Budget $5", "Budget €5"), ("Speed x2", "Speed ×2"), ("Colour C++ blue", "Colour C blue")]
     kept = []
     for one, other in pairs:
         a, b = brain.remember(WS, one), brain.remember(WS, other)
         assert a["id"] != b["id"] and (a["revision"], b["revision"]) == (1, 1), (one, other)
         kept += [a, b]
     norm = memories._norm  # noqa: SLF001
-    assert norm("café") == norm("café") == "café"  # an accent typed apart is the same letter
-    assert norm("−3 dB") == norm("-3 dB") == "-3 db" and norm("2-3 s") == "2 3 s" and norm("a-3") == "a 3"
+    assert norm("cafe\u0301") == norm("caf\u00e9") == "caf\u00e9"  # an accent typed apart is the same letter
+    assert norm("−3 dB") == norm("-3 dB") == norm("–3 dB") == "-3 db" and norm("2-3 s") == "2-3 s"
+    assert norm("a-3") == "a-3" and norm("music low - voice up") == norm("music low — voice up") == "music low voice up"
     assert norm("1,000 views at 16:9") == "1,000 views at 16:9" and norm("The end. 5 more") == "the end 5 more"
+    assert norm("＋３ｄＢ　ＯＫ") == norm("+3dB ok") == "+3db ok" and norm("Straße") == norm("STRASSE") == "strasse"
+    assert norm("Call it “Trail Notes”!") == norm("call it (trail notes)") == norm("call it 'Trail Notes'.") \
+        == "call it trail notes"
+    assert norm("keep\u200b the music\u00ad low\ufeff") == "keep the music low"  # what nobody sees is left out
+    assert norm("\u202bאל תזיז\u202c") == "אל תזיז"
+    # a joiner makes another emoji or word
+    assert norm("👨\u200d👩\u200d👧") != norm("👨👩👧") and norm("می\u200cخواهم") != norm("میخواهم")
+    assert norm("- keep it low") == norm("• keep it low") == norm("**Keep** it low…") == "keep it low"
+    assert norm("fade in over .5 s.") == "fade in over .5 s" and norm("it’s") == norm("it's") == "it's"
+    assert norm("❤️") == norm("❤") and norm("...") == "..." and norm("  ") == ""
     assert [m["text"] for m in memories.forget_words(WS, "voice at -3 dB")] == ["Voice at -3 dB"]
+    assert [m["text"] for m in memories.forget_words(WS, "亮度+10")] == ["亮度+10"]
+    assert [m["text"] for m in memories.forget_words(WS, "intro >3 s")] == ["Intro >3 s"]
     assert brain.remember(WS, "voice at +3 dB.")["id"] == kept[5]["id"]  # the same words: the same memory
+    assert brain.remember(WS, "音量を+3dB")["id"] == kept[22]["id"]  # typed on a full-width keyboard or not
+    gone = {kept[4]["id"], kept[12]["id"], kept[25]["id"]}
 
-    # saved before Nov 12 2026, with the norm that left the marks and signs out
-    def old(text: str) -> str:
+    # saved by an earlier build: on Nov 9-11 2026 with the form that left marks and signs out, before with only a-z
+    def nov9(text: str) -> str:
         return " ".join(re.findall(r"(?:[^\W_]|')+", text.lower().replace("’", "'")))
 
-    left = [m for m in kept if m["id"] != kept[4]["id"]]
-    for m in left:
-        db.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (old(m["text"]), m["id"]))
-    assert old(pairs[0][0]) == old(pairs[0][1]) and old(pairs[1][0]) == old(pairs[1][1])
+    def released(text: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9']+", text.lower().replace("’", "'")))
+
+    left = [m for m in kept if m["id"] not in gone]
+    for i, m in enumerate(left):
+        db.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", ((nov9, released)[i % 2](m["text"]), m["id"]))
+    apart = brain.remember(WS, unicodedata.normalize("NFD", "Café music in the intro"))  # the accent typed apart
+    db.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (released(apart["text"]), apart["id"]))
+    assert nov9(pairs[0][0]) == nov9(pairs[0][1]) and released(pairs[6][0]) == released(pairs[6][1]) == "10"
+    assert released(apart["text"]) == "cafe music in the intro" != released("Café music in the intro")
+    was = {m["id"]: brain.get(WS, m["id"]) for m in left}
+    memories._norms_current.clear()  # noqa: SLF001  (a new start of the app)
+    assert memories.twin(WS, "Café music in the intro", "fact")["id"] == apart["id"]  # found by either spelling
+    for mid, m in was.items():  # only the stored form changed: the words, the revision and the dates are as they were
+        now = brain.get(WS, mid)
+        assert (now["text"], now["revision"], now["updated_at"]) == (m["text"], m["revision"], m["updated_at"])
+        assert now["norm"] == norm(m["text"])
     assert memories.twin(WS, "ตัดคลิปข้าวออก", "fact")["id"] == kept[1]["id"]
     assert memories.twin(WS, "Fade in over 5 s", "fact")["id"] == kept[9]["id"]
+    assert memories.twin(WS, "亮度-10", "fact")["id"] == kept[13]["id"] and memories.twin(WS, "亮度+10", "fact") is None
     assert [m["text"] for m in memories.forget_words(WS, "ตัดคลิปข่าวออก")] == ["ตัดคลิปข่าวออก"]
+    assert [m["text"] for m in memories.forget_words(WS, "shoot at ev-1")] == ["Shoot at EV-1"]
     assert brain.tidy(WS) == {"expired": 0, "merged": 0}  # nothing merged: they say different things
-    assert {m["id"] for m in brain.list_(WS)} == {m["id"] for m in left[1:]}
-    assert all(db.fetch("brain_memories", m["id"])["norm"] == norm(m["text"]) for m in left[1:])
+    still = [m for m in left if m["id"] not in (kept[0]["id"], kept[15]["id"])] + [apart]
+    assert {m["id"] for m in brain.list_(WS)} == {m["id"] for m in still}
+    assert all(db.fetch("brain_memories", m["id"])["norm"] == norm(m["text"]) for m in still)
 
 
 def test_recall_puts_the_rules_first_finds_by_meaning_and_keeps_to_the_scope_and_budget(data):

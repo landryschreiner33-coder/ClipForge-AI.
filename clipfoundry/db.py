@@ -700,7 +700,7 @@ CREATE TABLE IF NOT EXISTS brain_memories (   -- ClipForge AI's memories (brain/
     workspace_id TEXT NOT NULL DEFAULT 'local',
     kind TEXT NOT NULL,                       -- rule | fact | episode | asset | answer
     text TEXT NOT NULL,                       -- the memory in plain words (what a model reads)
-    norm TEXT NOT NULL DEFAULT '',            -- the words lower-cased and single-spaced (twins are merged)
+    norm TEXT NOT NULL DEFAULT '',            -- the words as they are compared (brain/memories._norm)
     source TEXT NOT NULL DEFAULT 'said',      -- said | did | guessed | imported
     confidence REAL DEFAULT 1.0,
     scope TEXT DEFAULT 'all',                 -- all | project:<id> | platform:<name> | mode:<clips|video>
