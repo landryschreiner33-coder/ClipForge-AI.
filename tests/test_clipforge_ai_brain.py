@@ -154,6 +154,15 @@ def test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words(data):
     assert norm("End on :)") == "end on :)" and norm("5' or 5\"") == "5 or 5"  # the one known limit
     assert norm("fade in over .5 s.") == "fade in over .5 s" and norm("it’s") == norm("it's") == "it's"
     assert norm("❤️") == norm("❤") and norm("...") == "..." and norm("  ") == ""
+    # behind a word, the marks that end a sentence in other scripts are left out like . , ! ? (they were not: the
+    # same words with and without the full stop of Armenian, Amharic, Khmer, Tibetan … were two memories)
+    for word, stop in (("բարև", "։"), ("ሰላም", "።"), ("ሰላም", "፣"), ("សួស្តី", "។"), ("བཀྲ་ཤིས", "།"), ("မင်္ဂလာပါ", "။"),
+                       ("ｺﾝﾆﾁﾊ", "｡"), ("καλημέρα", "·"), ("καλημέρα", "\u0387"), ("τι", "\u037e"), ("नमस्ते", "॥"),
+                       ("مرحبا", "؟"), ("你好", "。"), ("wow", "‼"), ("ᠰᠠᠢᠨ", "᠃"), ("ꯍꯥꯏ", "꯫"), ("ok", "․")):
+        assert norm(word + stop) == norm(f"“{word}”{stop}{stop}") == norm(word) != "", (word, stop)
+    assert norm("ሰላም ። ዓለም") == "ሰላም ። ዓለም" and norm("։") == "։"  # standing alone, a mark counts as it is
+    assert norm("col·lecció") == "col·lecció" and norm("a։b") == "a։b" and norm("։բարև") == "։բարև"  # only behind
+    assert len(memories._STOPS) == 295  # noqa: SLF001  (Unicode's list, written out: the same in every Python)
     assert [m["text"] for m in memories.forget_words(WS, "voice at -3 dB")] == ["Voice at -3 dB"]
     assert [m["text"] for m in memories.forget_words(WS, "亮度+10")] == ["亮度+10"]
     assert [m["text"] for m in memories.forget_words(WS, "intro >3 s")] == ["Intro >3 s"]
@@ -222,7 +231,10 @@ def test_tidy_first_thing_after_a_start_goes_by_the_words_and_not_by_a_form_an_e
 
 def test_memories_that_hold_the_words_named_are_found_by_their_words_in_any_script(data):
     """`holding` finds the memories whose words hold the words named, whole and in that order, whatever the script
-    and however short (the search by meaning reads only longer Latin words): what "forget …" offers to pick from."""
+    and however short (the search by meaning reads only longer Latin words): what "forget …" offers to pick from.
+    In scripts written without spaces between words (Chinese, Japanese, Thai) and in Korean, whose words carry their
+    endings, a part of the words is found wherever it stands; a Latin word or a number next to such a character is
+    a whole word too. (Until Nov 12 2026 only words set apart by spaces were found.)"""
     from clipfoundry import brain, db
     from clipfoundry.brain import memories
 
@@ -239,6 +251,14 @@ def test_memories_that_hold_the_words_named_are_found_by_their_words_in_any_scri
     assert held("друзья") == held("“Привет, друзья”") == ["«Привет, друзья» в начале"]
     assert held("garde la musique basse") == ["Garde la musique basse !"] and held("sits at") == held("-3 dB.")[1:]
     assert held("dB -3") == held("penguins") == held("  ") == held("") == []
+    for text in ("字幕は黄色で", "不要背景音乐", "ไม่ใช้เพลงประกอบ", "자막은 노란색으로", "イントロは5秒", "字幕はYouTube用"):
+        brain.remember(WS, text)
+    assert held("字幕") == ["字幕はYouTube用", "字幕は黄色で"] and held("黄色") == held("黄色で") == ["字幕は黄色で"]
+    assert held("背景音乐") == ["不要背景音乐"] and held("เพลง") == ["ไม่ใช้เพลงประกอบ"]
+    assert held("자막") == held("노란색") == held("자막은 노란색") == ["자막은 노란색으로"]  # a word without its ending
+    assert held("5秒") == held("5") == ["イントロは5秒"] and held("youtube") == ["字幕はYouTube用"]
+    assert held("Tube") == held("You") == held("黄色は") == held("音乐背景") == []  # whole Latin words, and in order
+    assert held("3") == ["3 dB of headroom"] and held("d") == []  # a letter inside a Latin word is still no word
     assert [m["text"] for m in memories.holding(WS, "dB", 2)] == ["3 dB of headroom", "+3 dB on the music"]  # newest
     db.execute("UPDATE brain_memories SET norm = '3 db here' WHERE text = '-3 dB here'")  # an earlier build's form
     memories._norms_current.clear()  # noqa: SLF001  (a new start of the app)
@@ -462,8 +482,8 @@ def test_the_same_words_said_again_while_their_memory_changes_or_goes_are_kept(d
         brain.forget(WS, other["id"]) if meanwhile != "tidy" else None
         once = []
 
-        def twin(ws, text, kind):
-            found = real(ws, text, kind)
+        def twin(ws, text, kind, scope=None):
+            found = real(ws, text, kind, scope)
             if not once:
                 once.append(1)
                 if meanwhile == "forget":
@@ -556,6 +576,45 @@ def test_the_same_words_kept_for_every_video_and_for_one_are_read_once_and_left_
     assert brain.tidy(WS) == {"expired": 0, "merged": 0}
     assert [p["text"] for p in brain.check(WS)["problems"] if p["code"] == "duplicates"] == [
         "1 memories look like twins (review them; Tidy merges exact twins kept for the same videos)"]
+
+
+def test_the_same_words_kept_for_two_videos_are_two_memories_everywhere(data):
+    """Where a memory is kept is part of what it is, so the same words kept for two videos are two memories: what
+    happened in one video is not taken from the other (an episode with the same words used to move to the video
+    that wrote it last), a brain file brings both back, a memory may be edited to say what another video's memory
+    says, and the brain check does not call them twins. The same words in one place, or beside a memory for every
+    video, are still one memory or a twin."""
+    from clipfoundry import brain
+
+    first = brain.episode(WS, "Asked \"remove the silences\" → proposed 3 cuts", project_id="p1")
+    second = brain.episode(WS, "Asked \"remove the silences\" → proposed 3 cuts", project_id="p2")
+    assert first["id"] != second["id"] and brain.get(WS, first["id"])["project_id"] == "p1"
+    assert brain.episode(WS, "Asked \"remove the silences\" → proposed 3 cuts", project_id="p2")["id"] == second["id"]
+    one = brain.remember(WS, "No captions here", kind="rule", project_id="p1")
+    two = brain.remember(WS, "No captions here", kind="rule", project_id="p2")
+    tik = brain.remember(WS, "No captions here", kind="rule", platform="tiktok")
+    assert len({one["id"], two["id"], tik["id"]}) == 3
+    assert [m["id"] for m in brain.recall("captions", WS, project_id="p1").memories] == [one["id"]]
+    assert [m["id"] for m in brain.recall("captions", WS, project_id="p2").memories] == [two["id"]]
+    assert brain.tidy(WS) == {"expired": 0, "merged": 0}
+    assert [p for p in brain.check(WS)["problems"] if p["code"] == "duplicates"] == []  # each is its place's own
+    # a brain file brings each of them back (the second used to be skipped: "a memory says those words already")
+    file = brain.export(WS)
+    assert brain.import_("studio", file) == {"added": 5, "updated": 0, "skipped": 0, "invalid": 0}
+    assert sorted(m["scope"] for m in brain.list_("studio", kind="rule")) == ["platform:tiktok", "project:p1",
+                                                                             "project:p2"]
+    assert brain.import_("studio", file) == {"added": 0, "updated": 0, "skipped": 5, "invalid": 0}  # nothing twice
+    # an edit may say what another video's memory says; not what one in the same place or for every video says
+    other = brain.remember(WS, "Keep the cuts slow", kind="rule", project_id="p3")
+    assert brain.edit(WS, other["id"], text="no captions here!")["text"] == "no captions here!"  # as p1's and p2's
+    with pytest.raises(brain.Invalid):
+        brain.edit(WS, other["id"], scope="project:p1", text="no captions here")  # one in that place says it
+    everywhere = brain.remember(WS, "Fade the music out at the end", kind="rule")
+    with pytest.raises(brain.Invalid):
+        brain.edit(WS, everywhere["id"], text="No captions here")  # for every video: the videos' own say it
+    late = brain.remember(WS, "Captions in white", kind="rule", project_id="p4")
+    with pytest.raises(brain.Invalid):
+        brain.edit(WS, late["id"], text="fade the music out at the end")  # the one for every video says it
 
 
 def test_guesses_expire_unless_confirmed_and_forget_removes_a_memory_with_its_uses(data):

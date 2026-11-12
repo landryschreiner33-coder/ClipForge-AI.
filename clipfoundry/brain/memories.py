@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import time
 import unicodedata
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ import numpy as np
 
 from .. import config, db
 from . import meaning
+from .tools import whole
 
 log = logging.getLogger("clipfoundry.brain")
 
@@ -67,10 +69,30 @@ _UNSEEN = ("\u00ad\u200b\u2060\ufeff\u200e\u200f\u061c\u180e\u202a\u202b\u202c\u
 _PLAIN = {**{c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}, 0x3000: 0x20,
           **{ord(c): "-" for c in "‐‑‒–—―−﹣"}, **{ord(c): "'" for c in "’‘ʼ"}, **{ord(c): None for c in _UNSEEN}}
 # The only marks `_norm` leaves out, and only at the edge of a word that has a letter or a digit: quotes and brackets
-# on either side (`_around`), ¿ and ¡ in front, and behind it the marks that end a sentence or a part of one.
+# on either side (`_around`), ¿ and ¡ in front, and behind it the marks that end a sentence or a part of one, in any
+# script. Those are Unicode's own list (the property Terminal_Punctuation, as of Unicode 17: . , ; : ! ? and the
+# Armenian ։, Arabic ، ؛ ؟, Devanagari ।, Ethiopic ። ፣, Khmer ។, Tibetan །, Burmese ။, Chinese 。 、, half-width ｡ ､
+# and their like), written out here so that every Python reads the same list, with … and with · (what the Greek
+# raised point is once composed).
 _QUOTES = frozenset("'\"`´")
 _OPENING = frozenset("¿¡")
-_STOPS = frozenset(".,;:!?…。、،؛؟۔।॥")
+_STOPS = frozenset(chr(c) for run in (
+    "21 2c 2e 3a-3b 3f b7 37e 387 589 5c3 60c 61b 61d-61f 6d4 700-70a 70c 7f8-7f9 830-835 837-83e 85e 964-965 "
+    "e5a-e5b f08 f0d-f12 104a-104b 1361-1368 166e 16eb-16ed 1735-1736 17d4-17d6 17da 1802-1805 1808-1809 1944-1945 "
+    "1aa8-1aab 1b4e-1b4f 1b5a-1b5b 1b5d-1b5f 1b7d-1b7f 1c3b-1c3f 1c7e-1c7f 2024 2026 203c-203d 2047-2049 2cf9-2cfb "
+    "2e2e 2e3c 2e41 2e4c 2e4e-2e4f 2e53-2e54 2e60-2e61 3001-3002 a4fe-a4ff a60d-a60f a6f3-a6f7 a876-a877 a8ce-a8cf "
+    "a92f a9c7-a9c9 aa5d-aa5f aadf aaf0-aaf1 abeb fe12 fe15-fe16 fe50-fe52 fe54-fe57 ff01 ff0c ff0e ff1a-ff1b ff1f "
+    "ff61 ff64 1039f 103d0 10857 1091f 10a56-10a57 10af0-10af5 10b3a-10b3f 10b99-10b9c 10f55-10f59 10f86-10f89 "
+    "11047-1104d 110be-110c1 11141-11143 111c5-111c6 111cd 111de-111df 11238-1123c 112a9 113d4-113d5 1144b-1144d "
+    "1145a-1145b 115c2-115c5 115c9-115d7 11641-11642 1173c-1173e 11944 11946 11a42-11a43 11a9b-11a9c 11aa1-11aa2 "
+    "11c41-11c43 11c71 11ef7-11ef8 11f43-11f44 12470-12474 16a6e-16a6f 16af5 16b37-16b39 16b44 16d6e-16d6f "
+    "16e97-16e98 1bc9f 1da87-1da8a"
+).split() for c in range(int(run.split("-")[0], 16), int(run.split("-")[-1], 16) + 1))
+# Scripts written without spaces between words (Thai, Lao, Tibetan, Burmese, Khmer, Chinese, Japanese), and Korean,
+# whose words carry their endings: there a part of a memory's words starts and ends anywhere (`holding`).
+_UNSPACED = re.compile("[\u0e00-\u0eff\u0f00-\u0fff\u1000-\u109f\u1100-\u11ff\u1780-\u17ff\u3005-\u3007\u3040-\u30ff"
+                       "\u3130-\u318f\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\ua960-\ua97f\ua9e0-\ua9ff\uaa60-\uaa7f"
+                       "\uac00-\ud7ff\uf900-\ufaff\uff66-\uff9f\U00020000-\U0003ffff]")
 
 
 def _around(ch: str) -> bool:
@@ -142,27 +164,55 @@ def saying(ws: str, text: object, kinds: tuple[str, ...] = KINDS) -> list[dict]:
     return [r for r in rows if _norm(r["text"]) == norm]
 
 
+def _holds(words: str, part: str) -> bool:
+    """Whether `words` hold `part` as whole words (both as `_norm` gives them): each end of the part stands at an end
+    of the words or at a space, or one of the two characters that meet there belongs to a script written without
+    spaces (`_UNSPACED`: "字幕" is in "字幕は黄色で", and "YouTube" in "字幕はYouTube用")."""
+    at = words.find(part)
+    while at >= 0:
+        end = at + len(part)
+        if (at == 0 or words[at - 1] == " " or _UNSPACED.match(part[0]) or _UNSPACED.match(words[at - 1])) and \
+                (end == len(words) or words[end] == " " or _UNSPACED.match(part[-1]) or _UNSPACED.match(words[end])):
+            return True
+        at = words.find(part, at + 1)
+    return False
+
+
 def holding(ws: str, text: object, limit: int = 20) -> list[dict]:
     """The memories of the workspace whose words hold the words of `text` as they stand and in that order (`_norm`;
     whole words, so "3 dB" is not in "-3 dB"), newest first: what "forget …" offers when the words named are a part
-    of a memory. It reads the words themselves, so it finds a memory in any script and by a number or a short word,
-    which the search by meaning (`list_`) leaves out."""
+    of a memory. It reads the words themselves, so it finds a memory by a number, a short word or a word in another
+    script, which the search by meaning (`list_`) leaves out; in a script written without spaces between words, a
+    part of the words is found wherever it stands (`_holds`)."""
     part = _norm(text)
     if not part:
         return []
     _refresh_norms()
-    rows = db.select("brain_memories", "workspace_id = ? AND instr(' ' || norm || ' ', ?) > 0", (ws, f" {part} "),
-                     "created_at DESC", max(1, min(int(limit), 1000)))
-    return [r for r in rows if f" {part} " in f" {_norm(r['text'])} "]
+    with db.connect() as conn:  # the stored forms first (they are up to date), then each memory found by its words
+        rows = conn.execute("SELECT id, norm FROM brain_memories WHERE workspace_id = ? AND instr(norm, ?) > 0 "
+                            "ORDER BY created_at DESC", (ws, part)).fetchall()
+    ids = [mid for mid, norm in rows if _holds(norm, part)][:max(1, min(int(limit), 500))]
+    found = {r["id"]: r for r in db.select("brain_memories", f"id IN ({', '.join('?' for _ in ids)})", ids)} \
+        if ids else {}
+    return [r for r in (found.get(mid) for mid in ids) if r and _holds(_norm(r["text"]), part)]
 
 
-def _same_words(ws: str, kind: str, text: object, *, other_than: str = "") -> dict | None:
-    """The oldest memory of this kind in the workspace that says the same words as `text` (`saying`), or None."""
-    return next((r for r in saying(ws, text, (kind,)) if r["id"] != other_than), None)
+def _same_words(ws: str, kind: str, text: object, *, other_than: str = "", scope: str | None = None) -> dict | None:
+    """The memory of this kind in the workspace that says the same words as `text` (`saying`), or None: the oldest.
+    With `scope`, where the words are to be kept: the memory that is theirs to write over. Where a memory is kept is
+    part of what it is, so one kept for another video, platform or kind of project than `scope` is left out (the
+    same words said for two videos are two memories: "no captions here"); the one kept in that very place comes
+    first, then one kept for every video (it stays so), then, for words to keep for every video, the oldest kept
+    anywhere (it widens)."""
+    rows = [r for r in saying(ws, text, (kind,)) if r["id"] != other_than]
+    if scope is not None:
+        rows = [r for r in rows if scope == "all" or (r["scope"] or "all") in (scope, "all")]
+        rows.sort(key=lambda r: (r["scope"] != scope, (r["scope"] or "all") != "all"))  # stable: oldest of each first
+    return rows[0] if rows else None
 
 
 def _clean(text: object, what: str = "remember") -> str:
-    out = " ".join(str(text or "").split())
+    out = " ".join(whole(str(text or "")).split())  # half of an emoji cannot be saved: it is left out
     if not out:
         raise Invalid(f"Say what to {what}.")
     if len(out) > MAX_TEXT:
@@ -208,14 +258,77 @@ def view(row: dict) -> dict:
     return out
 
 
+# ------------------------------------------------------------------ where words apply
+# Said in a video's chat, what keeps a memory to that video: words that point at it. "This video", "this project" or
+# "this one", with or without "for", "in" or "on" before them; a piece of it ("this clip", "this shot", "this scene",
+# "these clips"); or "here" as a word of its own, in small letters or all capitals ("no captions here, please",
+# "never zoom in here"; with a capital only in front of the words, "Here: …" or "Here, …", so a title such as "Here
+# Comes the Sun" is not it, and "here's" and "where" are other words). Such words can only be read in this video's
+# chat: in another one "this video" means that other video, so "this video is private, never upload it again" must
+# not become a rule for every video. Other things said with "this" ("this channel", "this style", "this video-game
+# series") say nothing about where, and neither do words that only bring on what follows: "this one thing: …",
+# "this one rule", and "here is …" or "here are …" in front of the words.
+_THIS_VIDEO = re.compile(r"(?i:\bthis (?:video|project|clip|shot|scene|one(?! (?:thing|rule|fact|note|point|tip|trick"
+                         r"|request|favou?r|exception|detail)s?\b))(?![\w-])"
+                         r"|\bthese (?:clips|shots|scenes)(?![\w-]))|(?<![\w'’-])(?:here|HERE)(?![\w'’-])")
+_HERE_FIRST = re.compile(r"here ?[:,]", re.I)
+_HERE_IS = re.compile(r"here (?:is|are|comes?|goes?)\b", re.I)
+# Only two turns of speech make them reach further, and then the memory is for every video: "not only" or "not just"
+# right before them ("not only in this video", "not just here"), and "from here on" where it can only mean from now
+# on: in front of the words, at their end or before a comma, or as "from here on out" or "from here onwards" ("put
+# the logo from here on the thumbnail" speaks of this video).
+_NOT_ONLY = re.compile(r"\bnot (?:only|just) (?:(?:for|in|on) )?$", re.I)
+_FROM_ON = (re.compile(r"\bfrom $", re.I), re.compile(r" (?:on(?:wards?)?|out)\b", re.I))
+_FROM_NOW_ON = re.compile(r" (?:on out\b|onwards?\b|(?:on|out)(?=$|[,.;:!?]))", re.I)
+_BEFORE = 24  # the characters before the pointing words that these patterns read: more than the longest of them
+# Words kept for this video may still have been meant as a rule for every video: when they also speak of other
+# videos or of later ("every video", "all my videos", "the next ones", "never … again", "next time", "from now on",
+# "in future", "starting with …", "from this video on"), or liken something to this one ("like in this video",
+# "shorter than this video", "the same as here", "unlike here"). They stay with this video, the only place where
+# they can be read, and the answer says why, and how to say them for every video (`chat._applies`, `toolbox._keep`).
+_LIKENS = re.compile(r"\b(?:(?:like|than|unlike) (?:(?:for|in|on) )?|as (?:(?:in|on) )?)$", re.I)
+_PIECE = re.compile(r"(?:clip|shot|scene)s?$", re.I)  # "from this shot on" is a place in this video
+_ELSEWHERE = re.compile(
+    r"\b(?:every|each|all|other|another|next|future)(?: (?:of|my|the|your|our|other|next|new|few|future))* "
+    r"(?:videos?|projects?|ones?)\b|\b(?:never|don['’]t|do not|no more)\b.*\bagain\b"
+    r"|\bnext time\b|\bfrom now on\b|\bin (?:the )?future\b|\bgoing forward\b"
+    r"|\b(?:starting|beginning) (?:with|from)\b|\bas of\b", re.I)
+
+
+def points_here(said: object) -> tuple[str, bool]:
+    """What words said in a video's chat say about where they apply: the first of them that point at this video
+    ("this video", "this one", "here"; "" when none do, or each only reaches further: "not only this video", "from
+    here on"), and whether the words that point at it also speak of other videos or of later, or liken something to
+    this one (`_THIS_VIDEO` and the patterns after it)."""
+    said = " ".join(str(said or "").split())
+    points, further = (said[:4] if _HERE_FIRST.match(said) else ""), False
+    for m in _THIS_VIDEO.finditer(said, 4 if _HERE_IS.match(said) else 0):  # "here is the plan: …" names no place
+        before = said[max(0, m.start() - _BEFORE):m.start()]
+        from_on = bool(_FROM_ON[0].search(before) and _FROM_ON[1].match(said, m.end()))
+        if _NOT_ONLY.search(before) or (from_on and m.group().lower() == "here"
+                                        and (m.start() == 5 or _FROM_NOW_ON.match(said, m.end()))):
+            continue  # "not only in this video", "not just here"; "from here on, …": from now on
+        points = points or m.group()
+        further = further or bool(_LIKENS.search(before)) or (from_on and not _PIECE.search(m.group()))
+    return points, bool(points) and (further or bool(_ELSEWHERE.search(said)))
+
+
+def said_instead(points: str) -> str:
+    """What to say in place of words that point at this video, so that the words read the same in any chat and can
+    be kept for every video: the video's name, or for a piece of it ("this clip", "these shots") which one."""
+    piece = _PIECE.search(points)
+    return f"which {piece.group().lower()}" if piece else "the video's name"
+
+
 # ------------------------------------------------------------------ writing
 def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said", scope: str | None = None,
              project_id: str = "", platform: str = "", mode: str = "", tags: object = (), data: dict | None = None,
              confidence: float | None = None, expires_at: float | None = None) -> dict:
-    """Keep a memory. The same words (as `_norm` compares them) of the same kind in this workspace update the
-    existing memory instead of adding a twin (`twin`): the stronger source and confidence win, the scope widens to
-    `all` when the new one says so (otherwise it takes the new scope, its video or platform with it), and a confirmed
-    guess no longer expires."""
+    """Keep a memory. The same words (as `_norm` compares them) of the same kind kept in the same place, or for every
+    video, update that memory instead of adding a twin (`twin`): the stronger source and confidence win, and a
+    confirmed guess no longer expires. Words to keep for every video widen the memory that says them for one video
+    or platform. A memory never moves from one place to another: the same words kept for another video (or platform,
+    or kind of project) are a memory of their own, so what was said for one video stays with it."""
     if kind not in KINDS:
         raise Invalid(f"A memory is one of: {', '.join(KINDS)}.")
     if source not in SOURCES:
@@ -231,7 +344,7 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
         expires_at = time.time() + GUESS_DAYS * 86400
     norm = _norm(text)
     for _ in range(5):  # the twin changed or went between reading and writing it (Tidy, Forget, an edit): again
-        old = twin(ws, text, kind)
+        old = twin(ws, text, kind, scope)
         if not old:
             break
         stronger = source if RANK[source] >= RANK[old["source"]] else old["source"]
@@ -261,12 +374,13 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
     return db.insert("brain_memories", row)
 
 
-def twin(ws: str, text: object, kind: str | tuple[str, ...]) -> dict | None:
+def twin(ws: str, text: object, kind: str | tuple[str, ...], scope: str | None = None) -> dict | None:
     """The memory of this workspace that already says `text` (the same words, as `_norm` compares them) as this kind
-    (or as one of these kinds, the first found first), or None: with one kind, the one `remember` updates instead of
-    adding a twin."""
+    (or as one of these kinds, the first found first), or None. With `scope`, where the words are to be kept, it is
+    the one `remember` writes over instead of adding a twin (`_same_words`: never one kept for another video);
+    without it, the oldest that says them anywhere."""
     for k in (kind,) if isinstance(kind, str) else kind:
-        row = _same_words(ws, k, text)
+        row = _same_words(ws, k, text, scope=scope)
         if row:
             return row
     return None
@@ -317,7 +431,7 @@ def edit(ws: str, memory_id: str, *, text: object = None, kind: str | None = Non
             return row
         if "norm" in fields or "kind" in fields:
             if _same_words(ws, fields.get("kind", row["kind"]), fields.get("text", row["text"]),
-                           other_than=memory_id):
+                           other_than=memory_id, scope=fields.get("scope", row["scope"])):
                 raise Invalid("Another memory already says that.", 409)
         fields["revision"] = int(row.get("revision") or 1) + 1
         written = _write_over(row, fields)
@@ -388,12 +502,27 @@ def undo(ws: str, memory_id: str, words: object) -> dict:
     return forget(ws, memory_id, words=words, revision=1)
 
 
-def forget_words(ws: str, text: object) -> list[dict]:
-    """Forget every memory that says `text` (`saying`: every kind, wherever it applies, switched on or off), so no
-    twin still holds words the owner asked to forget. One forgotten or changed meanwhile is left to that. Returns
-    what went, oldest first."""
+def meant(rows: list[dict], project_id: str = "") -> list[dict]:
+    """Of memories that say the same words, the ones a "forget" asked in a video's chat (`project_id`) is about: not
+    one kept for another video when one of them is kept for this video or for more than one video. The same words
+    kept for two videos are two memories, and "forget no captions here" said in one video's chat is about that
+    video. (When only other videos keep the words, it is about those; in the general chat, about all of them.)"""
+    here = [r for r in rows if not (r["scope"] or "").startswith("project:") or r["scope"] == f"project:{project_id}"]
+    return here if project_id and here else rows
+
+
+def to_forget(ws: str, text: object, project_id: str = "") -> list[dict]:
+    """The memories "forget" and these words are about: every memory that says them (`saying`: every kind, wherever
+    it applies, switched on or off), oldest first; asked in a video's chat, as `meant` narrows them."""
+    return meant(saying(ws, text), project_id)
+
+
+def forget_words(ws: str, text: object, project_id: str = "") -> list[dict]:
+    """Forget every memory that says `text` (`to_forget`: its twins too, so none still holds words the owner asked
+    to forget; asked in a video's chat, another video's own note stays). One forgotten or changed meanwhile is left
+    to that. Returns what went, oldest first."""
     gone = []
-    for row in saying(ws, text):
+    for row in to_forget(ws, text, project_id):
         try:
             gone.append(forget(ws, row["id"], words=text))
         except Invalid:
@@ -564,8 +693,9 @@ def list_(ws: str, q: str = "", kind: str = "", project_id: str = "", limit: int
 
 # ------------------------------------------------------------------ health
 def check(ws: str) -> dict:
-    """How the brain is doing: counts, memories without a meaning or with an old embedder, near-duplicates, stale
-    guesses, expired memories, size. `ok` is False when anything needs Tidy or Rebuild."""
+    """How the brain is doing: counts, memories without a meaning or with an old embedder, near-duplicates (not two
+    kept for different videos or platforms: each is its place's own), stale guesses, expired memories, size. `ok`
+    is False when anything needs Tidy or Rebuild."""
     rows = db.select("brain_memories", "workspace_id = ?", (ws,), "created_at DESC")
     now = time.time()
     counts = {k: 0 for k in KINDS}
@@ -592,7 +722,8 @@ def check(ws: str) -> dict:
         sim = m @ m.T
         for i in range(len(same)):
             for j in range(i + 1, len(same)):
-                if sim[i, j] >= DUPLICATE and len(pairs) < 200:
+                apart = "all" not in (same[i]["scope"], same[j]["scope"]) and same[i]["scope"] != same[j]["scope"]
+                if sim[i, j] >= DUPLICATE and not apart and len(pairs) < 200:  # kept for two videos: not twins
                     pairs.append([same[i]["id"], same[j]["id"]])
     problems = []
     for code, ids, text in (
@@ -731,7 +862,7 @@ def _import_one(ws: str, m: dict, fields: dict, text: str) -> str | None:
         if fields["revision"] <= int(existing.get("revision") or 1):
             return "skipped"
         return "updated" if _write_over(existing, fields) else None
-    if _same_words(ws, fields["kind"], text):
+    if _same_words(ws, fields["kind"], text, scope=fields["scope"]):
         return "skipped"
     row = {**fields, "workspace_id": ws, "used_count": int(m.get("used_count") or 0),
            "last_used_at": m.get("last_used_at") or None}

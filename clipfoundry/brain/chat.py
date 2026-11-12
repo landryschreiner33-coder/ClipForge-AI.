@@ -87,29 +87,11 @@ _LIST = re.compile(r"^(?:what do you (?:know|remember)|what have you learned|wha
                    r"(?:show|list)(?: me)?(?: your| my)? memor(?:y|ies))\b\s*(?:about|of|on)?\s*(.*)$", re.I | re.S)
 _EXPLAIN = re.compile(r"^(?:why\b|what did you use|explain\b|how did you decide)", re.I)
 _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
-# In a video's chat, what keeps a memory to the video. The words say where they apply: "for/in/on this video" (or
-# "this one", "this project"), or "here" as a word of its own, in small letters or all capitals ("no captions here,
-# please", "never zoom in here"; with a capital only in front of the words, "Here: …" or "Here, …", so a title such
-# as "Here Comes the Sun" is not it, and "here's" and "where" are other words). Or they mention it ("this video is
-# for kids", "keep this project under a minute"). The words are kept as they were said, with nothing cut out of them
-# ("never zoom in here" does not become "never zoom").
-_SAYS_WHERE = re.compile(r"(?i:\b(?:for|in|on) this (?:video|one|project)\b)|(?<![\w'’-])(?:here|HERE)(?![\w'’-])")
-_HERE_FIRST = re.compile(r"here ?[:,]", re.I)
-_MENTIONS = re.compile(r"(?<!\bfor )(?<!\bin )(?<!\bon )\bthis (?:video|project)\b", re.I)
-# What keeps them for every video all the same. Right before "in this video", "here" or the mention: "not only" or
-# "not just" (the words reach further), "than" or "unlike" (they compare with it). "From here on" means from now on.
-# And words that only mention this video are about other videos, or about later, when they say so: "every video",
-# "all my videos", "the next ones", "other projects", "never … again", "next time", "from now on", "in future",
-# "going forward" ("use this video as the template for the next ones", "never use the music from this video again").
-_REACHES = re.compile(r"\b(?:not (?:only|just)|than|unlike) $", re.I)
-_FROM_HERE_ON = (re.compile(r"\bfrom $", re.I), re.compile(r" (?:on(?:wards?)?|out)\b", re.I))
-_ELSEWHERE = re.compile(
-    r"\b(?:every|each|all|other|another|next|future)(?: (?:of|my|the|your|our|other|next|new|few|future))* "
-    r"(?:videos?|projects?|ones?)\b|\b(?:never|don['’]t|do not|no more)\b.*\bagain\b"
-    r"|\bnext time\b|\bfrom now on\b|\bin (?:the )?future\b|\bgoing forward\b", re.I)
-# The one thing left out: a label in front of the words, which says only where they apply and is set apart from them
-# by a colon, a comma or a dash with spaces ("for this video: …", "only for this one, …", "for this video only – …",
-# "here: …"). "Here, There and Everywhere" keeps every word.
+# In a video's chat, words that point at this video ("this video", "this one", "here") keep a memory to it
+# (`memories.points_here`), and the words are kept as they were said, with nothing cut out of them ("never zoom in
+# here" does not become "never zoom"). The one thing left out is a label in front of the words, which says only where
+# they apply and is set apart from them by a colon, a comma or a dash with spaces ("for this video: …", "only for
+# this one, …", "for this video only – …", "here: …"). "Here, There and Everywhere" keeps every word.
 _LABEL = re.compile(r"^\s*(?:(?:(?:only|just)\s+)?(?:for|in|on)\s+this\s+(?:video|one|project)(?:\s+only)?\s*"
                     r"(?:[:,]|\s[-–—](?=\s))|here\s*:)\s*", re.I)
 
@@ -121,7 +103,13 @@ _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S
 # something aside and say the rule again): the conversation, or without a model "Which one?", answers it.
 _FORGET_WORD = re.compile(rf"^(?:please\s+)?forget(?:[ \t]*:\s*|[ \t]+){_GOES_ON}", re.I)
 _FORGET_SKIPS = re.compile(rf"^(?:that|about|the|my|what i said about)[ \t]+{_GOES_ON}", re.I)
-_SKIPPED = re.compile(r"^(?:that|about|the|my|what i said about)(?:[ \t]+|$)", re.I)  # the same, whatever follows
+# For the list to pick from only (nothing is forgotten before a pick), the words may also name their memory the way
+# the help does ("forget the rule about zooms", "forget the one that says -3 dB"), or ask nicely behind it ("forget
+# -3 dB here, please", "… too"): they are looked up without those as well (`_named`).
+_LEADS = re.compile(r"^(?:that|about|the|my|what i said about|(?:rule|one|memory|fact|note)s?"
+                    r"(?: (?:about|on|that says|saying))?)(?:[ \t]+|$)", re.I)
+_POLITE = re.compile(r"(?<![\w'’-])(?:please|pls|plz|thanks|thank you|thx|too|as well|also|ok|okay)[\s.!?]*$", re.I)
+_FORMS = 12  # the ways one "forget …" is read, at most: a message of nothing but skipped words is not read 1,000 ways
 # what a "Which one?" button sends (“…”, around words that may have quotes of their own) or words typed in quotes
 _QUOTED = re.compile(r"“(.+)”[.!]?|\"([^\"]+)\"[.!]?", re.S)
 _EDGES = " \t\r\n.,;:!?-–—“”\"'‘’"  # around the words "forget …" looks for
@@ -143,8 +131,9 @@ def _text(value: object, limit: int) -> str:
 def _message(value: object, limit: int) -> str:
     """What the owner wrote, tidied but keeping its lines: spaces in a line joined, at most one empty line. Every
     line break counts as one (a line or paragraph separator, a page break from a pasted document), so "Forget that"
-    with the rule on the next line stays two lines."""
-    lines = [" ".join(ln.split()) for ln in str(value or "").splitlines()]
+    with the rule on the next line stays two lines. Half of an emoji (a message cut in the middle of one) is left
+    out: it cannot be saved."""
+    lines = [" ".join(ln.split()) for ln in tools.whole(str(value or "")).splitlines()]
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()[:limit]
 
 
@@ -299,7 +288,7 @@ def send(ws: str, chat_id: str, text: object, base_revision: int | None = None, 
     owner = _add(chat, "owner", text)
     try:
         if forget is not None:
-            reply = _forget_picked(ws, forget)
+            reply = _forget_picked(ws, chat.get("project_id") or "", forget)
         else:
             reply = _answer(chat, text, base_revision, bool(choice))
     except (ChatError, memories.Invalid) as exc:  # a memory it cannot keep or find is said in plain words too
@@ -327,7 +316,7 @@ def _answer(chat: dict, text: str, base_revision: int | None, choice: bool = Fal
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
     if m and m.group(1).strip() and not choice:  # a quick reply's words are the model's: its Forget card shows them
-        forgot = _forget_words(ws, text)
+        forgot = _forget_words(ws, pid, text)
         if forgot:
             return forgot
     mention = agents.mentioned(ws, text)
@@ -437,34 +426,17 @@ def _names_nothing(words: str) -> bool:
     return len(said) in reached
 
 
-def _for_this_video(said: str) -> bool:
-    """Whether words said in a video's chat are kept for that video: they say so ("for this video", "here"), or they
-    mention this video and speak of no other and of no later (`_SAYS_WHERE` and the patterns after it)."""
-    said = " ".join(said.split())
-    if _HERE_FIRST.match(said):
-        return True
-    for m in _SAYS_WHERE.finditer(said):
-        before, after = said[:m.start()], said[m.end():]
-        if _REACHES.search(before):  # "not only in this video", "longer than here"
-            continue
-        if m.group().lower() == "here" and _FROM_HERE_ON[0].search(before) and _FROM_HERE_ON[1].match(after):
-            continue  # "from here on": from now on
-        return True
-    return any(not _REACHES.search(said[:m.start()]) for m in _MENTIONS.finditer(said)) \
-        and not _ELSEWHERE.search(said)
-
-
 def _kept_words(pid: str, said: str) -> tuple[str, bool]:
     """The words "remember …" keeps, and whether they are kept for this video only. The words are the ones said, whole
     (one full stop that ends the last word left out; one that stands alone is a mark the words name, "never end a
-    caption with ."): in a video's chat "here" or "for this video" only says where the memory applies
-    (`_for_this_video`), and nothing is cut out of the words ("never zoom in here" stays "never zoom in here", kept
-    for this video, where it is read). Only a label in front of them goes (`_LABEL`): "for this video: -14 LUFS"
-    keeps "-14 LUFS"."""
+    caption with ."): in a video's chat "here" or "this video" only says where the memory applies
+    (`memories.points_here`), and nothing is cut out of the words ("never zoom in here" stays "never zoom in here",
+    kept for this video, where it is read). Only a label in front of them goes (`_LABEL`): "for this video: -14
+    LUFS" keeps "-14 LUFS"."""
     said = said.strip()
     if said.endswith(".") and not said.endswith("..") and not said[-2:-1].isspace():
         said = said[:-1].rstrip()
-    here = bool(pid) and _for_this_video(said)
+    here = bool(pid) and bool(memories.points_here(said)[0])
     return (_LABEL.sub("", said, count=1) if here else said), here
 
 
@@ -485,23 +457,42 @@ def _scope_words(scope: str, pid: str) -> str:
     return "every video"
 
 
+def _applies(scope: str, pid: str, words: str) -> str:
+    """The sentence of an answer that says where a memory applies. Words kept for this video that may have been
+    meant for every one (`memories.points_here`: they also speak of other videos or of later, or liken something to
+    this one) get the reason, and how to say them for every video: with the video's name, which reads the same in
+    any chat (for a piece of it, "this clip": by saying which clip)."""
+    where = _scope_words(scope, pid)
+    points, further = memories.points_here(words) if where == "this video" else ("", False)
+    if not further:
+        return f"It applies to {where}."
+    instead = memories.said_instead(points)
+    name = tools.one_line((db.fetch("studio_projects", pid) or {}).get("name"), 60)
+    if name and instead == "the video's name":
+        instead += f" (“{name}”)"
+    return (f"It applies to this video only, because it says “{points}”. To keep it for every video, say {instead} "
+            "instead.")
+
+
 def _remember(ws: str, pid: str, said: str) -> dict:
     """The owner's own words, kept at once, with an Undo chip. A memory that already says them, as a rule or a fact,
-    is written over instead (switched on, kept for every video unless "here" was said, the words as said now), and
-    then the answer says what it was before and offers no Undo: Undo forgets the memory, and that one was there
-    before this answer. Whether the memory was added is read from the write itself (a new memory is revision 1)."""
+    is written over instead (switched on, the words as said now; kept for every video, or with words that point at
+    this video the one kept for this video or for every video), and then the answer says what it was before and
+    offers no Undo: Undo forgets the memory, and that one was there before this answer. A memory kept for another
+    video is not written over: the same words said for this video are a memory of their own (`memories.twin`).
+    Whether the memory was added is read from the write itself (a new memory is revision 1)."""
     said, here = _kept_words(pid, said)
     if _names_nothing(said):  # "Remember that." points at something said before, which only the conversation reads
         raise ChatError(_SAY_WHAT)
     if len(" ".join(said.split())) > memories.MAX_TEXT:
         raise ChatError(f"That is too long to remember: keep a memory under {memories.MAX_TEXT} characters.")
     kind = "rule" if _RULE_WORDS.search(said) else "fact"
-    old = memories.twin(ws, said, (kind, "fact" if kind == "rule" else "rule"))
+    old = memories.twin(ws, said, (kind, "fact" if kind == "rule" else "rule"), f"project:{pid}" if here else "all")
     row = memories.remember(ws, said, kind=old["kind"] if old else kind, source="said",
                             project_id=pid if here else "")
-    where = _scope_words(row.get("scope") or "all", pid)
+    where = _applies(row.get("scope") or "all", pid, row["text"])
     if int(row.get("revision") or 1) == 1:
-        return {"text": f"Remembered: “{row['text']}”. It applies to {where}. Say “forget …” to remove it.",
+        return {"text": f"Remembered: “{row['text']}”. {where} Say “forget …” to remove it.",
                 "data": {"tool": "remember", "memory": memories.view(row), "used": []}}
     was = old if old and old["id"] == row["id"] else None
     notes = []
@@ -516,19 +507,20 @@ def _remember(ws: str, pid: str, said: str) -> dict:
         said_as = f"I already had “{was['text']}”{also}; it now says “{row['text']}”."
     else:
         said_as = f"I already remember “{row['text']}”{also}."
-    return {"text": f"{said_as} It applies to {where}. Say “forget …” to remove it.",
+    return {"text": f"{said_as} {where} Say “forget …” to remove it.",
             "data": {"tool": "remember", "kept": memories.view(row), "used": []}}
 
 
 def _said(text: str) -> tuple[list[str], bool]:
     """The words a "forget …" message may name a memory by, longest first, and whether they were in quotes: all of
     them after "forget", then without each leading word the pattern skips in turn ("forget that my intro is …": "that
-    my intro is …", "my intro is …", "intro is …"). Words in quotes (what a "Which one?" button sends) count only as
-    they are, never shorter. None when "forget" is not followed by a space or a colon and a word (_FORGET_WORD), and
-    none from a quote that more words follow ("forget the “🔇”, keep the music low" sets something aside)."""
+    my intro is …", "my intro is …", "intro is …"; at most `_FORMS`). Words in quotes (what a "Which one?" button
+    sends) count only as they are, never shorter. None when "forget" is not followed by a space or a colon and a word
+    (_FORGET_WORD), and none from a quote that more words follow ("forget the “🔇”, keep the music low" sets
+    something aside)."""
     head = _FORGET_WORD.match(text)
     rest, out = (text[head.end():].strip() if head else ""), []
-    while rest:
+    while rest and len(out) < _FORMS:
         quoted = _quoted(rest)
         if quoted:
             return [quoted], True
@@ -556,28 +548,36 @@ def _quoted(words: str) -> str:
     return inside.strip() if depth == 0 else ""
 
 
-def _forget_words(ws: str, text: str) -> dict | None:
+def _forget_words(ws: str, pid: str, text: str) -> dict | None:
     """“forget …” with the exact words of a memory: every memory that says them goes, its twins too (kept for one
-    video, switched off, another kind), so nothing still follows them. The words are the first of `_said` that a
+    video, switched off, another kind), so nothing still follows them. In a video's chat, a note another video keeps
+    under the same words stays when one that says them is kept for this video or for every video: the request is
+    about this video, and the answer says what stays (`memories.meant`). The words are the first of `_said` that a
     memory says: "forget my intro is 3 seconds" forgets "my intro is 3 seconds", and "intro is 3 seconds" only when
     no memory says "my intro is 3 seconds". Words in quotes go only as they are: when no memory says them (a "Which
     one?" button pressed again, or after its memory was forgotten or changed elsewhere) the answer says so and
     nothing goes. None when the message names no memory's words."""
     said, quoted = _said(text)
     for words in said:
-        gone = memories.forget_words(ws, words)
+        gone = memories.forget_words(ws, words, pid)
         if gone:
-            return _forgotten(gone)
+            return _forgotten(ws, pid, gone)
     if quoted:
         return _nothing_says(said[0])
     return None
 
 
-def _forgotten(gone: list[dict]) -> dict:
+def _forgotten(ws: str, pid: str, gone: list[dict]) -> dict:
+    """The answer for memories that went, with how many there were, and in a video's chat how many other videos
+    still keep the same words (theirs stay: `memories.meant`)."""
     n = len(gone)
     also = "" if n == 1 else f" (I had it {n} times; {'both' if n == 2 else f'all {n}'} are gone)"
-    return {"text": f"Forgotten: “{gone[0]['text']}”{also}.", "data": {"tool": "forget", "forgotten": gone[0],
-                                                                      "used": []}}
+    left = {r["scope"] for r in memories.saying(ws, gone[0]["text"])
+            if (r["scope"] or "").startswith("project:") and r["scope"] != f"project:{pid}"} if pid else set()
+    stays = "" if not left else (" Another video keeps the same words: its note stays." if len(left) == 1 else
+                                 f" {len(left)} other videos keep the same words: their notes stay.")
+    return {"text": f"Forgotten: “{gone[0]['text']}”{also}.{stays}",
+            "data": {"tool": "forget", "forgotten": gone[0], "used": []}}
 
 
 def _nothing_says(words: str) -> dict:
@@ -585,26 +585,31 @@ def _nothing_says(words: str) -> dict:
             "data": {"tool": "forget", "candidates": [], "used": []}}
 
 
-def _forget_picked(ws: str, words: object) -> dict:
+def _forget_picked(ws: str, pid: str, words: object) -> dict:
     """A "Which one?" button: the words of the memory it shows, sent apart from the message, so no quote mark in them
     can change what they say. Every memory that says exactly those words goes (the list said picking them forgets
-    each), never one with fewer words (they are never cut short); when none says them any more, the answer says so
-    and nothing goes."""
-    said = " ".join(str(words or "").split())
+    each; in a video's chat, as typed words: not another video's own note), never one with fewer words (they are
+    never cut short); when none says them any more, the answer says so and nothing goes."""
+    said = " ".join(tools.whole(str(words or "")).split())
     if not said:
         raise ChatError("Say what to forget, for example: forget the rule about zooms.")
-    gone = memories.forget_words(ws, said)
-    return _forgotten(gone) if gone else _nothing_says(said[:memories.MAX_TEXT])
+    gone = memories.forget_words(ws, said, pid)
+    return _forgotten(ws, pid, gone) if gone else _nothing_says(said[:memories.MAX_TEXT])
 
 
 def _named(words: str) -> list[str]:
-    """The words after "forget" as they were typed, then without each leading word the request skips, in turn."""
+    """What the words after "forget" may name, for the list to pick from: the words as they were typed, then without
+    each leading word the request skips, in turn ("that", "the", "my", "about", and "the rule about" or "the one that
+    says"), each also without a polite word behind it ("…, please", "… too"). At most `_FORMS`."""
     out, rest = [], words.strip()
-    while rest:
+    while rest and len(out) < _FORMS:
         out.append(rest)
-        skip = _SKIPPED.match(rest)
+        polite = _POLITE.search(rest)
+        if polite and rest[:polite.start()].rstrip(" \t,;.!"):
+            out.append(rest[:polite.start()].rstrip(" \t,;.!"))
+        skip = _LEADS.match(rest)
         rest = rest[skip.end():].strip() if skip else ""
-    return out
+    return out[:_FORMS]
 
 
 def _forget(ws: str, pid: str, query: str, text: str, at_once: bool = True) -> dict:
@@ -614,26 +619,28 @@ def _forget(ws: str, pid: str, query: str, text: str, at_once: bool = True) -> d
     «…» …") never forget at once (what follows "forget" there may set something aside), so their memory is offered.
     Then the memories that hold the words named as a part of theirs ("forget -3 dB" for "-3 dB here"; read from the
     words themselves, so a number, a short word or another script is found), then the ones the search finds like
-    them. `at_once` False, for a quick reply you pressed: the list only, so nothing goes before you pick."""
+    them. The words named are read each way `_named` gives ("forget the rule about -3 dB, please" finds it too).
+    `at_once` False, for a quick reply you pressed: the list only, so nothing goes before you pick."""
     say_what = "Say what to forget, for example: forget the rule about zooms."
     if not query.strip():
         raise ChatError(say_what)
     if at_once:
-        forgot = _forget_words(ws, text)
+        forgot = _forget_words(ws, pid, text)
         if forgot:
             return forgot
     like, named = query.strip(_EDGES), _named(query)
-    could = [m for words in named for m in memories.saying(ws, words)[:1]]
-    could += [m for words in named if not _names_nothing(words) and not _SKIPPED.fullmatch(words)  # not "about"
+    like = _POLITE.sub("", like).strip(_EDGES) or like  # "forget -3 dB, thanks" looks for "3 dB"
+    could = [m for words in named for m in memories.to_forget(ws, words, pid)[:1]]
+    could += [m for words in named if not _names_nothing(words) and not _LEADS.fullmatch(words)  # not "about"
               for m in memories.holding(ws, words, CANDIDATES * 4)]
     found: list[list[dict]] = []
     listed: set[str] = set()
     for m in could + (memories.list_(ws, q=like, limit=CANDIDATES * 4) if like else []):
         if m["id"] in listed:
             continue
-        same = memories.saying(ws, m["text"]) or [m]  # every memory that says these words, oldest first
-        listed.update(r["id"] for r in same)
-        found.append(same)
+        every = memories.saying(ws, m["text"]) or [m]  # every memory that says these words, oldest first
+        listed.update(r["id"] for r in every)
+        found.append(memories.meant(every, pid))  # the ones a pick forgets (not another video's own note)
         if len(found) == CANDIDATES:
             break
     if not found and not like:

@@ -647,9 +647,10 @@ Landry's projects, could never do anything, and without a downloaded model only 
     "٥٠٪" was "٥٠"), and folding capitals made "Maßen" and "Massen" one word. `memories._norm` now lists what it
     leaves out, and nothing else is: around a word that has a letter or a digit its quotes and brackets, ¿ or ¡
     before it and the marks that end a sentence after it; whatever stands alone between spaces counts exactly as it
-    is; capitals are made small, not folded. The new comparison only tells more words apart than the one before
-    (checked on 600,000 texts made from the tests' sentences with marks, capitals and spacing added: no two that
-    differed before are the same now). What follows from "when in doubt, different", and is documented: a mark
+    is; capitals are made small, not folded. On 600,000 texts made from the tests' sentences with marks, capitals
+    and spacing added, the new comparison only told more words apart than the one before: no two that differed
+    before were the same after. (That is true of that sample, not of every text; the next look found one pair the
+    other way, rightly so.) What follows from "when in doubt, different", and is documented: a mark
     typed with a space before it, as French does ("basse !"), makes other words than "basse!" (a second memory at
     worst); "- keep it low" is not "keep it low". The known limit stays: 5' and 5" are both 5.
   - A sentence's last full stop is left out of the words kept only when it ends a word: "Never end a caption with ."
@@ -675,6 +676,92 @@ Landry's projects, could never do anything, and without a downloaded model only 
     `test_remembering_words_a_memory_already_says_offers_no_undo` and
     `test_forget_offers_the_memories_that_say_or_hold_the_words_named_whatever_they_start_with`
     (`tests/test_clipforge_ai_chat.py`);
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`). No frontend change.
+- **A look at the lone marks and the "this video" fix** (two reviewers, fourteen findings: one medium, thirteen low.
+  Only one had its second check, by one who tried to refute it, and it held up; the second check of the other
+  thirteen could not run, so I reproduced each of those myself on the code as it was. Each code fix has a test that
+  failed before it: the four changed test files run on the code before give 15 failed, every new or changed test):
+  - The medium one: in a video's chat, facts about that very video were kept for every video when they also said
+    "each one", "the other one" or "never … again", or placed the video in a series ("this video is private, never
+    upload it again", "in this video each one speaks for a minute"); words with a bare "this one" were too. Words
+    that point at this video can only be read in its own chat: in another video's chat "this video" means that
+    other video. So they now always keep the memory to this video (`memories.points_here`, read by the chat and by
+    the model's `remember` tool, whatever scope the model chose): "this video", "this project", "this one", a piece
+    of it ("this clip", "this shot", "these scenes"), or "here" as a word of its own. When such words also speak of
+    other videos or of later, or liken something to this one ("like in this video", "shorter than this one", "from
+    this video on"), the owner may have meant a rule for every video, so the answer says why it stayed and how to
+    say it for every video: "It applies to this video only, because it says “this video”. To keep it for every
+    video, say the video's name (“Hike”) instead." (for a piece of it: "say which clip instead"). Only two turns of
+    speech reach further by themselves, and then the memory is for every video: "not only" or "not just" right
+    before the words, and "from here on" where it can only mean from now on. Not pointing at all: "this channel",
+    "this one thing: …", "this one rule", and "here is …" or "here are …" in front of the words.
+  - Found by me on the way, the same kind of loss: the same words said in a second video's chat moved the first
+    video's note to the second video (identical episodes of two videos moved too), and the model's tool refused the
+    second one as "only for another video". An earlier round had left this as released. Where a memory is kept is
+    now part of what it is (`memories.twin(ws, text, kind, scope)`, `_same_words`): a write goes over the memory
+    that says the words in the same place, else over the one kept for every video (which stays so), else, for words
+    to keep for every video, over the oldest kept anywhere (it widens). A memory kept for another video, platform or
+    kind of project never moves: the same words there are a memory of their own. Editing ("Another memory already
+    says that", 409), the brain file's import (skipped) and the health check's twins follow the same rule.
+  - With that, "forget …" asked in a video's chat is about that video (`memories.meant`): a note another video keeps
+    under the same words stays when this video, or every video, has one too, and the answer says so ("Another video
+    keeps the same words: its note stays."). When only other videos keep the words, the words name those notes,
+    which go as before; in the general chat all go. Typed words, the "Which one?" list and its buttons, and the
+    model's Forget card all follow it.
+  - A sentence mark of another script behind a word (Armenian ։, Ethiopic ።, Burmese ။, Khmer ។, Tibetan །, the
+    half-width ｡, the Greek raised point) made other words than the same words without it; the version before had
+    left such marks out, and the docs said they are. `memories._STOPS` is now Unicode's own list of the marks that
+    end a sentence or a part of one (Terminal_Punctuation as of Unicode 17, written out so that every Python reads
+    the same 295 marks, with … and ·).
+  - "Which one?" did not find a part of a memory written in a script without spaces between words ("forget 字幕"
+    for "字幕は大きくする") or a Korean word without its ending, though the docs said "any script".
+    `memories.holding` finds a part wherever it stands when the characters that meet there belong to such a script
+    (`_holds`, `_UNSPACED`).
+  - A long "forget" message made of words the request skips ("forget: my my my …", "forget that that that …") took
+    7 to 8 seconds: every leading word gave one more reading of the whole rest, each compared and looked up two or
+    three times. One request is read at most twelve ways now (`chat._FORMS`); the same messages take 0.02 to 0.11 s.
+  - With a model, the Forget card did not find a memory by a number, a short word or a word in another script
+    ("-3 dB" for "-3 dB here", "на голос", "0:42"): it failed with "Nothing like that is in the memory." After the
+    exact words the card now looks for the newest memory that holds them (`toolbox._memories_for`), never for
+    little words alone ("that", "the rule").
+  - Without a model, "forget -3 dB here, please", "… too" and "forget the rule about -3 dB" found nothing, because
+    the words were looked up only whole. For the list to pick from they are also read without a polite word behind
+    them and without "the rule about" or "the one that says" in front (`chat._named`, `_LEADS`, `_POLITE`).
+    Forgetting at once still takes a memory's exact words only.
+  - Three rules had no test that fails without them (not listing every memory that holds "that" or "the"; the
+    memory that says the words before the ones that hold them; "not only this video"). Each has one now, checked by
+    taking the rule out.
+  - Kept on purpose, and pinned by a test now: `forget "!"` typed in quotes forgets the memory “!” at once, as
+    quoted words always do.
+  - The entry above said the strict comparison "only tells more words apart than the one before". That held for
+    the 600,000 texts checked, not for every text: a Greek capital with an iota subscript and two accents typed
+    apart, and its small form, were different words before and are rightly the same now (they differ only in
+    capitals). That sentence is corrected. Against the version before, this round makes words the same only through
+    a newly listed sentence mark behind a word (103,605 of 600,000 pairs); none that were the same became different.
+  - Also found on the way: a message or a memory with half of an emoji in it (text cut in the middle of one) got a
+    server error instead of an answer. The half is left out now in everything the brain's addresses receive
+    (`routes.Input`, `tools.whole`). Other pages' addresses still answer such text with a server error, as released.
+  - Known and left for later: the Memory page shows "One video" without the video's name, so the notes two videos
+    keep under the same words look alike there.
+  - Docs: CLIPFORGE_AI.md (where a memory applies and the hint, the same words in two videos, "forget" in a
+    video's chat, sentence marks, scripts without spaces, how "Which one?" and the Forget card read the words, half
+    an emoji), the handoff, and the privacy page: asked in one video's chat, "forget" leaves a note that another
+    video keeps under the same words when this video, or every video, has one too.
+  - Tests: `test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words` (other scripts' marks, the 295),
+    `test_memories_that_hold_the_words_named_are_found_by_their_words_in_any_script` (scripts without spaces) and
+    `test_the_same_words_kept_for_two_videos_are_two_memories_everywhere` (new) in
+    `tests/test_clipforge_ai_brain.py`;
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole`,
+    `test_the_same_words_said_in_two_videos_are_kept_for_each_of_them` (new),
+    `test_forget_offers_the_memories_that_say_or_hold_the_words_named_whatever_they_start_with`,
+    `test_forget_with_only_words_it_skips_lists_no_memory_that_merely_holds_such_a_word` (new),
+    `test_half_an_emoji_in_a_message_or_a_memory_is_left_out` (new) and
+    `test_a_long_message_of_repeated_words_is_read_at_once` in `tests/test_clipforge_ai_chat.py`;
+    `test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video` (new),
+    `test_a_forget_card_finds_a_memory_by_a_number_a_short_word_or_a_word_in_another_script` (new),
+    `test_the_remember_tool_leaves_a_memory_for_one_video_where_it_is` and
+    `test_a_memory_said_again_keeps_its_scope_and_its_video_together` in `tests/test_clipforge_ai_safety.py`;
     `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
     (`tests/test_clipforge_ai_assistant.py`). No frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the

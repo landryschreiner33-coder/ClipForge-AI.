@@ -268,6 +268,9 @@ def test_the_remember_tool_never_changes_a_memory_the_owner_already_has(data, mo
 
 
 def test_the_remember_tool_leaves_a_memory_for_one_video_where_it_is(data, monkeypatch):
+    """A memory kept for one video is never moved or widened by the model's tool. For every video, the owner decides
+    in Brain → Memory; for this video, the same words are a memory of their own (the tool used to refuse them: “only
+    for another video”), and the other video's memory stays as it is."""
     from clipfoundry import db
     from clipfoundry.brain import chat, memories, toolbox
     from clipfoundry.brain.tools import Ctx
@@ -278,11 +281,9 @@ def test_the_remember_tool_leaves_a_memory_for_one_video_where_it_is(data, monke
     before = _rows()
     said = "keep the summit part"
     ctx = Ctx(ws=WS, project_id=b["id"], owner_text=said)
-    for scope in ("this_video", "all"):
-        res = toolbox._remember(ctx, {"text": said, "kind": "rule", "scope": scope})
-        assert not res.ok and res.summary == ("Already in your memory, but only for another video: “keep the summit "
-                                              "part”")
-        assert res.data == {"links": [MEMORY_PAGE]}
+    res = toolbox._remember(ctx, {"text": said, "kind": "rule", "scope": "all"})
+    assert not res.ok and res.summary == "Already in your memory, but only for another video: “keep the summit part”"
+    assert res.data == {"links": [MEMORY_PAGE]}
     res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, "scope": "this_video"})
     assert res.ok and res.text == "That is already in my memory." and res.data == {}
     res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, "scope": "all"})
@@ -290,6 +291,30 @@ def test_the_remember_tool_leaves_a_memory_for_one_video_where_it_is(data, monke
     assert _rows() == before
     assert [m["id"] for m in memories.recall("summit part", WS, project_id=a["id"]).memories] == [rule["id"]]
     assert memories.recall("summit part", WS, project_id=b["id"]).memories == []
+    # for this video: a memory of its own, with its Undo chip; said again it is there already
+    res = toolbox._remember(ctx, {"text": said, "kind": "rule", "scope": "this_video"})
+    own = res.data["memory"]
+    assert res.ok and res.text == "Saved as a rule for this video: keep the summit part"
+    assert own["id"] != rule["id"] and (own["scope"], own["project_id"]) == (f"project:{b['id']}", b["id"])
+    res = toolbox._remember(ctx, {"text": said, "kind": "rule", "scope": "this_video"})
+    assert res.ok and res.text == "That is already in my memory." and res.data == {}
+    res = toolbox._save_memory(ctx, {"text": said, "kind": "rule", "scope": "this_video"})  # a card's OK: the same
+    assert res.ok and res.text == "That is already in my memory."
+    assert {k: v for k, v in _rows().items() if k != own["id"]} == before  # the other video's memory as it was
+    assert [m["id"] for m in memories.recall("summit part", WS, project_id=a["id"]).memories] == [rule["id"]]
+    assert [m["id"] for m in memories.recall("summit part", WS, project_id=b["id"]).memories] == [own["id"]]
+    # a Forget card in one video's chat is about that video's note: the other video's is not on it
+    card = toolbox._forget_preview(ctx, {"memory": said})
+    assert card["args"] == {"memory": said, "memory_ids": [own["id"]]} and card["blocked"] == ""
+    assert card["detail"] == ["It is a rule you taught me, for “Video B” only."]
+    card = toolbox._forget_preview(Ctx(ws=WS), {"memory": said})  # the general chat: each memory that says them
+    assert card["args"]["memory_ids"] == [rule["id"], own["id"]]
+    assert card["detail"] == ["I keep these words 2 times, and OK forgets them all:", "a rule for “Video A” only",
+                              "a rule for “Video B” only"]
+    c_id = db.insert("studio_projects", {"workspace_id": WS, "name": "Video C", "status": "ready"})["id"]
+    card = toolbox._forget_preview(Ctx(ws=WS, project_id=c_id), {"memory": said})  # only other videos keep them
+    assert card["args"]["memory_ids"] == [rule["id"], own["id"]]
+    before = _rows()
     # a new memory is saved, and only that one carries the Undo chip
     fake = install(monkeypatch, say("Got it.", ("remember", {"text": "the lunch part is the best bit",
                                                              "scope": "this_video"})))
@@ -301,20 +326,108 @@ def test_the_remember_tool_leaves_a_memory_for_one_video_where_it_is(data, monke
     assert new[0]["id"] not in before and len(fake.calls) == 1
 
 
+def test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video(data):
+    """With a model, the model says where a memory applies (scope this_video). Words that point at this video (“this
+    video is for kids”, “never zoom in here”) can only be read in this video's chat, so they are kept for it whatever
+    the model chose: kept for every video, every other video's chat would read them as said about that video. When
+    they also speak of other videos or of later, the tool's answer says why and how to say them for every video, for
+    the model to pass on. Words that reach further (“not only here”, “from here on”) and the general chat, which has
+    no video, are as the model chose."""
+    from clipfoundry import db
+    from clipfoundry.brain import memories, toolbox
+    from clipfoundry.brain.tools import AskFirst, Ctx
+
+    a = db.insert("studio_projects", {"workspace_id": WS, "name": "Hike", "status": "ready"})
+    for said, kind, args in (("this video is for kids", "fact", {"scope": "all"}),
+                             ("never zoom in here", "rule", {}), ("keep this one under 60 s", "fact", {"scope": "all"}),
+                             ("this clip is the best take", "fact", {"scope": "this_video"})):
+        res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, **args})
+        assert res.ok and res.text == f"Saved as a {kind} for this video: {said}", said
+        assert (res.data["memory"]["scope"], res.data["memory"]["project_id"]) == (f"project:{a['id']}", a["id"])
+    said = "never use the music from this video again"
+    res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, "scope": "all"})
+    assert res.text == ("Saved as a rule for this video only, because it says “this video” (to keep it for every "
+                        "video, the owner can say it again and say the video's name instead): never use the music "
+                        "from this video again")
+    assert res.data["memory"]["scope"] == f"project:{a['id']}"
+    said = "never use this clip again"  # a piece of this video: its name would be which clip
+    res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, "scope": "all"})
+    assert res.text == ("Saved as a rule for this video only, because it says “this clip” (to keep it for every "
+                        "video, the owner can say it again and say which clip instead): never use this clip again")
+    for said in ("from here on, captions are always yellow", "keep the voice up, not only in this video",
+                 "never use the music from Hike again"):
+        res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, "scope": "all"})
+        assert res.ok and res.text.startswith("Saved as a rule for every video: ") and \
+            res.data["memory"]["scope"] == "all", said
+    said = "this video is for my sister"  # in the general chat there is no video to keep it to
+    res = toolbox._remember(Ctx(ws=WS, owner_text=said), {"text": said, "scope": "this_video"})
+    assert res.text == "Saved as a fact for every video: this video is for my sister"
+    with pytest.raises(AskFirst) as asked:  # not the owner's own words: the card would keep it for this video too
+        toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text="what is in the first clip?"),
+                          {"text": "this video is a wedding film", "scope": "all"})
+    assert asked.value.call_args == {"text": "this video is a wedding film", "kind": "fact", "scope": "this_video"}
+    card = toolbox._save_memory_preview(Ctx(ws=WS, project_id=a["id"]), asked.value.call_args)
+    assert "I would keep it as a fact for this video." in card["detail"]
+    assert len(memories.list_(WS)) == 10 and len(memories.list_(WS, project_id="another")) == 4
+
+
+def test_a_forget_card_finds_a_memory_by_a_number_a_short_word_or_a_word_in_another_script(data):
+    """With a model, “forget” shows a card. The model names the memory by words the owner used, often a part of the
+    memory's own (“-3 dB” for “-3 dB here”): a number, a short word or a word in another script, which the search by
+    meaning leaves out, so the tool answered that nothing like that is in the memory. The card is now for the newest
+    memory that holds the words; little words alone (“that”, “the rule”) still name nothing."""
+    from clipfoundry.brain import memories, toolbox
+    from clipfoundry.brain.tools import Ctx, ToolError
+
+    for words in ("-3 dB here", "-3 дБ на голос", "the cut is at 0:42", "字幕は黄色で", "I like that song"):
+        memories.remember(WS, words)
+    ctx = Ctx(ws=WS)
+    for named, memory in (("-3 dB", "-3 dB here"), ("на голос", "-3 дБ на голос"), ("0:42", "the cut is at 0:42"),
+                          ("字幕", "字幕は黄色で"), ("-3 db HERE.", "-3 dB here"), ("that song", "I like that song")):
+        card = toolbox._forget_preview(ctx, {"memory": named})
+        assert card["label"] == f"Forget “{memory}”" and card["args"]["memory"] == memory, named
+        assert [memories.get(WS, mid)["text"] for mid in card["args"]["memory_ids"]] == [memory], named
+    for named in ("that", "it", "the", "the rule", "3 dB", "42"):
+        with pytest.raises(ToolError, match="Nothing like that is in the memory"):
+            toolbox._forget_preview(ctx, {"memory": named})
+    assert len(memories.list_(WS)) == 5
+
+
 def test_a_memory_said_again_keeps_its_scope_and_its_video_together(data):
+    """Where a memory is kept is part of what it is. The same words kept for another video, or for a platform, are a
+    memory of their own, so what was said for one video stays with it (it used to move to the video that said it
+    last, and the first video lost it). Said again in the same place, that memory is written over; said for every
+    video, the oldest widens, and once for every video it stays so. The video always goes with the scope."""
     from clipfoundry.brain import memories
 
     a = memories.remember(WS, "keep the summit part", kind="rule", project_id="vidA")
     b = memories.remember(WS, "Keep the summit part.", kind="rule", project_id="vidB")
-    assert b["id"] == a["id"] and (b["scope"], b["project_id"], b["platform"]) == ("project:vidB", "vidB", "")
-    assert [m["id"] for m in memories.list_(WS, project_id="vidB")] == [a["id"]]
-    assert memories.list_(WS, project_id="vidA") == []
-    c = memories.remember(WS, "keep the summit part", kind="rule", platform="tiktok")
-    assert c["id"] == a["id"] and (c["scope"], c["project_id"], c["platform"]) == ("platform:tiktok", "", "tiktok")
-    d = memories.remember(WS, "keep the summit part", kind="rule")
+    assert b["id"] != a["id"] and (b["scope"], b["project_id"], b["platform"]) == ("project:vidB", "vidB", "")
+    kept = memories.get(WS, a["id"])
+    assert (kept["scope"], kept["project_id"], kept["revision"], kept["text"]) == ("project:vidA", "vidA", 1,
+                                                                                  "keep the summit part")
+    assert [m["id"] for m in memories.list_(WS, project_id="vidA")] == [a["id"]]
+    assert [m["id"] for m in memories.list_(WS, project_id="vidB")] == [b["id"]]
+    again = memories.remember(WS, "keep the summit part!", kind="rule", project_id="vidB")  # said again for B: B's
+    assert (again["id"], again["revision"], again["scope"]) == (b["id"], 2, "project:vidB")
+    c = memories.remember(WS, "keep the summit part", kind="rule", platform="tiktok")  # for a platform: its own
+    assert c["id"] not in (a["id"], b["id"])
+    assert (c["scope"], c["project_id"], c["platform"]) == ("platform:tiktok", "", "tiktok")
+    assert memories.get(WS, a["id"])["scope"] == "project:vidA" and memories.get(WS, b["id"])["scope"] == "project:vidB"
+    d = memories.remember(WS, "keep the summit part", kind="rule")  # for every video: the oldest widens
     assert d["id"] == a["id"] and (d["scope"], d["project_id"], d["platform"]) == ("all", "", "")
     e = memories.remember(WS, "keep the summit part", kind="rule", project_id="vidC")
-    assert (e["scope"], e["project_id"], e["platform"]) == ("all", "", "")  # once for every video, it stays so
+    assert e["id"] == a["id"] and (e["scope"], e["project_id"], e["platform"]) == ("all", "", "")  # it stays so
+    f = memories.remember(WS, "keep the summit part", kind="rule", project_id="vidB")  # B's own is still B's
+    assert (f["id"], f["scope"], f["project_id"]) == (b["id"], "project:vidB", "vidB")
+    assert sorted(m["scope"] for m in memories.saying(WS, "keep the summit part")) == ["all", "platform:tiktok",
+                                                                                      "project:vidB"]
+    assert memories.twin(WS, "keep the summit part", "rule")["id"] == a["id"]  # without a place: the oldest
+    assert memories.twin(WS, "keep the summit part", "rule", "project:vidB")["id"] == b["id"]
+    assert memories.twin(WS, "keep the summit part", "rule", "mode:clips")["id"] == a["id"]  # the one for every video
+    memories.forget(WS, a["id"])
+    assert memories.twin(WS, "keep the summit part", "rule", "project:vidC") is None  # only kept elsewhere
+    assert memories.twin(WS, "keep the summit part", "rule", "all")["id"] == b["id"]  # the oldest left would widen
 
 
 # ------------------------------------------------------------------ only the owner's own words (S1)

@@ -59,13 +59,21 @@ another embedder, and **Rebuild** recomputes them with the embedder in use.
 `Recall.prompt()` is the block a model gets: "What the owner has told ClipForge AI (standing rules first):" and
 one line per memory. `brain.record_use(ids, where, ref_id)` is called when an answer used them.
 
-**Writing.** `remember(ws, text, kind, source, scope, ...)` de-duplicates: the same words in the same workspace and
-kind update the memory (revision + 1, the stronger source and confidence win) instead of adding a twin. Words are
+**Writing.** `remember(ws, text, kind, source, scope, ...)` de-duplicates: the same words of the same kind, kept in
+the same place or for every video, update that memory (revision + 1, the stronger source and confidence win)
+instead of adding a twin, and words to keep for every video widen the memory that says them for one video or
+platform. Where a memory is kept is part of what it is, so it never moves from one place to another: the same words
+kept for another video (or platform, or kind of project) are a memory of their own, and what was said for one
+video stays with it ("no captions here" said in two videos' chats is two memories, as is the same line of what
+happened in two videos; `memories.twin(ws, text, kind, scope)` is the one a write goes over). Words are
 compared strictly (`memories._norm`). What is left out is listed here, and nothing else is: capital letters (made
 small; "ß" stays "ß"), spacing, how a letter with an accent or a full-width character was typed, the kind of dash or
 apostrophe, characters nobody sees (a zero-width space, a mark that sets the writing direction), and, at the edges
 of a word that has a letter or a digit, its quotes and brackets, a ¿ or ¡ in front of it and the marks that end a
-sentence or a part of one behind it (. , ; : ! ? … and their like in other scripts). Everything else counts, in any
+sentence or a part of one behind it: . , ; : ! ? … and, in other scripts, the marks Unicode lists as such (the
+Armenian ։, the Arabic ، ؛ ؟, the Devanagari ।, the Ethiopic ። ፣, the Khmer ។, the Tibetan །, the Burmese ။, the
+Chinese 。 、 and their like; `memories._STOPS` writes the list out, so every computer reads the same one).
+Everything else counts, in any
 language: every letter and the marks that belong to it (a Thai tone mark, an Indic vowel sign), a sign, a symbol or
 an emoji, a hyphen inside a word, what stands in or before a number, and whatever stands alone between spaces, exactly
 as it is (a mark the words name, a minus or a dash set apart, a bullet, a smiley). So "-3 dB" and "+3 dB", "- 3 dB"
@@ -76,14 +84,18 @@ music low”" are the same. When in doubt words count as different: two memories
 wrong match would write one over the other or forget both. So a mark typed with a space before it, as French does
 ("Garde la musique basse !"), makes other words than the same sentence without that space or without the mark: a
 second memory at worst, never a lost one. (One known limit the other way: a quote mark right after a number is read
-as a quote, so 5' and 5" are both 5; ′ and ″, or "ft", "in", "min" and "s", are told apart.) `remember` writes only
+as a quote, so 5' and 5" are both 5; ′ and ″, or "ft", "in", "min" and "s", are told apart.) Half of an emoji
+(what a paste cut in the middle of one leaves behind) cannot be saved or sent on, so it is left out of a memory's
+words and of a chat message (`tools.whole`). `remember` writes only
 over the memory as it read it (its revision,
 `memories._write_over`), and so do an edit, a
 confirmation and a brain file: one changed in between is read again, so what Tidy or an edit wrote is never put back as
 it was and no two states of a memory share a revision. One gone in between (forgotten, or tidied into its twin) is read
 again too: "remember" then keeps the words in the twin Tidy kept, or as a new memory when no memory says them any more;
-a brain file adds its memory again only when no memory says its words (otherwise it is skipped); an edit or a
-confirmation answers "Memory not found.". A memory an earlier build saved carries that build's stored form of its
+a brain file adds its memory again only when no memory says its words in that place or for every video (otherwise
+it is skipped); an edit or a confirmation answers "Memory not found.". An edit is refused with "Another memory
+already says that." when one of that kind says the new words in the same place or for every video (or anywhere,
+for a memory kept for every video); what another video's memory says is no obstacle. A memory an earlier build saved carries that build's stored form of its
 words (a-z and 0-9 words only, in the builds released before this one). The first lookup after the app starts brings
 every stored form up to date in one step (`memories._refresh_norms`; the words, revision and dates stay as they are),
 so those memories are found and told apart by their words like any other; Tidy does the same. `forget(ws,
@@ -92,15 +104,20 @@ deletes the memory only while it still says them (a Forget card's OK). `undo(ws,
 Undo: it deletes the memory only while it is as that answer added it (revision 1, which every write over it, edit,
 switch, confirmation, Tidy merge or brain file raises, and the same words); otherwise it answers 409, "It changed since
 that answer (said again, edited, or switched off or on), so Undo left it as it is. Brain → Memory shows it.", and the
-memory stays. `forget_words(ws, text)` forgets every memory that says those words (`saying`: every kind, wherever it
-applies, switched on or off), so no twin still follows words you asked to forget. `confirm` turns a guess into something
+memory stays. `forget_words(ws, text, project_id)` forgets every memory that says those words (`saying`: every kind,
+wherever it applies, switched on or off), so no twin still follows words you asked to forget. Asked in a video's
+chat (`project_id`), it is about that video: a note another video keeps under the same words stays when one that
+says them is kept for this video or for more than one video (`memories.meant`); when only other videos keep the
+words, they name those notes, which go. `confirm` turns a guess into something
 you said. `export` gives one JSON file (`clipforge.brain-memories/v1`); `import_` merges by id and revision (a newer
 file wins, also when another memory says those words: what the owner changed on the other computer applies, the twins
 are read once and Tidy merges those kept for the same videos and switched on or off alike; an unknown id is added unless
-a memory says its words already; nothing is deleted).
+a memory says its words already in that place or for every video, so the same words kept for two videos both come
+back; nothing is deleted).
 
 **Health** (`brain.check(ws)`): counts by kind and source, memories without a meaning or with an old embedder,
-near-duplicates (same kind, cosine ≥ 0.92: "review them; Tidy merges exact twins kept for the same videos"),
+near-duplicates (same kind, cosine ≥ 0.92, not two kept for different videos or platforms, which are each its
+place's own: "review them; Tidy merges exact twins kept for the same videos"),
 guesses unused for 90 days, expired memories, the size on disk. The
 Brain page shows it; **Tidy** removes the expired ones and merges exact twins (the same words and kind, kept for the
 same videos and switched on or off alike: the one kept takes their uses, use count and tags, and lasts as long as the
@@ -195,15 +212,25 @@ the built-in model downloaded, or an AI helper chosen in Settings → ClipForge 
 3. Without a model: the rules (below).
 4. The fast paths, which need no model. "remember: …" (with the colon, and no question in the words) saves exactly
    your words: a `rule` when they say always, never, only, every, must, should …, otherwise a `fact`. In a video's
-   chat, words that say where they apply are kept for that video (`chat._for_this_video`): "for/in/on this video"
-   (or "this one", "this project"), or "here" as a word of its own (in small letters or all capitals, whatever
+   chat, words that point at this video keep the memory to it (`memories.points_here`): "this video", "this
+   project" or "this one", with or without "for", "in" or "on" before them; a piece of it ("this clip", "this
+   shot", "this scene", "these clips"); or "here" as a word of its own (in small letters or all capitals, whatever
    follows it: "no captions here, please", "never zoom in here"; with a capital only as "Here:" or "Here," in
-   front). Words that only mention it are kept for it too ("this video is for kids", "keep this project under a
-   minute"), unless they speak of other videos or of later: "use this video as the template for the next ones",
-   "never use the music from this video again" and "next time, start like this video" are for every video. So are
-   words that reach further than this video: "not only in this video", "not just here", "longer than here", "unlike
-   here", and "from here on", which means from now on. ("Here" always means this video, also as a place: "my office
-   is here in Lyon" is kept for this video; said in the general chat it is kept for every video.) These words only
+   front). Such words can only be read in this video's chat (in another one, "this video" is that other video), so
+   the memory stays with this video also when its words speak of other videos or of later, or liken something to
+   this one ("this video is private, never upload it again", "use this video as the template for the next ones",
+   "always cut the intro like in this video", "from this video on, captions are yellow"). Then the answer says why,
+   and how to keep it for every video: "It applies to this video only, because it says “this video”. To keep it for
+   every video, say the video's name (“Hike”) instead." (for a piece of it, "this clip": "say which clip instead"). Only two turns of speech reach further, and their words are
+   kept for every video: "not only" or "not just" right before the pointing words ("not only in this video", "not
+   just here"), and "from here on" where it can only mean from now on (in front of the words, at their end or
+   before a comma, or as "from here on out" or "from here onwards"; "put the logo from here on the thumbnail" speaks
+   of this video). "Here" always means this video, also as a place ("my office is here in Lyon" is kept for this
+   video), and other things said with "this" say nothing about where ("this channel", "this font", "this
+   video-game series"), nor do words that only bring on what follows ("this one thing: …", "this one rule", and
+   "here is …" or "here are …" in front of the words). The general chat has no video to keep words to: there they
+   are kept for every video.
+   These words only
    say where the memory applies: the words are kept as you said them, with nothing cut out of them ("remember: -3 dB
    here" keeps "-3 dB here", for this video; "here's the plan" and a title like "Here Comes the Sun" are other
    words, kept for every video). Only a label in front, set apart by a colon, a comma or a dash with spaces, is left
@@ -218,14 +245,20 @@ the built-in model downloaded, or an AI helper chosen in Settings → ClipForge 
    of everyday words is kept ("I am not in the videos", "I'm in the US", "one video at a time", "just me"); when in
    doubt the words are kept, and their answer has an Undo. When a memory already says the words, as a rule or as a
    fact
-   (switched off, only a guess, or kept for one video or platform), it is switched on, kept for every video (with
-   "here", for this video, unless it was kept for every video already) and given the words as you said them now,
+   (switched off, only a guess, or kept for one video or platform), it is switched on, kept for every video (when
+   the words point at this video, for this video, unless it was kept for every video already) and given the words
+   as you said them now (a memory another video keeps is not that memory: words that point at this video are then
+   kept beside it as this video's own, with their Undo, and the other video's note stays as it is),
    and the answer says what it was before ("I already remember “…” (switched on again; before, only for tiktok)",
    or "I already had “…”; it now says “…”" when the marks around its words differed: quotes, brackets, sentence
    marks), with no Undo chip: Undo forgets the memory, and that one was there before.
    "Remember that …" is a turn of the conversation ("Remember that day at the lake? Make a video of it" is a
    question, not a memory). "forget …" with the exact words of a memory removes it at once, with every twin that says
-   them too (kept for one video, switched off, or as another kind), so nothing still follows them. The words are all
+   them too (kept for one video, switched off, or as another kind), so nothing still follows them. In a video's chat
+   the request is about that video: a note another video keeps under the same words stays when this video (or every
+   video) has one, and the answer says so ("Forgotten: “no captions here”. Another video keeps the same words: its
+   note stays."); when only another video keeps the words, they name its note, and it goes. The "Which one?" list
+   and its buttons, and a Forget card, follow the same rule. The words are all
    of them after "forget" ("forget my intro is 3 seconds" forgets the memory “my intro is 3 seconds”); those after a
    leading "that", "about", "the", "my" or "what I said about" count only when no memory says them all. "forget", like
    "remember" and "note", is a whole word ("Forgetting captions loses viewers" and "Forget-me-nots …" ask nothing),
@@ -242,8 +275,14 @@ the built-in model downloaded, or an AI helper chosen in Settings → ClipForge 
    once: the conversation, or "Which one?", asks first. Without a model, "Which one?" lists the memories the words
    could mean (`chat._forget`): first the ones that say exactly the words named ("forget -3 dB here"), then the ones
    that hold them as whole words in that order ("forget -3 dB" for “-3 dB here”; `memories.holding` reads the words
-   themselves, so a number, a short word or a word in another script is found), then the ones the search finds like
-   them. A "Which one?" button sends its memory's words apart from the message
+   themselves, so a number, a short word or a word in another script is found, and in a script written without
+   spaces between words, such as Chinese, Japanese or Thai, a part of the words wherever it stands: "forget 字幕" for
+   “字幕は黄色で”), then the ones the search finds like them. The words may name their memory the way the help does,
+   or ask nicely behind it ("forget the rule about -3 dB", "forget the one that says -3 dB", "forget -3 dB, please",
+   "… too"): they are looked up without those words as well (`chat._named`; one message is read at most 12 ways,
+   however often it repeats such words). Words that name nothing on their own ("forget that", "forget it, please")
+   list no memory that merely holds such a word (“I like that song”): for them only the search looks.
+   A "Which one?" button sends its memory's words apart from the message
    (`forget`), so quote marks in them (German „…“, Swedish ”…”, an inch mark) change nothing: every memory that says
    exactly those words goes, with or without a model, and pressed again it says "Nothing I remember says “…”, so nothing
    was forgotten.". A quick reply you press (the question's choices, or the editor's) is words the model or the editor
@@ -410,9 +449,9 @@ has started: that finishes, for the next answer). After a restart, an answer tha
 | You say | It does | It answers with |
 |---|---|---|
 | "help", "what can you do" | | what it can do on its own, and that the built-in model makes it a real assistant |
-| "remember …", "always …", "never …", "from now on …", "I like/want/prefer/don't want …" | `remember` (`said`): a `rule` when it says always, never, only, must …, otherwise a `fact`; in a video's chat "for this video", "for this one" or "here" as a word of its own keeps it to the video, and so do words that only mention this video and speak of no other video and of no later time ("this video is for kids", but not "use this video as the template for the next ones"), and the words stay whole ("Remember -3 dB here" keeps "-3 dB here", "Never zoom in here" every word); only a label in front goes ("Note for this video: -14 LUFS" keeps "-14 LUFS"); "remember", "note", "keep in mind" and the "that" left out after them are whole words, and a dash separates only with a space on both sides ("Note -14 LUFS for YouTube" keeps its minus); words that name nothing on their own, only pointing back, asking nicely or saying when or where ("Remember that.", "Remember that one", "Note this 😅", "Remember that :D", "Remember this, please", "Remember that for later", "Remember that from now on", "I like that", "Always.", "Always for this video", "Never do that again") keep nothing, in the general chat too, while a fact made of everyday words ("Remember that I am not in the videos") is kept; a memory that already says the words, as a rule or as a fact, is switched on and kept for every video (with "here", for this video, unless it was kept for every video already) | "Remembered: … It applies to every video / this video." with an Undo chip; "I already remember “…” (switched on again; before, only for tiktok)" or "I already had “…”; it now says “…”" with no Undo when a memory already said it; "Say what to remember, for example: …" when it keeps nothing |
+| "remember …", "always …", "never …", "from now on …", "I like/want/prefer/don't want …" | `remember` (`said`): a `rule` when it says always, never, only, must …, otherwise a `fact`; in a video's chat words that point at this video ("this video", "this one", "this clip", or "here" as a word of its own) keep it to the video, also when they speak of other videos or of later ("use this video as the template for the next ones": the answer then says why, and how to keep it for every video); only "not only this video", "not just here" and "from here on" reach further; the words stay whole ("Remember -3 dB here" keeps "-3 dB here", "Never zoom in here" every word); only a label in front goes ("Note for this video: -14 LUFS" keeps "-14 LUFS"); "remember", "note", "keep in mind" and the "that" left out after them are whole words, and a dash separates only with a space on both sides ("Note -14 LUFS for YouTube" keeps its minus); words that name nothing on their own, only pointing back, asking nicely or saying when or where ("Remember that.", "Remember that one", "Note this 😅", "Remember that :D", "Remember this, please", "Remember that for later", "Remember that from now on", "I like that", "Always.", "Always for this video", "Never do that again") keep nothing, in the general chat too, while a fact made of everyday words ("Remember that I am not in the videos") is kept; a memory that already says the words, as a rule or as a fact, is switched on and kept for every video (when the words point at this video, for this video, unless it was kept for every video already) | "Remembered: … It applies to every video / this video." with an Undo chip ("… to this video only, because it says “this video”. To keep it for every video, say the video's name (“…”) instead." when the words also speak of other videos or of later); "I already remember “…” (switched on again; before, only for tiktok)" or "I already had “…”; it now says “…”" with no Undo when a memory already said it; "Say what to remember, for example: …" when it keeps nothing |
 | "never mind" | nothing: what an answer before it kept or forgot stays as it is | "All right, I did nothing with that. What I kept or forgot before stays as it is: to remove a memory, press Undo on its answer or say “forget …”." |
-| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; the words after a leading "that", "about", "the", "my" or "what I said about", with a space and then a word or an opening “ or " after it, only when no memory says them all; words in quotes only as they are, and only when the quote holds all the words); otherwise, and always for a quick reply you pressed, lists the memories the words could mean: the ones that say exactly the words named, the ones that hold them as whole words, then the closest the search finds | "Forgotten: …" (and how many times it was kept); "Nothing I remember says “…”" for quoted words no memory says; or "Which one?" with the closest memories, the same words once (with how many times they are kept, all of which picking them forgets), each with a Forget button that sends its memory's words apart from the message (forgotten exactly as they are, whatever quote marks they hold) |
+| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; in a video's chat a note another video keeps under the same words stays when this video or every video has one, and the answer says so; the words after a leading "that", "about", "the", "my" or "what I said about", with a space and then a word or an opening “ or " after it, only when no memory says them all; words in quotes only as they are, and only when the quote holds all the words); otherwise, and always for a quick reply you pressed, lists the memories the words could mean: the ones that say exactly the words named, the ones that hold them as whole words, then the closest the search finds (the words are also read without "the rule about", "the one that says" and their like in front, and without "please", "thanks" or "too" behind) | "Forgotten: …" (and how many times it was kept); "Nothing I remember says “…”" for quoted words no memory says; or "Which one?" with the closest memories, the same words once (with how many times they are kept, all of which picking them forgets), each with a Forget button that sends its memory's words apart from the message (forgotten exactly as they are, whatever quote marks they hold) |
 | "what do you know / remember …", "what have you learned" | lists the best memories for the words after it (or the newest) | the list |
 | "why …", "what did you use", "explain" | the latest answer for this video (change request or FilmCraft pass): its summary and the memories it used | the explanation |
 | anything else, in a video's chat | `edit_requests.ask` with the editor's rules alone | the proposal: Apply as a new version, Discard; a question with choices; or what it cannot do |
@@ -508,10 +547,10 @@ length, and checks choices, ranges and the required ones; what is wrong is told 
 | `knowhow` | look | reads the playbook that fits a topic (1,400 characters) |
 | `app_status` | look | the model in use, the work running, the projects being made, how many memories, which helpers are on |
 | `go_to` | look | a button that opens a page (Studio, Projects, Make clips, Make a YouTube video, Make clips from a link, Brain → Memory, Brain → Agents, Talk to ClipForge AI, Settings → ClipForge AI, Publishing, Missions, Office, Accounts) or a project |
-| `remember` | make | saves a lasting rule or fact you told it in this message, in your words (in a video's chat it can keep it to that video); anything else waits for your OK, and a memory you already have is never changed (below) |
+| `remember` | make | saves a lasting rule or fact you told it in this message, in your words (in a video's chat it can keep it to that video, and words that point at this video, such as "this video" or "here", always are); anything else waits for your OK, and a memory you already have is never changed (below) |
 | `propose_change` | make | in a video's chat only: a change to the cut in plain words (at most 500 characters), worked out and checked by the editor (`edit_requests.ask`); you apply it as a new version or discard it |
 | `ask_agent` | make | hands a job to one of your helper agents and reads its work (see "Helper agents") |
-| `forget` | change | removes every memory that says those words; the button names each one and where it applies (at most 16: a card that would need more cannot be pressed, and says to use the exact words or Brain → Memory), and its OK forgets only those, each only while it still says them; it never looks for memories again, and OK on a card that names more than 16 (one an earlier build saved) forgets none and says so |
+| `forget` | change | removes every memory that says those words (in a video's chat not a note another video keeps under them, when this video or every video has one; when none says exactly them: the newest memory that holds them as whole words, "-3 dB" for “-3 dB on the voice here”, else the closest the search finds); the button names each one and where it applies (at most 16: a card that would need more cannot be pressed, and says to use the exact words or Brain → Memory), and its OK forgets only those, each only while it still says them; it never looks for memories again, and OK on a card that names more than 16 (one an earlier build saved) forgets none and says so |
 | `rename_project` | change | renames a project or video; only the name changes |
 | `delete_project` | delete | deletes a project or video and what belongs only to it; the button lists what goes and what stays |
 
@@ -540,8 +579,13 @@ applies.) When your message answers a question ClipForge AI asked just before ("
 anywhere else (a transcript, a project or clip name, a tool result, a helper's work) become a card, "Remember
 “…”?", that runs `save_memory` (a change tool the model is never offered and helpers never get) only when you press
 OK; a memory longer than 120 characters is shown whole under the card's label ("Remember this?"), since OK keeps
-exactly the words it shows. A helper is told to suggest it in its answer instead. When a memory with the same words is already there (as a rule
-or a fact), nothing is changed: switched on, kept for every video and not a guess, it is "already in my memory" (no
+exactly the words it shows. A helper is told to suggest it in its answer instead. In a video's chat, words that
+point at this video ("this video", "this one", "here": `memories.points_here`, the same reading as "remember: …")
+are kept for that video whatever the model chose, on the card too; when they also speak of other videos or of later,
+the step tells the model why ("Saved as a rule for this video only, because it says “this video” (to keep it for
+every video, the owner can say it again and say the video's name instead)"). When a memory with the same words is already there (as a rule
+or a fact; for words to keep for this video: one kept for this video or for every video, since a note another video
+keeps is that video's own and the same words are then saved beside it for this one), nothing is changed: switched on, kept for every video and not a guess, it is "already in my memory" (no
 Undo chip, since nothing new was kept); switched off, kept for one video or one platform, or only a guess, the step
 says so and links to Brain → Memory, where you decide. Undo on a chip only ever forgets a memory that answer added,
 and only while it is as that answer added it (`memories.undo`: revision 1 and the same words); a chip an earlier
@@ -678,7 +722,8 @@ another helper (it has no `ask_agent`); work without ClipForge AI's model; be re
 - `POST /api/brain/chats/{chat_id}/messages/{message_id}/actions/{action_id}` `{do}`: your OK (`true`) or no (`false`) for a button; returns the message, with `gone: true` when the action deleted this chat's own video; 409 while the answer is still being written, 404 for a button that is not in the message
 - `GET /api/brain/agents` (your helpers, the ready-made ones with `added`, the tools a helper may be given, the icons, the limit) · `POST /api/brain/agents` `{template?, name?, icon?, role?, instructions?, tools?, helps_plans?, enabled?}` (a ready-made one by `template`; what you send replaces its words) · `PATCH /api/brain/agents/{agent_id}` `{name?, icon?, role?, instructions?, tools?, helps_plans?, enabled?, position?}` · `DELETE /api/brain/agents/{agent_id}`: 404 for an unknown helper, 409 for a name you already have, 422 for anything else the checks refuse, each with the reason in words
 
-Reads need a local (or signed-in) request, writes the app's own header, like the rest of `/api/brain`. Every memory,
+Reads need a local (or signed-in) request, writes the app's own header, like the rest of `/api/brain`. Half of an
+emoji in what a request sends is left out before its fields are checked (`routes.Input`). Every memory,
 chat and message id in an address is checked against the workspace app-wide (`cloud/ownership.py`); a helper of
 another workspace answers like a missing one (`agents.get`). A change or a delete runs only through the button's
 request; nothing a model writes can send it.

@@ -328,7 +328,10 @@ def grounded(text: str, owner_text: str) -> bool:
 
 
 def _here(ctx: Ctx, args: dict) -> bool:
-    return args.get("scope") == "this_video" and bool(ctx.project_id)
+    """Whether a memory is kept for this video only: the model said so, or its words point at this video ("this
+    video", "this one", "here": `memories.points_here`). Those can only be read in this video's chat, whatever the
+    model chose: kept for every video, "this video is for kids" would be read in every other video's chat."""
+    return bool(ctx.project_id) and (args.get("scope") == "this_video" or bool(memories.points_here(args["text"])[0]))
 
 
 def _kind(args: dict) -> str:
@@ -376,13 +379,17 @@ def _keep(ctx: Ctx, text: str, kind: str, here: bool) -> Result:
     except memories.Invalid as exc:
         raise ToolError(str(exc)) from exc
     where = "this video" if here else "every video"
+    points, further = memories.points_here(row["text"]) if here else ("", False)
+    if further:  # it also speaks of other videos or of later: the owner may have meant every video
+        where += (f" only, because it says “{points}” (to keep it for every video, the owner can say it again and "
+                  f"say {memories.said_instead(points)} instead)")
     return Result(f"Saved as a {row['kind']} for {where}: {row['text']}", f"Remembered “{row['text']}”",
                   {"memory": memories.view(row)})
 
 
 def _remember(ctx: Ctx, args: dict) -> Result:
     text, kind, here = args["text"], _kind(args), _here(ctx, args)
-    twin = memories.twin(ctx.ws, text, _kinds(kind))
+    twin = memories.twin(ctx.ws, text, _kinds(kind), f"project:{ctx.project_id}" if here else "all")
     if twin:  # never changed from here: not switched back on, not moved or widened, a guess stays a guess
         return _already(ctx, twin, here)
     if not grounded(text, ctx.owner_text):  # words from a transcript, a name, a result or a helper: not at once
@@ -413,7 +420,7 @@ def _save_memory_preview(ctx: Ctx, args: dict) -> dict:
 def _save_memory(ctx: Ctx, args: dict) -> Result:
     """After the owner's OK: kept as said by the owner (they pressed OK), still never changing a memory they have."""
     text, kind, here = args["text"], _kind(args), _here(ctx, args)
-    twin = memories.twin(ctx.ws, text, _kinds(kind))
+    twin = memories.twin(ctx.ws, text, _kinds(kind), f"project:{ctx.project_id}" if here else "all")
     if twin:
         return _already(ctx, twin, here)
     return _keep(ctx, text, kind, here)
@@ -466,16 +473,23 @@ FORGET_MAX = 16  # the memories one Forget card names, a line each (twins of the
 FORGET_IDS = 50  # a card saved by an earlier build named up to 50: its OK reads them all, to refuse rather than cut
 
 
+_NAMES_NONE = STOPWORDS | {"rule", "rules", "memory", "memories", "fact", "facts", "note", "notes"}
+
+
 def _memories_for(ctx: Ctx, words: str) -> list[dict]:
-    """What a Forget card is about: every memory that says these words (`memories.saying`: its twins too, kept for one
-    video, switched off or as another kind), else every one that says the words of the closest memory; oldest
-    first. Only the preview looks: OK forgets what its card named."""
-    same = memories.saying(ctx.ws, words)
+    """What a Forget card is about: every memory that says these words (`memories.to_forget`: its twins too, kept
+    for one video, switched off or as another kind; in a video's chat not another video's own note beside one that
+    applies here). Else every one that says the words of the newest memory that holds them as a part of its own
+    (`memories.holding`: "-3 dB" for "-3 dB here", a number, a short word or a word in another script, which the
+    search leaves out; never for little words alone, such as "that" or "the rule"), else of the closest memory the
+    search finds; oldest first. Only the preview looks: OK forgets what its card named."""
+    same = memories.to_forget(ctx.ws, words, ctx.project_id)
     if not same:
-        found = memories.list_(ctx.ws, q=words, limit=5)
+        named = any(w not in _NAMES_NONE for w in re.findall(r"[^\W_]+", str(words).lower()))
+        found = (memories.holding(ctx.ws, words, 1) if named else []) or memories.list_(ctx.ws, q=words, limit=5)
         if not found:
             raise ToolError("Nothing like that is in the memory.")
-        same = memories.saying(ctx.ws, found[0]["text"]) or [found[0]]
+        same = memories.to_forget(ctx.ws, found[0]["text"], ctx.project_id) or [found[0]]
     return same
 
 

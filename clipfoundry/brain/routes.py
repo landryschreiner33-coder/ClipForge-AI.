@@ -2,13 +2,15 @@
 request, writes the app's own header, like the rest of /api/brain."""
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..cloud import principal
 from ..publish.common import app_request, local_only
-from . import knowhow, memories
+from . import knowhow, memories, tools
 
 router = APIRouter(prefix="/api/brain/memories")
 READ = [Depends(local_only)]
@@ -19,7 +21,17 @@ def _err(exc: memories.Invalid) -> HTTPException:
     return HTTPException(exc.status, str(exc))
 
 
-class MemoryIn(BaseModel):
+class Input(BaseModel):
+    """What a request sends. Half of an emoji in a text (a message cut in the middle of one) is left out before the
+    fields are checked: it cannot be saved, and the refusal of it could not even be sent back (a server error)."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _whole(cls, data: Any) -> Any:
+        return tools.clean(data)
+
+
+class MemoryIn(Input):
     text: str = Field(max_length=4000)
     kind: str = "fact"
     scope: str | None = None
@@ -29,7 +41,7 @@ class MemoryIn(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
-class MemoryPatch(BaseModel):
+class MemoryPatch(Input):
     text: str | None = Field(default=None, max_length=4000)
     kind: str | None = None
     scope: str | None = None
@@ -37,7 +49,7 @@ class MemoryPatch(BaseModel):
     enabled: bool | None = None
 
 
-class RecallIn(BaseModel):
+class RecallIn(Input):
     query: str = Field(default="", max_length=4000)
     project_id: str = ""
     platform: str = ""
@@ -45,11 +57,11 @@ class RecallIn(BaseModel):
     limit: int = Field(default=6, ge=0, le=50)
 
 
-class ImportIn(BaseModel):
+class ImportIn(Input):
     data: dict
 
 
-class UndoIn(BaseModel):
+class UndoIn(Input):
     words: str = Field(max_length=4000)  # what the chip says was kept
 
 
@@ -84,7 +96,7 @@ def check() -> dict:
     return memories.check(principal.workspace_id())
 
 
-class KnowHowIn(BaseModel):
+class KnowHowIn(Input):
     query: str = Field(default="", max_length=4000)
     task: str = ""
 
@@ -178,18 +190,18 @@ def _chat_err(exc: chat_module.ChatError) -> HTTPException:
     return HTTPException(exc.status, str(exc))
 
 
-class OpenChat(BaseModel):
+class OpenChat(Input):
     project_id: str = ""
 
 
-class Say(BaseModel):
+class Say(Input):
     text: str = Field(max_length=4000)
     base_revision: int | None = None
     choice: bool = False  # a quick reply pressed: words the model or the editor wrote (chat.send)
     forget: str | None = Field(default=None, max_length=4000)  # a "Which one?" button: the memory's words it shows
 
 
-class Decide(BaseModel):
+class Decide(Input):
     do: bool
 
 
@@ -278,7 +290,7 @@ def _agent_err(exc: agents_module.AgentError) -> HTTPException:
     return HTTPException(exc.status, str(exc))
 
 
-class AgentIn(BaseModel):
+class AgentIn(Input):
     template: str = Field(default="", max_length=40)
     name: str = Field(default="", max_length=200)
     icon: str = Field(default="", max_length=40)
@@ -289,7 +301,7 @@ class AgentIn(BaseModel):
     enabled: bool = True
 
 
-class AgentPatch(BaseModel):
+class AgentPatch(Input):
     name: str | None = Field(default=None, max_length=200)
     icon: str | None = Field(default=None, max_length=40)
     role: str | None = Field(default=None, max_length=1000)

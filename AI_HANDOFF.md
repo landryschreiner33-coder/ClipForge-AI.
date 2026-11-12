@@ -106,7 +106,8 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   together with `choice` it is refused, 422); words are compared strictly by `memories._norm`, which lists what it
   leaves out: capitals (lowered, not folded: "Maßen" is not "Massen"), spacing, how an accent or a full-width
   character was typed, the kind of dash or apostrophe, unseen characters and, around a word that has a letter or a
-  digit, its quotes and brackets, ¿ or ¡ before it and the sentence marks after it; so a sign, a symbol, an emoji, a
+  digit, its quotes and brackets, ¿ or ¡ before it and the sentence marks after it (Unicode's list for every script,
+  written out in `memories._STOPS`); so a sign, a symbol, an emoji, a
   hyphen inside a word, the marks of a letter and whatever stands alone between spaces all count ("-3 dB" is not
   "+3 dB", "EV+1" not "EV-1", "<3 s" not ">3 s", "50%" not "50", "never end a caption with !" not "… with ?"; when
   in doubt words are different, and two memories stand side by side: French spacing, "basse !", is not "basse!";
@@ -119,16 +120,26 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   `chat._names_nothing` reads them as turns of speech (`chat._TURN`, a few short matches per word, never one
   pattern over the whole message), not word by word, so a fact made of everyday words ("I am not in the videos",
   "one video at a time") is kept, and when in doubt the words are kept; "Never mind" keeps nothing and says only
-  that (`chat.NEVER_MIND`: what was kept before stays); in a video's chat "for this video", "for this one" or
-  "here" as a word of its own says where the memory applies, and so does a bare mention of this video unless the
-  words speak of other videos or of later (`chat._for_this_video`: "use this video as the template for the next
-  ones", "not only in this video", "than here" and "from here on" are for every video; "here" always means this
-  video, also in "my office is here in Lyon"), and the words are kept whole ("never zoom in here" stays every
-  word), with only a label in front left out ("for this video: …", "here: …", `chat._LABEL`); without a model
-  "forget …" lists first the memories that say exactly the words named, then those that hold them as whole words
-  (`memories.holding`, any script, numbers, short words), then the search's; the same words said for another
-  video move that memory to the new place, as `memories.remember` always did, and the answer says where it was
-  before; "remember: …" on words a memory of either kind
+  that (`chat.NEVER_MIND`: what was kept before stays); in a video's chat, words that point at this video ("this video", "this
+  one", "this clip", "here" as a word of its own) say where the memory applies (`memories.points_here`): it is kept
+  for this video, also when the words speak of other videos or of later or liken something to it, and then the
+  answer says why and how to keep it for every video (with the video's name, which reads the same in any chat);
+  only "not only/not just" right before them and "from here on" where it can only mean from now on (in front, at
+  the end, before a comma, "from here on out") reach further; "here" always means this video, also in "my office
+  is here in Lyon"; the model's `remember` tool keeps such words for this video whatever scope it chose
+  (`toolbox._here`); the words are kept whole ("never zoom in here" stays every word), with only a label in front
+  left out ("for this video: …", "here: …", `chat._LABEL`); where a memory is kept is part of what it is
+  (`memories.twin(ws, text, kind, scope)`): the same words kept for another video, or platform, are a memory of
+  their own (they used to move the first video's note to the second), said for every video they widen the oldest,
+  a brain file and an edit follow the same rule, the brain check does not call two videos' notes twins, and
+  "forget" asked in a video's chat leaves a note another video keeps under the same words when this video or every
+  video has one, saying so (`memories.meant`; typed words, the "Which one?" buttons and the Forget card alike);
+  without a model "forget …" lists first the memories that say exactly the words named, then those that hold them
+  as whole words (`memories.holding`: any script, a part of the words wherever it stands in a script written
+  without spaces, numbers, short words), then the search's, reading the words also without "the rule about" in
+  front or "please" behind (`chat._named`, at most `chat._FORMS` readings of one message); half of an emoji is left
+  out of a memory, a message and whatever the Brain's addresses receive (`tools.whole`, `routes.Input`);
+  "remember: …" on words a memory of either kind
   already says answers "I already remember …" or "I already had “…”; it now says “…”" with what changed and no Undo
   chip (Undo would forget that older memory); Undo forgets only while the memory is as its answer added it
   (`memories.undo`, `POST /api/brain/memories/{id}/undo`: revision 1 and the chip's words, otherwise 409 and it

@@ -808,10 +808,11 @@ def test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_need
     nothing: they point at something said before and say only where or when, so the conversation reads them, in a
     video's chat and in the general one (where “that for this video” was kept as a memory). Words that name something
     are kept whole at once, “here” with them, and so is a fact made of everyday words (“I am not in the videos”,
-    “I'm in the US” went to the conversation, which may keep nothing); words that mention this video but speak of
-    the next ones are kept for every video. “Forget that” with the rule on the next line is a turn of the
-    conversation whatever the line break. A “Which one?” button's words, sent apart from the message, are forgotten
-    exactly, without the model; sent as a quick reply they are refused, because a quick reply never forgets."""
+    “I'm in the US” went to the conversation, which may keep nothing); words that point at this video and speak of
+    the next ones stay with this video, and the answer says why. “Forget that” with the rule on the next line is a
+    turn of the conversation whatever the line break. A “Which one?” button's words, sent apart from the message,
+    are forgotten exactly, without the model, and so is a mark typed in quotes (forget "!"); sent as a quick reply
+    they are refused, because a quick reply never forgets."""
     from clipfoundry import brain
     from clipfoundry.brain import chat
 
@@ -828,14 +829,19 @@ def test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_need
     assert len(fake.calls) == 5 and brain.list_(WS) == []
     m = _say(c["id"], "remember: -3 dB on the voice here")
     assert m["text"] == "Remembered: “-3 dB on the voice here”. It applies to this video. Say “forget …” to remove it."
-    for where, words in ((general, "I am not in the videos"), (general, "I'm in the US"), (c, "one video at a time"),
-                         (c, "use this video as the template for the next ones")):
+    for where, words in ((general, "I am not in the videos"), (general, "I'm in the US"), (c, "one video at a time")):
         m = _say(where["id"], f"remember: {words}")  # kept at once, as said: no turn of the conversation
         assert m["text"] == f"Remembered: “{words}”. It applies to every video. Say “forget …” to remove it.", words
+    m = _say(c["id"], "remember: use this video as the template for the next ones")
+    assert m["text"] == ("Remembered: “use this video as the template for the next ones”. It applies to this video "
+                         "only, because it says “this video”. To keep it for every video, say the video's name "
+                         "(“Hike”) instead. Say “forget …” to remove it.")
     assert len(fake.calls) == 5 and len(brain.list_(WS)) == 5
     for m in brain.list_(WS):
-        if m["scope"] == "all":
+        if m["text"] != "-3 dB on the voice here":
             brain.forget(WS, m["id"])
+    brain.remember(WS, "!")
+    assert _say(c["id"], 'forget "!"')["text"] == "Forgotten: “!”." and len(fake.calls) == 5  # no turn of the model
     brain.remember(WS, "Keep the music low", kind="rule")
     for br in ("\u2028", "\u2029", "\x85", "\x0b", "\x0c"):
         m = settled(c["id"], _say(c["id"], f"Forget that{br}Keep the music low")["id"])
