@@ -726,12 +726,12 @@ def test_a_brain_file_changes_the_memories_it_knows_before_it_adds_the_rest(data
     that rule or switched it off: the note was nowhere, and importing the same file a second time added it."""
     from clipfoundry import brain
 
-    def sync(change: dict) -> tuple[dict, dict]:
+    def sync(change: dict, note_id: str = "p1-1") -> tuple[dict, dict]:
         for m in brain.list_(WS):
             brain.forget(WS, m["id"])
         mine = brain.remember(WS, "Never use red captions", kind="rule")
         theirs = next(m for m in brain.export(WS)["memories"] if m["id"] == mine["id"])
-        note = {"id": "p1-1", "kind": "rule", "text": "Never use red captions", "scope": "project:p1",
+        note = {"id": note_id, "kind": "rule", "text": "Never use red captions", "scope": "project:p1",
                 "source": "said", "created_at": theirs["created_at"] - 60}  # the older of the two: it comes first
         return mine, {"format": brain.FORMAT, "memories": [note, {**theirs, **change, "revision": 2}]}
 
@@ -747,6 +747,12 @@ def test_a_brain_file_changes_the_memories_it_knows_before_it_adds_the_rest(data
     assert [m["id"] for m in brain.recall("red captions", WS, project_id="p1").memories] == ["p1-1"]
     assert brain.recall("red captions", WS, project_id="p2").memories == []
     assert brain.import_(WS, off) == {"added": 0, "updated": 0, "skipped": 2, "invalid": 0}
+    # a note the file lists without an id is told apart by its words alone: only the order brings it in
+    mine, reworded = sync({"text": "Never use red captions on shorts"}, note_id="")
+    assert brain.import_(WS, reworded) == {"added": 1, "updated": 1, "skipped": 0, "invalid": 0}
+    assert sorted((m["text"], m["scope"]) for m in brain.list_(WS, kind="rule")) == [
+        ("Never use red captions", "project:p1"), ("Never use red captions on shorts", "all")]
+    assert brain.import_(WS, reworded) == {"added": 0, "updated": 0, "skipped": 2, "invalid": 0}
 
 
 def test_a_brain_file_entry_with_a_value_that_is_no_number_is_left_out_and_the_rest_is_read(client):
@@ -792,6 +798,170 @@ def test_a_brain_file_entry_with_a_value_that_is_no_number_is_left_out_and_the_r
     assert brain.get(WS, "m-2")["revision"] == 10 ** 9 and brain.get(WS, "m-2")["used_count"] == 10 ** 9
     assert brain.get(WS, "m-8")["revision"] == 10 ** 9 and brain.get(WS, "m-8")["used_count"] == 0
     assert client.get("/api/brain/memories?q=music").status_code == 200
+
+
+def test_a_brain_file_with_its_numbers_as_text_keeps_a_switched_off_memory_off(data):
+    """A converted brain file can hold its numbers as text. Text that is a number is read as that number wherever an
+    entry has one, "enabled" (0 or 1) and a 0 that stands for "none" included. Read as plain text, "0" switched a
+    memory back on that the owner had switched off, and gave a memory that never ends an end in 1970: no answer
+    followed it and Tidy removed it. What is no number there makes the entry invalid, as in the other fields."""
+    from clipfoundry import brain
+
+    def read(**fields) -> dict:
+        for m in brain.list_(WS):
+            brain.forget(WS, m["id"])
+        return brain.import_(WS, {"format": brain.FORMAT, "memories": [
+            {"id": "m-1", "kind": "rule", "text": "never use red captions", "source": "said", **fields}]})
+
+    def followed() -> list[str]:
+        return [m["id"] for m in brain.recall("red captions", WS).memories]
+
+    added = {"added": 1, "updated": 0, "skipped": 0, "invalid": 0}
+    for off in ("0", "0.0", " 0 ", 0, 0.0, False, None, ""):
+        assert read(enabled=off) == added and not brain.get(WS, "m-1")["enabled"] and followed() == [], repr(off)
+    for on in ("1", "1.0", 1, True, 2):
+        assert read(enabled=on) == added and brain.get(WS, "m-1")["enabled"] and followed() == ["m-1"], repr(on)
+    assert read() == added and followed() == ["m-1"]  # nothing said about it: on
+    for bad in ("false", "off", "no", "yes", [0], {"on": 0}, float("nan"), float("inf")):
+        assert read(enabled=bad) == {"added": 0, "updated": 0, "skipped": 0, "invalid": 1}, repr(bad)
+        assert brain.list_(WS) == [], repr(bad)
+    # a 0 that stands for "none" is none as text too, as the number 0 is read
+    assert read(expires_at="0", last_used_at="0", created_at="0", used_count="0", revision="0",
+                confidence="0") == added
+    kept = brain.get(WS, "m-1")
+    assert (kept["expires_at"], kept["last_used_at"], kept["revision"], kept["used_count"]) == (None, None, 1, 0)
+    assert kept["confidence"] == 1.0 and time.time() - kept["created_at"] < 60
+    assert followed() == ["m-1"] and brain.tidy(WS)["expired"] == 0 and followed() == ["m-1"]
+
+
+def test_the_memories_a_brain_file_lists_by_id_never_count_against_each_other(data):
+    """What a brain file lists under an id of its own was a memory of its own where the file comes from, so one of
+    them never makes another "known already": not the memory for every video that the file brings up to date (it
+    said other words here before) or that this brain has as it is, and not one in the same place that is switched
+    off beside one that is on. So a backup comes back whole in either order. Entries without an id are told apart
+    by their words (a line a hand-made file repeats is added once), and what this brain kept before the file, under
+    an id the file does not list, counts as before."""
+    from clipfoundry import brain
+
+    def entry(mid: str, scope: str, text: str = "no captions", **more) -> dict:
+        return {**({"id": mid} if mid else {}), "kind": "rule", "text": text, "scope": scope, "source": "said", **more}
+
+    def held() -> list[tuple]:
+        return sorted((m["id"], m["scope"], m["text"], bool(m["enabled"])) for m in brain.list_(WS, kind="rule"))
+
+    def in_force(project_id: str) -> list[str]:
+        return [m["id"] for m in brain.recall("captions", WS, project_id=project_id).memories]
+
+    def empty() -> None:
+        for m in brain.list_(WS):
+            brain.forget(WS, m["id"])
+
+    def file(*memories: dict) -> dict:
+        return {"format": brain.FORMAT, "memories": list(memories)}
+
+    both = [("all-1", "all", "no captions", True), ("p1-1", "project:p1", "no captions", True)]
+    note, general = entry("p1-1", "project:p1"), entry("all-1", "all", revision=2)
+    for memories in ((note, general), (general, note)):
+        # this brain has the memory for every video with older words: the file brings it up to date
+        assert brain.import_(WS, file(entry("all-1", "all", "captions in yellow"))) == {
+            "added": 1, "updated": 0, "skipped": 0, "invalid": 0}
+        assert brain.import_(WS, file(*memories)) == {"added": 1, "updated": 1, "skipped": 0, "invalid": 0}
+        assert held() == both and in_force("p1") == ["p1-1"] and in_force("p2") == ["all-1"]
+        assert brain.import_(WS, file(*memories)) == {"added": 0, "updated": 0, "skipped": 2, "invalid": 0}
+        empty()
+        # this brain has it as the file does (nothing to bring up to date): the note is the file's own all the same
+        assert brain.import_(WS, file(general))["added"] == 1
+        assert brain.import_(WS, file(*memories)) == {"added": 1, "updated": 0, "skipped": 1, "invalid": 0}
+        assert held() == both
+        empty()
+    # the same words in the same place twice, one switched off: both come back, and the rule is in force as it was
+    pair = (entry("off-1", "all", enabled=0), entry("on-1", "all"))
+    for memories in (pair, pair[::-1]):
+        assert brain.import_(WS, file(*memories)) == {"added": 2, "updated": 0, "skipped": 0, "invalid": 0}
+        assert held() == [("off-1", "all", "no captions", False), ("on-1", "all", "no captions", True)]
+        assert in_force("p1") == ["on-1"]
+        assert brain.import_(WS, file(*memories)) == {"added": 0, "updated": 0, "skipped": 2, "invalid": 0}
+        empty()
+    # without ids the words tell the entries apart: a repeated line is one memory, in each place
+    lines = file(entry("", "all"), entry("", "all"), entry("", "project:p1"), entry("", "project:p1"))
+    assert brain.import_(WS, lines) == {"added": 2, "updated": 0, "skipped": 2, "invalid": 0}
+    assert [m[1] for m in held()] == ["all", "project:p1"] or [m[1] for m in held()] == ["project:p1", "all"]
+    assert brain.import_(WS, lines) == {"added": 0, "updated": 0, "skipped": 4, "invalid": 0}
+    empty()
+    # an entry without an id beside one with an id that says the same words in the same place: one memory
+    for memories in ((entry("a-1", "all"), entry("", "all")), (entry("", "all"), entry("a-1", "all"))):
+        assert brain.import_(WS, file(*memories)) == {"added": 1, "updated": 0, "skipped": 1, "invalid": 0}
+        assert len(held()) == 1
+        empty()
+    # ids another workspace has already: the entries get new ids here, and are the file's own all the same
+    assert brain.import_("other", file(*pair))["added"] == 2
+    assert brain.import_(WS, file(*pair)) == {"added": 2, "updated": 0, "skipped": 0, "invalid": 0}
+    assert sorted((m[1], m[3]) for m in held()) == [("all", False), ("all", True)]
+    assert not {m[0] for m in held()} & {"off-1", "on-1"}
+    assert brain.import_(WS, file(*pair)) == {"added": 0, "updated": 0, "skipped": 2, "invalid": 0}
+    empty()
+    # what this brain kept before the file, under an id the file does not list, counts as it did
+    mine = brain.remember(WS, "no captions", kind="rule")
+    assert brain.import_(WS, file(*pair, note)) == {"added": 0, "updated": 0, "skipped": 3, "invalid": 0}
+    assert [m[0] for m in held()] == [mine["id"]]
+
+
+def test_a_brain_file_id_that_cannot_be_one_is_read_as_no_id(client):
+    """An id of a hand-made brain file is kept only when it can be one: at most 40 letters, digits, "-" and "_".
+    Any other is not kept: its entry is read as one without an id, added under a new one and told apart by its
+    words. Cut to 40 characters (as it was), two longer ids with the same start collided: a server error with the
+    file half read, at every try. And a memory stored under an id with "/" in it had no address, so the Memory page
+    could neither switch it off nor forget it."""
+    from clipfoundry import brain
+
+    start = "clipforge-brain-export-2026-11-12-memory-"
+    file = {"format": brain.FORMAT, "memories": [
+        {"id": start + "0001", "kind": "rule", "text": "no captions"},
+        {"id": start + "0002", "kind": "rule", "text": "music under the voice"},
+        {"id": "m" * 40, "kind": "fact", "text": "the mic is a lavalier"},
+        {"id": "n" * 41, "kind": "fact", "text": "the light is a softbox"}]}
+    for counts in ({"added": 4, "updated": 0, "skipped": 0, "invalid": 0},
+                   {"added": 0, "updated": 0, "skipped": 4, "invalid": 0}):  # read again: nothing twice
+        r = client.post("/api/brain/memories/import", json={"data": file}, headers=H)
+        assert r.status_code == 200 and r.json() == counts, r.text
+        kept = {m["text"]: m["id"] for m in brain.list_(WS)}
+        assert sorted(kept) == ["music under the voice", "no captions", "the light is a softbox",
+                                "the mic is a lavalier"]
+        assert kept["the mic is a lavalier"] == "m" * 40  # as long as an id may be: kept
+        assert kept["the light is a softbox"] != "n" * 41 and len(kept["the light is a softbox"]) <= 40  # one more
+        assert not any(i.startswith("clipforge-brain-export") for i in kept.values())
+    odd = ("a/b", "..", ".", "a%2Fb", "../x", "a b", "a?b", "ä-1", "a\nb", "ab\n")
+    file = {"format": brain.FORMAT, "memories": [{"id": mid, "kind": "fact", "text": f"the mic is model {n}"}
+                                                 for n, mid in enumerate(odd)]}
+    r = client.post("/api/brain/memories/import", json={"data": file}, headers=H)
+    assert r.status_code == 200 and r.json() == {"added": len(odd), "updated": 0, "skipped": 0, "invalid": 0}
+    models = [m for m in brain.list_(WS) if m["text"].startswith("the mic is model")]
+    assert len(models) == len(odd) and not {m["id"] for m in models} & set(odd)
+    for m in models:  # each one has an address: it can be switched off and forgotten
+        assert client.patch(f"/api/brain/memories/{m['id']}", json={"enabled": False}, headers=H).status_code == 200
+        assert client.delete(f"/api/brain/memories/{m['id']}", headers=H).status_code == 200
+    assert client.post("/api/brain/memories/import", json={"data": {"format": brain.FORMAT, "memories": [
+        {"id": 17, "kind": "fact", "text": "the tripod is carbon"}]}}, headers=H).json()["added"] == 1
+    assert brain.get(WS, "17")["text"] == "the tripod is carbon"  # a number is an id as its digits, as before
+
+
+def test_a_brain_file_entry_whose_extra_data_holds_no_real_number_is_left_out(client):
+    """A memory's extra data is kept as the file has it, so a number in it that is no real number (1e999, NaN) was
+    stored, and the brain could not be exported from then on (a server error) until that memory was forgotten. Such
+    an entry is invalid, like one with no number where its own numbers belong, and the rest of the file is read."""
+    from clipfoundry import brain
+
+    for bad in ('{"a": 1e999}', '{"a": NaN}', '{"a": [1, {"b": -Infinity}]}'):
+        body = ('{"data": {"format": "%s", "memories": ['
+                '{"id": "m-1", "kind": "rule", "text": "captions in yellow", "data": {"n": [1, 2.5, null, true]}}, '
+                '{"id": "m-2", "kind": "rule", "text": "music under the voice", "data": %s}]}}' % (brain.FORMAT, bad))
+        r = client.post("/api/brain/memories/import", content=body, headers={**H, "Content-Type": "application/json"})
+        assert r.status_code == 200 and r.json() == {"added": 1, "updated": 0, "skipped": 0, "invalid": 1}, bad
+        r = client.get("/api/brain/memories/export", headers=H)
+        assert r.status_code == 200 and [m["id"] for m in r.json()["memories"]] == ["m-1"], bad
+        assert r.json()["memories"][0]["data"] == {"n": [1, 2.5, None, True]}
+        for m in brain.list_(WS):
+            brain.forget(WS, m["id"])
 
 
 def test_a_brain_file_nested_deeper_than_anything_real_is_refused_before_anything_is_stored(client):
@@ -879,6 +1049,39 @@ def test_the_closest_memory_in_a_videos_chat_applies_there_unless_another_videos
     assert memories.closest(WS, "  ", "hike") is None  # whatever a meaning model makes of no words at all
     monkeypatch.setattr(memories, "_scores", real)
     assert memories.closest(WS, "the intro", "hike")["id"] == mine["id"]
+
+
+def test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_taught_another(data, monkeypatch):
+    """What ClipForge AI noted itself in a video (an episode: "Asked … → applied: …", an asset, an answer) does not
+    come before a rule or a fact of another video that the search ranks first: "forget the caption rule" asks for
+    something the owner taught, and OK on a card for the log line removed that instead. What the owner taught this
+    video still comes before another video's note, and a log line here before another video's log line."""
+    from clipfoundry import brain
+    from clipfoundry.brain import memories
+
+    names = {"log": brain.episode(WS, 'Asked "make the captions bigger" → applied: Captions are larger',
+                                  project_id="hike"),
+             "theirs": brain.remember(WS, "no captions in the outro", kind="rule", project_id="beach"),
+             "their_log": brain.episode(WS, 'Asked "captions off" → applied: No captions', project_id="beach"),
+             "fact": brain.remember(WS, "my captions are yellow", kind="fact", project_id="hike")}
+    real = memories._scores
+
+    def closest(**scores: tuple[float, float, float]) -> str:
+        by_id = {m["id"]: scores.get(name, (0.0, 0.0, 0.0)) for name, m in names.items()}
+        monkeypatch.setattr(memories, "_scores", lambda q, rows, project_id="": [by_id[r["id"]] for r in rows])
+        found = memories.closest(WS, "the caption rule", "hike")
+        return next(name for name, m in names.items() if found and m["id"] == found["id"])
+
+    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.4, 0.2, 0.1)) == "theirs"  # a log line is not what was taught
+    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.4, 0.9, 0.1)) == "theirs"  # however many of the words it holds
+    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.4, 0.2, 0.1), fact=(0.3, 0.2, 0.0)) == "fact"  # a fact was taught
+    assert closest(their_log=(0.9, 0.2, 0.9), log=(0.4, 0.2, 0.1)) == "log"  # among log lines: the one of this video
+    assert closest(their_log=(0.9, 0.2, 0.9), fact=(0.4, 0.2, 0.1)) == "fact"
+    assert closest(log=(0.9, 0.2, 0.9), theirs=(0.4, 0.2, 0.1)) == "log"  # the search's best match applies here
+    monkeypatch.setattr(memories, "_scores", real)
+    assert memories.closest(WS, "the caption rule", "hike")["id"] == names["fact"]["id"]
+    brain.forget(WS, names["fact"]["id"])
+    assert memories.closest(WS, "the caption rule", "hike")["id"] == names["theirs"]["id"]  # not this video's log
 
 
 def test_a_memory_an_older_build_moved_is_listed_for_the_video_it_is_kept_for(data):

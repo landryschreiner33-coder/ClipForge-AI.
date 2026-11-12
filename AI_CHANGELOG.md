@@ -924,6 +924,58 @@ Landry's projects, could never do anything, and without a downloaded model only 
     `test_githubs_machines_without_a_graphics_chip_get_three_times_the_time_for_a_note_too` (new) and
     `test_the_planner_note_gets_the_runs_time_and_is_judged_by_it` (new) in `tests/test_assistant_check.py`. No
     frontend change.
+- **A last look at that round's fixes** (3728222). One reviewer read the round once: reviewers share this
+  session's usage, and the round before ran out of it. Five findings, each reproduced before it was fixed, and a
+  sixth that I found while reproducing the third. Each fix has a test that failed before it:
+  - A brain file with its numbers as text (a converted file) switched a memory back on that the owner had
+    switched off: `"enabled": "0"` was read as on, like any text. And a "0" where 0 stands for none, as in
+    `expires_at`, became an end in 1970, so no answer followed that memory and Tidy removed it (both as
+    released). `enabled` is now read like the other numbers: a number, or text that is one, and 0 is off; left
+    out it is on, null and "" are off; anything else ("false", a list, a number that is not finite) makes the
+    entry invalid. A "0" as text is none, as the number 0 is (`memories._on`, `import_`).
+  - A backup could still come back without one video's note. The round before set aside only what the file
+    itself added: when the file also brought the memory for every video up to date, or this brain had that
+    memory as the file has it, the video's note counted as known and was skipped. And of two memories in the
+    same place of which one is switched off (Tidy leaves such a pair alone), only the one listed first came
+    back, so with the switched-off one first the rule was no longer in force. A memory the file lists under an
+    id of its own never counts against another entry that has an id: the two were memories of their own where
+    the file comes from (`listed` in `memories.import_` and `_import_one`). Entries without an id are told apart
+    by their words as before, so a line a hand-made file repeats is added once, and what this brain kept before
+    the file, under an id the file does not list, counts as it did.
+  - Two ids of more than 40 characters with the same first 40 gave a server error with the file half read, at
+    every try: an id was cut to 40 characters (as released), so the second was the first's. Reproducing it I
+    found that an id with "/" in it, or of dots only, was stored as it was, and such a memory had no address: the
+    Memory page could neither switch it off nor forget it. An id is now kept only when it can be one, at most 40
+    letters, digits, "-" and "_", as the app's own are. With any other the entry is read as one without an id:
+    it gets a new id and is told apart by its words (`memories._file_id`, `MAX_ID`).
+  - A number that is not finite (1e999, NaN) in a memory's extra data was stored, and from then on the brain
+    could not be exported (a server error) until that memory was forgotten. Such an entry is invalid, like one
+    with no number where its own numbers belong, and the rest of the file is read (`memories._data`).
+  - With a model, "forget the caption rule" in a video's chat could show a card for the log line of a change
+    ClipForge AI made in that video ("Asked … → applied: …") instead of another video's rule, and OK would have
+    removed the log line: the round before lets a match that applies in this video come first. What ClipForge AI
+    only noted in a video (an episode, an asset, an answer) no longer comes before another video's rule or fact.
+    A rule or a fact of this video still does, and so does this video's log line before another video's log
+    line (`memories.closest`, `LASTING`).
+  - Tests that fail without a rule: 31 rules of this round were each taken out of a copy of the code and the
+    brain and safety tests run against it. 28 failed a test at once. Three did not, and each got the test it
+    lacked: a note the file lists without an id before the newer words of a memory this brain has (only the
+    order brings it in), an id of 41 characters, and an id with a line end after it. The 26 of the round before
+    were run again on this code, two of them with the text this round changed. Every one fails a test now.
+  - These fixes were not read by another reviewer, for the same reason there was one reviewer and not four.
+    They rest on the tests written first, on the breakages above and on the full suites.
+  - Docs: CLIPFORGE_AI.md (which of a brain file's memories count against each other, its ids, `enabled`, the
+    extra data, the `forget` tool's search) and the handoff. No change to the privacy page: what is stored,
+    sent, kept and deleted did not change.
+  - Tests: `test_a_brain_file_with_its_numbers_as_text_keeps_a_switched_off_memory_off` (new),
+    `test_the_memories_a_brain_file_lists_by_id_never_count_against_each_other` (new),
+    `test_a_brain_file_id_that_cannot_be_one_is_read_as_no_id` (new),
+    `test_a_brain_file_entry_whose_extra_data_holds_no_real_number_is_left_out` (new),
+    `test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_taught_another` (new) and
+    `test_a_brain_file_changes_the_memories_it_knows_before_it_adds_the_rest` in
+    `tests/test_clipforge_ai_brain.py`;
+    `test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first` in
+    `tests/test_clipforge_ai_safety.py`. No frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

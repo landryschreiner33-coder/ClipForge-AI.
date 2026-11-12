@@ -481,6 +481,10 @@ def test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_fir
         memories.forget(WS, m["id"])
     memories.remember(WS, "the channel is about hiking", kind="fact")
     assert card(hike, "the caption rule") == ([theirs["id"]], for_beach)
+    # nor does what ClipForge AI noted itself in this video (the log line of a change it made here)
+    memories.episode(WS, 'Asked "make the captions bigger" → applied: Captions are larger', project_id=hike)
+    assert card(hike, "the caption rule") == ([theirs["id"]], for_beach)
+    assert card(hike, "the rule about captions") == ([theirs["id"]], for_beach)
 
 
 def test_a_forget_card_looks_past_any_number_of_newer_notes_of_other_videos(data):

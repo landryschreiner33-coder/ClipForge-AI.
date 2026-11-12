@@ -114,13 +114,20 @@ file wins, also when another memory says those words: what the owner changed on 
 are read once and Tidy merges those kept for the same videos and switched on or off alike; the file's changes to
 memories this brain has are applied first, whatever the file's order; an unknown id is added unless a memory says
 its words already in that very place (whatever you did with it: switched off, it stays your choice), or one that is
-in force says them for every video (switched on, not a guess, not expired) and did not come with this same file. So
+in force says them for every video (switched on, not a guess, not expired) and did not come with this same file. A
+memory the file lists under an id of its own never counts against another entry that has an id: the two were
+memories of their own where the file comes from, also when the file only brings the first up to date, and also two
+in the same place of which one is switched off. Entries without an id, or with one that cannot be an id (longer
+than 40 characters, or with anything in it but letters, digits, "-" and "_": it is not kept, and the memory gets a
+new one), are told apart by their words, so a line a hand-made file repeats is added once. So
 the same words kept for two videos both come back, a backup comes back whole whatever order it lists its memories
 in, and the same file read twice adds nothing the second time. A file's memory for every video is added beside a
 note that one video or one platform keeps: a file never changes or widens a memory with another id, since the
 file's memory may be switched off or only a guess. An entry with something that is not a number where a number
-belongs (a date in `last_used_at`, "high" for `confidence`) is left out and counted as `invalid`, and the rest of
-the file is read; text that is a number is read as one. Nothing is deleted). `list_(ws, project_id=…)`, the boost a video's own memories get in a search and a video's "why …" answer go by
+belongs (a date in `last_used_at`, "high" for `confidence`, "false" for `enabled`, a number that is not finite
+in its extra `data`) is left out and counted as `invalid`, and the rest of
+the file is read; text that is a number is read as one (`enabled` "0" is off, and a "0" that stands for none, as
+in `expires_at`, is none). Nothing is deleted). `list_(ws, project_id=…)`, the boost a video's own memories get in a search and a video's "why …" answer go by
 a memory's scope, as `recall` and a video's delete do: the builds released before this one moved a memory to the video
 that said its words last and left its `project_id` naming the first video, so that column is written but never read
 by itself.
@@ -574,7 +581,7 @@ length, and checks choices, ranges and the required ones; what is wrong is told 
 | `remember` | make | saves a lasting rule or fact you told it in this message, in your words (in a video's chat it can keep it to that video, and words that point at this video, such as "this video" or "here", always are; the step line then says "for this video" and which words decided it); anything else waits for your OK, and a memory you already have is never changed (below) |
 | `propose_change` | make | in a video's chat only: a change to the cut in plain words (at most 500 characters), worked out and checked by the editor (`edit_requests.ask`); you apply it as a new version or discard it |
 | `ask_agent` | make | hands a job to one of your helper agents and reads its work (see "Helper agents") |
-| `forget` | change | removes every memory that says those words (in a video's chat not a note another video keeps under them, when this video or every video has one; when none says exactly them: the newest memory that holds them as whole words, "-3 dB" for “-3 dB on the voice here”, in a video's chat the newest of those that applies there before any newer notes of other videos; else the closest the search finds, in a video's chat one that applies there before another video's note that holds no more of the words named); the button names each one and where it applies (at most 16: a card that would need more cannot be pressed, and says to use the exact words or Brain → Memory), and its OK forgets only those, each only while it still says them; it never looks for memories again, and OK on a card that names more than 16 (one an earlier build saved) forgets none and says so |
+| `forget` | change | removes every memory that says those words (in a video's chat not a note another video keeps under them, when this video or every video has one; when none says exactly them: the newest memory that holds them as whole words, "-3 dB" for “-3 dB on the voice here”, in a video's chat the newest of those that applies there before any newer notes of other videos; else the closest the search finds, in a video's chat one that applies there before another video's note that holds no more of the words named, but never what ClipForge AI only noted in this video, like the log line of a change it made there, before another video's rule or fact); the button names each one and where it applies (at most 16: a card that would need more cannot be pressed, and says to use the exact words or Brain → Memory), and its OK forgets only those, each only while it still says them; it never looks for memories again, and OK on a card that names more than 16 (one an earlier build saved) forgets none and says so |
 | `rename_project` | change | renames a project or video; only the name changes |
 | `delete_project` | delete | deletes a project or video and what belongs only to it; the button lists what goes and what stays |
 

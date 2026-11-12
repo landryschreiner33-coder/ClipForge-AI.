@@ -137,9 +137,12 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   an edit follows the same rule, a brain file adds its memory for every video beside a note one video or platform
   keeps and never changes or widens a memory with another id (`memories._import_one`), applies its changes to
   known memories first and weighs what it adds against the brain as they leave it, never against what the file
-  itself added (a memory in that very place, whatever its state, or one in force for every video makes an entry
-  known), so a backup comes back whole in any order (`memories.import_`), and counts an entry with text where a
-  number belongs as invalid (`memories._number`), whom a memory is for is read
+  itself added or lists under an id of its own (a memory in that very place, whatever its state, or one in force
+  for every video makes an entry known; entries without an id, or with one that cannot be one, over 40 characters
+  or with anything but letters, digits, "-" and "_" in it (`memories._file_id`), go by their
+  words), so a backup comes back whole in any order (`memories.import_`), and counts an entry with something that
+  is no number where a number belongs as invalid, `enabled` and the extra data included (`memories._number`,
+  `_on`, `_data`), whom a memory is for is read
   from its scope alone (`list_`, `_scores`, `chat._explain`: the released builds left the `project_id` column of a
   moved memory naming the first video), the brain check does not call two videos' notes twins, and
   "forget" asked in a video's chat leaves a note another video keeps under the same words when this video or every
@@ -147,7 +150,8 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   words that are a part of memories the card is for the newest that applies in this chat, before any newer notes
   of other videos (`memories.holding` with the chat's video), and for a description no memory says or holds for
   the search's best match, in a video's chat one that applies there before another video's note that holds no
-  more of the words named (`memories.closest`); `toolbox._memories_for`);
+  more of the words named, but never a log line of this video before another video's rule or fact
+  (`memories.closest`, `LASTING`); `toolbox._memories_for`);
   without a model "forget …" lists first the memories that say exactly the words named, then those that hold them
   as whole words (`memories.holding`: any script, a part of the words wherever it stands in a script written
   without spaces, numbers, short words), then the search's, reading the words also without "the rule about" in

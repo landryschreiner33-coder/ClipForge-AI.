@@ -46,6 +46,9 @@ RECENT_S = 30 * 86400
 CHECK_ROWS = 4000               # the duplicate check compares at most this many memories of one kind
 MAX_IMPORT = 20000
 MAX_COUNT = 10 ** 9             # a revision or a use count read from a brain file stays a number the database can hold
+MAX_ID = 40                     # characters of a memory's id; a brain file's longer one is not kept
+_ID = re.compile(r"[A-Za-z0-9_-]{1,%d}" % MAX_ID)
+LASTING = ("rule", "fact")      # what holds from now on; the other kinds are notes of what happened or was made
 HEADER = "What the owner has told ClipForge AI (standing rules first; follow them):"
 
 
@@ -704,7 +707,9 @@ def closest(ws: str, q: str, project_id: str = "") -> dict | None:
     before another video's own note when it holds a word named and at least as much of the words named as that
     note, or fits exactly as well: the chat of a video is about what holds in it, however new another video's note
     is and however close its other words are. A note of another video that holds more of the words named stays the
-    best match (the owner named it), and so does one beside a match that shares no word with the request."""
+    best match (the owner named it), and so does one beside a match that shares no word with the request, and a
+    rule or a fact beside what ClipForge AI only noted in this video (an episode of a change made here, an asset,
+    an answer): the request names something to hold no longer, and OK would have removed the log line instead."""
     rows = db.select("brain_memories", "workspace_id = ?", (ws,), "created_at DESC") if str(q).strip() else []
     floor = meaning.min_similar()
     found = [(s, r) for r, s in zip(rows, _scores(q, rows)) if s[1] > 0 or s[2] >= floor]
@@ -715,8 +720,8 @@ def closest(ws: str, q: str, project_id: str = "") -> dict | None:
     here = {r["id"] for r in meant([r for _, r in found], project_id)}
     if best["id"] not in here:  # another video's own note, while a memory that applies in this video matches too
         for s, r in found:
-            if r["id"] in here and (round(s[1], 6) >= round(words, 6) and s[1] > 0 or
-                                    round(s[0], 4) == round(score, 4)):
+            if r["id"] in here and (r["kind"] in LASTING or best["kind"] not in LASTING) and (
+                    round(s[1], 6) >= round(words, 6) and s[1] > 0 or round(s[0], 4) == round(score, 4)):
                 return view(r)
     return view(best)
 
@@ -857,6 +862,34 @@ def _number(value: object) -> float:
     return out
 
 
+def _on(value: object) -> int:
+    """Whether a brain file's memory is switched on: "enabled" is a number (0 is off) or text that is one, and
+    nothing there (null, "") is off. Anything else makes the entry invalid: read as plain text, "0" and "false"
+    switched a memory back on that the owner had switched off."""
+    return 0 if value is None or value == "" else int(bool(_number(value)))
+
+
+def _data(value: object) -> dict:
+    """A memory's extra data in a brain file: an object, kept as it is (anything else is none). A number in it that
+    is not finite makes the entry invalid: it could be stored, but the brain could not be exported from then on."""
+    if not isinstance(value, dict):
+        return {}
+    try:
+        json.dumps(value, allow_nan=False)
+    except (ValueError, TypeError, RecursionError):
+        raise Invalid("A brain file holds something that is not a number where a number belongs.") from None
+    return value
+
+
+def _file_id(m: object) -> str:
+    """The id a brain file gives a memory, when it can be one: at most MAX_ID letters, digits, "-" and "_", as the
+    app's own are. For any other, and for none, '': the entry is read as one without an id. Cut to fit (as it was),
+    two long ids with the same start were one id and the second could never be stored; and under an id with "/" in
+    it a memory had no address, so the Memory page could neither switch it off nor forget it."""
+    mid = str(m.get("id") or "") if isinstance(m, dict) else ""
+    return mid if _ID.fullmatch(mid) else ""
+
+
 def _in_force(row: dict, now: float) -> bool:
     """Whether a memory holds as said: switched on and not only a guess (as the chat reads "already in my memory",
     `toolbox._already`), and not expired (as `candidates` reads what an answer follows)."""
@@ -873,9 +906,12 @@ def import_(ws: str, data: object) -> dict:
     (skipped, the rule would hold in that video alone).
 
     The file's changes to memories this brain has come first, and what the file adds is weighed against the brain as
-    they leave it, never against what the file itself added: a backup comes back whole in whatever order it lists
-    its memories, and the same file read twice adds nothing the second time. An entry with text where a number
-    belongs is invalid, and the rest of the file is read."""
+    they leave it, never against a memory the file lists under an id of its own (the two were memories of their own
+    where the file comes from): a backup comes back whole in whatever order it lists its memories, and the same
+    file read twice adds nothing the second time. Entries without an id are told apart by their words, as are those
+    whose id cannot be one (`_file_id`). An entry with something that is no number where a number belongs
+    ("enabled" and the extra data included) is invalid, and the rest of the file is read; text that is a number is
+    read as one."""
     if not isinstance(data, dict) or data.get("format") != FORMAT or not isinstance(data.get("memories"), list):
         raise Invalid(f"This is not a ClipForge AI brain file ({FORMAT}).")
     if len(data["memories"]) > MAX_IMPORT:
@@ -883,15 +919,17 @@ def import_(ws: str, data: object) -> dict:
     out = {"added": 0, "updated": 0, "skipped": 0, "invalid": 0}
     with db.connect() as conn:
         mine = {mid for (mid,) in conn.execute("SELECT id FROM brain_memories WHERE workspace_id = ?", (ws,))}
+    listed = {_file_id(m) for m in data["memories"]} - {""}  # memories of their own where the file comes from
     fresh: set[str] = set()  # what this file added: it says nothing about what the brain kept before the file
-    for m in sorted(data["memories"], key=lambda m: not (isinstance(m, dict) and str(m.get("id") or "") in mine)):
+    for m in sorted(data["memories"], key=lambda m: _file_id(m) not in mine):
         if not isinstance(m, dict) or m.get("kind") not in KINDS:
             out["invalid"] += 1
             continue
         try:
             text = _clean(m.get("text"))
             scope = _scope(m.get("scope") or "all", "", "", "")
-            numbers = {k: _number(m[k]) for k in NUMBERS if m.get(k)}
+            numbers = {k: n for k in NUMBERS if m.get(k) and (n := _number(m[k]))}  # "0" is none, as 0 is
+            enabled, extra = _on(m.get("enabled", 1)), _data(m.get("data"))
         except Invalid:
             out["invalid"] += 1
             continue
@@ -901,29 +939,30 @@ def import_(ws: str, data: object) -> dict:
                   "confidence": max(0.0, min(1.0, numbers.get("confidence", CONFIDENCE[source]))),
                   "scope": scope, "project_id": scope[8:] if scope.startswith("project:") else "",
                   "platform": scope[9:] if scope.startswith("platform:") else "", "tags": _tags(m.get("tags")),
-                  "data": m.get("data") if isinstance(m.get("data"), dict) else {},
-                  "enabled": 1 if m.get("enabled", 1) else 0,
+                  "data": extra, "enabled": enabled,
                   "expires_at": numbers.get("expires_at"),
                   "revision": int(max(1, min(numbers.get("revision", 1), MAX_COUNT))),
                   "meaning": vec, "meaning_model": vec_model}
         for _ in range(3):  # None: the memory changed or went between reading and writing it, so again
-            done = _import_one(ws, m, fields, numbers, fresh)
+            done = _import_one(ws, _file_id(m), fields, numbers, listed, fresh)
             if done:
                 break
         out[done or "skipped"] += 1
     return out
 
 
-def _import_one(ws: str, m: dict, fields: dict, numbers: dict, fresh: set[str]) -> str | None:
+def _import_one(ws: str, mid: str, fields: dict, numbers: dict, listed: set[str], fresh: set[str]) -> str | None:
     """One memory of a brain file: "updated" (a newer revision of one with the same id: what the owner changed on
     the other computer, so it is applied even when another memory says its words, or the replaced words would stay
     in force), "added" (an unknown id), "skipped" (not newer, or an unknown id whose words this brain keeps already:
     a memory in that very place says them, whatever the owner did with it, or one that is in force for every video,
     so adding it would change nothing), or None when the memory changed or went between reading and writing it
-    (Tidy, Forget, an edit): then it is read again. `fresh` are the ids this file added: a memory for every video
-    that came with the file does not make the file's note for one video known (the two were kept side by side where
-    the file comes from, and which of them the file lists first must not matter)."""
-    existing = db.fetch("brain_memories", str(m.get("id") or "")) if m.get("id") else None
+    (Tidy, Forget, an edit): then it is read again. `mid` is the entry's id in the file ('' for none), `listed` the
+    ids the file lists and `fresh` the ids this file added: a memory that came with the file, or that the file
+    lists and brought up to date or found as it is, does not make another entry of the file known (the two were
+    kept side by side where the file comes from, and which of them the file lists first must not matter). An entry
+    without an id is told apart by its words alone, so a line the file repeats is added once."""
+    existing = db.fetch("brain_memories", mid) if mid else None
     if existing and existing["workspace_id"] == ws:
         if fields["revision"] <= int(existing.get("revision") or 1):
             return "skipped"
@@ -932,14 +971,19 @@ def _import_one(ws: str, m: dict, fields: dict, numbers: dict, fresh: set[str]) 
     # and a file widens nothing
     now = time.time()
     for r in saying(ws, fields["text"], (fields["kind"],)):
+        if mid and r["id"] in listed:
+            continue
         place = r["scope"] or "all"
         if place == fields["scope"] or (place == "all" and r["id"] not in fresh and _in_force(r, now)):
             return "skipped"
     row = {**fields, "workspace_id": ws, "used_count": int(max(0, min(numbers.get("used_count", 0), MAX_COUNT))),
            "last_used_at": numbers.get("last_used_at")}
-    if m.get("id") and not existing:
-        row["id"] = str(m["id"])[:40]
+    if mid and not existing:
+        row["id"] = mid
     if "created_at" in numbers:
         row["created_at"] = numbers["created_at"]
-    fresh.add(db.insert("brain_memories", row)["id"])
+    new = db.insert("brain_memories", row)["id"]
+    fresh.add(new)
+    if mid:  # under a new id when another workspace has the file's: the file's own memory all the same
+        listed.add(new)
     return "added"
