@@ -122,8 +122,10 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   "one video at a time") is kept, and when in doubt the words are kept; "Never mind" keeps nothing and says only
   that (`chat.NEVER_MIND`: what was kept before stays); in a video's chat, words that point at this video ("this video", "this
   one", "this clip", "here" as a word of its own) say where the memory applies (`memories.points_here`): it is kept
-  for this video, also when the words speak of other videos or of later or liken something to it, and then the
-  answer says why and how to keep it for every video (with the video's name, which reads the same in any chat);
+  for this video, also when the words speak of other videos or of later or liken something to it; the answer names
+  the words that keep it there ("It applies to this video, because it says “here”.", `chat._applies`; the tool's
+  result tells the model the same, `toolbox._keep`), and when they also speak of other videos or of later, how to
+  keep it for every video (with the video's name, which reads the same in any chat);
   only "not only/not just" right before them and "from here on" where it can only mean from now on (in front, at
   the end, before a comma, "from here on out") reach further; "here" always means this video, also in "my office
   is here in Lyon"; the model's `remember` tool keeps such words for this video whatever scope it chose
@@ -131,14 +133,23 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   left out ("for this video: …", "here: …", `chat._LABEL`); where a memory is kept is part of what it is
   (`memories.twin(ws, text, kind, scope)`): the same words kept for another video, or platform, are a memory of
   their own (they used to move the first video's note to the second), said for every video they widen the oldest,
-  a brain file and an edit follow the same rule, the brain check does not call two videos' notes twins, and
+  an edit follows the same rule, a brain file adds its memory for every video beside a note one video or platform
+  keeps and never changes or widens a memory with another id (`memories._import_one`), whom a memory is for is read
+  from its scope alone (`list_`, `_scores`, `chat._explain`: the released builds left the `project_id` column of a
+  moved memory naming the first video), the brain check does not call two videos' notes twins, and
   "forget" asked in a video's chat leaves a note another video keeps under the same words when this video or every
-  video has one, saying so (`memories.meant`; typed words, the "Which one?" buttons and the Forget card alike);
+  video has one, saying so (`memories.meant`; typed words, the "Which one?" buttons and the Forget card alike; for
+  words that are a part of memories the card is for the newest that applies in this chat, before another video's
+  newer note, `toolbox._memories_for`);
   without a model "forget …" lists first the memories that say exactly the words named, then those that hold them
   as whole words (`memories.holding`: any script, a part of the words wherever it stands in a script written
   without spaces, numbers, short words), then the search's, reading the words also without "the rule about" in
   front or "please" behind (`chat._named`, at most `chat._FORMS` readings of one message); half of an emoji is left
-  out of a memory, a message and whatever the Brain's addresses receive (`tools.whole`, `routes.Input`);
+  out of a memory, a message and whatever the Brain's addresses receive, and a request nested too deeply to walk is
+  refused with 422 (`tools.whole`, `routes.Input`); the step line of a memory the model's tool (or the safety net
+  for plainly said rules) keeps for one video ends with "for this video" (`toolbox._keep`), and the safety net
+  shows the tool's failed step with the Brain → Memory button when the words are in the memory but not in force as
+  said (switched off, a guess, one video's or one platform's: `assistant._keep_said`);
   "remember: …" on words a memory of either kind
   already says answers "I already remember …" or "I already had “…”; it now says “…”" with what changed and no Undo
   chip (Undo would forget that older memory); Undo forgets only while the memory is as its answer added it

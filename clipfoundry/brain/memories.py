@@ -552,7 +552,7 @@ def _scores(query: str, rows: list[dict], project_id: str = "") -> list[tuple[fl
         vec = meaning.unpack(r.get("meaning")) if r.get("meaning_model") == which else None
         sim = max(0.0, meaning.cosine(q_vec, vec))
         score = 0.55 * words + 0.45 * sim + BOOST.get(r["source"], 0.0)
-        if project_id and r.get("project_id") == project_id:
+        if project_id and r.get("scope") == f"project:{project_id}":
             score += 0.10
         if max(r.get("last_used_at") or 0, r.get("created_at") or 0) > now - RECENT_S:
             score += 0.05
@@ -674,14 +674,17 @@ def uses(ws: str, memory_id: str, limit: int = 50) -> list[dict]:
 
 
 def list_(ws: str, q: str = "", kind: str = "", project_id: str = "", limit: int = 200) -> list[dict]:
-    """Every memory, newest first; with `q`, the ones that match it, best first, each with its score."""
+    """Every memory, newest first; with `q`, the ones that match it, best first, each with its score. With
+    `project_id`, the ones kept for that video or for every video. The scope says whom a memory is for (as for
+    `recall` and a video's delete), never the project_id column by itself: the builds released before this one moved
+    a memory to the video that said its words last and left that column naming the first video."""
     where, args = ["workspace_id = ?"], [ws]
     if kind:
         where.append("kind = ?")
         args.append(kind)
     if project_id:
-        where.append("(project_id = ? OR scope = 'all')")
-        args.append(project_id)
+        where.append("scope IN (?, 'all')")
+        args.append(f"project:{project_id}")
     rows = db.select("brain_memories", " AND ".join(where), args, "created_at DESC")
     if not q.strip():
         return [view(r) for r in rows[:max(1, min(int(limit), 1000))]]
@@ -815,8 +818,10 @@ def export(ws: str) -> dict:
 def import_(ws: str, data: object) -> dict:
     """Merge a brain file: a memory with a newer revision updates the one with the same id (also when another memory
     says those words: such twins are read once, and Tidy merges those kept for the same videos and switched on or off
-    alike), an unknown id is added (with a fresh id when that id belongs to another workspace) unless a memory says
-    those words already, the rest are skipped. Nothing is deleted."""
+    alike), an unknown id is added (with a fresh id when that id belongs to another workspace) unless a memory kept
+    in the same place or for every video says those words already, the rest are skipped. Nothing is deleted, and a
+    memory with another id is never changed: the file's memory for every video is added beside one kept for one
+    video only (skipped, the rule would hold in that video alone)."""
     if not isinstance(data, dict) or data.get("format") != FORMAT or not isinstance(data.get("memories"), list):
         raise Invalid(f"This is not a ClipForge AI brain file ({FORMAT}).")
     if len(data["memories"]) > MAX_IMPORT:
@@ -854,15 +859,17 @@ def import_(ws: str, data: object) -> dict:
 def _import_one(ws: str, m: dict, fields: dict, text: str) -> str | None:
     """One memory of a brain file: "updated" (a newer revision of one with the same id: what the owner changed on
     the other computer, so it is applied even when another memory says its words, or the replaced words would stay
-    in force), "added" (an unknown id no memory says yet), "skipped" (not newer, or an unknown id whose words a
-    memory says already), or None when the memory changed or went between reading and writing it (Tidy, Forget, an
-    edit): then it is read again."""
+    in force), "added" (an unknown id whose words no memory says yet where the file keeps them), "skipped" (not
+    newer, or an unknown id whose words a memory kept in that place or for every video says already), or None when
+    the memory changed or went between reading and writing it (Tidy, Forget, an edit): then it is read again."""
     existing = db.fetch("brain_memories", str(m.get("id") or "")) if m.get("id") else None
     if existing and existing["workspace_id"] == ws:
         if fields["revision"] <= int(existing.get("revision") or 1):
             return "skipped"
         return "updated" if _write_over(existing, fields) else None
-    if _same_words(ws, fields["kind"], text, scope=fields["scope"]):
+    # not `_same_words`: for words to keep for every video it also finds a memory kept for one video, to widen it,
+    # and a file widens nothing
+    if any((r["scope"] or "all") in (fields["scope"], "all") for r in saying(ws, text, (fields["kind"],))):
         return "skipped"
     row = {**fields, "workspace_id": ws, "used_count": int(m.get("used_count") or 0),
            "last_used_at": m.get("last_used_at") or None}

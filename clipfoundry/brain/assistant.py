@@ -808,7 +808,10 @@ def _keep_said(ctx: Ctx, out: Outcome, text: str) -> None:
     asked about it (a small model sometimes forgets): ClipForge keeps the owner's own words itself, as the remember
     tool would, with its step line and Undo chip. Nothing is kept when the model saved or asked to save something,
     asked the owner a question (the answer may change what to keep: "only for this video?"), or a helper kept a
-    memory. A memory that already says it is left as it is (the tool does that: `toolbox._remember`)."""
+    memory. A memory that already says it is left as it is (the tool does that: `toolbox._remember`); when it is not
+    in force as said (switched off, only a guess, kept for one video or one platform), the answer shows that step
+    with the way to Brain → Memory, as it does when the model uses the tool: the model's "Got it" would otherwise
+    stand over a rule that stays off."""
     if any(s.get("tool") in ("remember", "save_memory") for s in out.steps) or \
             any(p.get("tool") == "save_memory" for p in out.pending) or out.ask or out.data.get("remembered"):
         return
@@ -820,8 +823,8 @@ def _keep_said(ctx: Ctx, out: Outcome, text: str) -> None:
         res = tool.run(ctx, tools.check_args(tool, {"text": said}))
     except ToolError:
         return
-    if res.ok and res.data.get("memory"):
-        out.steps.append({"tool": "remember", "label": res.summary, "ok": True})
+    if res.data.get("memory") or not res.ok:  # kept now, or there but not in force (already in force: no word)
+        out.steps.append({"tool": "remember", "label": res.summary, "ok": res.ok})
         out.merge(res.data)
 
 

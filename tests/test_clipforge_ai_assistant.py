@@ -828,7 +828,8 @@ def test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_need
         assert m["data"]["tool"] == "talk" and m["status"] == "done", said
     assert len(fake.calls) == 5 and brain.list_(WS) == []
     m = _say(c["id"], "remember: -3 dB on the voice here")
-    assert m["text"] == "Remembered: “-3 dB on the voice here”. It applies to this video. Say “forget …” to remove it."
+    assert m["text"] == ("Remembered: “-3 dB on the voice here”. It applies to this video, because it says “here”. Say "
+                         "“forget …” to remove it.")
     for where, words in ((general, "I am not in the videos"), (general, "I'm in the US"), (c, "one video at a time")):
         m = _say(where["id"], f"remember: {words}")  # kept at once, as said: no turn of the conversation
         assert m["text"] == f"Remembered: “{words}”. It applies to every video. Say “forget …” to remove it.", words

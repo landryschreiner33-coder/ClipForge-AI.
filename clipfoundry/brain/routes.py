@@ -23,12 +23,16 @@ def _err(exc: memories.Invalid) -> HTTPException:
 
 class Input(BaseModel):
     """What a request sends. Half of an emoji in a text (a message cut in the middle of one) is left out before the
-    fields are checked: it cannot be saved, and the refusal of it could not even be sent back (a server error)."""
+    fields are checked: it cannot be saved, and the refusal of it could not even be sent back (a server error). A
+    body nested deeper than Python can walk (nothing ClipForge sends is) is refused in plain words."""
 
     @model_validator(mode="before")
     @classmethod
     def _whole(cls, data: Any) -> Any:
-        return tools.clean(data)
+        try:
+            return tools.clean(data)
+        except RecursionError:
+            raise HTTPException(422, "That is nested too deeply to read.") from None
 
 
 class MemoryIn(Input):

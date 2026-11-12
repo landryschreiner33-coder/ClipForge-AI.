@@ -236,7 +236,8 @@ def test_forget_with_only_words_it_skips_lists_no_memory_that_merely_holds_such_
 
 def test_half_an_emoji_in_a_message_or_a_memory_is_left_out(env):
     """A message cut in the middle of an emoji ends with half of one, which cannot be saved: the chat's request and
-    the Memory page's failed (a server error). The half is left out, like the one a model writes."""
+    the Memory page's failed (a server error). The half is left out, like the one a model writes. Reading the
+    request for it never fails either: a body nested thousands deep (no brain file is) is refused."""
     from fastapi.testclient import TestClient
 
     from clipfoundry import brain
@@ -259,6 +260,11 @@ def test_half_an_emoji_in_a_message_or_a_memory_is_left_out(env):
         r = client.post(f"/api/brain/chats/{c['id']}/messages", headers=head,
                         content=b'{"text": "remember: whole \\ud83d\\ude00 emoji"}')  # both halves: the emoji
         assert r.status_code == 200 and r.json()["ai"]["data"]["memory"]["text"] == "whole 😀 emoji"
+        # a body nested deeper than Python can walk is refused in plain words (reading it was a server error)
+        deep = b'{"data": ' + b'{"a": ' * 3000 + b"1" + b"}" * 3000 + b"}"
+        r = client.post("/api/brain/memories/import", headers=head, content=deep)
+        assert (r.status_code, r.json()["detail"]) in ((422, "That is nested too deeply to read."),
+                                                        (400, "There was an error parsing the body"))
 
 
 def test_a_correction_never_forgets_and_a_longer_word_is_never_cut(env):
@@ -611,40 +617,50 @@ def test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_
 
     p = _project(env)
     c = chat.open_chat(WS, p["id"])
-    whole = ("-3 dB here", "-2 dB on the voice for this video", "the music is too loud in here",
-             "no captions here, please", "keep the music low here too", "no music here 🙂", "no music here, thanks",
-             "no music here for now", "no captions here,", "no titles (here)", "the music here is too loud",
-             "use the drone shot here instead", "never zoom in here", "no voice over here",
-             "the logo goes top right here", "the caption sits on the right here", "the music should fade in here",
-             "the music in this video's intro is too loud", "slow motion only for this one clip",
-             "zoom in on this one shot", "the logo goes here!", "the banner goes here...",
-             "no captions on this one, ever", "captions in yellow (for this video)",
-             "keep the music low – for this video", "this video is for kids", "NO SUBTITLES HERE",
-             "Here, There and Everywhere is the outro song", "keep this video under 60 s",
-             "I want this video to be fun", "this project is due on Friday", "this video's title is Hike 2",
-             "this video needs the intro again", "the next clip in this video is the summit",
-             "all the clips of this video are vertical", "my office is here in Lyon", "this one is for kids",
-             "keep this one under 60 s", "this clip is the best take", "these shots are out of focus",
-             "this scene needs music", "from this shot on, the grade is warmer", "keep this project under a minute",
-             "as for this video, keep it short", "this one time I want captions", "the plan is here in this chat")
-    for words in whole:
-        m = _say(c["id"], f"remember: {words}")
-        assert m["text"] == f"Remembered: “{words}”. It applies to this video. Say “forget …” to remove it.", words
-        assert m["data"]["memory"]["scope"] == f"project:{p['id']}"
-    labelled = (("Note for this video: -14 LUFS", "-14 LUFS"),
-                ("Remember for this video - keep the voice up", "keep the voice up"),
-                ("Remember for this video – keep the b-roll short", "keep the b-roll short"),
-                ("remember: only for this video: keep the cuts slow", "keep the cuts slow"),
-                ("remember: for this video only - keep the titles small", "keep the titles small"),
-                ("remember: on this one, the hero is my dog", "the hero is my dog"),
-                ("Remember here: the drone shots go first", "the drone shots go first"),
-                ("remember: for this video: never use that song again", "never use that song again"),
-                ("Never pan in here", "Never pan in here"), ("Always fade in here.", "Always fade in here"),
-                ("I want the logo top right here", "I want the logo top right here"),
-                ("Never use captions here, please", "Never use captions here, please"))
-    for said, words in labelled:
+    whole = {  # by the words of each that point at this video: the answer names them, so the owner sees why
+        "here": ("-3 dB here", "the music is too loud in here", "no captions here, please",
+                 "keep the music low here too", "no music here 🙂", "no music here, thanks", "no music here for now",
+                 "no captions here,", "no titles (here)", "the music here is too loud",
+                 "use the drone shot here instead", "never zoom in here", "no voice over here",
+                 "the logo goes top right here", "the caption sits on the right here",
+                 "the music should fade in here", "the logo goes here!", "the banner goes here...",
+                 "my office is here in Lyon", "the plan is here in this chat"),
+        "HERE": ("NO SUBTITLES HERE",), "Here": ("Here, There and Everywhere is the outro song",),
+        "this video": ("-2 dB on the voice for this video", "the music in this video's intro is too loud",
+                       "captions in yellow (for this video)", "keep the music low – for this video",
+                       "this video is for kids", "keep this video under 60 s", "I want this video to be fun",
+                       "this video's title is Hike 2", "this video needs the intro again",
+                       "the next clip in this video is the summit", "all the clips of this video are vertical",
+                       "as for this video, keep it short"),
+        "this one": ("slow motion only for this one clip", "zoom in on this one shot",
+                     "no captions on this one, ever", "this one is for kids", "keep this one under 60 s",
+                     "this one time I want captions"),
+        "this project": ("this project is due on Friday", "keep this project under a minute"),
+        "this clip": ("this clip is the best take",), "these shots": ("these shots are out of focus",),
+        "this scene": ("this scene needs music",), "this shot": ("from this shot on, the grade is warmer",)}
+    for points, sentences in whole.items():
+        for words in sentences:
+            m = _say(c["id"], f"remember: {words}")
+            assert m["text"] == (f"Remembered: “{words}”. It applies to this video, because it says “{points}”. Say "
+                                 "“forget …” to remove it."), words
+            assert m["data"]["memory"]["scope"] == f"project:{p['id']}"
+    whole = [words for sentences in whole.values() for words in sentences]
+    assert len(whole) == 46
+    labelled = (("Note for this video: -14 LUFS", "-14 LUFS", ""),  # a label in front is left out: no reason to give
+                ("Remember for this video - keep the voice up", "keep the voice up", ""),
+                ("Remember for this video – keep the b-roll short", "keep the b-roll short", ""),
+                ("remember: only for this video: keep the cuts slow", "keep the cuts slow", ""),
+                ("remember: for this video only - keep the titles small", "keep the titles small", ""),
+                ("remember: on this one, the hero is my dog", "the hero is my dog", ""),
+                ("Remember here: the drone shots go first", "the drone shots go first", ""),
+                ("remember: for this video: never use that song again", "never use that song again", ""),
+                ("Never pan in here", "Never pan in here", ", because it says “here”"),
+                ("Always fade in here.", "Always fade in here", ", because it says “here”"),
+                ("I want the logo top right here", "I want the logo top right here", ", because it says “here”"),
+                ("Never use captions here, please", "Never use captions here, please", ", because it says “here”"))
+    for said, words, why in labelled:
         m = _say(c["id"], said)
-        assert m["text"] == f"Remembered: “{words}”. It applies to this video. Say “forget …” to remove it.", said
+        assert m["text"] == f"Remembered: “{words}”. It applies to this video{why}. Say “forget …” to remove it.", said
     # they also speak of other videos or of later, or liken something to this one: kept here, and the answer says why
     hinted = (("Never use the music from this video again", "this video"),
               ("use this video as the template for the next ones", "this video"),
@@ -721,18 +737,20 @@ def test_the_same_words_said_in_two_videos_are_kept_for_each_of_them(env):
     b = db.insert("studio_projects", {"workspace_id": WS, "name": "Beach", "status": "ready"})
     ca, cb, g = chat.open_chat(WS, a["id"]), chat.open_chat(WS, b["id"]), chat.open_chat(WS)
     kept = {}
-    for said, words in (("remember: no captions here", "no captions here"),
-                        ("remember: this video is for kids", "this video is for kids"),
-                        ("remember: for this video: keep the cuts slow", "keep the cuts slow"),
-                        ("Never zoom in here", "Never zoom in here")):
+    for said, words, why in (("remember: no captions here", "no captions here", ", because it says “here”"),
+                             ("remember: this video is for kids", "this video is for kids",
+                              ", because it says “this video”"),
+                             ("remember: for this video: keep the cuts slow", "keep the cuts slow", ""),
+                             ("Never zoom in here", "Never zoom in here", ", because it says “here”")):
         first, second = _say(ca["id"], said), _say(cb["id"], said)
+        where = f"It applies to this video{why}. Say “forget …” to remove it."
         for m, p in ((first, a), (second, b)):
-            assert m["text"] == f"Remembered: “{words}”. It applies to this video. Say “forget …” to remove it.", said
+            assert m["text"] == f"Remembered: “{words}”. {where}", said
             assert m["data"]["memory"]["scope"] == f"project:{p['id']}" and m["data"]["memory"]["revision"] == 1
         kept[words] = (first["data"]["memory"], second["data"]["memory"])
         assert kept[words][0]["id"] != kept[words][1]["id"]
         again = _say(cb["id"], said)  # said again in the second video's chat: that video's own memory
-        assert again["text"] == f"I already remember “{words}”. It applies to this video. Say “forget …” to remove it."
+        assert again["text"] == f"I already remember “{words}”. {where}"
         assert again["data"]["kept"]["id"] == kept[words][1]["id"] and "memory" not in again["data"]
         mine = memories.get(WS, kept[words][0]["id"])  # the first video's note is as it was
         assert (mine["scope"], mine["revision"], mine["text"]) == (f"project:{a['id']}", 1, words)
@@ -824,6 +842,65 @@ def test_which_one_lists_each_set_of_words_once_and_its_button_forgets_only_thos
     assert sorted(x["text"] for x in brain.list_(WS)) == ["Call the series Trail Notes Daily",
                                                            "Music fades out at the end", "Say hello at the end",
                                                            "intro is 3 seconds"]
+
+
+def test_another_videos_note_decides_nothing_about_the_same_words_said_here(env):
+    """Words said again keep the kind (a rule or a fact) of the memory they are written over, which is one kept in
+    the same place or for every video. Another video's note with the same words is that video's own: said here, the
+    words are kept as what they say, a new memory with its Undo. And “forget” in a video's chat forgets what applies
+    there, a memory kept for a platform too (it is for more than one video), while the other video's note stays."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat, memories
+
+    a = _project(env)
+    b = db.insert("studio_projects", {"workspace_id": WS, "name": "Beach", "status": "ready"})
+    ca, cb = chat.open_chat(WS, a["id"]), chat.open_chat(WS, b["id"])
+    theirs = memories.remember(WS, "this clip is the best take", kind="rule", project_id=a["id"])  # a rule there
+    m = _say(cb["id"], "remember: this clip is the best take")
+    assert m["text"].startswith("Remembered: “this clip is the best take”. It applies to this video, because")
+    mine = m["data"]["memory"]
+    assert (mine["kind"], mine["scope"], mine["revision"]) == ("fact", f"project:{b['id']}", 1)
+    assert mine["id"] != theirs["id"] and memories.get(WS, theirs["id"])["revision"] == 1
+    memories.edit(WS, mine["id"], kind="rule")  # as the Memory tab changes it: said again here, it stays a rule
+    m = _say(cb["id"], "remember: this clip is the best take")
+    assert m["text"].startswith("I already remember “this clip is the best take”.")
+    assert (m["data"]["kept"]["id"], m["data"]["kept"]["kind"]) == (mine["id"], "rule")
+    # a memory kept for a platform applies in this video's chat: it goes, and the other video's own note stays
+    memories.remember(WS, "vertical cuts only", kind="rule", platform="tiktok")
+    other = memories.remember(WS, "vertical cuts only", kind="rule", project_id=b["id"])
+    m = _say(ca["id"], "forget vertical cuts only")
+    assert m["text"] == "Forgotten: “vertical cuts only”. Another video keeps the same words: its note stays."
+    assert [x["id"] for x in memories.saying(WS, "vertical cuts only")] == [other["id"]]
+    # two other videos keep the words: the answer counts them
+    city = db.insert("studio_projects", {"workspace_id": WS, "name": "City", "status": "ready"})
+    for video in (a, b, city):
+        memories.remember(WS, "no drone shots", kind="rule", project_id=video["id"])
+    m = _say(ca["id"], "forget no drone shots")
+    assert m["text"] == "Forgotten: “no drone shots”. 2 other videos keep the same words: their notes stay."
+    assert sorted(x["scope"] for x in memories.saying(WS, "no drone shots")) == sorted(
+        f"project:{video['id']}" for video in (b, city))
+
+
+def test_a_memory_an_older_build_moved_shows_in_the_chat_of_the_video_it_is_kept_for(env):
+    """The builds released before this one moved a memory to the video that said its words last (also what happened
+    in a video, when the same line was written for the next one) and left its project_id naming the first video.
+    The scope says whom a memory is for, as for recall and a video's delete, so "what do you know" and "why" in a
+    video's chat go by it too."""
+    from clipfoundry import brain, db
+    from clipfoundry.brain import chat
+
+    first = db.insert("studio_projects", {"workspace_id": WS, "name": "Hike", "status": "ready"})["id"]
+    second = db.insert("studio_projects", {"workspace_id": WS, "name": "Beach", "status": "ready"})["id"]
+    a, b = chat.open_chat(WS, first), chat.open_chat(WS, second)
+    rule = brain.remember(WS, "no captions on the intro", kind="rule", project_id=second)
+    done = brain.episode(WS, "ClipForge AI finished the edit in FilmCraft: 3 of 3 steps landed", project_id=second)
+    for moved in (rule, done):
+        db.update("brain_memories", moved["id"], project_id=first)  # as the older build left it
+    known = [m["text"] for m in _say(b["id"], "what do you know about captions?")["data"]["memories"]]
+    assert "no captions on the intro" in known
+    assert _say(a["id"], "what do you know about captions?")["data"]["memories"] == []
+    assert _say(b["id"], "why?")["text"].startswith("ClipForge AI finished the edit in FilmCraft: 3 of 3 steps landed.")
+    assert "not changed this video yet" in _say(a["id"], "why?")["text"]
 
 
 def test_a_videos_chat_proposes_checked_changes_that_apply_as_versions_and_explains_them(env, monkeypatch):

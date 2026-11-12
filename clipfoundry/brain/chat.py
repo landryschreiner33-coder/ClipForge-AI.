@@ -458,14 +458,15 @@ def _scope_words(scope: str, pid: str) -> str:
 
 
 def _applies(scope: str, pid: str, words: str) -> str:
-    """The sentence of an answer that says where a memory applies. Words kept for this video that may have been
-    meant for every one (`memories.points_here`: they also speak of other videos or of later, or liken something to
-    this one) get the reason, and how to say them for every video: with the video's name, which reads the same in
-    any chat (for a piece of it, "this clip": by saying which clip)."""
+    """The sentence of an answer that says where a memory applies. Words that keep a memory to this video by
+    pointing at it (`memories.points_here`) are named as the reason, so the owner sees why also when they meant no
+    place by them ("this one song is my favourite"). Words that may have been meant for every video (they also speak
+    of other videos or of later, or liken something to this one) get how to say them for every video as well: with
+    the video's name, which reads the same in any chat (for a piece of it, "this clip": by saying which clip)."""
     where = _scope_words(scope, pid)
     points, further = memories.points_here(words) if where == "this video" else ("", False)
     if not further:
-        return f"It applies to {where}."
+        return f"It applies to {where}, because it says “{points}”." if points else f"It applies to {where}."
     instead = memories.said_instead(points)
     name = tools.one_line((db.fetch("studio_projects", pid) or {}).get("name"), 60)
     if name and instead == "the video's name":
@@ -679,8 +680,8 @@ def _explain(ws: str, pid: str) -> dict:
         from ..studio import edit_requests as er
 
         reqs = er.recent(pid, 1)
-        done = db.select("brain_memories", "workspace_id = ? AND kind = 'episode' AND project_id = ? AND text LIKE "
-                         "'ClipForge AI finished the edit in FilmCraft%'", (ws, pid), "created_at DESC", 1)
+        done = db.select("brain_memories", "workspace_id = ? AND kind = 'episode' AND scope = ? AND text LIKE "
+                         "'ClipForge AI finished the edit in FilmCraft%'", (ws, f"project:{pid}"), "created_at DESC", 1)
         if not reqs and not done:
             return {"text": "I have not changed this video yet. Ask me for a change, and I will say why I propose it.",
                     "data": {"tool": "explain", "used": []}}

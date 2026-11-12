@@ -3,9 +3,10 @@ them (history, renders, folders, the media nothing else uses, the chat and the m
 posts that have not started), while the owner's own files, media another project or example uses, anything posted,
 memories for every video and the taste ClipForge AI learned stay. The plan says exactly that before anything changes;
 running work is stopped first (also work that was already asked to stop and the next step a stopped step queues);
-Autopilot's work and a post on its way out are never interrupted; a draft with only a planning chat goes too; a memory
-saved again for another project and a file added again since stay; files that are in use are deleted at the next
-start; and the routes answer with the plan or a reason and its code, only to ClipForge's own page on this computer.
+Autopilot's work and a post on its way out are never interrupted; a draft with only a planning chat goes too; the
+same words remembered again for another project and a file added again since stay; files that are in use are
+deleted at the next start; and the routes answer with the plan or a reason and its code, only to ClipForge's own
+page on this computer.
 """
 from __future__ import annotations
 
@@ -495,23 +496,25 @@ def test_a_post_that_starts_uploading_while_deleting_stops_the_delete(env, monke
 
 
 def test_a_memory_saved_again_for_another_project_stays(env):
-    """A memory saved again for another project is that project's now (its scope, and its project_id, which
-    follows the scope since ClipForge AI's review fixes; a memory saved by an older version may still name the first
-    project there), so only the scope decides what goes."""
+    """The same words saved again for another project are a memory of their own there (ClipForge AI no longer moves
+    the first one), so that one stays when the first project goes, and the first project's own goes with it. A
+    memory an older version did move to the other project may still name the first project in its project_id: only
+    the scope decides what goes."""
     from clipfoundry import db
     from clipfoundry.brain import memories
     from clipfoundry.studio import project_delete
 
     first, second = _video("First", [])["id"], _video("Second", [])["id"]
-    moved = memories.remember("local", "Open on the drone shot", kind="rule", project_id=first)
-    memories.remember("local", "Open on the drone shot", kind="rule", project_id=second)
-    moved = db.fetch("brain_memories", moved["id"])
-    assert moved["scope"] == f"project:{second}" and moved["project_id"] == second
-    db.update("brain_memories", moved["id"], project_id=first)  # as an older version kept it
+    mine = memories.remember("local", "Open on the drone shot", kind="rule", project_id=first)
+    other = memories.remember("local", "Open on the drone shot", kind="rule", project_id=second)
+    assert other["id"] != mine["id"] and (other["scope"], other["project_id"]) == (f"project:{second}", second)
+    assert db.fetch("brain_memories", mine["id"])["scope"] == f"project:{first}"  # it stayed where it was said
+    db.update("brain_memories", other["id"], project_id=first)  # as an older version kept a memory it had moved
     only_first = memories.remember("local", "Use the blue title card", kind="rule", project_id=first)
-    assert project_delete.plan("local", first, "full_video")["counts"]["memories"] == 1
+    assert project_delete.plan("local", first, "full_video")["counts"]["memories"] == 2
     project_delete.delete("local", first, "full_video")
-    assert db.fetch("brain_memories", moved["id"]) and db.fetch("brain_memories", only_first["id"]) is None
+    assert db.fetch("brain_memories", other["id"])
+    assert db.fetch("brain_memories", mine["id"]) is None and db.fetch("brain_memories", only_first["id"]) is None
 
 
 def test_a_file_added_again_after_the_project_was_made_stays_while_it_is_new(env):

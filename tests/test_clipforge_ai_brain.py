@@ -585,6 +585,7 @@ def test_the_same_words_kept_for_two_videos_are_two_memories_everywhere(data):
     says, and the brain check does not call them twins. The same words in one place, or beside a memory for every
     video, are still one memory or a twin."""
     from clipfoundry import brain
+    from clipfoundry.brain import memories
 
     first = brain.episode(WS, "Asked \"remove the silences\" → proposed 3 cuts", project_id="p1")
     second = brain.episode(WS, "Asked \"remove the silences\" → proposed 3 cuts", project_id="p2")
@@ -598,6 +599,10 @@ def test_the_same_words_kept_for_two_videos_are_two_memories_everywhere(data):
     assert [m["id"] for m in brain.recall("captions", WS, project_id="p2").memories] == [two["id"]]
     assert brain.tidy(WS) == {"expired": 0, "merged": 0}
     assert [p for p in brain.check(WS)["problems"] if p["code"] == "duplicates"] == []  # each is its place's own
+    # "forget" asked in a video's chat is about what applies there: that video's own and the one for a platform (it
+    # is for more than one video), never another video's own; in the general chat, about all of them
+    for asked_in, about in (("p1", [one, tik]), ("p2", [two, tik]), ("p9", [tik]), ("", [one, two, tik])):
+        assert [m["id"] for m in memories.to_forget(WS, "no captions here", asked_in)] == [m["id"] for m in about]
     # a brain file brings each of them back (the second used to be skipped: "a memory says those words already")
     file = brain.export(WS)
     assert brain.import_("studio", file) == {"added": 5, "updated": 0, "skipped": 0, "invalid": 0}
@@ -615,6 +620,59 @@ def test_the_same_words_kept_for_two_videos_are_two_memories_everywhere(data):
     late = brain.remember(WS, "Captions in white", kind="rule", project_id="p4")
     with pytest.raises(brain.Invalid):
         brain.edit(WS, late["id"], text="fade the music out at the end")  # the one for every video says it
+
+
+def test_a_brain_file_adds_a_memory_for_every_video_beside_one_kept_for_one_video(data):
+    """A brain file's memory for every video is added when the only memory that says its words here is kept for one
+    video or one platform: skipped (as it was), the rule from the other computer would hold in that one video only.
+    One kept in the same place or for every video says it already, so then the file's is skipped. A file never
+    changes or widens a memory with another id."""
+    from clipfoundry import brain
+
+    mine = brain.remember(WS, "Never use red captions", kind="rule", project_id="p1")
+    tik = brain.remember(WS, "Vertical only", kind="rule", platform="tiktok")
+    file = {"format": brain.FORMAT, "memories": [
+        {"id": "other-computer-1", "kind": "rule", "text": "never use red captions", "scope": "all", "source": "said"},
+        {"id": "other-computer-2", "kind": "rule", "text": "vertical only", "scope": "all", "source": "said"},
+        {"id": "other-computer-3", "kind": "rule", "text": "Never use red captions!", "scope": "project:p1"},
+        {"id": "other-computer-4", "kind": "rule", "text": "vertical only", "scope": "platform:tiktok"},
+        {"id": "other-computer-5", "kind": "rule", "text": "never use red captions", "scope": "project:p2"}]}
+    # the two for every video are added; then p1's, TikTok's and p2's are said already (there, or for every video)
+    assert brain.import_(WS, file) == {"added": 2, "updated": 0, "skipped": 3, "invalid": 0}
+    assert sorted((m["text"], m["scope"]) for m in brain.list_(WS, kind="rule")) == [
+        ("Never use red captions", "project:p1"), ("Vertical only", "platform:tiktok"),
+        ("never use red captions", "all"), ("vertical only", "all")]
+    assert [(brain.get(WS, m["id"])["scope"], brain.get(WS, m["id"])["revision"]) for m in (mine, tik)] == [
+        ("project:p1", 1), ("platform:tiktok", 1)]  # as they were
+    elsewhere = [m["id"] for m in brain.recall("red captions", WS, project_id="p2").memories]
+    assert "other-computer-1" in elsewhere and mine["id"] not in elsewhere  # the rule holds in another video now
+    assert brain.import_(WS, file) == {"added": 0, "updated": 0, "skipped": 5, "invalid": 0}  # nothing twice
+    # one for every video beside one video's (or one platform's) own: the brain check calls them twins to review,
+    # as the one for every video says it all; Tidy leaves them, since they apply in different places
+    assert sorted(sorted(pair) for pair in brain.check(WS)["duplicates"]) == sorted(
+        [sorted(["other-computer-1", mine["id"]]), sorted(["other-computer-2", tik["id"]])])
+    assert brain.tidy(WS) == {"expired": 0, "merged": 0} and len(brain.list_(WS, kind="rule")) == 4
+
+
+def test_a_memory_an_older_build_moved_is_listed_for_the_video_it_is_kept_for(data):
+    """The builds released before this one moved a memory to the video that said its words last and left its
+    project_id naming the first video. The scope says whom a memory is for (recall and a video's delete go by it),
+    so the list for a video goes by it too: the moved memory is listed for the video it is kept for, not for the one
+    it left."""
+    from clipfoundry import brain, db
+
+    moved = brain.remember(WS, "No captions on the intro", kind="rule", project_id="p2")
+    db.update("brain_memories", moved["id"], project_id="p1")  # as an older build left a memory it had moved
+    everywhere = brain.remember(WS, "Captions in yellow", kind="rule")
+    assert [m["id"] for m in brain.list_(WS, project_id="p2")] == [everywhere["id"], moved["id"]]  # newest first
+    assert [m["id"] for m in brain.list_(WS, project_id="p1")] == [everywhere["id"]]
+    assert [m["id"] for m in brain.list_(WS, q="captions", project_id="p1")] == [everywhere["id"]]
+    assert {m["id"] for m in brain.list_(WS, q="captions", project_id="p2")} == {everywhere["id"], moved["id"]}
+    assert [m["id"] for m in brain.recall("captions", WS, project_id="p1").memories] == [everywhere["id"]]
+    # a video's own memories come a little first in its searches: that goes by the scope too
+    score = {pid: next(m["score"] for m in brain.list_(WS, q="captions", project_id=pid) if m["id"] == moved["id"])
+             for pid in ("p2", "")}
+    assert round(score["p2"] - score[""], 4) == 0.1
 
 
 def test_guesses_expire_unless_confirmed_and_forget_removes_a_memory_with_its_uses(data):

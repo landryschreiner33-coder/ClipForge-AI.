@@ -764,6 +764,84 @@ Landry's projects, could never do anything, and without a downloaded model only 
     `test_a_memory_said_again_keeps_its_scope_and_its_video_together` in `tests/test_clipforge_ai_safety.py`;
     `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
     (`tests/test_clipforge_ai_assistant.py`). No frontend change.
+- **A look at the "this video" round** (b28ad7c). The two reviewers set on it both ran out of usage before they
+  could report, so this round has no independent findings. I ran again every check they had left behind on that
+  version (how each sentence is placed, the same words in several places, the model's tool, forgetting in every
+  place, the addresses, the brain file, an upgrade from the released build, 2,000 made-up "forget" messages against
+  the version before, their list of deliberate breakages) and read the code again myself. What came of it, each
+  code fix with a test that failed before it:
+  - The full fast suite had one failure on b28ad7c, which the runs of the AI test files alone had not shown: a
+    test of the delete feature (PR #35) still expected the same words said for a second video to move the first
+    video's memory. It now checks what holds since the round before: both videos keep their own memory, and
+    deleting the first video leaves the second's.
+  - A brain file's memory for every video was skipped when only one video (or one platform) kept those words
+    here, so a rule brought over from another computer held in that one video only. It is added beside that note
+    now (`memories._import_one`). A file never changes or widens a memory with another id: its memory may be
+    switched off or only a guess.
+  - The versions released before this one moved a memory to the video that said its words last and left its
+    `project_id` column naming the first video. Three readers went by that column: the list of one video's
+    memories (`list_`), the small boost a video's own memories get in a search (`_scores`) and a video's "why …"
+    answer (`chat._explain`). Such a memory showed up for the video it had left and not for the one it is kept for.
+    All three go by the scope now, as recall and a video's delete already did. Old data is not rewritten: the
+    column is still written, and never read by itself.
+  - With a model, the Forget card for words that are a part of several memories ("captions here") was for the
+    newest of them, also when that was another video's note and this video had its own. In a video's chat the card
+    is now for the newest that applies there (`toolbox._memories_for`); when only other videos' notes hold the
+    words, and in the general chat, for the newest of all, as before.
+  - An answer said "It applies to this video." without saying why, also when no place was meant ("this one song
+    is my favourite", "I'm here for the comments"). Such words stay with the video on purpose: too narrow is the
+    safer mistake than a private note read in every video. The answer now names the words, "It applies to this
+    video, because it says “here”." (`chat._applies`), the model's tool tells the model the same, and the step line
+    of a memory kept for one video ends with "for this video", since the model may have said every video
+    (`toolbox._keep`).
+  - When the owner says a rule plainly and a small model only answers "Got it", ClipForge keeps the words itself
+    (`assistant._keep_said`). When the memory already held them switched off, only as a guess, or for one video or
+    one platform, nothing showed, so "Got it" stood over a rule that stayed off. The answer now shows the step the
+    tool shows ("Already in your memory, but switched off: “…”") with the button to Brain → Memory. Nothing is
+    changed for the owner, as before.
+  - A request to the Brain's addresses nested thousands of levels deep got a server error. It is refused in plain
+    words now (422, "That is nested too deeply to read.", `routes.Input`). Nothing ClipForge sends is nested so.
+  - Tests that fail without a rule: the reviewers' list of 46 deliberate breakages (each takes one rule out of
+    the code) had left three standing and ten unrun. With the rules of this round the list has 59, run against
+    the AI test files and the delete test on copies of the code. 57 now fail a test. The two that do not change
+    nothing the owner can see: in the general chat no note is left to count after "forget", and the "Which one?"
+    list groups memories by their words whichever one it finds first. Seven rules got the test they lacked: the
+    health check lists a memory for every video beside one video's own; what kind a memory is never comes from
+    another video's note; a platform's memory counts as applying in a video's chat when forgetting; the answer
+    counts two other videos' notes ("2 other videos keep the same words: their notes stay."); the Forget card
+    leaves out another video's note with the found memory's very words; a video's own memories come first in its
+    searches by their scope; and the plainly said rule that is already there (above).
+  - Known and left as they are: the Forget card does not mention a note another video keeps under the same words
+    (the typed "forget" does); "its note stays" reads the same when that other video keeps the words twice;
+    "forget everything" answers "I have nothing like that in my memory."; for words such as "the note" the card
+    can offer a weak match of the search (nothing goes without OK); changing only the spelling of a one-video
+    memory whose words a memory for every video also says answers 409; the same words can be kept as a rule and
+    as a fact through the address; an Ethiopic wordspace, or a danda with no space behind it, is not read as a
+    sentence mark. As released and outside this change: the older Autopilot Brain addresses
+    (`/api/brain/observations`, `/api/brain/import`, `/api/brain/knowledge…`) still answer half of an emoji with a
+    server error.
+  - Docs: CLIPFORGE_AI.md (the brain file, whom a memory is for, the health check beside a memory for every
+    video, the words an answer names, the step line, the plainly said rule that is already there, the Forget
+    card's choice, the nested request), the handoff, and one sentence of the privacy page made exact: asked in one
+    video's chat, "forget" leaves a note that another video keeps under the same words when the same words are
+    also kept for this video or for more than one video (a platform's memory counts too).
+  - Tests: `test_a_brain_file_adds_a_memory_for_every_video_beside_one_kept_for_one_video` (new),
+    `test_a_memory_an_older_build_moved_is_listed_for_the_video_it_is_kept_for` (new) and
+    `test_the_same_words_kept_for_two_videos_are_two_memories_everywhere` in `tests/test_clipforge_ai_brain.py`;
+    `test_a_memory_an_older_build_moved_shows_in_the_chat_of_the_video_it_is_kept_for` (new),
+    `test_another_videos_note_decides_nothing_about_the_same_words_said_here` (new),
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole`,
+    `test_the_same_words_said_in_two_videos_are_kept_for_each_of_them` and
+    `test_half_an_emoji_in_a_message_or_a_memory_is_left_out` in `tests/test_clipforge_ai_chat.py`;
+    `test_a_forget_card_for_a_part_of_the_words_is_about_a_memory_that_applies_here_first` (new),
+    `test_a_rule_said_plainly_that_is_in_the_memory_but_not_in_force_is_shown` (new),
+    `test_a_rule_the_model_forgot_to_save_is_kept_once`,
+    `test_the_safety_net_waits_when_the_model_asks_or_a_helper_kept_it` and
+    `test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video` in
+    `tests/test_clipforge_ai_safety.py`;
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`); `test_a_memory_saved_again_for_another_project_stays`
+    (`tests/test_studio_project_delete.py`). No frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
