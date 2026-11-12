@@ -74,3 +74,40 @@ def test_the_summary_shows_the_step_that_is_the_answers_words(check):
     assert "Ask the owner which one" not in rows[0]  # each part is clipped
     assert "(empty)" not in rows[0]
     assert "(empty)" in rows[1]  # the model was asked again and said nothing
+
+
+def test_githubs_machines_without_a_graphics_chip_get_three_times_the_time_for_a_note_too(check):
+    # GitHub's Mac writes about 2 tokens a second: a planner note of full length (agents.NOTE_TOKENS) cannot be
+    # written in the 120 s other computers get, so the note's time grows there as the answers' time does
+    assert check.slow_limits("basic", github=False, mac=True) is None
+    assert check.slow_limits("standard", github=False, mac=False) is None
+    assert check.slow_limits("basic", github=True, mac=False) is None  # GitHub's Linux at the Basic level keeps up
+    slow = check.slow_limits("standard", github=True, mac=False)
+    assert slow["turn_s"] == 900.0 and slow["consult_s"] == 3 * check.CONSULT_BUDGET_S == 360.0
+    assert check.slow_limits("basic", github=True, mac=True) == slow
+    assert check.slow_limits("standard", github=True, mac=True) == slow
+    assert "an answer may take 900 s instead of the app's 300 s" in slow["note"]
+    assert "a planner's note 360 s instead of 120 s" in slow["note"]
+
+
+def test_the_planner_note_gets_the_runs_time_and_is_judged_by_it(check, tmp_path, monkeypatch):
+    from clipfoundry.brain import agents
+
+    asked: list[float] = []
+
+    def note(ws: str, task: str, *, budget_s: float) -> list[dict]:
+        asked.append(budget_s)
+        return [{"agent": {"name": "Script writer"}, "text": "Open on the trail's best drop.", "ok": True}]
+
+    monkeypatch.setattr(agents, "consult", note)
+    report: dict = {"turns": [], "problems": [], "misses": [], "finished": False}
+    run = check.Run(tmp_path / "report.json", report)
+    assert run.consult_budget_s == check.CONSULT_BUDGET_S == 120.0
+    check.consult(run, {"helps_plans": True})
+    run.consult_budget_s = 360.0  # what slow_limits gives a machine without a graphics chip
+    check.consult(run, {"helps_plans": True})
+    assert asked == [120.0, 360.0]
+    usual, slow = report["turns"]
+    assert "finished within 150 s" in [c["what"] for c in usual["checks"]]
+    assert "finished within 390 s" in [c["what"] for c in slow["checks"]]
+    assert all(c["ok"] for t in report["turns"] for c in t["checks"]) and not report["problems"]

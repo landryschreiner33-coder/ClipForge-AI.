@@ -900,6 +900,13 @@ Landry's projects, could never do anything, and without a downloaded model only 
     that is a number or a list is kept as it is written; a memory that is no guess but has an expiry behind it
     (only a hand-made file makes one) still counts as "already in my memory" until Tidy removes it; a tool call
     with a wrong argument shows the tool's line with the argument's name ("Remembered “text”") beside the reason.
+  - The real-model check on this round's code (3728222) passed on GitHub's Linux machine and failed on its Mac at
+    the last step, the planner's note. That Mac has no graphics chip for the model and wrote about 2 tokens a
+    second, so a note of full length (260 tokens, `agents.NOTE_TOKENS`) cannot be written in the 120 s the check
+    gave it; the runs before passed with a shorter note or a little more speed. In the app the planner goes on
+    without a note that did not come in time. The check (`scripts/assistant_check.py`, `slow_limits`) now gives a
+    planner's note three times the time on GitHub's machines without a graphics chip (360 s), as it already gave
+    every answer there (900 s instead of 300 s), and its report says so. No change to the app.
   - Docs: CLIPFORGE_AI.md (the brain file's rule and its numbers, the step line, who reads the tool's result, the
     Forget card's search, the nested request) and the handoff. No change to the privacy page.
   - Tests: `test_a_brain_file_brings_back_what_is_not_in_force_here_yet_in_either_order` (new),
@@ -913,8 +920,10 @@ Landry's projects, could never do anything, and without a downloaded model only 
     `test_a_forget_card_looks_past_any_number_of_newer_notes_of_other_videos` (new),
     `test_the_step_line_says_why_a_memory_stays_with_this_video_whatever_the_model_wrote` (new),
     `test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video` and
-    `test_a_rule_the_model_forgot_to_save_is_kept_once` in `tests/test_clipforge_ai_safety.py`. No frontend
-    change.
+    `test_a_rule_the_model_forgot_to_save_is_kept_once` in `tests/test_clipforge_ai_safety.py`;
+    `test_githubs_machines_without_a_graphics_chip_get_three_times_the_time_for_a_note_too` (new) and
+    `test_the_planner_note_gets_the_runs_time_and_is_judged_by_it` (new) in `tests/test_assistant_check.py`. No
+    frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

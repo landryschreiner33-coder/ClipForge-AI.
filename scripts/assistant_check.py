@@ -62,7 +62,7 @@ sys.path.insert(0, str(ROOT))
 WS = "local"
 GRACE_S = 60.0                  # waited beyond the app's own limit before pressing Stop on an answer
 CONSULT_TASK = "Plan a 5 minute video about a mountain bike trail"
-CONSULT_BUDGET_S = 120.0
+CONSULT_BUDGET_S = 120.0        # for the planner's note; three times that where slow_limits says so
 MARKER = ".clipforge-assistant-check"   # in a data folder this check made, so a rerun may start it afresh
 LONG_REPLY = 400                # a greeting longer than this is not a short reply
 CLIPS = {  # clips projects: name -> (days since the last change, [(clip title, score)])
@@ -340,6 +340,7 @@ class Run:
         self.chat_id = ""
         self.seeded: dict[str, dict] = {}
         self.limit_s = 0.0
+        self.consult_budget_s = CONSULT_BUDGET_S
         self.stuck = False
         self.setup_problems: list[str] = []
 
@@ -619,11 +620,11 @@ def consult(run: Run, writer: dict | None) -> None:
     notes: list[dict] = []
     t0 = time.monotonic()
     try:
-        notes = agents.consult(WS, CONSULT_TASK, budget_s=CONSULT_BUDGET_S)
+        notes = agents.consult(WS, CONSULT_TASK, budget_s=run.consult_budget_s)
     except Exception as exc:  # noqa: BLE001 - reported as a crash
         row["crash"] = clip(f"{type(exc).__name__}: {exc}", 500)
         traceback.print_exc()
-    row["seconds"] = round(time.monotonic() - t0, 2)
+    row["seconds"], row["budget_s"] = round(time.monotonic() - t0, 2), run.consult_budget_s
     row["rounds"] = run.rounds.rows[first:]
     row["notes"] = [{"agent": n["agent"]["name"], "text": n["text"], "ok": n["ok"]} for n in notes]
     row["answer"] = notes[0]["text"] if notes else ""
@@ -631,7 +632,7 @@ def consult(run: Run, writer: dict | None) -> None:
     row["role"], row["status"] = "agent", ("done" if notes and notes[0]["ok"] else "failed")
     row["engine"] = dict(builtin_ai.last_answer) if row["rounds"] else {}
     if check(row, "did not crash", "crash" not in row, row.get("crash", ""), hard=True):
-        limit = int(CONSULT_BUDGET_S + 30)
+        limit = int(run.consult_budget_s + 30)
         check(row, f"finished within {limit} s", row["seconds"] <= limit,
               f"took {row['seconds']:.0f} s" if row["seconds"] > limit else "", hard=True)
         one = len(notes) == 1 and notes[0]["agent"]["name"] == "Script writer"
@@ -805,6 +806,20 @@ def summary(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def slow_limits(level: str, *, github: bool, mac: bool) -> dict | None:
+    """The longer time limits on a GitHub machine that has no graphics chip for the model (its Mac writes about 2
+    tokens a second, and the Standard level on Linux's 4 cores a few; a real Mac, or a PC with a graphics card, uses
+    one): three times the usual ones, for an answer and for a planner's note, which is one answer of up to
+    agents.NOTE_TOKENS tokens (two minutes of writing on that Mac, all the time a note gets elsewhere). None on any
+    other computer."""
+    if not github or not (mac or level != "basic"):
+        return None
+    turn, note = 900.0, CONSULT_BUDGET_S * 3
+    return {"turn_s": turn, "consult_s": note,
+            "note": (f"On GitHub's machines (no graphics chip for the model) an answer may take {turn:.0f} s instead "
+                     f"of the app's 300 s, and a planner's note {note:.0f} s instead of {CONSULT_BUDGET_S:.0f} s.")}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", required=True, help="where the JSON report goes")
@@ -848,12 +863,10 @@ def main() -> int:
             if not set_up_model(run, args.level):
                 return finish(run, started)
             run.rounds.real = original
-            if os.environ.get("GITHUB_ACTIONS") and (sys.platform == "darwin" or args.level != "basic"):
-                # GitHub's machines have no graphics chip for the model (a Mac's about 5 words a second, and the
-                # Standard level on Linux's 4 cores a few); a real Mac, or a PC with a graphics card, uses one
-                assistant.LOCAL_TURN_S = 900.0
-                report["turn_limit_note"] = ("On GitHub's machines (no graphics chip for the model) an answer may "
-                                             "take 900 s instead of the app's 300 s.")
+            slow = slow_limits(args.level, github=bool(os.environ.get("GITHUB_ACTIONS")), mac=sys.platform == "darwin")
+            if slow:
+                assistant.LOCAL_TURN_S, run.consult_budget_s = slow["turn_s"], slow["consult_s"]
+                report["turn_limit_note"] = slow["note"]
         llm.converse = run.rounds
         run.seeded = seed()
         report["projects"] = {k: v["kind"] for k, v in run.seeded.items()}

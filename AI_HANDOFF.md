@@ -191,7 +191,7 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   passed on d02bb25 and 56aae46; the small model rarely uses its tools itself, so ClipForge's safety nets do the
   remembering; PR #37 links the run on the final version). The Standard level a Mac with 16 GB or more gets can be
   run by hand on the Linux machine (`level: standard`, `machines: linux`; without a graphics chip its answers get
-  900 s there). Landry's computer was not tested; web
+  900 s there and a planner's note 360 s, as on GitHub's Mac). Landry's computer was not tested; web
   research for the Researcher, a model per helper, helpers in parallel, pictures in the chat, voice (CLIPFORGE_AI.md,
   "Not done yet").
 - **Waiting on Landry:** a try of the chat and the helpers on Landry's computer; the release (explicit OK).
