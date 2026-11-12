@@ -379,13 +379,18 @@ def _keep(ctx: Ctx, text: str, kind: str, here: bool) -> Result:
     except memories.Invalid as exc:
         raise ToolError(str(exc)) from exc
     where = "this video" if here else "every video"
-    label = f"Remembered “{row['text']}”" + (" for this video" if here else "")  # the owner's step line says where
+    # the owner's step line says where and why: a tool that keeps a memory gets no further round (`assistant.use`),
+    # so the model's own words were written before this was decided, and they may say something else
+    label = f"Remembered “{row['text']}”" + (" for this video" if here else "")
     points, further = memories.points_here(row["text"]) if here else ("", False)
     if further:  # it also speaks of other videos or of later: the owner may have meant every video
+        instead = memories.said_instead(points)
         where += (f" only, because it says “{points}” (to keep it for every video, the owner can say it again and "
-                  f"say {memories.said_instead(points)} instead)")
-    elif points:  # the words decided it, whatever the model chose: its answer can say which words
+                  f"say {instead} instead)")
+        label += f" only, because it says “{points}” (to keep it for every video, say {instead} instead)"
+    elif points:  # the words decided it, whatever the model chose
         where += f", because it says “{points}”"
+        label += f", because it says “{points}”"
     return Result(f"Saved as a {row['kind']} for {where}: {row['text']}", label, {"memory": memories.view(row)})
 
 
@@ -476,7 +481,6 @@ FORGET_IDS = 50  # a card saved by an earlier build named up to 50: its OK reads
 
 
 _NAMES_NONE = STOPWORDS | {"rule", "rules", "memory", "memories", "fact", "facts", "note", "notes"}
-HELD = 500  # the newest memories holding a card's words that are looked through for one that applies in this chat
 
 
 def _memories_for(ctx: Ctx, words: str) -> list[dict]:
@@ -485,16 +489,17 @@ def _memories_for(ctx: Ctx, words: str) -> list[dict]:
     applies here). Else every one that says the words of the newest memory that holds them as a part of its own
     (`memories.holding`: "-3 dB" for "-3 dB here", a number, a short word or a word in another script, which the
     search leaves out; never for little words alone, such as "that" or "the rule"; in a video's chat the newest
-    that applies there comes before another video's newer note, `memories.meant`), else of the closest memory the
-    search finds; oldest first. Only the preview looks: OK forgets what its card named."""
+    that applies there comes before any newer notes of other videos), else of the closest memory the search finds
+    (`memories.closest`: in a video's chat one that applies there before another video's note that holds no more of
+    the words named); oldest first. Only the preview looks: OK forgets what its card named."""
     same = memories.to_forget(ctx.ws, words, ctx.project_id)
     if not same:
         named = any(w not in _NAMES_NONE for w in re.findall(r"[^\W_]+", str(words).lower()))
-        held = memories.meant(memories.holding(ctx.ws, words, HELD), ctx.project_id) if named else []
-        found = held[:1] or memories.list_(ctx.ws, q=words, limit=5)
+        held = memories.holding(ctx.ws, words, 1, ctx.project_id) if named else []
+        found = held[0] if held else memories.closest(ctx.ws, words, ctx.project_id)
         if not found:
             raise ToolError("Nothing like that is in the memory.")
-        same = memories.to_forget(ctx.ws, found[0]["text"], ctx.project_id) or [found[0]]
+        same = memories.to_forget(ctx.ws, found["text"], ctx.project_id) or [found]
     return same
 
 

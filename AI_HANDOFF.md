@@ -123,8 +123,9 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   that (`chat.NEVER_MIND`: what was kept before stays); in a video's chat, words that point at this video ("this video", "this
   one", "this clip", "here" as a word of its own) say where the memory applies (`memories.points_here`): it is kept
   for this video, also when the words speak of other videos or of later or liken something to it; the answer names
-  the words that keep it there ("It applies to this video, because it says “here”.", `chat._applies`; the tool's
-  result tells the model the same, `toolbox._keep`), and when they also speak of other videos or of later, how to
+  the words that keep it there ("It applies to this video, because it says “here”.", `chat._applies`; the step
+  line of the model's tool says the same, `toolbox._keep`: a tool that keeps a memory gets no further round, so
+  the model does not read its result), and when they also speak of other videos or of later, how to
   keep it for every video (with the video's name, which reads the same in any chat);
   only "not only/not just" right before them and "from here on" where it can only mean from now on (in front, at
   the end, before a comma, "from here on out") reach further; "here" always means this video, also in "my office
@@ -134,20 +135,28 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   (`memories.twin(ws, text, kind, scope)`): the same words kept for another video, or platform, are a memory of
   their own (they used to move the first video's note to the second), said for every video they widen the oldest,
   an edit follows the same rule, a brain file adds its memory for every video beside a note one video or platform
-  keeps and never changes or widens a memory with another id (`memories._import_one`), whom a memory is for is read
+  keeps and never changes or widens a memory with another id (`memories._import_one`), applies its changes to
+  known memories first and weighs what it adds against the brain as they leave it, never against what the file
+  itself added (a memory in that very place, whatever its state, or one in force for every video makes an entry
+  known), so a backup comes back whole in any order (`memories.import_`), and counts an entry with text where a
+  number belongs as invalid (`memories._number`), whom a memory is for is read
   from its scope alone (`list_`, `_scores`, `chat._explain`: the released builds left the `project_id` column of a
   moved memory naming the first video), the brain check does not call two videos' notes twins, and
   "forget" asked in a video's chat leaves a note another video keeps under the same words when this video or every
   video has one, saying so (`memories.meant`; typed words, the "Which one?" buttons and the Forget card alike; for
-  words that are a part of memories the card is for the newest that applies in this chat, before another video's
-  newer note, `toolbox._memories_for`);
+  words that are a part of memories the card is for the newest that applies in this chat, before any newer notes
+  of other videos (`memories.holding` with the chat's video), and for a description no memory says or holds for
+  the search's best match, in a video's chat one that applies there before another video's note that holds no
+  more of the words named (`memories.closest`); `toolbox._memories_for`);
   without a model "forget …" lists first the memories that say exactly the words named, then those that hold them
   as whole words (`memories.holding`: any script, a part of the words wherever it stands in a script written
   without spaces, numbers, short words), then the search's, reading the words also without "the rule about" in
   front or "please" behind (`chat._named`, at most `chat._FORMS` readings of one message); half of an emoji is left
-  out of a memory, a message and whatever the Brain's addresses receive, and a request nested too deeply to walk is
-  refused with 422 (`tools.whole`, `routes.Input`); the step line of a memory the model's tool (or the safety net
-  for plainly said rules) keeps for one video ends with "for this video" (`toolbox._keep`), and the safety net
+  out of a memory, a message and whatever the Brain's addresses receive, and a request nested more than
+  `routes.MAX_DEPTH` (100) deep is refused with 422 (`tools.whole`, `routes.Input`: a memory's data nested a few
+  hundred levels could be stored but not sent back, and every list of memories failed); the step line of a memory
+  the model's tool (or the safety net for plainly said rules) keeps for one video says "for this video" and which
+  words decided it (`toolbox._keep`), and the safety net
   shows the tool's failed step with the Brain → Memory button when the words are in the memory but not in force as
   said (switched off, a guess, one video's or one platform's: `assistant._keep_said`);
   "remember: …" on words a memory of either kind

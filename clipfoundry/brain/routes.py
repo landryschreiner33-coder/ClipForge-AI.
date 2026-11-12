@@ -21,16 +21,21 @@ def _err(exc: memories.Invalid) -> HTTPException:
     return HTTPException(exc.status, str(exc))
 
 
+MAX_DEPTH = 100  # lists and objects inside one another in a request: a brain file has five, with a memory's data
+
+
 class Input(BaseModel):
     """What a request sends. Half of an emoji in a text (a message cut in the middle of one) is left out before the
     fields are checked: it cannot be saved, and the refusal of it could not even be sent back (a server error). A
-    body nested deeper than Python can walk (nothing ClipForge sends is) is refused in plain words."""
+    body nested more than MAX_DEPTH deep (nothing ClipForge sends comes near) is refused in plain words: what a
+    brain file stores is sent back with every list of memories, and nesting of a few hundred levels can be read
+    and stored but not sent, so one such memory made the Memory page and every recall fail."""
 
     @model_validator(mode="before")
     @classmethod
     def _whole(cls, data: Any) -> Any:
         try:
-            return tools.clean(data)
+            return tools.clean(data, MAX_DEPTH)
         except RecursionError:
             raise HTTPException(422, "That is nested too deeply to read.") from None
 

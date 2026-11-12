@@ -842,6 +842,79 @@ Landry's projects, could never do anything, and without a downloaded model only 
     `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
     (`tests/test_clipforge_ai_assistant.py`); `test_a_memory_saved_again_for_another_project_stays`
     (`tests/test_studio_project_delete.py`). No frontend change.
+- **A look at the scope round** (66509f1). Four reviewers were set on it. Two finished (the memories, the answers)
+  with seven findings; the other two and every second reader ran out of usage, so I reproduced each finding
+  myself before fixing it, and did by hand what the two missing reviewers were to read (below). Each code fix
+  has a test that failed before it:
+  - A backup of the brain could come back without one video's note. The round before lets the same words be kept
+    for every video and for one video side by side. Read into another brain, the file's note for one video was
+    skipped whenever a memory for every video said its words, also one that is switched off, only a guess or
+    expired, and also one the file itself had just added, so the result depended on the order of the file. An
+    unknown entry is now skipped only when a memory in that very place says its words (whatever the owner did
+    with it), or one that is in force for every video and did not come with this same file
+    (`memories._import_one`, `_in_force`). The same file read twice adds nothing the second time.
+  - A file that changed a memory this brain has, and also brought a note which that memory's old words covered,
+    dropped the note on the first read and added it on the second: entries were weighed in the file's order,
+    before the file's own changes. The file's newer revisions of known memories are applied first
+    (`memories.import_`).
+  - A hand-made file with text where a number belongs was stored as it was. A date in `last_used_at` then made
+    every search, recall and chat answer fail until that memory was removed by hand; the other number fields gave
+    a server error with the file half read (both as released). Such an entry is counted as invalid and the rest
+    of the file is read. Text that is a number is still read as one, and a revision or a use count stays within
+    what the database can hold (`memories._number`, `MAX_COUNT`).
+  - A memory's extra data nested 254 levels or more could be read and stored but not sent back, so the Memory
+    page, the search and recall answered with a server error from then on (as released). A request to the
+    Brain's addresses with lists and objects nested more than 100 deep is refused before anything is stored (422,
+    "That is nested too deeply to read.", `routes.MAX_DEPTH`, `tools.clean`). A brain file has five levels.
+  - With a model, "forget the caption rule" in one video's chat could show a card for another video's note.
+    When no memory says or holds the words named, the card took the search's first match without a look at this
+    chat's video, and of two that fit alike the newer. In a video's chat the card is now for a match that applies
+    there when it holds a word named and at least as much of the words named as the other video's note, or fits
+    exactly as well (`memories.closest`). A note of another video that holds more of the words named is still the
+    one offered, since the owner named it, and a memory that shares no word with the request never comes first.
+    The card says which video its memory is kept for, as before.
+  - The newest memory that holds a card's words and applies in this video was looked for among the newest 500
+    holders only, so 500 newer notes of other videos hid it. The ones the request is about are chosen before the
+    cut (`memories.holding` with the chat's video).
+  - The step line said "Remembered “…” for this video" without the reason. The reason, and how to keep the words
+    for every video, were only in the tool's result, which nobody reads: a tool that keeps a memory gets no
+    further round, so the model's own words ("Saved for all your videos.") were written before and stand. The
+    step line now says it: "Remembered “…” for this video, because it says “here”", and for words that also
+    speak of other videos or of later "… for this video only, because it says “this video” (to keep it for every
+    video, say the video's name instead)" (`toolbox._keep`). The docs said the model passes it on; they now say
+    who reads what.
+  - What the two missing reviewers were to read. Who uses the changed code: the brain file is read by one
+    address; `holding` and `clean` only gained an argument that the other callers leave out; the step line is
+    shown as text by the page and read by no script, check or browser test. The docs against the code: the
+    passages on the brain file, the step line, the Forget card and the nested request were each read beside the
+    code they describe and rewritten where they differed. The privacy page says nothing about brain files or
+    step lines, and what is stored, sent, kept and deleted did not change.
+  - Tests that fail without a rule: 26 rules of this round were each taken out of a copy of the code and the brain and
+    safety tests run against it. 23 failed a test at once. Three did not, and each got the test it lacked: a
+    memory for every video whose time is over (the test's expired memory had also been a guess), a use count
+    below zero, and a request of no words at all. All 26 fail a test now.
+  - Known and left as they are: without a model, "forget the caption rule" in a video's chat lists both videos'
+    notes, the newer first, without saying which video each is for (nothing goes before a pick, and the pick
+    names its words); with a meaning model, a note of another video that is closer in meaning but names no more
+    of the words comes second to one that applies in this video (the card names the video); a brain file's text
+    that is a number or a list is kept as it is written; a memory that is no guess but has an expiry behind it
+    (only a hand-made file makes one) still counts as "already in my memory" until Tidy removes it; a tool call
+    with a wrong argument shows the tool's line with the argument's name ("Remembered “text”") beside the reason.
+  - Docs: CLIPFORGE_AI.md (the brain file's rule and its numbers, the step line, who reads the tool's result, the
+    Forget card's search, the nested request) and the handoff. No change to the privacy page.
+  - Tests: `test_a_brain_file_brings_back_what_is_not_in_force_here_yet_in_either_order` (new),
+    `test_a_brain_file_changes_the_memories_it_knows_before_it_adds_the_rest` (new),
+    `test_a_brain_file_entry_with_a_value_that_is_no_number_is_left_out_and_the_rest_is_read` (new),
+    `test_a_brain_file_nested_deeper_than_anything_real_is_refused_before_anything_is_stored` (new),
+    `test_the_closest_memory_in_a_videos_chat_applies_there_unless_another_videos_note_names_more` (new) and
+    `test_a_brain_file_adds_a_memory_for_every_video_beside_one_kept_for_one_video` in
+    `tests/test_clipforge_ai_brain.py`;
+    `test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first` (new),
+    `test_a_forget_card_looks_past_any_number_of_newer_notes_of_other_videos` (new),
+    `test_the_step_line_says_why_a_memory_stays_with_this_video_whatever_the_model_wrote` (new),
+    `test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video` and
+    `test_a_rule_the_model_forgot_to_save_is_kept_once` in `tests/test_clipforge_ai_safety.py`. No frontend
+    change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

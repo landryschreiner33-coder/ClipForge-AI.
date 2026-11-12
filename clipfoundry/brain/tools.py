@@ -290,14 +290,18 @@ def whole(text: str) -> str:
     return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "ignore")
 
 
-def clean(value: object) -> object:
-    """`value` with every string in it made whole (`whole`): in lists and objects too, keys included."""
+def clean(value: object, depth: int | None = None) -> object:
+    """`value` with every string in it made whole (`whole`): in lists and objects too, keys included. With `depth`,
+    lists and objects nested more than that many deep raise RecursionError, as nesting Python cannot walk does."""
     if isinstance(value, str):
         return whole(value)
-    if isinstance(value, (list, tuple)):
-        return [clean(v) for v in value]
-    if isinstance(value, dict):
-        return {(whole(k) if isinstance(k, str) else k): clean(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, dict)):
+        if depth is not None and depth < 1:
+            raise RecursionError("nested too deeply")
+        inner = None if depth is None else depth - 1
+        if isinstance(value, dict):
+            return {(whole(k) if isinstance(k, str) else k): clean(v, inner) for k, v in value.items()}
+        return [clean(v, inner) for v in value]
     return value
 
 

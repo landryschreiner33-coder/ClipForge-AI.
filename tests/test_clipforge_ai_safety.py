@@ -330,9 +330,10 @@ def test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video(d
     """With a model, the model says where a memory applies (scope this_video). Words that point at this video (“this
     video is for kids”, “never zoom in here”) can only be read in this video's chat, so they are kept for it whatever
     the model chose: kept for every video, every other video's chat would read them as said about that video. When
-    they also speak of other videos or of later, the tool's answer says why and how to say them for every video, for
-    the model to pass on. Words that reach further (“not only here”, “from here on”) and the general chat, which has
-    no video, are as the model chose."""
+    they also speak of other videos or of later, the tool's answer says why and how to say them for every video. The
+    owner's step line says both as well: a tool that keeps a memory gets no further round, so the model's own words
+    were written before the tool decided, and nothing else would tell the owner. Words that reach further (“not only
+    here”, “from here on”) and the general chat, which has no video, are as the model chose."""
     from clipfoundry import db
     from clipfoundry.brain import memories, toolbox
     from clipfoundry.brain.tools import AskFirst, Ctx
@@ -345,18 +346,23 @@ def test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video(d
         res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, **args})
         # the words decided it, whatever the model chose: the tool's answer says which words, for the model to pass on
         assert res.ok and res.text == f"Saved as a {kind} for this video, because it says “{points}”: {said}", said
-        assert res.summary == f"Remembered “{said}” for this video"  # the owner's step line says where too
+        # the owner's step line says where and why: the model's own words were written before the tool decided
+        assert res.summary == f"Remembered “{said}” for this video, because it says “{points}”", said
         assert (res.data["memory"]["scope"], res.data["memory"]["project_id"]) == (f"project:{a['id']}", a["id"])
     said = "never use the music from this video again"
     res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, "scope": "all"})
     assert res.text == ("Saved as a rule for this video only, because it says “this video” (to keep it for every "
                         "video, the owner can say it again and say the video's name instead): never use the music "
                         "from this video again")
+    assert res.summary == ("Remembered “never use the music from this video again” for this video only, because it "
+                           "says “this video” (to keep it for every video, say the video's name instead)")
     assert res.data["memory"]["scope"] == f"project:{a['id']}"
     said = "never use this clip again"  # a piece of this video: its name would be which clip
     res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, "scope": "all"})
     assert res.text == ("Saved as a rule for this video only, because it says “this clip” (to keep it for every "
                         "video, the owner can say it again and say which clip instead): never use this clip again")
+    assert res.summary == ("Remembered “never use this clip again” for this video only, because it says “this clip” "
+                           "(to keep it for every video, say which clip instead)")
     for said in ("from here on, captions are always yellow", "keep the voice up, not only in this video",
                  "never use the music from Hike again"):
         res = toolbox._remember(Ctx(ws=WS, project_id=a["id"], owner_text=said), {"text": said, "scope": "all"})
@@ -429,6 +435,84 @@ def test_a_forget_card_for_a_part_of_the_words_is_about_a_memory_that_applies_he
     assert card(hike, "intro") == ([mine["id"]], ["It is a rule you taught me, for “Hike” only."])
     assert card("", "intro") == ([mine["id"], twin["id"]], ["I keep these words 2 times, and OK forgets them all:",
                                                            "a rule for “Hike” only", "a rule for “Beach” only"])
+
+
+def test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first(data):
+    """A description no memory says or holds (“the caption rule”) goes to the search. In a video's chat its card is
+    for a memory that applies there when that holds as much of the words named as another video's own note does: it
+    used to be for the other video's note whenever that was newer or a touch closer, and OK forgot a rule this
+    video never followed. A note of another video that holds more of the words named is still the one offered (the
+    owner named it), and so is one beside a memory that shares no word with the request. The card says which video."""
+    from clipfoundry import db
+    from clipfoundry.brain import memories, toolbox
+    from clipfoundry.brain.tools import Ctx
+
+    hike, beach, city = (db.insert("studio_projects", {"workspace_id": WS, "name": name, "status": "ready"})["id"]
+                         for name in ("Hike", "Beach", "City"))
+    mine = memories.remember(WS, "no captions in the intro", kind="rule", project_id=hike)
+    theirs = memories.remember(WS, "no captions in the outro", kind="rule", project_id=beach)
+    for age, m in enumerate((theirs, mine)):  # Beach's note is the newer one
+        db.update("brain_memories", m["id"], created_at=time.time() - 60 * age)
+
+    def card(project_id: str, named: str) -> tuple[list[str], list[str]]:
+        shown = toolbox._forget_preview(Ctx(ws=WS, project_id=project_id), {"memory": named})
+        return shown["args"]["memory_ids"], shown["detail"]
+
+    for_hike = ["It is a rule you taught me, for “Hike” only."]
+    for_beach = ["It is a rule you taught me, for “Beach” only."]
+    assert card(hike, "the caption rule") == ([mine["id"]], for_hike)  # both fit alike: this video's own
+    assert card(beach, "the caption rule") == ([theirs["id"]], for_beach)
+    assert card("", "the caption rule") == ([theirs["id"]], for_beach)  # the general chat: the newest of the two
+    assert card(city, "the caption rule") == ([theirs["id"]], for_beach)  # only other videos keep one: the newest
+    # named by what only Beach's note says: that one, in any chat
+    assert card(hike, "the caption note about the outro") == ([theirs["id"]], for_beach)
+    assert card(beach, "the caption note about the intro") == ([mine["id"]], for_hike)
+    # a rule for every video applies in each of them: it comes before another video's note that is a touch closer
+    every = memories.remember(WS, "Always add captions", kind="rule")
+    db.update("brain_memories", every["id"], created_at=time.time() - 600)
+    scores = {m["id"]: m["score"] for m in memories.list_(WS, q="the caption rule")}
+    assert scores[theirs["id"]] > scores[every["id"]]  # by the search alone it would be Beach's note
+    assert card(city, "the caption rule") == ([every["id"]], ["It is a rule you taught me, for every video."])
+    assert card(hike, "the caption rule")[0] in ([mine["id"]], [every["id"]])  # one that applies in Hike
+    assert card(beach, "the caption rule")[0] == [theirs["id"]]  # Beach's own note is the search's best match there
+    assert card(city, "the caption note about the outro") == ([theirs["id"]], for_beach)
+    # a memory that applies here but shares no word with the request never comes before one that does
+    for m in (mine, every):
+        memories.forget(WS, m["id"])
+    memories.remember(WS, "the channel is about hiking", kind="fact")
+    assert card(hike, "the caption rule") == ([theirs["id"]], for_beach)
+
+
+def test_a_forget_card_looks_past_any_number_of_newer_notes_of_other_videos(data):
+    """The newest memory that holds the words named and applies in this video is found however many newer notes of
+    other videos hold them too: the ones the request is about are chosen before the look is cut short (only the
+    newest 500 holders were looked through, so the card fell back to another video's note)."""
+    from clipfoundry import db
+    from clipfoundry.brain import memories, toolbox
+    from clipfoundry.brain.tools import Ctx
+
+    hike, beach = (db.insert("studio_projects", {"workspace_id": WS, "name": name, "status": "ready"})["id"]
+                   for name in ("Hike", "Beach"))
+    mine = memories.remember(WS, "captions in yellow, take 0", kind="rule", project_id=hike)
+    every = memories.remember(WS, "captions in white, take 0", kind="rule")
+    theirs = [memories.remember(WS, f"captions in blue, take {n}", kind="rule", project_id=beach) for n in range(1, 4)]
+    for age, m in enumerate((*reversed(theirs), mine, every)):  # Beach's three are the newest, then Hike's own
+        db.update("brain_memories", m["id"], created_at=time.time() - 60 * age)
+    assert [m["id"] for m in memories.holding(WS, "captions in", 2)] == [theirs[2]["id"], theirs[1]["id"]]
+    assert [m["id"] for m in memories.holding(WS, "captions in", 2, hike)] == [mine["id"], every["id"]]
+    assert [m["id"] for m in memories.holding(WS, "captions in", 2, beach)] == [theirs[2]["id"], theirs[1]["id"]]
+    assert [m["id"] for m in memories.holding(WS, "captions in blue", 9, hike)] == [m["id"] for m in reversed(theirs)]
+    with db.connect() as conn:  # 600 more notes of Beach's, all newer than Hike's own
+        row = dict(zip([c[1] for c in conn.execute("PRAGMA table_info(brain_memories)")],
+                       conn.execute("SELECT * FROM brain_memories WHERE id = ?", (theirs[0]["id"],)).fetchone()))
+        for n in range(600):
+            text = f"captions in blue, take {n + 10}"
+            more = {**row, "id": f"more-{n}", "text": text, "norm": memories._norm(text), "created_at": time.time()}
+            conn.execute(f"INSERT INTO brain_memories ({', '.join(more)}) VALUES ({', '.join('?' for _ in more)})",
+                         list(more.values()))
+    card = toolbox._forget_preview(Ctx(ws=WS, project_id=hike), {"memory": "captions in"})
+    assert card["args"]["memory_ids"] == [mine["id"]] and card["detail"] == [
+        "It is a rule you taught me, for “Hike” only."]
 
 
 def test_a_memory_said_again_keeps_its_scope_and_its_video_together(data):
@@ -755,8 +839,8 @@ def test_a_rule_the_model_forgot_to_save_is_kept_once(data, monkeypatch):
     install(monkeypatch, say("Got it."), say("OK."))
     c = chat.open_chat(WS, v["id"])
     m = settled(c["id"], _say(c["id"], "Remember that this video is for kids")["id"])
-    assert m["data"]["steps"] == [{"tool": "remember", "label": "Remembered “this video is for kids” for this video",
-                                   "ok": True}]
+    assert m["data"]["steps"] == [{"tool": "remember", "ok": True, "label":
+                                   "Remembered “this video is for kids” for this video, because it says “this video”"}]
     assert [(x["text"], x["scope"]) for x in m["data"]["remembered"]] == [("this video is for kids",
                                                                            f"project:{v['id']}")]
     m = settled(c["id"], _say(c["id"], "From now on, always start with the best moment")["id"])  # points nowhere
@@ -798,6 +882,26 @@ def test_a_rule_said_plainly_that_is_in_the_memory_but_not_in_force_is_shown(dat
     m = settled(general["id"], _say(general["id"], "From now on, always keep the voice up")["id"])  # in force
     assert m["status"] == "done" and m["data"]["steps"] == [] and "links" not in m["data"]
     assert _rows() == before and len(fake.calls) == 6
+
+
+def test_the_step_line_says_why_a_memory_stays_with_this_video_whatever_the_model_wrote(data, monkeypatch):
+    """A tool that keeps a memory gets no further round, so the model wrote its words (“Saved for all your videos.”)
+    before the tool decided where the memory is kept, and they stand. The step line above them is ClipForge's own:
+    it says the memory is kept for this video only, which words decided that, and how to say it for every video."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat, memories
+
+    v = db.insert("studio_projects", {"workspace_id": WS, "name": "Hike day", "status": "ready"})
+    said = "never use the music from this video again"
+    fake = install(monkeypatch, say("Saved for all your videos.", ("remember", {"text": said, "kind": "rule",
+                                                                                "scope": "all"})))
+    c = chat.open_chat(WS, v["id"])
+    m = settled(c["id"], _say(c["id"], said)["id"])
+    assert m["text"] == "Saved for all your videos." and len(fake.calls) == 1  # no further round for the model
+    assert m["data"]["steps"] == [{"tool": "remember", "ok": True, "label": (
+        f"Remembered “{said}” for this video only, because it says “this video” (to keep it for every video, say the "
+        "video's name instead)")}]
+    assert [(x["text"], x["scope"]) for x in memories.list_(WS)] == [(said, f"project:{v['id']}")]
 
 
 def test_the_safety_net_waits_when_the_model_asks_or_a_helper_kept_it(data, monkeypatch):

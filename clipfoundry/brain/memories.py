@@ -45,6 +45,7 @@ STALE_DAYS = 90                 # an unused guess is reported by the brain check
 RECENT_S = 30 * 86400
 CHECK_ROWS = 4000               # the duplicate check compares at most this many memories of one kind
 MAX_IMPORT = 20000
+MAX_COUNT = 10 ** 9             # a revision or a use count read from a brain file stays a number the database can hold
 HEADER = "What the owner has told ClipForge AI (standing rules first; follow them):"
 
 
@@ -178,20 +179,23 @@ def _holds(words: str, part: str) -> bool:
     return False
 
 
-def holding(ws: str, text: object, limit: int = 20) -> list[dict]:
+def holding(ws: str, text: object, limit: int = 20, project_id: str = "") -> list[dict]:
     """The memories of the workspace whose words hold the words of `text` as they stand and in that order (`_norm`;
     whole words, so "3 dB" is not in "-3 dB"), newest first: what "forget …" offers when the words named are a part
     of a memory. It reads the words themselves, so it finds a memory by a number, a short word or a word in another
     script, which the search by meaning (`list_`) leaves out; in a script written without spaces between words, a
-    part of the words is found wherever it stands (`_holds`)."""
+    part of the words is found wherever it stands (`_holds`). With `project_id` (asked in a video's chat), only the
+    ones such a "forget" is about (`meant`), chosen before the cut to `limit`: any number of newer notes of other
+    videos never hide the one that applies in this video."""
     part = _norm(text)
     if not part:
         return []
     _refresh_norms()
     with db.connect() as conn:  # the stored forms first (they are up to date), then each memory found by its words
-        rows = conn.execute("SELECT id, norm FROM brain_memories WHERE workspace_id = ? AND instr(norm, ?) > 0 "
-                            "ORDER BY created_at DESC", (ws, part)).fetchall()
-    ids = [mid for mid, norm in rows if _holds(norm, part)][:max(1, min(int(limit), 500))]
+        rows = conn.execute("SELECT id, norm, scope FROM brain_memories WHERE workspace_id = ? AND "
+                            "instr(norm, ?) > 0 ORDER BY created_at DESC", (ws, part)).fetchall()
+    held = meant([{"id": mid, "scope": scope} for mid, norm, scope in rows if _holds(norm, part)], project_id)
+    ids = [r["id"] for r in held][:max(1, min(int(limit), 500))]
     found = {r["id"]: r for r in db.select("brain_memories", f"id IN ({', '.join('?' for _ in ids)})", ids)} \
         if ids else {}
     return [r for r in (found.get(mid) for mid in ids) if r and _holds(_norm(r["text"]), part)]
@@ -694,6 +698,29 @@ def list_(ws: str, q: str = "", kind: str = "", project_id: str = "", limit: int
     return [{**view(r), "score": round(s, 4)} for s, r in scored[:max(1, min(int(limit), 1000))]]
 
 
+def closest(ws: str, q: str, project_id: str = "") -> dict | None:
+    """The memory a description means that no memory says or holds ("the caption rule"): the search's best match
+    (as `list_` finds and orders them), or None. Asked in a video's chat, a match that applies there (`meant`) comes
+    before another video's own note when it holds a word named and at least as much of the words named as that
+    note, or fits exactly as well: the chat of a video is about what holds in it, however new another video's note
+    is and however close its other words are. A note of another video that holds more of the words named stays the
+    best match (the owner named it), and so does one beside a match that shares no word with the request."""
+    rows = db.select("brain_memories", "workspace_id = ?", (ws,), "created_at DESC") if str(q).strip() else []
+    floor = meaning.min_similar()
+    found = [(s, r) for r, s in zip(rows, _scores(q, rows)) if s[1] > 0 or s[2] >= floor]
+    if not found:
+        return None
+    found.sort(key=lambda x: (-round(x[0][0], 4), -x[1]["created_at"]))
+    (score, words, _), best = found[0]
+    here = {r["id"] for r in meant([r for _, r in found], project_id)}
+    if best["id"] not in here:  # another video's own note, while a memory that applies in this video matches too
+        for s, r in found:
+            if r["id"] in here and (round(s[1], 6) >= round(words, 6) and s[1] > 0 or
+                                    round(s[0], 4) == round(score, 4)):
+                return view(r)
+    return view(best)
+
+
 # ------------------------------------------------------------------ health
 def check(ws: str) -> dict:
     """How the brain is doing: counts, memories without a meaning or with an old embedder, near-duplicates (not two
@@ -815,53 +842,87 @@ def export(ws: str) -> dict:
             "memories": [{k: r.get(k) for k in EXPORT_FIELDS} for r in rows]}
 
 
+NUMBERS = ("confidence", "expires_at", "revision", "used_count", "last_used_at", "created_at")
+
+
+def _number(value: object) -> float:
+    """A number of a brain file: a number, or text that is one. Anything else (a date, a list, a number that is not
+    finite) makes its entry invalid: stored as it was, text in "last_used_at" broke every later search."""
+    try:
+        out = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        out = math.nan
+    if not math.isfinite(out):
+        raise Invalid("A brain file holds something that is not a number where a number belongs.")
+    return out
+
+
+def _in_force(row: dict, now: float) -> bool:
+    """Whether a memory holds as said: switched on and not only a guess (as the chat reads "already in my memory",
+    `toolbox._already`), and not expired (as `candidates` reads what an answer follows)."""
+    return bool(row.get("enabled")) and row.get("source") != "guessed" and \
+        not (row.get("expires_at") and row["expires_at"] <= now)
+
+
 def import_(ws: str, data: object) -> dict:
     """Merge a brain file: a memory with a newer revision updates the one with the same id (also when another memory
     says those words: such twins are read once, and Tidy merges those kept for the same videos and switched on or off
-    alike), an unknown id is added (with a fresh id when that id belongs to another workspace) unless a memory kept
-    in the same place or for every video says those words already, the rest are skipped. Nothing is deleted, and a
-    memory with another id is never changed: the file's memory for every video is added beside one kept for one
-    video only (skipped, the rule would hold in that video alone)."""
+    alike), an unknown id is added (with a fresh id when that id belongs to another workspace) unless this brain
+    keeps those words already where the file keeps them, the rest are skipped. Nothing is deleted, and a memory with
+    another id is never changed: the file's memory for every video is added beside one kept for one video only
+    (skipped, the rule would hold in that video alone).
+
+    The file's changes to memories this brain has come first, and what the file adds is weighed against the brain as
+    they leave it, never against what the file itself added: a backup comes back whole in whatever order it lists
+    its memories, and the same file read twice adds nothing the second time. An entry with text where a number
+    belongs is invalid, and the rest of the file is read."""
     if not isinstance(data, dict) or data.get("format") != FORMAT or not isinstance(data.get("memories"), list):
         raise Invalid(f"This is not a ClipForge AI brain file ({FORMAT}).")
     if len(data["memories"]) > MAX_IMPORT:
         raise Invalid(f"A brain file holds at most {MAX_IMPORT} memories.")
     out = {"added": 0, "updated": 0, "skipped": 0, "invalid": 0}
-    for m in data["memories"]:
+    with db.connect() as conn:
+        mine = {mid for (mid,) in conn.execute("SELECT id FROM brain_memories WHERE workspace_id = ?", (ws,))}
+    fresh: set[str] = set()  # what this file added: it says nothing about what the brain kept before the file
+    for m in sorted(data["memories"], key=lambda m: not (isinstance(m, dict) and str(m.get("id") or "") in mine)):
         if not isinstance(m, dict) or m.get("kind") not in KINDS:
             out["invalid"] += 1
             continue
         try:
             text = _clean(m.get("text"))
             scope = _scope(m.get("scope") or "all", "", "", "")
+            numbers = {k: _number(m[k]) for k in NUMBERS if m.get(k)}
         except Invalid:
             out["invalid"] += 1
             continue
         source = m.get("source") if m.get("source") in SOURCES else "imported"
         vec, vec_model = meaning.make(text)
         fields = {"kind": m["kind"], "text": text, "norm": _norm(text), "source": source,
-                  "confidence": max(0.0, min(1.0, float(m.get("confidence") or CONFIDENCE[source]))),
+                  "confidence": max(0.0, min(1.0, numbers.get("confidence", CONFIDENCE[source]))),
                   "scope": scope, "project_id": scope[8:] if scope.startswith("project:") else "",
                   "platform": scope[9:] if scope.startswith("platform:") else "", "tags": _tags(m.get("tags")),
                   "data": m.get("data") if isinstance(m.get("data"), dict) else {},
                   "enabled": 1 if m.get("enabled", 1) else 0,
-                  "expires_at": float(m["expires_at"]) if m.get("expires_at") else None,
-                  "revision": max(1, int(m.get("revision") or 1)),
+                  "expires_at": numbers.get("expires_at"),
+                  "revision": int(max(1, min(numbers.get("revision", 1), MAX_COUNT))),
                   "meaning": vec, "meaning_model": vec_model}
         for _ in range(3):  # None: the memory changed or went between reading and writing it, so again
-            done = _import_one(ws, m, fields, text)
+            done = _import_one(ws, m, fields, numbers, fresh)
             if done:
                 break
         out[done or "skipped"] += 1
     return out
 
 
-def _import_one(ws: str, m: dict, fields: dict, text: str) -> str | None:
+def _import_one(ws: str, m: dict, fields: dict, numbers: dict, fresh: set[str]) -> str | None:
     """One memory of a brain file: "updated" (a newer revision of one with the same id: what the owner changed on
     the other computer, so it is applied even when another memory says its words, or the replaced words would stay
-    in force), "added" (an unknown id whose words no memory says yet where the file keeps them), "skipped" (not
-    newer, or an unknown id whose words a memory kept in that place or for every video says already), or None when
-    the memory changed or went between reading and writing it (Tidy, Forget, an edit): then it is read again."""
+    in force), "added" (an unknown id), "skipped" (not newer, or an unknown id whose words this brain keeps already:
+    a memory in that very place says them, whatever the owner did with it, or one that is in force for every video,
+    so adding it would change nothing), or None when the memory changed or went between reading and writing it
+    (Tidy, Forget, an edit): then it is read again. `fresh` are the ids this file added: a memory for every video
+    that came with the file does not make the file's note for one video known (the two were kept side by side where
+    the file comes from, and which of them the file lists first must not matter)."""
     existing = db.fetch("brain_memories", str(m.get("id") or "")) if m.get("id") else None
     if existing and existing["workspace_id"] == ws:
         if fields["revision"] <= int(existing.get("revision") or 1):
@@ -869,13 +930,16 @@ def _import_one(ws: str, m: dict, fields: dict, text: str) -> str | None:
         return "updated" if _write_over(existing, fields) else None
     # not `_same_words`: for words to keep for every video it also finds a memory kept for one video, to widen it,
     # and a file widens nothing
-    if any((r["scope"] or "all") in (fields["scope"], "all") for r in saying(ws, text, (fields["kind"],))):
-        return "skipped"
-    row = {**fields, "workspace_id": ws, "used_count": int(m.get("used_count") or 0),
-           "last_used_at": m.get("last_used_at") or None}
+    now = time.time()
+    for r in saying(ws, fields["text"], (fields["kind"],)):
+        place = r["scope"] or "all"
+        if place == fields["scope"] or (place == "all" and r["id"] not in fresh and _in_force(r, now)):
+            return "skipped"
+    row = {**fields, "workspace_id": ws, "used_count": int(max(0, min(numbers.get("used_count", 0), MAX_COUNT))),
+           "last_used_at": numbers.get("last_used_at")}
     if m.get("id") and not existing:
         row["id"] = str(m["id"])[:40]
-    if m.get("created_at"):
-        row["created_at"] = float(m["created_at"])
-    db.insert("brain_memories", row)
+    if "created_at" in numbers:
+        row["created_at"] = numbers["created_at"]
+    fresh.add(db.insert("brain_memories", row)["id"])
     return "added"
