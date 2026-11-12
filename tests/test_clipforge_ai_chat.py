@@ -223,15 +223,17 @@ def test_a_correction_never_forgets_and_a_longer_word_is_never_cut(env):
 
 
 def test_remembering_words_a_memory_already_says_offers_no_undo(env):
-    """The memory that already says the words is switched on and kept for every video, and the answer says so with
-    no Undo chip: Undo forgets the memory, and that one was there before the answer. New words get their chip."""
+    """The memory that already says the words, as a rule or as a fact, is switched on and kept for every video, and
+    the answer says what it was before (switched off, only a guess, kept for one platform, other symbols) with no
+    Undo chip: Undo forgets the memory, and that one was there before the answer. New words get their chip; words
+    that differ in a sign, a colon or a mark of a letter are new words."""
     from clipfoundry.brain import chat, memories
 
     c = chat.open_chat(WS)
     old = _twin("The outro is 2 seconds", scope="platform:tiktok", platform="tiktok", enabled=0)
     m = _say(c["id"], "Remember that. The outro is 2 seconds")
-    assert m["text"] == ("I already remember “The outro is 2 seconds” (switched on again). It applies to every video. "
-                         "Say “forget …” to remove it.")
+    assert m["text"] == ("I already remember “The outro is 2 seconds” (switched on again; before, only for tiktok). "
+                         "It applies to every video. Say “forget …” to remove it.")
     assert "memory" not in m["data"] and m["data"]["kept"]["id"] == old["id"]
     row = memories.get(WS, old["id"])
     assert (row["enabled"], row["scope"]) == (1, "all")
@@ -241,6 +243,157 @@ def test_remembering_words_a_memory_already_says_offers_no_undo(env):
     assert "memory" not in m["data"] and [x["id"] for x in memories.list_(WS)] == [old["id"]]
     m = _say(c["id"], "remember: the intro is 3 seconds")
     assert m["data"]["memory"]["text"] == "the intro is 3 seconds" and m["data"]["memory"]["id"] != old["id"]
+
+    rule = _twin("Keep the music low 🎵", kind="rule", source="guessed", confidence=0.5, enabled=0)
+    m = _say(c["id"], "remember: keep the music low")  # no rule words, so a fact: the rule says them already
+    assert m["text"] == ("I already had “Keep the music low 🎵” (switched on again; no longer only a guess); it now "
+                         "says “keep the music low”. It applies to every video. Say “forget …” to remove it.")
+    assert "memory" not in m["data"] and m["data"]["kept"]["id"] == rule["id"]
+    row = memories.get(WS, rule["id"])
+    assert (row["kind"], row["text"], row["source"], row["enabled"]) == ("rule", "keep the music low", "said", 1)
+    _twin("Don't zoom in on faces", kind="rule")
+    m = _say(c["id"], "Remember: Don’t zoom in on faces")  # only the apostrophe differs
+    assert m["text"].startswith("I already remember “Don’t zoom in on faces”. It applies to every video.")
+    tiktok = _twin("Voice at +3 dB", scope="platform:tiktok", platform="tiktok")
+    for said in ("remember: voice at -3 dB", "remember: the cut at 0:42 stays", "remember: the cut at 0.42 stays",
+                 "remember: ตัดคลิปข่าวออก", "remember: ตัดคลิปข้าวออก"):
+        m = _say(c["id"], said)
+        assert m["text"].startswith("Remembered: “") and m["data"]["memory"]["revision"] == 1, said
+    assert memories.get(WS, tiktok["id"])["text"] == "Voice at +3 dB" and len(memories.list_(WS)) == 10
+
+
+def test_undo_forgets_a_memory_only_while_it_is_as_its_answer_added_it(env):
+    """A chip's Undo sends its words, and the memory goes only while it is as that answer added it (revision 1, the
+    same words). Said again over it, edited, switched off, or written over by the answer of an earlier build (whose
+    chip pointed at it), it stays, and Undo says it changed since; one already forgotten answers 404."""
+    from fastapi.testclient import TestClient
+    from clipfoundry import brain
+    from clipfoundry.api import app
+    from clipfoundry.brain import chat, memories
+
+    c = chat.open_chat(WS)
+    said = [_say(c["id"], f"remember: {w}")["data"]["memory"]
+            for w in ("music at -6 dB", "my intro is 3 seconds", "captions in yellow", "the outro is 2 seconds")]
+    assert [m["revision"] for m in said] == [1, 1, 1, 1]
+    loud, intro, captions, outro = said
+    assert _say(c["id"], "remember: Music at -6 dB!")["data"]["kept"]["id"] == loud["id"]  # said again
+    brain.edit(WS, intro["id"], text="my intro is 4 seconds")
+    brain.edit(WS, captions["id"], enabled=False)
+    older = _twin("Keep the music low", enabled=0)
+    over = memories.view(memories.remember(WS, "keep the music low", source="said"))  # what an earlier build showed
+    assert over["id"] == older["id"] and over["revision"] == 2
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        def undo(mem: dict, words: str = ""):
+            return client.post(f"/api/brain/memories/{mem['id']}/undo", json={"words": words or mem["text"]},
+                               headers=H)
+
+        for mem in (loud, intro, captions, over):
+            r = undo(mem)
+            assert (r.status_code, r.json()["detail"]) == (409, memories.CHANGED_SINCE), mem["text"]
+        assert undo(outro, "the outro is 5 seconds").status_code == 409  # not the words its chip shows
+        assert client.post(f"/api/brain/memories/{outro['id']}/undo", json={"words": outro["text"]}).status_code == 403
+        r = undo(outro)
+        assert r.status_code == 200 and r.json()["forgotten"]["id"] == outro["id"]
+        assert undo(outro).status_code == 404
+    assert sorted(m["text"] for m in brain.list_(WS)) == ["Music at -6 dB!", "captions in yellow",
+                                                          "keep the music low", "my intro is 4 seconds"]
+
+
+def test_a_which_one_button_forgets_exactly_the_words_it_shows_whatever_quotes_they_hold(env):
+    """The button sends its memory's words apart from the message, so German, Polish or Swedish quotation marks or an
+    inch mark in them change nothing: every memory that says exactly those words goes, never one with fewer or more
+    words, and pressed again it says nothing says them any more."""
+    from fastapi.testclient import TestClient
+    from clipfoundry import brain
+    from clipfoundry.api import app
+    from clipfoundry.brain import chat
+
+    c = chat.open_chat(WS)
+    words = ["Die Serie heißt „Bergtouren“", "Serien heter ”Fjällturer”", "I edit on a 27” screen",
+             "Seria nazywa się „Górskie wędrówki”"]
+    for w in words:
+        brain.remember(WS, w)
+    longer = brain.remember(WS, "Die Serie heißt „Bergtouren“ und läuft sonntags")
+    for w in words:
+        m = _say(c["id"], f"forget “{w}”", forget=w)
+        assert m["text"] == f"Forgotten: “{w}”.", w
+        m = _say(c["id"], f"forget “{w}”", forget=w)  # pressed again
+        assert m["text"] == f"Nothing I remember says “{w}”, so nothing was forgotten.", w
+    assert [x["id"] for x in brain.list_(WS)] == [longer["id"]]
+    m = _say(c["id"], "forget “Die Serie heißt”", forget="Die Serie heißt")  # fewer words than the memory says
+    assert m["text"].startswith("Nothing I remember says “Die Serie heißt”") and len(brain.list_(WS)) == 1
+    _twin("Keep the music low", kind="rule")
+    _twin("keep the music low", scope="platform:tiktok", platform="tiktok")
+    m = _say(c["id"], "forget “Keep the music low”", forget="Keep the music low")
+    assert m["text"] == "Forgotten: “Keep the music low” (I had it 2 times; both are gone)."
+    m = _say(c["id"], "forget “”", forget="  ")
+    assert m["status"] == "failed" and m["text"].startswith("Say what to forget")
+    most = brain.remember(WS, "word " * 119 + "words")  # 600 characters: the most a memory holds
+    m = _say(c["id"], "forget “…”", forget=most["text"] + " and more")  # never cut down to a memory's words
+    assert m["text"].startswith("Nothing I remember says “word word") and len(brain.list_(WS)) == 2
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        r = client.post(f"/api/brain/chats/{c['id']}/messages", json={"text": "forget “…”", "forget": longer["text"]},
+                        headers=H)
+        assert r.status_code == 200 and r.json()["ai"]["text"] == f"Forgotten: “{longer['text']}”."
+    assert [x["id"] for x in brain.list_(WS)] == [most["id"]]
+
+
+def test_forget_that_with_the_rule_on_the_next_line_forgets_nothing_whatever_the_line_break(env):
+    """A line or paragraph separator, a page break or a vertical tab from a pasted text is a new line too, so “Forget
+    that” with the rule on the next line sets something aside and forgets nothing at once."""
+    from clipfoundry import brain
+    from clipfoundry.brain import chat
+
+    c = chat.open_chat(WS)
+    brain.remember(WS, "Keep the music low", kind="rule")
+    for br in ("\n", "\r", "\r\n", "\u2028", "\u2029", "\x85", "\x0b", "\x0c"):
+        m = _say(c["id"], f"Forget that{br}Keep the music low")
+        assert m["text"].startswith("Which one?") and len(brain.list_(WS)) == 1, repr(br)
+        assert chat.messages(WS, c["id"])[-2]["text"] == "Forget that\nKeep the music low", repr(br)
+
+
+def test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule(env):
+    """Without a model, words that only point back, ask nicely or say when (“Remember this, please”, “Remember that
+    for later”, “I like that”, “Always.”) keep nothing and ask what to remember, and “Never mind” is not a rule;
+    words that name something are kept, with such words around them too."""
+    from clipfoundry import brain
+    from clipfoundry.brain import chat
+
+    c = chat.open_chat(WS)
+    for said in ("Remember this, please.", "Remember that for later", "Remember that too", "Remember that, ok?",
+                 "remember: that, please", "remember: this please", "Remember that for next time, thanks!",
+                 "I like that", "I love this 😍", "Always.", "Never again", "From now on, that."):
+        m = _say(c["id"], said)
+        assert m["status"] == "failed" and m["text"].startswith("Say what to remember, for example: "), said
+    for said in ("Never mind", "never mind.", "Nevermind!"):
+        m = _say(c["id"], said)
+        assert (m["status"], m["text"]) == ("done", "All right: nothing was kept or forgotten."), said
+    assert _say(c["id"], "Never mind the shaky shots in the intro")["data"]["tool"] != "remember"
+    assert brain.list_(WS) == []
+    assert _say(c["id"], "Never zoom in on faces")["data"]["memory"]["kind"] == "rule"
+    m = _say(c["id"], "remember: thanks to the drone, the summit shots look great")
+    assert m["data"]["memory"]["text"] == "thanks to the drone, the summit shots look great"
+
+
+def test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole(env):
+    """In a video's chat, “for this video” anywhere and “here” where the words end (or “here:” before them) keep the
+    memory to the video, with the separators they came with left out; the minus of a number stays, and “here” inside
+    other words (“here's the plan”, a title like “Here Comes the Sun”) is kept as said, for every video."""
+    from clipfoundry.brain import chat
+
+    p = _project(env)
+    c = chat.open_chat(WS, p["id"])
+    for said, words, where in (
+            ("Remember -3 dB here", "-3 dB", "this video"),
+            ("Note for this video: -14 LUFS", "-14 LUFS", "this video"),
+            ("remember: -2 dB on the voice for this video", "-2 dB on the voice", "this video"),
+            ("Remember for this video - keep the music low", "keep the music low", "this video"),
+            ("remember: the music is too loud in here", "the music is too loud", "this video"),
+            ("Remember here: the drone shots go first", "the drone shots go first", "this video"),
+            ("remember: here's the plan: intro 3 s", "here's the plan: intro 3 s", "every video"),
+            ("remember: Here Comes the Sun is the outro song", "Here Comes the Sun is the outro song", "every video")):
+        m = _say(c["id"], said)
+        assert m["text"] == f"Remembered: “{words}”. It applies to {where}. Say “forget …” to remove it.", said
 
 
 def test_which_one_lists_each_set_of_words_once_and_its_button_forgets_only_those_words(env):

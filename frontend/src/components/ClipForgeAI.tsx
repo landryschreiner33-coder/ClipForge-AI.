@@ -296,8 +296,9 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
 
   /** Send words to the chat. From the box (Enter or Send) the box empties and keeps the focus; a quick reply pressed
    * from the keyboard puts the focus in the box too, since the reply goes away once it is answered. `choice`: words
-   * the model or the editor offered as a quick reply, which never forget anything at once (the server shows a card). */
-  const send = async (words: string, fromBox = false, refocus = fromBox, choice = false) => {
+   * the model or the editor offered as a quick reply, which never forget anything at once (the server shows a card).
+   * `forget`: a "Which one?" button's memory words, sent apart from the message so they are forgotten exactly. */
+  const send = async (words: string, fromBox = false, refocus = fromBox, choice = false, forget?: string) => {
     const said = words.trim();
     if (!chat || !said || sendingNow.current || writing || busy) return;
     if (said.length > MAX_CHAT_TEXT) {
@@ -309,7 +310,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
     sendingNow.current = true;
     setSending(true);
     try {
-      const r = await chatApi.say(chat.id, said, v?.plan_revision, choice);
+      const r = await chatApi.say(chat.id, said, v?.plan_revision, choice, forget);
       stick.current = true;
       setLost("");
       setMsgs((all) => [...all.filter((m) => m.id !== r.owner.id && m.id !== r.ai.id), r.owner, r.ai]);
@@ -386,8 +387,8 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   const latest = useRef({ act, send, decide });
   latest.current = { act, send, decide };
   const onAct = useCallback((m: ChatMessage, what: "apply" | "discard") => latest.current.act(m, what), []);
-  const onSend = useCallback((words: string, keyboard = false, choice = false) =>
-    latest.current.send(words, false, keyboard, choice), []);
+  const onSend = useCallback((words: string, keyboard = false, choice = false, forget?: string) =>
+    latest.current.send(words, false, keyboard, choice, forget), []);
   const onDecide = useCallback((m: ChatMessage, a: ChatAction, doIt: boolean) => latest.current.decide(m, a, doIt), []);
   // "Clear this chat" goes with the messages, so the dialog cannot give the focus back to it: the conversation takes it.
   const cleared = useRef(false);
@@ -592,7 +593,7 @@ const Owner = memo(function Owner({ m, agents }: { m: ChatMessage; agents: ChatA
 
 /** Sends words to the chat; `keyboard`: pressed from the keyboard, so the focus goes to the message box; `choice`: a
  * quick reply the model or the editor wrote. */
-type SendWords = (words: string, keyboard?: boolean, choice?: boolean) => Promise<void>;
+type SendWords = (words: string, keyboard?: boolean, choice?: boolean, forget?: string) => Promise<void>;
 
 /** ClipForge AI's answer, or a helper's when you talked to it with @. It is drawn again only when it changes. */
 const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onDecide }: {
@@ -626,7 +627,7 @@ const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onD
         {ask && ask.choices.length > 0 && <Ask ask={ask} said={m.text} disabled={sending || busy} onSend={onSend} />}
         {d.tool === "forget" && (d.candidates || []).length > 0 && <div className="cfai-chips" role="group" aria-label="Forget one">
           {(d.candidates || []).map((c) => <button key={c.id} type="button" className="btn btn-small ask-choice" disabled={busy || sending}
-            onClick={(e) => void onSend(`forget “${c.text}”`, notTouch(e))}><Icon name="trash" />Forget “{c.text}”</button>)}
+            onClick={(e) => void onSend(`forget “${c.text}”`, notTouch(e), false, c.text)}><Icon name="trash" />Forget “{c.text}”</button>)}
         </div>}
         {(remembered.length > 0 || (d.tool === "remember" && d.memory)) && <div className="cfai-chips">
           {remembered.map((mem) => <Remembered key={mem.id} mem={mem} />)}
@@ -796,23 +797,29 @@ function Ask({ ask, said, disabled, onSend }: { ask: ChatAsk; said: string; disa
   );
 }
 
-/** "Remembered: …" with Undo (it forgets that memory). `short`: the answer already says what was remembered. */
+/** "Remembered: …" with Undo, which forgets that memory only while it is as this answer added it (the server checks:
+ * revision 1 and the same words); one written over or changed since stays. `short`: the answer already says what was
+ * remembered. A chip an earlier build saved for a memory it wrote over (revision above 1) has no Undo. */
 function Remembered({ mem, short = false }: { mem: Memory; short?: boolean }) {
-  const [state, setState] = useState<"kept" | "busy" | "gone">("kept");
+  const [state, setState] = useState<"kept" | "busy" | "gone" | "changed">("kept");
+  const added = (mem.revision ?? 1) === 1;
   const chip = useRef<HTMLSpanElement>(null);
   const undoButton = useRef<HTMLButtonElement>(null);
-  const pressed = useRefocus(state !== "busy", () => (state === "gone" ? chip.current : undoButton.current), state);
+  const pressed = useRefocus(state !== "busy", () => (state === "gone" || state === "changed" ? chip.current : undoButton.current), state);
   const undo = async () => {
     pressed();
     setState("busy");
     try {
-      await memoryApi.forget(mem.id);
+      await memoryApi.undo(mem.id, mem.text);
       setState("gone");
       toast(`Forgotten: “${mem.text}”.`);
     } catch (e) {
       if (/not found/i.test(errorText(e))) {
         setState("gone");
         toast("That was already forgotten.");
+      } else if (/changed since/i.test(errorText(e))) {
+        setState("changed");
+        toast(errorText(e));
       } else {
         setState("kept");
         toast(errorText(e), true);
@@ -820,11 +827,13 @@ function Remembered({ mem, short = false }: { mem: Memory; short?: boolean }) {
     }
   };
   const gone = state === "gone";
+  const changed = state === "changed";
   return (
     <span ref={chip} tabIndex={-1} className={`cfai-remembered${gone ? " gone" : ""}`}>
       <Icon name={gone ? "x" : "check"} className="xs" />
-      <span>{gone ? `Forgotten: “${mem.text}”` : short ? "Saved to your memory" : `Remembered: “${mem.text}”`}</span>
-      {!gone && <button ref={undoButton} type="button" className="link-btn" disabled={state === "busy"}
+      <span>{gone ? `Forgotten: “${mem.text}”` : changed ? "Changed since this answer: see Brain → Memory"
+        : short ? "Saved to your memory" : `Remembered: “${mem.text}”`}</span>
+      {!gone && !changed && added && <button ref={undoButton} type="button" className="link-btn" disabled={state === "busy"}
         aria-label={`Undo: forget “${mem.text}”`} onClick={() => void undo()}>Undo</button>}
     </span>
   );

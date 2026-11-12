@@ -49,6 +49,10 @@ class ImportIn(BaseModel):
     data: dict
 
 
+class UndoIn(BaseModel):
+    words: str = Field(max_length=4000)  # what the chip says was kept
+
+
 @router.get("", dependencies=READ)
 def list_memories(q: str = "", kind: str = "", project_id: str = "", limit: int = 200) -> list[dict]:
     return memories.list_(principal.workspace_id(), q[:4000], kind, project_id, limit)
@@ -155,6 +159,15 @@ def forget(memory_id: str) -> dict:
         raise _err(exc) from exc
 
 
+@router.post("/{memory_id}/undo", dependencies=WRITE)
+def undo(memory_id: str, body: UndoIn) -> dict:
+    """A chat's Undo chip: only while the memory is as that answer added it (memories.undo)."""
+    try:
+        return {"forgotten": memories.undo(principal.workspace_id(), memory_id, body.words)}
+    except memories.Invalid as exc:
+        raise _err(exc) from exc
+
+
 # ------------------------------------------------------------------ the chat
 from . import chat as chat_module  # noqa: E402
 
@@ -173,6 +186,7 @@ class Say(BaseModel):
     text: str = Field(max_length=4000)
     base_revision: int | None = None
     choice: bool = False  # a quick reply pressed: words the model or the editor wrote (chat.send)
+    forget: str | None = Field(default=None, max_length=4000)  # a "Which one?" button: the memory's words it shows
 
 
 class Decide(BaseModel):
@@ -205,7 +219,8 @@ def chat_messages(chat_id: str, after: str = "", limit: int = chat_module.KEEP) 
 @chats.post("/{chat_id}/messages", dependencies=WRITE)
 def say(chat_id: str, body: Say) -> dict:
     try:
-        return chat_module.send(principal.workspace_id(), chat_id, body.text, body.base_revision, choice=body.choice)
+        return chat_module.send(principal.workspace_id(), chat_id, body.text, body.base_revision, choice=body.choice,
+                                forget=body.forget)
     except chat_module.ChatError as exc:
         raise _chat_err(exc) from exc
 

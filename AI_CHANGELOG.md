@@ -506,7 +506,7 @@ Landry's projects, could never do anything, and without a downloaded model only 
     (`tests/test_clipforge_ai_chat.py`) and in
     `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`
     (`tests/test_clipforge_ai_assistant.py`); no frontend change.
-- **One more look at those fixes** (two reviewers; each finding checked again by one who tried to refute it: eight
+- **A look at the emoji fix** (two reviewers; each finding checked again by one who tried to refute it: eight
   held up, two of them the same problem; two more were judged older or only cosmetic and are fixed too; each code
   fix has a test that failed before it):
   - A correction with a quote that more words follow ("Forget the “🔇”, keep the music low", "Forget that “…” keep
@@ -534,6 +534,50 @@ Landry's projects, could never do anything, and without a downloaded model only 
     (`tests/test_clipforge_ai_assistant.py`), and new cases in
     `test_a_correction_never_forgets_and_a_longer_word_is_never_cut` and
     `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`; no frontend change.
+- **A look at the quote fix** (two reviewers; each finding checked again by one who tried to refute it: all thirteen
+  held up, two of them the same problem; each code fix has a test that failed before it):
+  - Words that differ only in a Thai tone mark or an Indic vowel sign ("ตัดคลิปข่าวออก", cut the news clips, and
+    "ตัดคลิปข้าวออก", cut the rice clips), in the sign of a number ("voice at -3 dB" and "+3 dB") or in a colon or a
+    point between digits ("0:42" and "0.42") counted as the same words: "forget …" forgot both, a Forget card showed
+    one, and "remember: …" wrote the new words over the other memory. A memory's words now keep the marks that
+    belong to a letter (composed first, so an accent typed apart is the same letter), the sign or point in front of
+    a number and a point, comma, colon or slash between two digits (`memories._norm`). Memories saved with the old
+    form are still found and compared again by their words, and Tidy stores the new form.
+  - Undo forgot its memory by id whatever it said now: after "remember: …" wrote over it, an edit in Brain → Memory
+    or a switch, it deleted words its answer never added, and a chip an earlier build saved for a memory it wrote
+    over did the same. Undo now sends the chip's words to `POST /api/brain/memories/{id}/undo`, and the memory goes
+    only while it is as the answer added it (revision 1 and the same words, `memories.undo`); otherwise the chip says
+    it changed since and the memory stays. A chip whose memory is past revision 1 shows no Undo, and "remember: …"
+    reads "added" from what it wrote, not from a look just before.
+  - The "Which one?" Forget button never forgot a memory with German, Polish or Swedish quotation marks („…“, ”…”) or
+    an inch mark: the words it sent in quotes did not pair up, so each press asked "Which one?" again. The button now
+    sends the memory's words apart from the message (`forget` in `POST …/messages`, `chat._forget_picked`): every
+    memory that says exactly those words goes, with or without a model, and pressed again it says nothing says them.
+  - "remember: …" on words a memory of the other kind already said (a rule, when the words read as a fact) added a
+    second memory with Undo, against the docs. A memory of either kind is now written over, and the answer says what
+    it was before: "(switched on again; before, only for tiktok)", "(no longer only a guess)", or "I already had “…”;
+    it now says “…”" when its symbols or punctuation differed (case, spacing and the kind of apostrophe do not count).
+  - "Forget that" with the rule on the next line still forgot the rule when the line break was a line or paragraph
+    separator, NEL, a vertical tab or a page break (pasted text): every line break counts now (`chat._message`).
+  - In a video's chat, "Remember -3 dB here" kept "3 dB", "here's the plan" kept "'s the plan" and a title like "Here
+    Comes the Sun" lost its "Here". "for this video" still counts anywhere, "here" only where the words end (also "in
+    here", "right here") or as "here:" before them, and only the separators around them go, never a minus.
+  - Words that only ask nicely or say when still kept a memory ("Remember this, please", "Remember that for later",
+    "remember: that, please"), and with a model "remember: that for this video" failed with "Say what to remember"
+    instead of going to the conversation. Without a model "Never mind" became a rule and "I like that", "Always." or
+    "Never again" a memory; now "All right: nothing was kept or forgotten." and "Say what to remember …".
+  - Docs: CLIPFORGE_AI.md (how words compare, Undo, the "Which one?" button, "here", twins of either kind, "never
+    mind"), the handoff, and the privacy page (Undo forgets a memory only while it is as its answer saved it).
+  - New tests: `test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words` (`tests/test_clipforge_ai_brain.py`);
+    `test_undo_forgets_a_memory_only_while_it_is_as_its_answer_added_it`,
+    `test_a_which_one_button_forgets_exactly_the_words_it_shows_whatever_quotes_they_hold`,
+    `test_forget_that_with_the_rule_on_the_next_line_forgets_nothing_whatever_the_line_break`,
+    `test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule`,
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole` and new cases in
+    `test_remembering_words_a_memory_already_says_offers_no_undo` (`tests/test_clipforge_ai_chat.py`);
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`). Frontend: the Undo chip and the "Which one?" button (`ClipForgeAI.tsx`,
+    `brain.ts`), `frontend/dist` rebuilt.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

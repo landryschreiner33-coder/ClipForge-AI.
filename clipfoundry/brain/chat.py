@@ -51,14 +51,17 @@ NO_MODEL = ("I need a model to think with before I can really talk. Set up the b
 _REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?=[\s:,])"
                        r"(?:\s+that(?=[\s:,]|[.!?…]+(?:\s|$))(?:[.!?…]+(?=\s))?)?"
                        r"(?:[:,]|\s+[:,](?!\S)|\s+-(?=\s))?\s*(.+)$", re.I | re.S)
-# words that name nothing to remember on their own: they point at something said before, or only ask nicely
-_NAMES_NOTHING = {"that", "this", "it", "these", "those", "them", "one", "that one", "this one", "these ones",
-                  "those ones", "here", "please", "thanks", "thank you"}
+# Words that name nothing to remember on their own ("Remember that one, please", "I like it!"): only words that point
+# at something said before, and words that only ask nicely or say when
+_POINTING = {"that", "this", "it", "these", "those", "them", "one", "ones", "here", "there", "that's", "it's", "so",
+             "the"}
+_FILLER = {"please", "pls", "plz", "thanks", "thank", "you", "thx", "ok", "okay", "too", "also", "as", "well", "and",
+           "just", "for", "me", "now", "later", "next", "time", "again"}
 _SMILEY = re.compile(r"(?<!\w)(?:[:;=][-'^o]?[()\[\]{}<>|/\\*$@DPpOo03]+|<3+)(?!\w)")  # ":D", ";-)", "<3"
-_WORDS = re.compile(r"(?:[^\W_]|')+")  # the words of a memory, as memories._norm reads them
-_STANDING = re.compile(r"^(?:from now on|always|never|i (?:like|love|want|prefer|hate|don't want|do not want|"
-                       r"never want|always want))\b", re.I)
-_RULE_WORDS = re.compile(r"\b(always|never|don't|do not|only|every|from now on|must|should|no)\b", re.I)
+_STANDING = re.compile(r"^(?:from now on|always|never(?!\s*mind\b)|i (?:like|love|want|prefer|hate|don['’]t want|"
+                       r"do not want|never want|always want))\b", re.I)
+_NEVER_MIND = re.compile(r"^never\s*mind[\s.!,]*$", re.I)
+_RULE_WORDS = re.compile(r"\b(always|never|don['’]t|do not|only|every|from now on|must|should|no)\b", re.I)
 # "forget" and the words it skips are whole words: "Forgetting captions loses viewers", "Forget-me-nots …" and "forget
 # mystery music" are not "forget" + "ting captions …" or "forget my" + "stery music"; a word is skipped only with a
 # space and then a word or an opening quote, so "forget that, …" and "forget that 😅 …" look for "that, …" and
@@ -71,7 +74,12 @@ _LIST = re.compile(r"^(?:what do you (?:know|remember)|what have you learned|wha
                    r"(?:show|list)(?: me)?(?: your| my)? memor(?:y|ies))\b\s*(?:about|of|on)?\s*(.*)$", re.I | re.S)
 _EXPLAIN = re.compile(r"^(?:why\b|what did you use|explain\b|how did you decide)", re.I)
 _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
-_HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b|\bhere\b", re.I)
+# what keeps a memory to the video, in a video's chat: "for this video" anywhere, "here" only where the words end (or
+# "Here:" before them), so "here's the plan" and a title like "Here Comes the Sun" keep every letter
+_HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b"
+                   r"|(?<![\w'’-])(?:(?:in|right|over)\s+)?here(?=\s*[.!]*\s*$)|^\s*here\s*[:,]", re.I)
+# what "for this video" or "here" leaves at either end of the words: ": ", ", ", " - ", never a minus of a number
+_SCOPE_EDGES = re.compile(r"^(?:[\s:,]|-(?=\s|$))+|(?:[\s:,]|(?<=\s)-)+$")
 
 _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S)
 # What forgets at once: "forget" and a space or a colon, then the words, which start with a letter or a digit, or
@@ -100,8 +108,10 @@ def _text(value: object, limit: int) -> str:
 
 
 def _message(value: object, limit: int) -> str:
-    """What the owner wrote, tidied but keeping its lines: spaces in a line joined, at most one empty line."""
-    lines = [" ".join(ln.split()) for ln in str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    """What the owner wrote, tidied but keeping its lines: spaces in a line joined, at most one empty line. Every
+    line break counts as one (a line or paragraph separator, a page break from a pasted document), so "Forget that"
+    with the rule on the next line stays two lines."""
+    lines = [" ".join(ln.split()) for ln in str(value or "").splitlines()]
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()[:limit]
 
 
@@ -233,11 +243,13 @@ def _add(chat: dict, role: str, text: str, data: dict | None = None, status: str
 
 
 # ------------------------------------------------------------------ what you say
-def send(ws: str, chat_id: str, text: object, base_revision: int | None = None, *, choice: bool = False) -> dict:
+def send(ws: str, chat_id: str, text: object, base_revision: int | None = None, *, choice: bool = False,
+         forget: object = None) -> dict:
     """Your message and the answer. The answer is final unless its status is `thinking`: the model is writing it in
     the background and the page polls the message, which grows as it is written. `choice`: the words are a quick
     reply you pressed, which the model or the editor wrote: they never forget anything at once (a Forget card, or
-    without a model "Which one?", shows what would go first)."""
+    without a model "Which one?", shows what would go first). `forget`: a "Which one?" button pressed, with the
+    memory's words it shows, sent apart from the message: exactly those words are forgotten (`_forget_picked`)."""
     chat = get_chat(ws, chat_id)
     text = _message(text, MAX_TEXT + 1)
     if not text:
@@ -251,7 +263,10 @@ def send(ws: str, chat_id: str, text: object, base_revision: int | None = None, 
         raise ChatError("I am still answering your last message. Wait for it, or press Stop.", 409)
     owner = _add(chat, "owner", text)
     try:
-        reply = _answer(chat, text, base_revision, bool(choice))
+        if forget is not None:
+            reply = _forget_picked(ws, forget)
+        else:
+            reply = _answer(chat, text, base_revision, bool(choice))
     except (ChatError, memories.Invalid) as exc:  # a memory it cannot keep or find is said in plain words too
         reply = {"text": str(exc), "data": {"tool": "help"}, "status": "failed"}
     except Exception as exc:  # noqa: BLE001 - the chat never crashes on one message
@@ -271,9 +286,9 @@ def _answer(chat: dict, text: str, base_revision: int | None, choice: bool = Fal
     if not assistant.ready():
         return _rules(chat, text, base_revision, choice)
     m = _REMEMBER_EXACT.match(text)
-    # "remember: is my intro too long?" is a question for the conversation, and "remember: that" points at something
-    # only the conversation can read
-    if m and "?" not in m.group(1) and not _names_nothing(m.group(1)):
+    # "remember: is my intro too long?" is a question for the conversation, and "remember: that" (also "remember: that
+    # for this video") points at something only the conversation can read
+    if m and "?" not in m.group(1) and not _names_nothing(_kept_words(pid, m.group(1))[0]):
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
     if m and m.group(1).strip() and not choice:  # a quick reply's words are the model's: its Forget card shows them
@@ -296,9 +311,16 @@ def _rules(chat: dict, text: str, base_revision: int | None, choice: bool = Fals
     ws, pid = chat["workspace_id"], chat.get("project_id") or ""
     if _HELP.match(text):
         return {"text": HELP, "data": {"tool": "help"}}
+    if _NEVER_MIND.match(text):
+        return {"text": "All right: nothing was kept or forgotten.", "data": {"tool": "help"}}
     m = _REMEMBER.match(text)
-    if m or _STANDING.match(text):
-        return _remember(ws, pid, m.group(1).strip() if m else text)
+    if m:
+        return _remember(ws, pid, m.group(1).strip())
+    m = _STANDING.match(text)
+    if m:
+        if _names_nothing(text[m.end():]):  # "Always.", "Never again", "I like that": no rule or fact of its own
+            raise ChatError(_SAY_WHAT)
+        return _remember(ws, pid, text)
     m = _FORGET.match(text)
     if m:
         return _forget(ws, pid, m.group(1), text, at_once=not choice)
@@ -358,40 +380,82 @@ def _talk(chat: dict, text: str, agent: dict | None) -> dict:
     return {"text": "", "data": data, "status": "thinking", "after": after, "role": role}
 
 
+_SAY_WHAT = "Say what to remember, for example: remember that my intro is 3 seconds."
+
+
 def _names_nothing(words: str) -> bool:
     """Words that name nothing to remember on their own: no letter or digit once smileys are left out ("😅", ":D"),
-    or only words that point at something said before ("that", "that one", "it 👍") or ask nicely ("please")."""
+    or only words that point at something said before and words that only ask nicely or say when ("that one,
+    please", "this for later", "it 👍")."""
     words = _SMILEY.sub(" ", words)
-    return not any(ch.isalnum() for ch in words) or \
-        " ".join(_WORDS.findall(words.lower().replace("’", "'"))) in _NAMES_NOTHING
+    if not any(ch.isalnum() for ch in words):
+        return True
+    return all(w in _POINTING or w in _FILLER for w in memories._norm(words).split())  # noqa: SLF001
 
 
-def _remember(ws: str, pid: str, said: str) -> dict:
-    """The owner's own words, kept at once, with an Undo chip. A memory that already says them as this kind is
-    updated instead (switched on, kept for every video when asked for every video), and then the answer offers no
-    Undo: Undo forgets the memory, and that one was there before this answer."""
+def _kept_words(pid: str, said: str) -> tuple[str, bool]:
+    """The words "remember …" keeps, and whether they are kept for this video only: one full stop at the end left
+    out, and in a video's chat the words that keep a memory to the video (`_HERE`), with the separators they leave
+    (`_SCOPE_EDGES`): "Remember -3 dB here" keeps "-3 dB"."""
     said = said.strip()
     if said.endswith(".") and not said.endswith(".."):
         said = said[:-1].rstrip()
     here = bool(pid) and bool(_HERE.search(said))
-    if here:  # "for this video: …" / "… here" scopes the memory; the words themselves are not kept
-        said = " ".join(_HERE.sub(" ", said).split()).strip(" :,-")
+    if here:
+        said = _SCOPE_EDGES.sub("", " ".join(_HERE.sub(" ", said).split()))
+    return said, here
+
+
+def _as_typed(text: str) -> str:
+    """Words as typed, but for case, spacing and the kind of apostrophe."""
+    return " ".join(text.lower().replace("’", "'").split())
+
+
+def _scope_words(scope: str, pid: str) -> str:
+    """Where a memory applies, as an answer says it."""
+    kind, _, value = (scope or "all").partition(":")
+    if kind == "project":
+        return "this video" if value == pid else "another video"
+    if kind == "platform":
+        return value
+    if kind == "mode":
+        return "clips projects" if value == "clips" else "YouTube videos"
+    return "every video"
+
+
+def _remember(ws: str, pid: str, said: str) -> dict:
+    """The owner's own words, kept at once, with an Undo chip. A memory that already says them, as a rule or a fact,
+    is written over instead (switched on, kept for every video unless "here" was said, the words as said now), and
+    then the answer says what it was before and offers no Undo: Undo forgets the memory, and that one was there
+    before this answer. Whether the memory was added is read from the write itself (a new memory is revision 1)."""
+    said, here = _kept_words(pid, said)
     if _names_nothing(said):  # "Remember that." points at something said before, which only the conversation reads
-        raise ChatError("Say what to remember, for example: remember that my intro is 3 seconds.")
+        raise ChatError(_SAY_WHAT)
     if len(" ".join(said.split())) > memories.MAX_TEXT:
         raise ChatError(f"That is too long to remember: keep a memory under {memories.MAX_TEXT} characters.")
     kind = "rule" if _RULE_WORDS.search(said) else "fact"
-    old = memories.twin(ws, said, kind)
-    row = memories.remember(ws, said, kind=kind, source="said", project_id=pid if here else "")
-    where = "every video" if row.get("scope") == "all" else "this video"
-    if old and old["id"] == row["id"]:
-        again = [w for w, was in (("switched on again", not old.get("enabled")),
-                                  ("no longer only a guess", old.get("source") == "guessed")) if was]
-        also = f" ({', '.join(again)})" if again else ""
-        return {"text": f"I already remember “{row['text']}”{also}. It applies to {where}. Say “forget …” to remove "
-                        "it.", "data": {"tool": "remember", "kept": memories.view(row), "used": []}}
-    return {"text": f"Remembered: “{row['text']}”. It applies to {where}. Say “forget …” to remove it.",
-            "data": {"tool": "remember", "memory": memories.view(row), "used": []}}
+    old = memories.twin(ws, said, (kind, "fact" if kind == "rule" else "rule"))
+    row = memories.remember(ws, said, kind=old["kind"] if old else kind, source="said",
+                            project_id=pid if here else "")
+    where = _scope_words(row.get("scope") or "all", pid)
+    if int(row.get("revision") or 1) == 1:
+        return {"text": f"Remembered: “{row['text']}”. It applies to {where}. Say “forget …” to remove it.",
+                "data": {"tool": "remember", "memory": memories.view(row), "used": []}}
+    was = old if old and old["id"] == row["id"] else None
+    notes = []
+    if was and not was.get("enabled"):
+        notes.append("switched on again")
+    if was and was.get("source") == "guessed":
+        notes.append("no longer only a guess")
+    if was and (was.get("scope") or "all") != (row.get("scope") or "all"):
+        notes.append(f"before, only for {_scope_words(was.get('scope') or 'all', pid)}")
+    also = f" ({'; '.join(notes)})" if notes else ""
+    if was and _as_typed(was["text"]) != _as_typed(row["text"]):
+        said_as = f"I already had “{was['text']}”{also}; it now says “{row['text']}”."
+    else:
+        said_as = f"I already remember “{row['text']}”{also}."
+    return {"text": f"{said_as} It applies to {where}. Say “forget …” to remove it.",
+            "data": {"tool": "remember", "kept": memories.view(row), "used": []}}
 
 
 def _said(text: str) -> tuple[list[str], bool]:
@@ -441,14 +505,34 @@ def _forget_words(ws: str, text: str) -> dict | None:
     for words in said:
         gone = memories.forget_words(ws, words)
         if gone:
-            n = len(gone)
-            also = "" if n == 1 else f" (I had it {n} times; {'both' if n == 2 else f'all {n}'} are gone)"
-            return {"text": f"Forgotten: “{gone[0]['text']}”{also}.",
-                    "data": {"tool": "forget", "forgotten": gone[0], "used": []}}
+            return _forgotten(gone)
     if quoted:
-        return {"text": f"Nothing I remember says “{said[0]}”, so nothing was forgotten.",
-                "data": {"tool": "forget", "candidates": [], "used": []}}
+        return _nothing_says(said[0])
     return None
+
+
+def _forgotten(gone: list[dict]) -> dict:
+    n = len(gone)
+    also = "" if n == 1 else f" (I had it {n} times; {'both' if n == 2 else f'all {n}'} are gone)"
+    return {"text": f"Forgotten: “{gone[0]['text']}”{also}.", "data": {"tool": "forget", "forgotten": gone[0],
+                                                                      "used": []}}
+
+
+def _nothing_says(words: str) -> dict:
+    return {"text": f"Nothing I remember says “{words}”, so nothing was forgotten.",
+            "data": {"tool": "forget", "candidates": [], "used": []}}
+
+
+def _forget_picked(ws: str, words: object) -> dict:
+    """A "Which one?" button: the words of the memory it shows, sent apart from the message, so no quote mark in them
+    can change what they say. Every memory that says exactly those words goes (the list said picking them forgets
+    each), never one with fewer words (they are never cut short); when none says them any more, the answer says so
+    and nothing goes."""
+    said = " ".join(str(words or "").split())
+    if not said:
+        raise ChatError("Say what to forget, for example: forget the rule about zooms.")
+    gone = memories.forget_words(ws, said)
+    return _forgotten(gone) if gone else _nothing_says(said[:memories.MAX_TEXT])
 
 
 def _forget(ws: str, pid: str, query: str, text: str, at_once: bool = True) -> dict:

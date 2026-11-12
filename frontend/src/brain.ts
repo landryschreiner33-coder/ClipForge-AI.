@@ -76,6 +76,8 @@ export const memoryApi = {
     req<Memory>("PATCH", `${mem}/${id}`, body),
   confirm: (id: string) => req<Memory>("POST", `${mem}/${id}/confirm`),
   forget: (id: string) => req<{ forgotten: Memory }>("DELETE", `${mem}/${id}`),
+  /** A chat's Undo chip: forgets the memory only while it is as that answer added it (revision 1, these words). */
+  undo: (id: string, words: string) => req<{ forgotten: Memory }>("POST", `${mem}/${id}/undo`, { words }),
   uses: (id: string) => req<MemoryUse[]>("GET", `${mem}/${id}/uses`),
   recall: (query: string, projectId = "") => req<Recalled>("POST", `${mem}/recall`, { query, project_id: projectId }),
   check: () => req<MemoryCheck>("GET", `${mem}/check`),
@@ -133,10 +135,12 @@ const chats = "/api/brain/chats";
 export const chatApi = {
   open: (projectId = "") => req<Chat>("POST", chats, { project_id: projectId }),
   messages: (chatId: string, after = "") => req<ChatMessage[]>("GET", `${chats}/${chatId}/messages?after=${encodeURIComponent(after)}`),
-  /** `choice`: a quick reply pressed (words the model or the editor offered): it never forgets anything at once. */
-  say: (chatId: string, text: string, baseRevision?: number, choice = false) =>
+  /** `choice`: a quick reply pressed (words the model or the editor offered): it never forgets anything at once.
+   * `forget`: a "Which one?" button's memory words, forgotten exactly as they are (not read from the message). */
+  say: (chatId: string, text: string, baseRevision?: number, choice = false, forget?: string) =>
     req<{ owner: ChatMessage; ai: ChatMessage }>("POST", `${chats}/${chatId}/messages`,
-      { text, base_revision: baseRevision ?? null, ...(choice ? { choice: true } : {}) }),
+      { text, base_revision: baseRevision ?? null, ...(choice ? { choice: true } : {}),
+        ...(forget !== undefined ? { forget } : {}) }),
   clear: (chatId: string) => req<{ cleared: number }>("DELETE", `${chats}/${chatId}/messages`),
   apply: (chatId: string, messageId: string) => req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/apply`),
   discard: (chatId: string, messageId: string) => req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/discard`),

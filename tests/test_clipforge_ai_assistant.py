@@ -796,11 +796,41 @@ def test_remember_with_a_colon_needs_words_that_name_something_and_offers_no_und
 
     old = _twin("The outro is 2 seconds", scope="platform:tiktok", platform="tiktok", enabled=0)
     m = _say(c["id"], "remember: the outro is 2 seconds")
-    assert m["text"] == ("I already remember “the outro is 2 seconds” (switched on again). It applies to every video. "
-                         "Say “forget …” to remove it.")
+    assert m["text"] == ("I already remember “the outro is 2 seconds” (switched on again; before, only for tiktok). "
+                         "It applies to every video. Say “forget …” to remove it.")
     assert m["data"]["tool"] == "remember" and "memory" not in m["data"] and m["data"]["kept"]["id"] == old["id"]
     row = memories.get(WS, old["id"])
     assert (row["enabled"], row["scope"]) == (1, "all") and len(fake.calls) == 2
+
+
+def test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model(env, monkeypatch):
+    """In a video's chat, “remember: that for this video” and “remember: it here” name nothing once the words that
+    keep a memory to the video are left out: the conversation reads them. “Forget that” with the rule on the next
+    line is a turn of the conversation whatever the line break. A “Which one?” button's words, sent apart from the
+    message, are forgotten exactly, without the model."""
+    from clipfoundry import brain
+    from clipfoundry.brain import chat
+
+    fake = install(monkeypatch, say("Which part?"), say("Keep what here?"),
+                   *[say("Noted: the music stays low.") for _ in range(5)])
+    p = _project(env)
+    c = chat.open_chat(WS, p["id"])
+    for said in ("remember: that for this video", "remember: it here"):
+        m = settled(c["id"], _say(c["id"], said)["id"])
+        assert m["data"]["tool"] == "talk" and m["status"] == "done", said
+    assert len(fake.calls) == 2 and brain.list_(WS) == []
+    m = _say(c["id"], "remember: -3 dB on the voice here")
+    assert m["text"] == "Remembered: “-3 dB on the voice”. It applies to this video. Say “forget …” to remove it."
+    brain.remember(WS, "Keep the music low", kind="rule")
+    for br in ("\u2028", "\u2029", "\x85", "\x0b", "\x0c"):
+        m = settled(c["id"], _say(c["id"], f"Forget that{br}Keep the music low")["id"])
+        assert m["data"]["tool"] == "talk" and len(brain.list_(WS)) == 2, repr(br)
+    words = "Die Serie heißt „Bergtouren“"
+    brain.remember(WS, words)
+    m = _say(c["id"], f"forget “{words}”", forget=words)
+    assert m["text"] == f"Forgotten: “{words}”." and len(brain.list_(WS)) == 2
+    m = _say(c["id"], f"forget “{words}”", forget=words)  # pressed again
+    assert m["text"] == f"Nothing I remember says “{words}”, so nothing was forgotten." and len(fake.calls) == 7
 
 
 def test_at_name_talks_to_a_helper_agent_with_its_own_persona_and_tools(data, monkeypatch):

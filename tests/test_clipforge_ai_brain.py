@@ -90,6 +90,47 @@ def test_memories_in_any_language_are_twins_only_when_they_say_the_same_words(da
         {"added": 1, "updated": 0, "skipped": 1, "invalid": 0}
 
 
+def test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words(data):
+    """A Thai tone mark, an Indic vowel sign and the sign or point in front of a number belong to the words, and so
+    does a point, comma, colon or slash between two digits: until Nov 12 2026 they were left out, so "-3 dB" and
+    "+3 dB" were twins (the second replaced the first, and forgetting one forgot both). Memories saved with that norm
+    are told apart by their words too, and Tidy stores the new one."""
+    import re
+
+    from clipfoundry import brain, db
+    from clipfoundry.brain import memories
+
+    pairs = [("ตัดคลิปข่าวออก", "ตัดคลิปข้าวออก"), ("संगीत तेज़ रखो", "संगीत ताज़ा रखो"),
+             ("Voice at -3 dB", "Voice at +3 dB"), ("The cut at 0:42 stays", "The cut at 0.42 stays"),
+             ("Fade in over .5 s", "Fade in over 5 s"), ("Music ±2 dB", "Music 2 dB")]
+    kept = []
+    for one, other in pairs:
+        a, b = brain.remember(WS, one), brain.remember(WS, other)
+        assert a["id"] != b["id"] and (a["revision"], b["revision"]) == (1, 1), (one, other)
+        kept += [a, b]
+    norm = memories._norm  # noqa: SLF001
+    assert norm("café") == norm("café") == "café"  # an accent typed apart is the same letter
+    assert norm("−3 dB") == norm("-3 dB") == "-3 db" and norm("2-3 s") == "2 3 s" and norm("a-3") == "a 3"
+    assert norm("1,000 views at 16:9") == "1,000 views at 16:9" and norm("The end. 5 more") == "the end 5 more"
+    assert [m["text"] for m in memories.forget_words(WS, "voice at -3 dB")] == ["Voice at -3 dB"]
+    assert brain.remember(WS, "voice at +3 dB.")["id"] == kept[5]["id"]  # the same words: the same memory
+
+    # saved before Nov 12 2026, with the norm that left the marks and signs out
+    def old(text: str) -> str:
+        return " ".join(re.findall(r"(?:[^\W_]|')+", text.lower().replace("’", "'")))
+
+    left = [m for m in kept if m["id"] != kept[4]["id"]]
+    for m in left:
+        db.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (old(m["text"]), m["id"]))
+    assert old(pairs[0][0]) == old(pairs[0][1]) and old(pairs[1][0]) == old(pairs[1][1])
+    assert memories.twin(WS, "ตัดคลิปข้าวออก", "fact")["id"] == kept[1]["id"]
+    assert memories.twin(WS, "Fade in over 5 s", "fact")["id"] == kept[9]["id"]
+    assert [m["text"] for m in memories.forget_words(WS, "ตัดคลิปข่าวออก")] == ["ตัดคลิปข่าวออก"]
+    assert brain.tidy(WS) == {"expired": 0, "merged": 0}  # nothing merged: they say different things
+    assert {m["id"] for m in brain.list_(WS)} == {m["id"] for m in left[1:]}
+    assert all(db.fetch("brain_memories", m["id"])["norm"] == norm(m["text"]) for m in left[1:])
+
+
 def test_recall_puts_the_rules_first_finds_by_meaning_and_keeps_to_the_scope_and_budget(data):
     from clipfoundry import brain
 

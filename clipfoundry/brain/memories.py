@@ -14,6 +14,7 @@ import logging
 import math
 import re
 import time
+import unicodedata
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -59,13 +60,40 @@ class Invalid(ValueError):
 
 
 _WORDS = re.compile(r"(?:[^\W_]|')+")
+# in front of a number: "-3 dB" is not "+3 dB", "±3 dB" or "3 dB", and ".5 s" is not "5 s"
+_SIGNS = {"-": "-", "+": "+", "−": "-", "–": "-", "±": "±", ".": "."}
+_BETWEEN_DIGITS = ".,:/"  # "0:42" is not "0.42", "16:9" not "169"
 
 
 def _norm(text: object) -> str:
-    """The words of a memory, lower-cased and single-spaced, in any language (the letters and digits of every script;
-    punctuation and spacing ignored): two memories with the same norm say the same thing. Text without a letter or a
-    digit (only emoji) keeps itself. For words made of a-z, 0-9 and apostrophes it is the norm stored before Nov 9 2026
-    (`_legacy_norm`)."""
+    """The words of a memory, lower-cased and single-spaced, in any language: the letters and digits of every script,
+    with the marks that belong to a letter (Thai tone marks, Indic vowel signs, accents typed apart) and apostrophes;
+    a sign or a point in front of a number, and a point, comma, colon or slash between two digits, count too. Other
+    punctuation and spacing are ignored: two memories with the same norm say the same thing. Text without a letter or
+    a digit (only emoji) keeps itself. Memories an earlier build stored with its own norm are found too (`saying`)."""
+    t = unicodedata.normalize("NFC", str(text or "")).lower().replace("’", "'")
+    words: list[str] = []
+    word = ""
+    for i, ch in enumerate(t):
+        after = t[i + 1:i + 2]
+        if ch.isalnum() or ch == "'" or (word and unicodedata.category(ch).startswith("M")):
+            word += ch
+        elif ch in _BETWEEN_DIGITS and word[-1:].isdigit() and after.isdigit():
+            word += ch
+        elif ch in _SIGNS and not word and after.isdigit():
+            word = _SIGNS[ch]
+        elif word:
+            words.append(word)
+            word = ""
+    if word:
+        words.append(word)
+    return " ".join(words) or " ".join(t.split())
+
+
+def _nov9_norm(text: object) -> str:
+    """The norm stored from Nov 9 to Nov 12 2026: the letters and digits of every script, without the marks that
+    belong to a letter and without signs, so Thai or Hindi words that differ only in such a mark, and "-3 dB" and
+    "+3 dB", stored the same one."""
     t = str(text or "").lower().replace("’", "'")
     return " ".join(_WORDS.findall(t)) or " ".join(t.split())
 
@@ -77,10 +105,11 @@ def _legacy_norm(text: object) -> str:
 
 def saying(ws: str, text: object, kinds: tuple[str, ...] = KINDS) -> list[dict]:
     """Every memory of the workspace that says the same words as `text` (`_norm`) as one of these kinds, oldest first,
-    wherever it applies and switched on or off. A norm stored before Nov 9 2026 is found too and compared again by its
-    text: those were the same for every memory in another script."""
+    wherever it applies and switched on or off. A norm stored by an earlier build (`_nov9_norm`, `_legacy_norm`) is
+    found too, and every memory found is compared again by its text: those norms were the same for words that differ
+    (every memory in another script before Nov 9; a tone mark, a vowel sign or a sign until Nov 12)."""
     norm = _norm(text)
-    keys = sorted({norm, _legacy_norm(text)})
+    keys = sorted({norm, _nov9_norm(text), _legacy_norm(text)})
     where = (f"workspace_id = ? AND kind IN ({', '.join('?' for _ in kinds)}) "
              f"AND norm IN ({', '.join('?' for _ in keys)})")
     rows = db.select("brain_memories", where, (ws, *kinds, *keys), "created_at ASC")
@@ -286,22 +315,37 @@ def _write_over(old: dict, fields: dict) -> dict | None:
             "SELECT * FROM brain_memories WHERE id = ?", (old["id"],)).fetchone())
 
 
-def forget(ws: str, memory_id: str, *, words: object = None) -> dict:
+CHANGED_SINCE = ("It changed since that answer (said again, edited, or switched off or on), so Undo left it as it "
+                 "is. Brain → Memory shows it.")
+
+
+def forget(ws: str, memory_id: str, *, words: object = None, revision: int | None = None) -> dict:
     """Delete a memory and the record of where it was used; an answer that used it keeps its own copy. One
     transaction: a use an answer records at the same moment goes with the memory or is not recorded (`record_use`),
     never left over for nothing. With `words`, only while the memory still says them (`_norm`): one changed since they
-    were shown stays as it is now (409), so a Forget button never forgets words it did not show."""
+    were shown stays as it is now (409), so a Forget button never forgets words it did not show. With `revision`,
+    only while the memory is still at that revision (`undo`)."""
     with db.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")  # what is checked is what goes: nothing changes it in between
         raw = conn.execute("SELECT * FROM brain_memories WHERE id = ?", (memory_id,)).fetchone()
         row = db._decode("brain_memories", raw) if raw else None  # noqa: SLF001 - read inside this transaction
         if not row or row["workspace_id"] != ws:
             raise Invalid("Memory not found.", 404)
+        if revision is not None and int(row.get("revision") or 1) != revision:
+            raise Invalid(CHANGED_SINCE, 409)
         if words is not None and _norm(row["text"]) != _norm(words):
             raise Invalid("The memory says other words now.", 409)
         conn.execute("DELETE FROM brain_memory_uses WHERE memory_id = ?", (memory_id,))
         conn.execute("DELETE FROM brain_memories WHERE id = ?", (memory_id,))
     return view(row)
+
+
+def undo(ws: str, memory_id: str, words: object) -> dict:
+    """The Undo of a chip that said an answer kept a memory: it forgets the memory only while it is as that answer
+    added it (revision 1, which every write over it, edit, switch, Tidy merge or brain file raises, and the same
+    words). One changed since stays as it is (409, `CHANGED_SINCE`), and so does one an earlier build's answer wrote
+    over, so Undo never forgets more than its answer added."""
+    return forget(ws, memory_id, words=words, revision=1)
 
 
 def forget_words(ws: str, text: object) -> list[dict]:
@@ -564,7 +608,7 @@ def tidy(ws: str) -> dict:
                                 (ws,)).fetchall():
             r = db._decode("brain_memories", raw)  # noqa: SLF001 - read inside this step's own transaction
             norm = _norm(r["text"])
-            if norm != r["norm"]:  # stored before Nov 9 2026, when every memory in another script had the same norm
+            if norm != r["norm"]:  # stored by an earlier build (`saying`): the words it stands for are told apart now
                 conn.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (norm, r["id"]))
             groups.setdefault((r["kind"], norm, r["scope"], bool(r["enabled"])), []).append(r)
         for twins in groups.values():

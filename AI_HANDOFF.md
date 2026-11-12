@@ -24,8 +24,9 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   starting with http://, https:// or www. and email addresses removed from everything, the size limit on each request's
   words), and that downloading the built-in model contacts GitHub and Hugging Face. Since the merge with PR #35 it says
   that deleting a project removes its chat, the memories kept for it alone and a video's change requests, while the
-  record of each request sent to an online AI (the editor's change requests too) stays for the daily limit. The public
-  website (gh-pages) is not updated: that needs Landry's OK.
+  record of each request sent to an online AI (the editor's change requests too) stays for the daily limit. It also
+  says Undo on an answer forgets the memory it saved only while it is as that answer saved it. The public website
+  (gh-pages) is not updated: that needs Landry's OK.
 - **Code:** new `clipfoundry/brain/assistant.py`, `tools.py`, `toolbox.py`, `agents.py`, `allowance.py` (the daily
   limit, per request); changed `brain/chat.py`,
   `routes.py`, `memories.py` (use place `agent`, `twin()`), `db.py` (table `brain_agents`, role `agent`), `api.py`,
@@ -98,12 +99,20 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   its twins too, `memories.forget_words`, or those after a leading "my", "that", "the" or "about" only when no memory
   says them all; "forget", "remember" and "note" are whole words, and "forget" or a skipped word followed by anything
   but a space (or, after "forget", a colon) and then a word or an opening “ or " (a comma, a full stop, a new line,
-  an emoji, other quote marks …) forgets nothing ("Forget that, keep the music low" is a correction); quoted words,
-  what a "Which one?" button sends, go only as they are, also with quotes of their own (`chat._quoted`), and only
-  when the quote holds all the words ("Forget the “🔇”, keep …" is a correction too); words that name nothing on
-  their own ("Remember that one", "remember: it", `chat._names_nothing`) keep nothing, and with a model "remember:
-  it" goes to the conversation; "remember: …" on words a memory already says answers "I already remember" with no
-  Undo chip (Undo would forget that older memory); a quick reply pressed (`choice`) never forgets at once; the
+  an emoji, other quote marks …, and a line break of any kind) forgets nothing ("Forget that, keep the music low" is
+  a correction); quoted words go only as they are, also with quotes of their own (`chat._quoted`), and only when the
+  quote holds all the words ("Forget the “🔇”, keep …" is a correction too); a "Which one?" button sends its
+  memory's words apart from the message (`forget`, `chat._forget_picked`), so its quote marks change nothing; words
+  are compared by `memories._norm`, which keeps the marks of a letter (Thai, Hindi …), the sign or point in front of
+  a number and a point, colon, comma or slash between digits ("-3 dB" is not "+3 dB", "0:42" not "0.42"), and older
+  stored forms are still found (`saying`); words that name nothing on their own, also when they only ask nicely or
+  say when ("Remember that one", "Remember this, please", "remember: that for this video", `chat._names_nothing`)
+  keep nothing, and with a model they go to the conversation; "Never mind" keeps nothing; in a video's chat "here"
+  counts only where the words end (or as "here:" before them); "remember: …" on words a memory of either kind
+  already says answers "I already remember …" or "I already had “…”; it now says “…”" with what changed and no Undo
+  chip (Undo would forget that older memory); Undo forgets only while the memory is as its answer added it
+  (`memories.undo`, `POST /api/brain/memories/{id}/undo`: revision 1 and the chip's words, otherwise 409 and it
+  stays); a quick reply pressed (`choice`) never forgets at once; the
   Forget card names each memory, at most 16, and its OK forgets only those, each only while it still says the card's
   words, and never looks again: a card saved by an earlier build forgets only the memory it named, or none when it
   named more than 16), while "I like …" and "always …" now go to the conversation,

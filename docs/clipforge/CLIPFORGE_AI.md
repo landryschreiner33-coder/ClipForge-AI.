@@ -60,23 +60,28 @@ another embedder, and **Rebuild** recomputes them with the embedder in use.
 one line per memory. `brain.record_use(ids, where, ref_id)` is called when an answer used them.
 
 **Writing.** `remember(ws, text, kind, source, scope, ...)` de-duplicates: the same words (case, spacing and
-punctuation ignored, in any language: Russian or Chinese words are words too) in the same workspace and kind update
-the memory (revision + 1, the stronger source and confidence win) instead of adding a twin. It writes only over the
-memory as it read it (its revision, `memories._write_over`), and so do an edit, a confirmation and a brain file: one
-changed in between is read again, so what Tidy or an edit wrote is never put back as it was and no two states of a
-memory share a revision. One gone in between (forgotten, or tidied into its twin) is read again too: "remember" then
-keeps the words in the twin Tidy kept, or as a new memory when no memory says them any more; a brain file adds its
-memory again only when no memory says its words (otherwise it is skipped); an edit or a confirmation answers "Memory
-not found.". Memories saved before this rule are matched by their old form as well, and Tidy brings their stored form
-up to date.
-`forget(ws, memory_id)` deletes a memory and its uses; an answer that used it keeps its own copy of the words. With
-`words=` it deletes the memory only while it still says them (a Forget card's OK), and `forget_words(ws, text)`
-forgets every memory that says those words (`saying`: every kind, wherever it applies, switched on or off), so no twin
-still follows words you asked to forget. `confirm` turns a guess into something you said. `export` gives one JSON
-file (`clipforge.brain-memories/v1`); `import_` merges by id and revision (a newer file wins, also when another memory
-says those words: what the owner changed on the other computer applies, the twins are read once and Tidy merges those
-kept for the same videos and switched on or off alike; an unknown id is added unless a memory says its words already;
-nothing is deleted).
+punctuation ignored, in any language: Russian or Chinese words are words too, and so are the marks that belong to a
+letter, such as a Thai tone mark or an Indic vowel sign; the sign or point in front of a number and a point, comma,
+colon or slash between two digits count too, so "-3 dB" and "+3 dB", or "0:42" and "0.42", are other words) in the
+same workspace and kind update the memory (revision + 1, the stronger source and confidence win) instead of adding a
+twin. It writes only over the memory as it read it (its revision, `memories._write_over`), and so do an edit, a
+confirmation and a brain file: one changed in between is read again, so what Tidy or an edit wrote is never put back as
+it was and no two states of a memory share a revision. One gone in between (forgotten, or tidied into its twin) is read
+again too: "remember" then keeps the words in the twin Tidy kept, or as a new memory when no memory says them any more;
+a brain file adds its memory again only when no memory says its words (otherwise it is skipped); an edit or a
+confirmation answers "Memory not found.". Memories saved before these rules (Nov 9 and Nov 12 2026) are matched by their
+old forms as well and compared again by their words, and Tidy brings their stored form up to date. `forget(ws,
+memory_id)` deletes a memory and its uses; an answer that used it keeps its own copy of the words. With `words=` it
+deletes the memory only while it still says them (a Forget card's OK). `undo(ws, memory_id, words)` is a chat chip's
+Undo: it deletes the memory only while it is as that answer added it (revision 1, which every write over it, edit,
+switch, confirmation, Tidy merge or brain file raises, and the same words); otherwise it answers 409, "It changed since
+that answer (said again, edited, or switched off or on), so Undo left it as it is. Brain → Memory shows it.", and the
+memory stays. `forget_words(ws, text)` forgets every memory that says those words (`saying`: every kind, wherever it
+applies, switched on or off), so no twin still follows words you asked to forget. `confirm` turns a guess into something
+you said. `export` gives one JSON file (`clipforge.brain-memories/v1`); `import_` merges by id and revision (a newer
+file wins, also when another memory says those words: what the owner changed on the other computer applies, the twins
+are read once and Tidy merges those kept for the same videos and switched on or off alike; an unknown id is added unless
+a memory says its words already; nothing is deleted).
 
 **Health** (`brain.check(ws)`): counts by kind and source, memories without a meaning or with an old embedder,
 near-duplicates (same kind, cosine ≥ 0.92: "review them; Tidy merges exact twins kept for the same videos"),
@@ -174,12 +179,17 @@ the built-in model downloaded, or an AI helper chosen in Settings → ClipForge 
 3. Without a model: the rules (below).
 4. The fast paths, which need no model. "remember: …" (with the colon, and no question in the words) saves exactly
    your words: a `rule` when they say always, never, only, every, must, should …, otherwise a `fact`; "for this
-   video" or "here" keeps it to the video; words longer than a memory can be (600 characters) are refused in plain
-   words. Words that name nothing on their own ("remember: it", "remember: that one 👍", "remember: 🎵") point at
-   something said before, so the conversation answers them. When a memory already says the words (switched off, or
-   kept for one video or platform) it is switched on and kept for every video (with "here", for this video, unless
-   it was kept for every video already), and the answer says "I already remember “…”" with no Undo chip: Undo
-   forgets the memory, and that one was there before.
+   video" (anywhere) or "here" (where the words end, or "here:" before them) keeps it to the video, and the
+   separators they came with go too ("remember: -3 dB here" keeps "-3 dB"; "here's the plan" and a title like "Here
+   Comes the Sun" keep every letter, for every video); words longer than a memory can be (600 characters) are
+   refused in plain words. Words that name nothing on their own ("remember: it", "remember: that one 👍",
+   "remember: 🎵", "remember: that for this video", "remember: this, please") point at something said before, so the
+   conversation answers them. When a memory already says the words, as a rule or as a fact (switched off, only a
+   guess, or kept for one video or platform), it is switched on, kept for every video (with "here", for this video,
+   unless it was kept for every video already) and given the words as you said them now, and the answer says what
+   it was before ("I already remember “…” (switched on again; before, only for tiktok)", or "I already had “…”; it
+   now says “…”" when its symbols or punctuation differed), with no Undo chip: Undo forgets the memory, and that one
+   was there before.
    "Remember that …" is a turn of the conversation ("Remember that day at the lake? Make a video of it" is a
    question, not a memory). "forget …" with the exact words of a memory removes it at once, with every twin that says
    them too (kept for one video, switched off, or as another kind), so nothing still follows them. The words are all
@@ -188,19 +198,22 @@ the built-in model downloaded, or an AI helper chosen in Settings → ClipForge 
    "remember" and "note", is a whole word ("Forgetting captions loses viewers" and "Forget-me-nots …" ask nothing),
    and "forget" and each word it skips count only with a space after them (a colon after "forget") and then a word
    (a letter or a digit) or an opening “ or ": "Forget that, keep the music low", "Forget. Keep the music low",
-   "Forget that 😅 keep the music low" or "Forget that" and the rule on the next line set something aside and say the
-   rule again, so the conversation answers them and nothing is forgotten. Words in quotes ("forget “keep the music
-   low”", what a "Which one?" button sends) are forgotten exactly as they are, never shorter ones, also when they
-   have quotes of their own (in curly quotes everything from the first “ to the last ” counts, as long as the curly
-   quotes inside pair up; “a” and “b” typed in one message are two quotes, not one); when no memory says them any
-   more the answer says "Nothing I remember says “…”, so nothing was forgotten." A quote counts only when it holds
-   all the words: "Forget the “🔇”, keep the music low" is a correction too. Other quote marks (« », „ “, ‘ ’ …) and
-   words that start with an emoji or "#" are not forgotten at once: the conversation, or "Which one?", asks first. A quick
-   reply you press (the question's choices, or the editor's) is words the model or the editor wrote: it never forgets
-   anything at once (the page sends it with `choice`), so a Forget card shows what would go first. "@Name" with
-   nothing after it asks what that helper should do. In a video's chat, a change of at most 500 characters that the
-   editor's rules understand completely ("move clip 4 before clip 2", `edit_requests.by_rules`) is proposed at once
-   as a change request.
+   "Forget that 😅 keep the music low" or "Forget that" and the rule on the next line (any line break: a line or
+   paragraph separator or a page break from pasted text too) set something aside and say the rule again, so the
+   conversation answers them and nothing is forgotten. Words in quotes ("forget “keep the music low”") are forgotten
+   exactly as they are, never shorter ones, also when they have quotes of their own (in curly quotes everything from the
+   first “ to the last ” counts, as long as the curly quotes inside pair up; “a” and “b” typed in one message are two
+   quotes, not one); when no memory says them any more the answer says "Nothing I remember says “…”, so nothing was
+   forgotten." A quote counts only when it holds all the words: "Forget the “🔇”, keep the music low" is a correction
+   too. Other quote marks (« », „ “, ‘ ’ …) and words that start with an emoji or "#" are not forgotten at once: the
+   conversation, or "Which one?", asks first. A "Which one?" button sends its memory's words apart from the message
+   (`forget`), so quote marks in them (German „…“, Swedish ”…”, an inch mark) change nothing: every memory that says
+   exactly those words goes, with or without a model, and pressed again it says "Nothing I remember says “…”, so nothing
+   was forgotten.". A quick reply you press (the question's choices, or the editor's) is words the model or the editor
+   wrote: it never forgets anything at once (the page sends it with `choice`), so a Forget card shows what would go
+   first. "@Name" with nothing after it asks what that helper should do. In a video's chat, a change of at most 500
+   characters that the editor's rules understand completely ("move clip 4 before clip 2", `edit_requests.by_rules`) is
+   proposed at once as a change request.
 5. Everything else is a turn of the conversation: an empty `ai` message (`agent` for "@Name …") with status
    `thinking` is returned at once, and the answer is written into it in the background (`assistant.start`; at most two
    answers are written at the same time in the whole app, a third waits its turn). The page reads the message while
@@ -358,8 +371,9 @@ has started: that finishes, for the next answer). After a restart, an answer tha
 | You say | It does | It answers with |
 |---|---|---|
 | "help", "what can you do" | | what it can do on its own, and that the built-in model makes it a real assistant |
-| "remember …", "always …", "never …", "from now on …", "I like/want/prefer/don't want …" | `remember` (`said`): a `rule` when it says always, never, only, must …, otherwise a `fact`; "for this video" or "here" scopes it to the video; "remember", "note", "keep in mind" and the "that" left out after them are whole words, and a dash separates only with a space on both sides ("Note -14 LUFS for YouTube" keeps its minus); words that name nothing on their own ("Remember that.", "Remember that one", "Note this 😅", "Remember that :D", "Remember that, please.") keep nothing; a memory that already says the words is switched on and kept for every video (with "here", for this video, unless it was kept for every video already) | "Remembered: … It applies to every video / this video." with an Undo chip; "I already remember “…” (switched on again)" with no Undo when a memory already said it; "Say what to remember, for example: …" when it keeps nothing |
-| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; the words after a leading "that", "about", "the", "my" or "what I said about", with a space and then a word or an opening “ or " after it, only when no memory says them all; words in quotes only as they are, and only when the quote holds all the words); otherwise, and always for a quick reply you pressed, finds the closest memories | "Forgotten: …" (and how many times it was kept); "Nothing I remember says “…”" for quoted words no memory says; or "Which one?" with the closest memories, the same words once (with how many times they are kept, all of which picking them forgets), each with a Forget button that sends its words in quotes |
+| "remember …", "always …", "never …", "from now on …", "I like/want/prefer/don't want …" | `remember` (`said`): a `rule` when it says always, never, only, must …, otherwise a `fact`; "for this video" or "here" (where the words end, or "here:" before them) scopes it to the video and goes with its separators ("Remember -3 dB here" keeps "-3 dB"); "remember", "note", "keep in mind" and the "that" left out after them are whole words, and a dash separates only with a space on both sides ("Note -14 LUFS for YouTube" keeps its minus); words that name nothing on their own, only pointing back, asking nicely or saying when ("Remember that.", "Remember that one", "Note this 😅", "Remember that :D", "Remember this, please", "Remember that for later", "I like that", "Always.") keep nothing; a memory that already says the words, as a rule or as a fact, is switched on and kept for every video (with "here", for this video, unless it was kept for every video already) | "Remembered: … It applies to every video / this video." with an Undo chip; "I already remember “…” (switched on again; before, only for tiktok)" or "I already had “…”; it now says “…”" with no Undo when a memory already said it; "Say what to remember, for example: …" when it keeps nothing |
+| "never mind" | nothing | "All right: nothing was kept or forgotten." |
+| "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; the words after a leading "that", "about", "the", "my" or "what I said about", with a space and then a word or an opening “ or " after it, only when no memory says them all; words in quotes only as they are, and only when the quote holds all the words); otherwise, and always for a quick reply you pressed, finds the closest memories | "Forgotten: …" (and how many times it was kept); "Nothing I remember says “…”" for quoted words no memory says; or "Which one?" with the closest memories, the same words once (with how many times they are kept, all of which picking them forgets), each with a Forget button that sends its memory's words apart from the message (forgotten exactly as they are, whatever quote marks they hold) |
 | "what do you know / remember …", "what have you learned" | lists the best memories for the words after it (or the newest) | the list |
 | "why …", "what did you use", "explain" | the latest answer for this video (change request or FilmCraft pass): its summary and the memories it used | the explanation |
 | anything else, in a video's chat | `edit_requests.ask` with the editor's rules alone | the proposal: Apply as a new version, Discard; a question with choices; or what it cannot do |
@@ -383,7 +397,8 @@ on it", then "helped with this" with its steps; long work folds); a proposed cha
 version, which Undo takes back, or Discard); a card for each change or delete waiting for you (see "Actions");
 buttons to pages and projects in the app (never to the page you are on); the question's choices as quick replies
 under the newest answer (one press sends one, marked as a quick reply: it never forgets anything at once);
-"Remembered: … Undo" for what it saved; and small lines with what it
+"Remembered: … Undo" for what it saved (Undo forgets it only while it is as the answer added it, and otherwise says it
+changed since: Brain → Memory shows it); and small lines with what it
 used from your brain and its know-how and where your words went. A helper's own answer has its icon and "· helper".
 While an answer is written, Stop takes the place of Send and the box waits; Enter sends, Shift+Enter starts a new
 line; a counter appears near 4,000 characters; "Clear this chat" asks first and keeps the memories. An empty chat
@@ -489,7 +504,9 @@ OK; a memory longer than 120 characters is shown whole under the card's label ("
 exactly the words it shows. A helper is told to suggest it in its answer instead. When a memory with the same words is already there (as a rule
 or a fact), nothing is changed: switched on, kept for every video and not a guess, it is "already in my memory" (no
 Undo chip, since nothing new was kept); switched off, kept for one video or one platform, or only a guess, the step
-says so and links to Brain → Memory, where you decide. Undo on a chip only ever forgets a memory that answer added.
+says so and links to Brain → Memory, where you decide. Undo on a chip only ever forgets a memory that answer added,
+and only while it is as that answer added it (`memories.undo`: revision 1 and the same words); a chip an earlier
+build saved for a memory it wrote over has no Undo.
 
 `delete_project` uses the safe delete of the Projects page (`clipfoundry/studio/project_delete.py`: `plan()` says
 what goes, what stays and what would block it; `delete()` does it). The card shows the plan's own sentences ("Goes:
