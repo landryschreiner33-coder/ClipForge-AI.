@@ -67,15 +67,24 @@ Landry's projects, could never do anything, and without a downloaded model only 
   and online request counts keep and until when; "An AI service you choose" says what talking with it sends (and that
   the built-in model sends nothing off the computer, while an Ollama cloud model answers online), and NVIDIA's row
   says the same for NVIDIA. The public website is not updated (that needs Landry's OK).
-- **Checks:** `tests/test_clipforge_ai_assistant.py` (TESTS_PENDING), `tests/test_clipforge_ai_agents.py`
-  (TESTS_PENDING), `tests/test_llm_converse.py` (TESTS_PENDING), `tests/test_clipforge_ai_chat.py` (TESTS_PENDING; its
-  two model tests now go through the conversation engine), `tests/test_clipforge_ai_knowhow.py` (TESTS_PENDING; its
-  model test too), `tests/test_builtin_ai.py` (TESTS_PENDING; new: a conversation streamed piece by piece, Stop and the
-  time limit, never stopped as idle while it answers), with a scripted fake model (`tests/fake_model.py`, new) and the
-  stand-in engine (`tests/fake_llama_server.py`, which now streams); `python -m pytest -q tests -m "not slow"`:
-  TESTS_PENDING passed; pyflakes on the changed files: TESTS_PENDING warnings; `cd frontend && npm run build`; a
-  click-through in a real browser at desktop and phone widths (the chat, Brain → Agents, the setup card, the OK
-  buttons, Stop) against a throwaway app with a fake streaming model (outside the repo): TESTS_PENDING failed steps.
+- **Checks:** `tests/test_clipforge_ai_assistant.py` (63 passed), `tests/test_clipforge_ai_agents.py` (9),
+  `tests/test_clipforge_ai_safety.py` (new, 34: memory safety, the grounded check's parts, broken emoji, broken
+  tools, one-line outside text, the round budget, plainly said rules), `tests/test_llm_converse.py` (21),
+  `tests/test_clipforge_ai_chat.py` (22; its two model tests now go through the conversation engine),
+  `tests/test_clipforge_ai_knowhow.py` (12; its model test too), `tests/test_clipforge_ai_brain.py` (40;
+  memories in other languages), `tests/test_builtin_ai.py` (24; new: a conversation streamed piece by piece,
+  Stop and the time limit, never stopped as idle while it answers, the background load under the GPU lock),
+  `tests/test_assistant_check.py` (new, 5), `tests/test_video_setup_flow.py` (41),
+  `tests/test_studio_project_delete.py` (32) and `tests/test_studio_media_sources.py` (16), with a scripted fake
+  model (`tests/fake_model.py`, new) and the stand-in engine (`tests/fake_llama_server.py`, which now streams),
+  all on the code merged with the release line (PRs #40, #36, #39, #41, #38, #35 and #42); `python -m pytest -q
+  -m "not slow"`: 2597 passed, 2 skipped; `python -m pytest -q -m slow`: 30 passed, 1 skipped; pyflakes on the
+  changed files: no warning in the changed code but one import made for what it sets up (`brain/tools.py` loads
+  the toolbox); in the tests only pytest fixtures that are imported and named as arguments; `cd frontend && npm
+  run build`; a click-through in a real browser at desktop and phone widths (the chat, Brain → Agents, the setup
+  card, the OK buttons, Stop, remembering with Undo, Forget on a memory gone meanwhile, deleting a video from
+  its chat with the real safe delete) against a throwaway app with a fake streaming model (outside the repo): no
+  failed steps; `python scripts/assistant_check.py --fake` passes.
 - **Safety and robustness pass** (after an independent review of the first version found 13 problems, each
   reproduced before it was fixed): `remember` saves at once only the owner's own words from this message (60% of
   its meaningful words in the message, `toolbox.grounded`); words from a transcript, a name, a result or a helper
@@ -1031,10 +1040,16 @@ Landry's projects, could never do anything, and without a downloaded model only 
     (new: the chat, the card and its OK) and
     `test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first` in
     `tests/test_clipforge_ai_safety.py`. No frontend change.
-- **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
-  `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
-  the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
-  own computer was not tested. Ollama, LM Studio and the online services were played by stand-ins.
+- **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer):
+  the `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level; on the
+  final code: run 43362758634 on dbdd78b passed on both machines with every must-check. Linux took about two
+  minutes; the Mac wrote 3.1 tokens a second (11 turns in 272 s, the planner's note in 12.5 s). The small model
+  missed the same four softer checks on both: it named none of the three projects, left two saves to ClipForge's
+  own safety net, and answered for the Script writer instead of handing the job over. The Standard level (what a
+  Mac with 16 GB of memory or more gets): run 43362792362 on dbdd78b passed on GitHub's Linux machine with every
+  must-check (Gemma 4 E4B, 11 turns in 588 s at 7.5 tokens a second); one softer miss, a hook from the Script
+  writer that did not say “mountain biking”. Pro (chosen by hand) was never run. Landry's own computer was not
+  tested. Ollama, LM Studio and the online services were played by stand-ins.
 
 ## Leftover files and upload races after deleting projects — 2026-11-11 (Claude Code)
 
