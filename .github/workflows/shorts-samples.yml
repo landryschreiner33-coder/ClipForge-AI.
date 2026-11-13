@@ -1,0 +1,45 @@
+name: Shorts sample pictures
+# Makes the pictures of the sample animated shorts with the real picture model on a GitHub Linux machine
+# (scripts/shorts_pictures.py), because the workspace where ClipForge is developed cannot download the models. Each
+# batch in scripts/samples/ is made once: a picture that is already in docs/clipforge/shorts-samples/ is skipped.
+# The pictures are committed to the branch that asked for them, one by one, so a long run shows what it has so far.
+on:
+  push:
+    branches: ['claude/project-thread-m6xm4f']
+    paths: ['scripts/samples/**', '.github/workflows/shorts-samples.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: shorts-samples-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  pictures:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Room for the picture model (the second disk)
+        run: |
+          sudo mkdir -p /mnt/clipforge && sudo chown "$USER" /mnt/clipforge
+          df -h / /mnt
+          nproc && free -g
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip install httpx numpy onnxruntime pillow websockets
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Make the pictures
+        run: |
+          status=0
+          for spec in scripts/samples/batch-*.json; do
+            echo "== $spec"
+            python scripts/shorts_pictures.py --spec "$spec" --out docs/clipforge/shorts-samples \
+              --data /mnt/clipforge/data --push || status=1
+          done
+          exit $status

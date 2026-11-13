@@ -1,0 +1,62 @@
+{
+ "about": "What ClipForge 2026.11.13 asks the picture maker for the sample script (look: 3D cartoon), for the before/after comparison.",
+ "model": "flux2-klein-4b",
+ "width": 576,
+ "height": 1024,
+ "items": [
+  {
+   "name": "before/scene-01",
+   "prompt": "a tiny round white robot with big blue eyes standing alone on a dark rooftop, looking up at a sky full of stars. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4101
+  },
+  {
+   "name": "before/scene-02",
+   "prompt": "tiny, counting, star, sky. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4102
+  },
+  {
+   "name": "before/scene-03",
+   "prompt": "the tiny robot pointing one small finger at the stars, glowing numbers reflected in its eyes. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4103
+  },
+  {
+   "name": "before/scene-04",
+   "prompt": "the tiny robot looking worried as dark storm clouds roll over the stars. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4104
+  },
+  {
+   "name": "before/scene-05",
+   "prompt": "the tiny robot sitting slumped on the rooftop edge in the rain, its eyes dim. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4105
+  },
+  {
+   "name": "before/scene-06",
+   "prompt": "a small girl in a yellow raincoat holding an umbrella over the tiny robot, smiling. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4106
+  },
+  {
+   "name": "before/scene-07",
+   "prompt": "close-up of the girl's hopeful face lit by a warm street lamp in the rain. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4107
+  },
+  {
+   "name": "before/scene-08",
+   "prompt": "the tiny robot's eyes glowing bright blue again, a small smile, one finger raised. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4108
+  },
+  {
+   "name": "before/scene-09",
+   "prompt": "the tiny robot and the girl sitting side by side under the umbrella as the clouds part and the stars return. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 4109
+  }
+ ]
+}
