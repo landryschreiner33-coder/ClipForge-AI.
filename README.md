@@ -7,16 +7,16 @@ Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge wind
 keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
 needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `492d2541f9e2a119cb72df17cf118b8dce237bc2`: the release line with story
+It installs ClipForge from source commit `863e69ee9b69154ad189a1178d6940fd49b660a2`: the release line with story
 clips (PR #40: Full story and Story parts, five minutes at most, a still centred picture), animated shorts (PR #36),
 pictures, video clips and voice-overs made on the computer (PR #39: ComfyUI and a built-in voice), the built-in AI
 engine and file-address safety fixes (PR #41), Make a YouTube video planned with ClipForge AI (PR #38), deleting
-projects (PR #35, with the clean-up follow-ups of PR #42 and PR #43) and ClipForge AI as a real assistant with helper
-agents (PR #37). The 77 setup tests passed, and all 865 app files were compared with that commit (six `.bat` files
-differ only by the declared CRLF export). The Windows install check for this ZIP is recorded here once it has run.
-FFmpeg is not installed on the check machine, so no video is processed on Windows there; Windows 10/11 desktops,
-Windows security acceptance, GPUs, the built-in model, ComfyUI and its models, real AI keys on a PC and real uploads
-are not tested.
+projects (PR #35, with the clean-up follow-ups of PR #42 and PR #43), ClipForge AI as a real assistant with helper
+agents (PR #37) and PR #44 (three app texts that still described old behaviour, and the privacy page's date). The 77
+setup tests passed, and all 865 app files were compared with that commit (six `.bat` files differ only by the
+declared CRLF export). The Windows install check for this ZIP is recorded here once it has run. FFmpeg is not
+installed on the check machine, so no video is processed on Windows there; Windows 10/11 desktops, Windows security
+acceptance, GPUs, the built-in model, ComfyUI and its models, real AI keys on a PC and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .

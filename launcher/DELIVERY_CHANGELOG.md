@@ -2,13 +2,16 @@
 
 ## 2026-11-13: ClipForge AI as a real assistant, planned YouTube videos, animated shorts and makers on the computer (ClipForge 2026.11.13)
 
-The setup ZIP now installs source commit `492d2541f9e2a119cb72df17cf118b8dce237bc2`: the release line with PR #40
+The setup ZIP now installs source commit `863e69ee9b69154ad189a1178d6940fd49b660a2`: the release line with PR #40
 (story clips), PR #36 (animated shorts), PR #39 (pictures, video clips and voice-overs made on the computer), PR #41
 (the built-in AI engine outlives a request's thread; other computers' addresses are refused), PR #38 (Make a YouTube
-video planned with ClipForge AI), PR #35 (deleting projects), PR #42 and PR #43 (clean-up after deleting) and PR #37
-(ClipForge AI as a real assistant with helper agents). start.bat is unchanged, so its pin and upgrade fixtures are
-the same. 77 launcher tests passed. All 865 app files equal the Git tree except the six declared BAT CRLF exports.
-The Windows install check now installs the 8593947 release (raw/055ede7) first, then this one over it.
+video planned with ClipForge AI), PR #35 (deleting projects), PR #42 and PR #43 (clean-up after deleting), PR #37
+(ClipForge AI as a real assistant with helper agents) and PR #44 (three app texts and the privacy page's date).
+start.bat is unchanged, so its pin and upgrade fixtures are the same. 77 launcher tests passed. All 865 app files
+equal the Git tree except the six declared BAT CRLF exports. The Windows install check installs the 8593947 release
+(raw/055ede7) first, then this one over it. An earlier build of the same day from 492d254 (commit 240548b, its
+install check passed) was never listed; the pins were rebuilt from the 2026.11.07 launcher, so 492d254 is not in the
+release history.
 
 ## 2026-11-07, second build: the punch-in fix for an even voice (ClipForge 2026.11.07)
 

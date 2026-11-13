@@ -1,12 +1,12 @@
 {
-  "source_commit": "492d2541f9e2a119cb72df17cf118b8dce237bc2",
-  "app_archive_sha256": "8f14253c24aded61c1a89350832abda09df7e651a8044745008a47e8db809cb0",
-  "zip_bytes": 50102761,
-  "zip_sha256": "2f6a8fd09cd5d9ca6e9cd74cad4383ccfd59476aed86f4fff756440bdeb792ad",
+  "source_commit": "863e69ee9b69154ad189a1178d6940fd49b660a2",
+  "app_archive_sha256": "fe2a3968e3cd0ce2aa008ddf921db1bd87a03db8358e349c1ec1630f33ccb92d",
+  "zip_bytes": 50107742,
+  "zip_sha256": "a70cffebbd07f2addc3fb9535e02837ce92a82893f27f77b7ed0e6e1efe859e1",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
-    "setup.py": "4c9e4cf6157029a0b126e094ec05ce45752fc27af4c66df89af7a66d3a73fc8e",
-    "app.zip": "8f14253c24aded61c1a89350832abda09df7e651a8044745008a47e8db809cb0",
+    "setup.py": "688c5f638b6a1a6adabf48b8c9ebb84d234fce4302eb904e1578e96c70787da3",
+    "app.zip": "fe2a3968e3cd0ce2aa008ddf921db1bd87a03db8358e349c1ec1630f33ccb92d",
     "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
   "app_files": 865,
@@ -32,11 +32,12 @@
     "note": "runs on this push; the result is recorded here once it has passed"
   },
   "app_tests": {
-    "branch": "claude/project-thread-x72wkd at 492d254 (since 2026.11.07: PR #40 story clips; #36 animated shorts; #39 pictures, video clips and voice-overs made on this computer; #41 built-in AI engine and process fixes; #38 Make a YouTube video planned with ClipForge AI; #35 deleting projects; #42 cleanup after deleting; #37 ClipForge AI as a real assistant with helper agents; #43 deleting lets go of re-stored files, privacy page)",
-    "github_run": "pending: the Native Mac desktop app run on 492d254 (https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43405587501) is recorded here once it has passed",
+    "branch": "claude/project-thread-e1uuap at 863e69e (PR #44), merged into claude/project-thread-x72wkd with the same tree: the release line at 492d254 (since 2026.11.07: PR #40 story clips; #36 animated shorts; #39 pictures, video clips and voice-overs made on this computer; #41 built-in AI engine and process fixes; #38 Make a YouTube video planned with ClipForge AI; #35 deleting projects; #42 cleanup after deleting; #37 ClipForge AI as a real assistant with helper agents; #43 deleting lets go of re-stored files, privacy page) plus three app texts and the privacy page's date",
+    "github_run": "pending: the Native Mac desktop app run on 863e69e (https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410427464) is recorded here once it has passed",
     "local": {
-      "commit": "492d254",
+      "commit": "863e69e",
       "note": "pending: fast and slow suites with espeak-ng installed"
     }
-  }
+  },
+  "superseded_build": "240548b built the same ZIP from 492d254 earlier on Nov 13 and passed its install check (run 43406275512); it was never listed. This build adds PR #44's three app texts and the privacy page's date."
 }
