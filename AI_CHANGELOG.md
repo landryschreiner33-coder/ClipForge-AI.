@@ -1897,6 +1897,28 @@ release.
   in the cloud: the words are given.
 - **Design:** [docs/clipforge/LONG_VIDEOS.md](docs/clipforge/LONG_VIDEOS.md) (new); `SMART_EDITING.md`,
   `OWNER_GUIDE.md`, `ROUTE_MAP.md`, `FEATURE_CHECKLIST.md` (rows 43 to 45) updated.
+## Released ClipForge 2026.11.06: ClipForge AI and FilmCraft inside the app — 2026-11-06 (Claude Code)
+
+Landry chose "Merge and release" on PR #28. The release line `claude/project-thread-x72wkd` at `32485bd` (PR #25,
+#26, #27 and #28 since 2026.11.05.2; the same tree as the tested head `ae2d5f5`) is both downloads' source.
+
+- **Checks on `32485bd`:** `macos-desktop.yml` run 42311548798: native build and bundled-app checks on macOS 15,
+  the fast suite (1,866 passed) and the slow suite (27 passed) on GitHub's Linux machine. Locally 1,866 fast
+  tests passed on `ae2d5f5`. FilmCraft check run 42307942878 (the built-in model's pass with the know-how; FilmCraft
+  0.17.1 and EffectCraft 0.9.2 fetched and checked) passed on Ubuntu and macOS.
+- **Mac:** release `clipforge-mac-2026-11-06-32485bd` (publish run 42316848534), `ClipForge-Mac-Apple-Silicon.dmg`
+  237,930,523 bytes, SHA-256 `ff6358ca836ce8a9b39f98f07c495a09d2035749bf5a823235677d97b2e91fc1`. Unsigned personal preview, prerelease. The release notes in
+  `.github/scripts/publish_personal_mac.py` name this version's features (`7a6af17` on `claude/project-thread-605vsm`,
+  where the publish workflow was started; the DMG is the unchanged tested one from `32485bd`).
+- **Windows:** `ClipForge-Windows-Setup.zip` at `raw/9ddbd62` on `claude/clipforge-downloads`, 47,304,093 bytes,
+  SHA-256 `2abde3f1829a0cc36ab5eede866895f42a36316a7dc9148d96bf34bc0ef36888`; 77 launcher tests, all 748 app files
+  equal the tree (six .bat CRLF exports); Windows setup check run 42312199587 installed it over the 2e5238e release
+  (settings kept).
+- **Download page:** `gh-pages` `eaa92df` (previous `b5afbd3`; Download page run 42317711666, Pages
+  run 42317710696), ClipForge 2026.11.06 with seven changes and the checked / not checked lists; `build.py --check`
+  and `--verify` passed.
+- **Not verified:** a real model reading the know-how in the chat, the caption positions and the hook headline on a
+  real phone, the sound profiles by ear, real AI keys, a real YouTube download, Windows 10/11 desktops, physical Macs.
 
 ## ClipForge AI know-how: the research turned into playbooks, and editors that apply its numbers — 2026-11-06 (Claude Code)
 

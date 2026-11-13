@@ -692,6 +692,22 @@ chatter, opens with the strongest line, and ClipForge AI reads the whole video i
   tried in the cloud; script matching is by words, not meaning (a paraphrased line counts as missing); the local
   browser was tried on Linux paths only; the look of the new panels is the UI thread's.
 - **Waiting on Landry:** review of the PR and a try with his own footage; the release (needs an explicit OK).
+## Release ClipForge 2026.11.06 (ClipForge AI and FilmCraft inside the app) — 2026-11-06 (Claude Code, cloud session)
+
+Landry chose "Merge and release" for PR #28. It was merged into the release line `claude/project-thread-x72wkd` as
+`32485bd` (the tree tested as `ae2d5f5`), and both downloads come from that commit: PR #25 (the built-in model, Clean
+up the sound), #26 (FilmCraft and EffectCraft inside ClipForge), #27 (ClipForge AI's memory and chat) and #28 (the
+know-how and the editors' numbers) are released together. Details: the top entry of [AI_CHANGELOG.md](AI_CHANGELOG.md)
+and `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+
+- Mac: release `clipforge-mac-2026-11-06-32485bd`, from tested run 42311548798, published by run 42316848534 (started on
+  `claude/project-thread-605vsm`, whose only difference from the release line was the release-notes text in
+  `.github/scripts/publish_personal_mac.py`). Windows: `raw/9ddbd62` on `claude/clipforge-downloads`, Windows setup
+  check run 42312199587. Page: `gh-pages` `eaa92df`.
+- Rollback: revert `eaa92df` on `gh-pages` with a normal commit; the 2026.11.05.2 files (2e5238e) stay listed
+  under All versions and their URLs never change.
+- PR #20 (the release line itself) is still not merged into the default branch.
+- **Waiting on Landry:** the nine ClipForge AI plan questions; whether to merge PR #20 into the default branch.
 
 ## ClipForge AI know-how from the research — 2026-11-06 (Claude Code, cloud session)
 
@@ -702,8 +718,8 @@ FilmCraft pass, clip scoring and post packages read, inside budgets, after the o
 the chat answers editing questions from them without a model; and the deterministic editors apply the numbers
 (outros, loss-framing hooks, caption safe zones, the voice chain, BT.709 colour, delivery settings).
 
-- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line at 936d7fc), draft PR into
-  `claude/project-thread-x72wkd`. No release.
+- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line at 936d7fc), PR #28, merged into
+  `claude/project-thread-x72wkd` as 32485bd and released as ClipForge 2026.11.06 (entry above).
 - **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "Know-how";
   [AI_CHANGELOG.md](AI_CHANGELOG.md) lists every number that changed.
 - **Code:** `clipfoundry/brain/knowhow.py` (new), `brain/chat.py`, `brain/routes.py`, `db.py` (`edit_requests.knowhow`),
@@ -720,7 +736,7 @@ the chat answers editing questions from them without a model; and the determinis
   and ducking were left as they are (no way to listen here).
 - **Not done:** vision (static frames, pattern interrupts from the picture), the retention-graph reader on real
   analytics, music ducking with the 150-250 ms release in the engine, a use counter for playbooks.
-- **Waiting on Landry:** review of the PR; the release (needs an explicit OK); the nine plan questions.
+- **Waiting on Landry:** the nine plan questions.
 
 ## ClipForge AI phase A: the brain and the chat — 2026-11-06 (Claude Code, cloud session)
 
@@ -733,7 +749,7 @@ change requests, the FilmCraft pass and smart edits, and adds a chat on every vi
 tab. The old "AI helper" is now ClipForge AI's model.
 
 - **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line after #25 and #26), PR #27,
-  merged into `claude/project-thread-x72wkd` as 936d7fc on 2026-11-06. Not released.
+  merged into `claude/project-thread-x72wkd` as 936d7fc on 2026-11-06. Released in ClipForge 2026.11.06.
 - **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md).
 - **Code:** `clipfoundry/brain/` (`memories.py`, `meaning.py`, `chat.py`, `routes.py`), `db.py` (four tables, the
   `memories` column on `edit_requests`), `studio/edit_requests.py`, `studio/video_flow.py`, `studio/ai_editor.py`,
