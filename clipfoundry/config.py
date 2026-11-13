@@ -27,7 +27,7 @@ CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
 AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]
 BUILTIN_AI_LEVELS = ["auto", "basic", "standard", "pro"]
 EDIT_ENGINES = ("auto", "filmcraft", "ffmpeg")
-ENGINES_COMFYUI = ("clipforge", "app", "off")
+ENGINES_COMFYUI = ("clipforge", "app", "remote", "off")
 NVIDIA_MODES = ["development", "production"]
 CLIP_COUNTS = [3, 5, 10]
 
@@ -246,8 +246,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Local makers (engines/, Settings → Pictures, video, voice): pictures and short video clips from words through
     # ComfyUI, speech through a built-in voice; everything runs on this computer once it is downloaded
     "engines_comfyui": "clipforge",    # clipforge: ClipForge's own ComfyUI | app: a ComfyUI already on this computer
-                                       # (the ComfyUI desktop app or a manual install) | off: no pictures or video
+                                       # (the ComfyUI desktop app or a manual install) | remote: a ComfyUI on the
+                                       # person's rented cloud computer (engines/remote.py) | off: no pictures or video
     "engines_comfyui_url": "",         # the "app" address; empty: look on 127.0.0.1:8000 (desktop app), then :8188
+    "engines_remote_url": "",          # the cloud computer's ComfyUI: https (plain http only to this computer)
+    "engines_remote_key": "",          # its key or name:password, only if it asks for one (sealed like a password)
     "engines_picture": "",             # the picture model (engines/catalog.py id); empty: the best one set up
     "engines_video": "",               # the video model; empty: the one set up
     "engines_voice": "",               # the voice; empty: the one set up
@@ -255,13 +258,30 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-               "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key"}
+               "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key", "engines_remote_key"}
 SEARCH_API_KEYS = {"youtube_api_key", "tavily_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
 ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port"}
 AUTOPILOT_PROCESS = ["separate", "in_app"]
 YOUTUBE_PRIVACY = ["private", "public"]  # public also needs an explicitly confirmed public audience
 AUDIENCE_INTENTS = ["selected", "owner_only", "local_only", "public"]
+
+
+def _remote_url_ok(url: str) -> bool:
+    """A cloud ComfyUI's address: https with a host and no name or password in it; plain http only to this computer."""
+    from urllib.parse import urlsplit
+
+    if any(c.isspace() or ord(c) < 32 for c in url):
+        return False
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        parts.port  # noqa: B018 - a port that is not a number raises
+    except ValueError:
+        return False
+    if not host or parts.username is not None or parts.password is not None:
+        return False
+    return parts.scheme == "https" or (parts.scheme == "http" and host in ("127.0.0.1", "localhost", "::1"))
 
 
 def coerce_setting(key: str, value: Any) -> Any:
@@ -308,6 +328,13 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
         elif key == "engines_comfyui_url":
             v = v.rstrip("/")[:300]
             if v and not v.lower().startswith(("http://", "https://")):
+                continue
+        elif key == "engines_remote_url":  # the key and the words cross the internet: never in clear
+            v = v.rstrip("/")[:300]
+            if v and not _remote_url_ok(v):
+                continue
+        elif key == "engines_remote_key":
+            if len(v) > 1024 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in v):
                 continue
         elif key in ("engines_picture", "engines_video", "engines_voice"):
             v = v[:80]

@@ -483,7 +483,7 @@ function MadeHow({ s, scenes, opts }: { s: ShortView; scenes: ShortScene[]; opts
     count("upload") ? `${count("upload")} of your own` : "",
   ].filter(Boolean);
   const pictures = pictureParts.length ? listWords(pictureParts)
-    : s.engines.image.ready ? `${s.engines.image.engine || "The picture maker"} on this computer`
+    : s.engines.image.ready ? `${s.engines.image.engine || "The picture maker"}${s.engines.image.remote ? "" : " on this computer"}`
       : "Designed cards with the key words (no picture maker is set up)";
   const spoken = scenes.filter((x) => x.voice.engine);
   const names = [...new Set(spoken.map((x) => x.voice.voice).filter(Boolean))].slice(0, 3);
@@ -637,7 +637,7 @@ export function ShortScenes({ v, busy, onVideo }: { v: Video; busy: boolean; onV
         <Banner tone="info" title="A picture maker is ready"
           actions={<button type="button" className="btn btn-small" disabled={off} onClick={() => void run(() => shorts.make(v.id),
             "ClipForge is drawing real pictures for the cards.")}><Icon name="spark" />Draw real pictures</button>}>
-          {plural(s.cards_to_swap ?? 0, "scene")} {s.cards_to_swap === 1 ? "shows" : "show"} a designed card. Draw real pictures swaps {s.cards_to_swap === 1 ? "it" : "them"} for pictures made on this computer.
+          {plural(s.cards_to_swap ?? 0, "scene")} {s.cards_to_swap === 1 ? "shows" : "show"} a designed card. Draw real pictures swaps {s.cards_to_swap === 1 ? "it" : "them"} for pictures made {s.engines.image.remote ? "on your cloud computer" : "on this computer"}.
         </Banner>
       )}
       {s.message && (s.stage === "making" || s.stage === "ready") && <p className="small muted">{s.message}</p>}

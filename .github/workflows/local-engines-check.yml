@@ -1,6 +1,7 @@
 name: Local makers check
 # Sets ClipForge's own ComfyUI up on real Mac, Linux and Windows machines exactly as the app does, runs every graph
-# ClipForge sends, makes a real picture with a pinned model on Linux, checks the built-in voice everywhere, and
+# ClipForge sends, makes a real picture with a pinned model on Linux, checks the built-in voice everywhere, uses that
+# ComfyUI the way ClipForge uses a cloud computer (Linux and Mac: --remote; with the real picture on Linux), and
 # compares every pinned download with its source (scripts/local_engines_check.py).
 on:
   push:
@@ -53,7 +54,7 @@ jobs:
           python -m pip install httpx numpy onnxruntime pillow websockets
       - name: Check
         run: >-
-          python scripts/local_engines_check.py --comfy --graphs --voice --data /mnt/clipforge/data
+          python scripts/local_engines_check.py --comfy --graphs --voice --remote --data /mnt/clipforge/data
           --out "$RUNNER_TEMP/check/linux.json"
           ${{ (github.event_name != 'workflow_dispatch' || inputs.picture != '') && format('--picture {0}', inputs.picture || 'flux2-klein-4b') || '' }}
       - uses: actions/upload-artifact@v4
@@ -75,7 +76,7 @@ jobs:
           brew install ffmpeg
           python -m pip install httpx numpy onnxruntime pillow websockets
       - name: Check
-        run: python scripts/local_engines_check.py --comfy --graphs --voice --out "$RUNNER_TEMP/check/mac.json"
+        run: python scripts/local_engines_check.py --comfy --graphs --voice --remote --out "$RUNNER_TEMP/check/mac.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -98,7 +99,7 @@ jobs:
           New-Item -ItemType Directory -Force check/clipfoundry/engines, check/clipfoundry/cloud, check/scripts | Out-Null
           $files = 'clipfoundry/__init__.py', 'clipfoundry/config.py', 'clipfoundry/builtin_ai.py',
                    'clipfoundry/cloud/__init__.py', 'clipfoundry/cloud/settings.py', 'scripts/local_engines_check.py'
-          foreach ($m in '__init__', 'catalog', 'comfy', 'comfy_server', 'files', 'graphs', 'makers', 'models', 'tasks', 'voice') {
+          foreach ($m in '__init__', 'catalog', 'comfy', 'comfy_server', 'files', 'graphs', 'makers', 'models', 'remote', 'tasks', 'voice') {
             $files += "clipfoundry/engines/$m.py"
           }
           foreach ($f in $files) { Invoke-WebRequest -Uri "$base/$f" -OutFile "check/$f" }

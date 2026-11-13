@@ -72,7 +72,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
   }
   if (tab === "makers") {
     return (
-      <SettingsFrame current="makers" sub="Pictures, short video clips and voice-overs made on this computer, for free, by open-source tools.">
+      <SettingsFrame current="makers" sub="Pictures, short video clips and voice-overs made by free, open-source tools: on this computer, or on a cloud computer you rent.">
         <LocalMakersSettings />
       </SettingsFrame>
     );

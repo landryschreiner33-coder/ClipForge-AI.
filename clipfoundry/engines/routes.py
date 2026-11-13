@@ -1,7 +1,9 @@
-"""Settings → Pictures, video, voice: what is set up, setting it up, removing it, and a quick try of each maker.
+"""Settings → Pictures, video, voice: what is set up, setting it up, removing it, a cloud computer to use instead, and
+a quick try of each maker.
 
-Set-up, removal and tries change this computer (downloads, a program started), so they only come from ClipForge's
-own page on this computer (publish.common.app_request). The online studio does not offer local makers.
+Set-up, removal, tries and the cloud computer change this computer (downloads, a program started, where the words
+go), so they only come from ClipForge's own page on this computer (publish.common.app_request). The online studio
+does not offer local makers.
 """
 from __future__ import annotations
 
@@ -49,6 +51,35 @@ def engines_setup(body: dict[str, Any]) -> dict:
 
     try:  # "agreed": the person agreed to the model's use rules, shown with its download (JSON true only)
         return setup(str(body.get("what") or ""), str(body.get("model") or ""), agreed=body.get("agreed") is True)
+    except EngineError as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/api/engines/remote", dependencies=[Depends(app_request)])
+def engines_remote(body: dict[str, Any]) -> dict:
+    """Use a ComfyUI on the person's cloud computer: {"url": its address, "key": its key (left out: kept; "": removed)}.
+    Answers with the Settings view, which says whether it answered."""
+    _desktop()
+    from . import connect_remote
+
+    key = body.get("key")
+    if key is not None and not isinstance(key, str):
+        raise HTTPException(422, "The key must be text.")
+    try:
+        return connect_remote(str(body.get("url") or ""), key)
+    except EngineError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/api/engines/remote/command", dependencies=[Depends(local_only)])
+def engines_remote_command(model: str = "", agreed: bool = False) -> dict:
+    """The command to paste into the cloud computer's terminal that puts `model` on it (`agreed`: the person agreed to
+    the model's use rules, shown with the command)."""
+    _desktop()
+    from . import remote_command
+
+    try:
+        return remote_command(model, agreed=agreed)
     except EngineError as exc:
         raise _fail(exc) from exc
 

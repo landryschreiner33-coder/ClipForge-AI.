@@ -15,6 +15,10 @@
            the model files' names, so its checks pass and the run then stops where the real file would be loaded.
 --picture  downloads one picture model and makes a real 256x256 picture with it (on the processor: slow).
 --voice    downloads the built-in voice, says a sentence and checks the sound.
+--remote   uses the ComfyUI started by --comfy the way ClipForge uses a cloud computer (Settings, "A cloud computer";
+           engines/remote.py), with a key: its check, where it keeps models, a websocket with the key's headers, the
+           graphs without a model, and (not on Windows) the copy-paste command run for real with bash for the
+           smallest model file, which ComfyUI must then list. With --picture: a real picture made in cloud mode.
 
 Everything goes into a folder of its own (--data, else a new temporary one); nothing of this computer's ClipForge
 is touched. The report (JSON) and what was made go to the folder of --out. Exit code 1 when a check failed or a pin
@@ -491,6 +495,132 @@ def real_picture(run: Run, report: dict, model_id: str) -> None:
         raise RuntimeError(f"the picture is not right (flat, noise or wrong size): {px}")
 
 
+REMOTE_KEY = "check-key-not-a-secret"
+
+
+def _use_cloud(base: str, **more) -> dict:
+    """Settings as the person leaves them after Settings → A cloud computer → Save and check."""
+    from clipfoundry import db
+    from clipfoundry.engines import makers
+
+    db.save_settings({"engines_comfyui": "remote", "engines_remote_url": base, "engines_remote_key": REMOTE_KEY,
+                      **more})
+    makers.forget_found()
+    return db.get_settings()
+
+
+def remote_basics(run: Run, report: dict) -> None:
+    """The real ComfyUI seen as a cloud computer: the check, its model folders, a websocket carrying the key's
+    headers and the graphs without a model, all through the cloud client (retries, waits, the key on each request)."""
+    from clipfoundry.engines import catalog, comfy, graphs, remote
+    from clipfoundry.engines.comfy import Comfy
+
+    res: dict = {}
+    report["remote"] = res
+    settings = _use_cloud(run.base)
+    view = remote.check(settings, max_age=0)
+    res["check"] = {k: view.get(k) for k in ("base", "why", "gpu", "vram_mb", "ram_mb", "version", "device")}
+    log(f"cloud check: {res['check']}")
+    if not view["base"]:
+        raise RuntimeError(f"the cloud check did not find the ComfyUI at {run.base}: {view['why']}")
+    if view["device"] not in ("cpu", "cuda", "mps") or not view["version"]:
+        raise RuntimeError(f"the cloud check did not read the device or version from /system_stats: {view}")
+    if comfy.remote_key(run.base) != REMOTE_KEY:
+        raise RuntimeError("the cloud check did not register the key for that address")
+    folders = remote.remote_folders(run.base)
+    res["folders"] = folders
+    lacking = sorted(set(catalog.MODEL_FOLDERS) - set(folders))
+    if lacking:
+        raise RuntimeError(f"ComfyUI's /internal/folder_paths did not name these model folders: {lacking}")
+    ws = comfy._socket(run.base, "clipforge-check")  # noqa: SLF001 - the installed websockets takes the headers
+    res["websocket"] = ws is not None
+    if ws is None:
+        raise RuntimeError("no websocket to the cloud ComfyUI with the key's headers (the installed websockets "
+                           "refused them or the connection)")
+    ws.close()
+    client = Comfy(run.base, timeout=60)
+    if not client.remote or "Authorization" not in client.headers:
+        raise RuntimeError("the client for the cloud address does not send the key")
+    graph, _node = graphs.check_picture()
+    seen: list[str] = []
+    started = time.time()
+    files = client.run(graph, progress=lambda f, m: seen.append(m), timeout_s=900)
+    dest = run.out / "remote-model-free-picture.png"
+    client.download(files[-1], dest)
+    res["model_free_picture"] = {"seconds": round(time.time() - started, 1), "result": _png_info(dest),
+                                 "progress": seen[-5:]}
+    log(f"cloud model-free picture: {res['model_free_picture']}")
+    if not res["model_free_picture"]["result"].get("png"):
+        raise RuntimeError(f"the cloud client made the wrong thing: {res['model_free_picture']}")
+    start_png = run.out / "model-free-picture.png"
+    if start_png.is_file():  # a clip starts from a picture: it is uploaded to the cloud computer first
+        name = client.upload_image(start_png)
+        res["uploaded"] = name
+        if not name:
+            raise RuntimeError("uploading a picture to the cloud ComfyUI gave no name back")
+
+
+def remote_command(run: Run, report: dict) -> None:
+    """The copy-paste command, run for real with bash, for the smallest model file: the file comes down, is checked,
+    lands where ComfyUI lists it, and a second run leaves it alone."""
+    from clipfoundry.engines import catalog, models, remote
+
+    res: dict = {}
+    report["remote_command"] = res
+    _use_cloud(run.base)
+    pairs = [(m, f) for m in catalog.MODELS if m.role != "voice" for f in m.files]
+    m, f = min(pairs, key=lambda mf: mf[1].size)
+    folders = remote.remote_folders(run.base)
+    command = remote.download_command(m, [f], folders)
+    res.update(model=m.id, file=f.name, folder=f.folder, bytes=f.size, into=folders.get(f.folder))
+    if f.name in (models._listed(run.base, f.folder, {}) or []):  # noqa: SLF001
+        raise RuntimeError(f"{f.name} is already in ComfyUI's {f.folder} folder before the check")
+    started = time.time()
+    out = subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=3600)
+    res.update(seconds=round(time.time() - started, 1), exit=out.returncode, said=out.stdout[-1500:],
+               errors=out.stderr[-1500:])
+    log(f"command for {f.name}: exit {out.returncode} after {res['seconds']} s\n{out.stdout[-600:]}")
+    if out.returncode != 0 or "Done:" not in out.stdout:
+        raise RuntimeError(f"the command did not finish: {res}")
+    listed = models._listed(run.base, f.folder, {})  # noqa: SLF001
+    if models._match(f, listed) is None:  # noqa: SLF001
+        raise RuntimeError(f"ComfyUI does not list {f.name} after the command: {listed}")
+    path = Path(folders[f.folder]) / f.name
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    if path.stat().st_size != f.size or (f.sha256 and h.hexdigest() != f.sha256):
+        raise RuntimeError(f"{path} is not the pinned file ({path.stat().st_size} bytes, {h.hexdigest()})")
+    again = subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=600)
+    res["again"] = again.stdout[-600:]
+    if again.returncode != 0 or "already there" not in again.stdout or "  OK" not in again.stdout:
+        raise RuntimeError(f"running the command again did not just check the file: {again.stdout[-600:]}")
+    path.unlink()  # the picture check downloads its own files the way the app does
+
+
+def remote_picture(run: Run, report: dict, model_id: str) -> None:
+    """A real picture made in cloud mode (Settings → A cloud computer), with the model --picture downloaded."""
+    from clipfoundry.engines import make_image, status
+
+    res: dict = {"model": model_id}
+    report["remote_picture"] = res
+    _use_cloud(run.base, engines_picture=model_id)
+    st = status("image")
+    res["status"] = st
+    if not st.get("ready") or not st.get("remote"):
+        raise RuntimeError(f"pictures are not ready in cloud mode: {st}")
+    seen: list[tuple[float, str]] = []
+    started = time.time()
+    path = make_image("A red bicycle leaning on a stone wall by a canal, morning light, photo", width=256, height=256,
+                      seed=7, progress=lambda fr, msg: seen.append((round(fr, 3), msg)))
+    res.update(seconds=round(time.time() - started, 1), progress=seen[-8:], result=_png_info(Path(path)))
+    log(f"cloud picture: {res['result']} in {res['seconds']} s")
+    px = res["result"]
+    if not (px.get("png") and px.get("width") == 256 and max(px.get("stddev") or [0]) > 8):
+        raise RuntimeError(f"the cloud picture is not right: {px}")
+
+
 def check_voice(report: dict, out: Path) -> None:
     import wave
 
@@ -577,6 +707,7 @@ def main() -> int:
     ap.add_argument("--graphs", action="store_true")
     ap.add_argument("--picture", default="")
     ap.add_argument("--voice", action="store_true")
+    ap.add_argument("--remote", action="store_true")
     args = ap.parse_args()
 
     data = Path(args.data) if args.data else Path(tempfile.mkdtemp(prefix="clipforge-engines-check-"))
@@ -631,8 +762,12 @@ def main() -> int:
                 step("graphs without a model", model_free_graphs, run, report)
                 if args.graphs:
                     step("model graphs", model_graphs, run, report)
-                if args.picture:
-                    step("a real picture", real_picture, run, report, args.picture)
+                pictured = bool(args.picture) and step("a real picture", real_picture, run, report, args.picture)
+                if args.remote and step("the cloud computer (this ComfyUI with a key)", remote_basics, run, report):
+                    if os.name != "nt":
+                        step("the copy-paste command, run for real", remote_command, run, report)
+                    if pictured:
+                        step("a real picture in cloud mode", remote_picture, run, report, args.picture)
         if args.voice:
             step("the voice", check_voice, report, out)
     finally:

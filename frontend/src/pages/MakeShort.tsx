@@ -286,7 +286,7 @@ export default function MakeShort() {
               <input type="radio" name={`${ids}-motion-choice`} checked={c.motion === "animate"} disabled={!engines.video.ready}
                 aria-describedby={engines.video.ready ? undefined : `${ids}-video-why`} onChange={() => set("motion", "animate")} />
               <b>Animate the pictures with the video maker</b>
-              <span>Slow{engines.video.ready && engines.video.engine ? `. Uses ${engines.video.engine} on this computer` : ""}</span>
+              <span>Slow{engines.video.ready && engines.video.engine ? `. Uses ${engines.video.engine}${engines.video.remote ? "" : " on this computer"}` : ""}</span>
               {!engines.video.ready && <span className="hint" id={`${ids}-video-why`}>{engines.video.why || "No video maker is set up."}</span>}
             </label>
           </div>
@@ -298,7 +298,7 @@ export default function MakeShort() {
         {opts && engines ? (
           <dl className="kv short-facts">
             <dt>Pictures</dt>
-            <dd>{engines.image.ready ? `${engines.image.engine || "The picture maker"} on this computer`
+            <dd>{engines.image.ready ? `${engines.image.engine || "The picture maker"}${engines.image.remote ? "" : " on this computer"}`
               : <>Designed cards with the key words (no picture maker is set up)
                 {engines.available && <>. <a className="textlink" href={opts.links.makers}>Set up a picture maker</a></>}</>}</dd>
             <dt>Voice</dt>

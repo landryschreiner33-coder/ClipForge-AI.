@@ -271,9 +271,17 @@ export type EngineTask = { state: string; what: string; status: string; done: nu
   step: number; steps: number };
 export type EngineTrial = { state: string; role: string; progress: number; message: string; file: string; error: string;
   seconds: number };
+/** The rented cloud computer whose ComfyUI makes pictures and video (Settings, "A cloud computer"). Never its key. */
+export type EngineCloud = { url: string; found: string | null; why: string; host: string; gpu: string; vram_mb: number;
+  ram_mb: number; version: string; device: string; key_set: boolean };
+/** The command that puts a model on the cloud computer (pasted into its terminal). */
+export type EngineCloudCommand = { model: string; name: string; command: string; bytes: number; where: string;
+  asked: boolean; why: string; files: { name: string; folder: string; bytes: number }[] };
 export type EnginesView = { online: boolean;
-  roles: Record<EngineRole, { ready: boolean; engine: string; why: string; model?: string }>;
-  comfyui: { mode: "clipforge" | "app" | "off"; url: string; app_found: string | null; installed: boolean; running: boolean;
+  /** `remote`: made on the person's cloud computer, not on this one. */
+  roles: Record<EngineRole, { ready: boolean; engine: string; why: string; model?: string; remote?: boolean }>;
+  comfyui: { mode: "clipforge" | "app" | "remote" | "off"; url: string; app_found: string | null; remote: EngineCloud;
+    installed: boolean; running: boolean;
     version: string; supported: boolean; mac_too_old: boolean; flavor: string; flavor_label: string; download_bytes: number;
     disk_bytes: number; gpu: { name?: string; vram_mb?: number; driver?: string }; idle_minutes: number; licence: string;
     source: string };
@@ -292,6 +300,11 @@ export const engines = {
   remove: (what: "comfyui" | "model", model = "") => req<EnginesView>("POST", "/api/engines/remove", { what, model }),
   tryIt: (role: EngineRole, text = "", voice = "") => req<EngineTrial>("POST", "/api/engines/try", { role, text, voice }),
   stopTry: () => req<EngineTrial>("POST", "/api/engines/try/cancel"),
+  /** Use the cloud computer at `url` and check it; `key` left out keeps the saved one, "" removes it. */
+  connectCloud: (url: string, key?: string) =>
+    req<EnginesView>("POST", "/api/engines/remote", key === undefined ? { url } : { url, key }),
+  cloudCommand: (model: string, agreed: boolean) => req<EngineCloudCommand>("GET",
+    `/api/engines/remote/command?model=${encodeURIComponent(model)}&agreed=${agreed ? "true" : "false"}`),
 };
 
 /** FilmCraft (the free open-source editor from the ArtCraft team) on this computer. */
