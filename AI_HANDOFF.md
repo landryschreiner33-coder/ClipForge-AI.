@@ -1,5 +1,39 @@
 # AI handoff
 
+## Release 2026.11.13 published — 2026-11-13 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry said "Release the new version with all the changes and update the website".
+ClipForge 2026.11.13 is on the download page for Mac and Windows: ClipForge AI as a real assistant with helper
+agents, Make a YouTube video planned with ClipForge AI, animated shorts, pictures, clips and voice-overs made on the
+computer, story clips as Full story or Story parts, and deleting projects. A fact-check of the notes found three app
+texts that described old behaviour; PR #44 fixed them before the build. The website has new screenshots of the app
+and the November 13 privacy page.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `1d455f6` (PR #44), whose
+  tree equals that of `863e69e`, the source commit of both downloads; Mac release `clipforge-mac-2026-11-13-863e69e`;
+  Windows ZIP at `raw/74c4d43` on `claude/clipforge-downloads` (record commit `8d5a242`); `gh-pages` `e97c633`; every
+  URL, size, hash and run in [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **In it (since 2026.11.07):** PR #40 story clips, #36 animated shorts, #39 local makers, #41 engine and file-address
+  fixes, #38 Make a YouTube video, #35 deleting projects, #42 and #43 clean-up after deleting, #37 the real assistant,
+  #44 the release texts. PR #29 and PR #34 (records of 2026.11.06 and 2026.11.07) came in through PR #44.
+- **Verified before publishing:** build and test run 43410427464 on 863e69e (macOS 15 native build and bundled-app
+  smoke; 2,623 fast tests passed, 2 skipped; 30 slow tests passed, 1 skipped; first attempt); the same two suites on
+  the cloud computer; shorts check 43410077138 and FilmCraft check 43410077149 on 863e69e; on 492d254 (same Python
+  code): conversation check Basic on Linux and Mac (43406106889) and Standard on Linux (43410207243), local makers
+  check 43406121270, built-in AI check 43406111641; Windows setup check 43410898326; `build.py --check` and
+  `--verify`.
+- **Not verified (needs Landry's computer):** ClipForge AI with his projects, the Pro level, Ollama/LM Studio/online
+  AI; planning with a real model's answers; the makers on Metal or NVIDIA and a real Wan 2.2 clip; story clips on
+  real recordings; deleting on a real Windows PC; YouTube; Windows security; notarization.
+- **Known and open:** the Basic model is weak in conversation (did not list the projects, said it would ask a helper
+  without doing it); unfinished uploads are cleaned only when the next upload starts; an animated short's script is
+  not counted in "AI requests a day"; the FFmpeg DASH-manifest follow-up from PR #41. The public Terms and legal home
+  page are older than the app's copies (`docs/legal`): publishing them is Landry's call. PR #20 (release line to the
+  default branch) is still unmerged.
+- **Next release:** a second one today would be `2026.11.13.2`; new work starts from `claude/project-thread-x72wkd` at
+  1d455f6. Standing rule (Landry, Nov 9): merge finished PRs into the release line once checks pass; a release needs
+  his OK. Run the slow suite before merging.
+
 ## A project's own re-stored copies go with it; privacy page: uploads, shorts, makers — 2026-11-13 (Claude Code)
 
 **Plain-English summary:** when a project's own work stored a file ClipForge already had (pressing Make again on a

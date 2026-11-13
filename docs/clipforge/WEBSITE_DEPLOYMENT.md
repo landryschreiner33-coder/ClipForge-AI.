@@ -181,3 +181,47 @@ record for 2026.11.06 is in PR #29, which is not merged yet.
   passed. The github.io page itself cannot be loaded from this session.
 
 Rollback: revert `0a7f3f0` on `gh-pages` with a normal commit. The 2026.11.06 files stay under All versions.
+
+## ClipForge AI as a real assistant, planned YouTube videos, animated shorts — November 13, 2026 (Claude Code)
+
+Landry wrote "Release the new version with all the changes and update the website". The release line held PR #40
+(story clips), #36 (animated shorts), #39 (local makers), #41, #38 (Make a YouTube video), #35, #42, #43 (deleting
+projects and its clean-up) and #37 (ClipForge AI as a real assistant) at `492d254`. A fact-check of the release notes
+found three app texts that still described old behaviour, so PR #44 fixed them and dated the privacy page; it was
+merged into the release line as merge commit `1d455f6`, whose tree is identical to the tree of its head
+`863e69ee9b69154ad189a1178d6940fd49b660a2`, which both downloads are built from and name as their source commit.
+Listed as ClipForge 2026.11.13.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-13-863e69e/ClipForge-Mac-Apple-Silicon.dmg
+  (253,930,009 bytes, SHA-256 `75fe4fc20feff91914ad72b6d03c550760409b6cdbb49c44e4f1d4ed18d851a3`). Unsigned personal
+  preview, published unchanged from
+  [build and test run 43410427464](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410427464)
+  (native build and bundled-app smoke passed; 2,623 fast tests passed, 2 skipped; 30 slow tests passed, 1 skipped) by
+  [publish run 43413905735](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43413905735),
+  dispatched on `claude/project-thread-e1uuap` at 863e69e (whose `.github/scripts/publish_personal_mac.py` carries the
+  release-notes text).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/74c4d43e3372138139013cfb7d0c0cd078831248/ClipForge-Windows-Setup.zip
+  (50,107,742 bytes, SHA-256 `a70cffebbd07f2addc3fb9535e02837ce92a82893f27f77b7ed0e6e1efe859e1`).
+  [Windows setup check run 43410898326](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410898326)
+  installed the 2026.11.07 release with a synthetic setting on a Windows Server 2025 runner, then this ZIP over it:
+  same data folder and setting, this commit's page and icon, all 865 files, close and reopen. No FFmpeg on the
+  runner, so no video was processed. Record commit `8d5a242` on `claude/clipforge-downloads`. (An earlier build from
+  492d254, `raw/240548b`, passed check run 43406275512 but was never listed; the 863e69e pins were rebuilt from the
+  2026.11.07 launcher, so 492d254 is not in the launcher's release history.)
+- **Download page:** `gh-pages` commit `e97c633` (previous `0a7f3f0`), pushed directly; Download page run
+  [43416394802](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43416394802) and Pages run
+  [43416393149](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43416393149), both green. Eleven
+  changes with the checked / not checked lists for this version. By hand: "Three ways to make something" (Make clips
+  with Highlights, Full story and Story parts; Make a YouTube video starting from your files and idea; Make an
+  animated short), the headline and lead, and the AI question (the built-in model and the makers); four new
+  screenshots (`studio.webp`, `make-clips.webp`, `make-video.webp`, `animated-short.webp`) taken at 1440×800 from the
+  release build on an empty data folder (the short is the shorts check's sample, renamed "Octopus hearts");
+  `editor.webp` is no longer used and was removed. `build.py --check` and `--verify` passed; the page was checked at
+  1440, 1024 and 390 px (no sideways scroll, no console errors). The github.io page itself cannot be loaded from this
+  session.
+- **Legal pages:** `privacy.html` at the site root is now the app's `docs/legal/privacy.html` at 863e69e (effective
+  November 13, 2026: ClipForge AI's chats, memories and helpers, deleting projects, uploads, animated shorts and the
+  makers). `terms.html` and `index.html` were left as they were: the app's copies are newer (Terms effective
+  October 19, publishing permissions), and publishing them waits for Landry.
+
+Rollback: revert `e97c633` on `gh-pages` with a normal commit. The 2026.11.07 files stay under All versions.

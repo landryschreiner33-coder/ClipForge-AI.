@@ -1,5 +1,35 @@
 # AI changelog
 
+## Release 2026.11.13: ClipForge AI as a real assistant, planned YouTube videos, animated shorts — 2026-11-13 (Claude Code)
+
+Landry wrote "Release the new version with all the changes and update the website". Everything merged into the
+release line since 2026.11.07 is in it: PR #40 (story clips), #36 (animated shorts), #39 (pictures, video clips and
+voice-overs made on the computer), #41 (the built-in AI's engine outlives a request's thread; other computers'
+addresses are refused), #38 (Make a YouTube video planned with ClipForge AI), #35 (deleting projects), #42 and #43
+(clean-up after deleting) and #37 (ClipForge AI as a real assistant with helper agents). The release notes were
+fact-checked against the code first; three app texts still described old behaviour, so PR #44 (`863e69e`) fixed
+them, dated the privacy page November 13 and wrote the Mac notes, and was merged as `1d455f6` (same tree). Both
+downloads are built from 863e69e. Every URL, size, hash and run:
+[docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+
+- **Mac:** release `clipforge-mac-2026-11-13-863e69e`, the unchanged DMG from build and test run 43410427464 (macOS 15:
+  native build and bundled-app smoke passed; 2,623 fast tests passed, 2 skipped; 30 slow tests passed, 1 skipped),
+  published by run 43413905735.
+- **Windows:** `ClipForge-Windows-Setup.zip` at `raw/74c4d43` on `claude/clipforge-downloads` (50,107,742 bytes; 865
+  app files equal to the Git tree at 863e69e except the six declared CRLF exports; 77 launcher tests); the launcher
+  pins were rebuilt from the 2026.11.07 launcher, so an earlier unlisted build from 492d254 (`240548b`) is not in the
+  release history; Windows setup check run 43410898326 installed 2026.11.07 and then this ZIP over it; record commit
+  `8d5a242`.
+- **Download page:** `gh-pages` `e97c633`: 2026.11.07 moved to All versions; eleven changes, what was checked and what
+  was not; "Three ways to make something" with the animated short; new screenshots of the Studio, Make clips, Make a
+  YouTube video and an animated short, taken from the release build; the AI question names the built-in model.
+  `privacy.html` is the app's November 13 privacy page. The Terms and legal home page were left as they were.
+- **Real-app checks:** conversation check on the built-in model, Basic on Linux and Mac (every must-check passed;
+  misses: did not list the projects, said it would ask the Script writer without doing so) and Standard on Linux
+  (every check passed); animated shorts on Mac, Windows and Linux; local makers (pins, ComfyUI set up and started,
+  the voice spoke, one real FLUX.2 klein picture on Linux CPU); built-in AI (its Linux job passed on the second
+  attempt after the small model's picture answer was cut off mid-JSON); FilmCraft.
+
 ## A project's own re-stored copies go with it; privacy page: uploads, shorts, makers — 2026-11-13 (Claude Code)
 
 Two follow-ups found after PR #37 merged (3d337c8). Branch `claude/project-thread-gvcf5h` from the release line at
