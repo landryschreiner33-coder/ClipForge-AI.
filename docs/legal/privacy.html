@@ -293,27 +293,29 @@
   much of it arrived, whether it finished (or why not), the fingerprint your browser made of it (when it made one) and
   the name, size and change time your browser gave (so the same file can resume), when it started and finished, which
   stored file it became, and which project or example video took it. The page also keeps the file's name, size and
-  change time, with the upload's ID, in this browser's local storage until the upload finishes there; for an upload
-  that is stopped, fails or never finishes there, they stay until you clear browser storage. A file added from this
-  computer is used where it is: ClipForge records where it is and a fingerprint of its contents, keeps its thumbnail
-  and details in the data folder, and never changes or deletes your file. Stopping an upload on a page (Stop, or
-  removing the file from the page) only pauses it: its partly received file is kept so the upload can resume; once it
-  has had no progress for 3 days, it is deleted the next time you start an upload, and its record stays, marked as
-  expired. When you upload or add a file ClipForge already has, or its own work stores the same bytes again (an
-  animated short's pictures and clips, the music and sound effects it adds to a short or to a video's edit, a link's
-  download, or media added from a search, for a video or to your media only), it hands out the copy it has: it keeps
-  the time of the last hand-out on that file's record, and notes whom each one went to (the project, or the upload
-  or added file; for media added to your media only, the note names no one). Deleting a project keeps a copy handed
-  out after its list was shown and within the hour before deleting when it went to an upload or added file no
+  change time, with the upload's ID, in this browser's local storage until an upload of that same file (same name,
+  size and change time) finishes in this browser, or until you clear browser storage; a later upload of the same file
+  puts its own ID there. A file added from this computer is used where it is: ClipForge records where it is and a
+  fingerprint of its contents, keeps its thumbnail and details in the data folder, and never changes or deletes your
+  file. An unfinished upload's partly received file is kept so the upload can resume: Stop, or removing the file from
+  the page, only pauses an upload, and so does leaving or closing the page, a lost connection or an error while
+  sending. Once it has had no progress for 3 days, it is deleted the next time you start an upload, and its record
+  stays, marked as expired. When you upload or add a file ClipForge already has, or its own work stores the same bytes
+  again (an animated short's pictures and clips, the music and sound effects it adds to a short or to a video's edit,
+  a link's download, or media added from a search, for a video or to your media only), it hands out the copy it has:
+  it keeps the time of the last hand-out on that file's record, and notes whom each one went to (the project, or the
+  upload or added file; for media added to your media only, the note names no one). Deleting a project keeps a copy
+  handed out after its list was shown and within the hour before deleting when it went to an upload or added file no
   project took yet, to another project that still exists, or to someone the note does not name; one handed out to the
   project itself, or to a project deleted since (also as an upload that project took), does not keep it (section 7).
   A note counts for an hour; it is removed at the next hand-out once it is older than that, or with its file. Upload
-  records stay until their file is deleted (with the last project that used it, or with an example video when you
-  also tick Also delete the video file). A file no project or example video uses, for example one you uploaded or
-  added but never used, or an example's file you kept when deleting the example, has no delete button: ClipForge's
-  copy of it (for a file added from this computer, its thumbnail and details), with the sound, transcript and preview
-  copy it made from it, stays with its records until you delete the data folder, and so do the records of uploads
-  that failed or expired.
+  records stay until ClipForge deletes its copy of their file (for a file added from this computer, its thumbnail and
+  details; your own file stays), with the last project that used it, or with an example video when you also tick Also
+  delete the video file. A file no project or example video uses, for example one you uploaded or added but never
+  used, or an example's file you kept when deleting the example, has no delete button: ClipForge's copy of it (there
+  is none for a file added from this computer), its thumbnail and details, and the sound, transcript and preview copy
+  it made from it stay with its records until you delete the data folder, and so do the records of uploads that
+  failed or expired.
 </p>
 <p>
   If you run ClipForge in <b>cloud mode</b> on your own server, that data is stored on that server instead of your
