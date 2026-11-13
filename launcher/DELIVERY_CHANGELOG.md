@@ -1,5 +1,15 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-13: ClipForge AI as a real assistant, planned YouTube videos, animated shorts and makers on the computer (ClipForge 2026.11.13)
+
+The setup ZIP now installs source commit `492d2541f9e2a119cb72df17cf118b8dce237bc2`: the release line with PR #40
+(story clips), PR #36 (animated shorts), PR #39 (pictures, video clips and voice-overs made on the computer), PR #41
+(the built-in AI engine outlives a request's thread; other computers' addresses are refused), PR #38 (Make a YouTube
+video planned with ClipForge AI), PR #35 (deleting projects), PR #42 and PR #43 (clean-up after deleting) and PR #37
+(ClipForge AI as a real assistant with helper agents). start.bat is unchanged, so its pin and upgrade fixtures are
+the same. 77 launcher tests passed. All 865 app files equal the Git tree except the six declared BAT CRLF exports.
+The Windows install check now installs the 8593947 release (raw/055ede7) first, then this one over it.
+
 ## 2026-11-07, second build: the punch-in fix for an even voice (ClipForge 2026.11.07)
 
 The setup ZIP now installs source commit `8593947e1e5bbabeec66c81527a858b71bc81102`: d1547e3 plus PR #33, the

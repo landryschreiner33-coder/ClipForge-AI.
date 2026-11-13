@@ -1,28 +1,32 @@
 # ClipForge downloads
 
-## Windows setup (ClipForge 2026.11.07: a far smarter ClipForge AI, long videos and the new look, November 7, 2026)
+## Windows setup (ClipForge 2026.11.13: ClipForge AI as a real assistant, planned YouTube videos, animated shorts and makers on your computer, November 13, 2026)
 
 Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
 **Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
 keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
 needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `8593947e1e5bbabeec66c81527a858b71bc81102`: the release line with long
-videos (PR #31: Full stories makes one clip per story without asking, footage is used where it is on the computer,
-a script is matched to the footage and cut in script order, a smarter "Edit it for me"), the new look (PR #30),
-a far smarter ClipForge AI (PR #32: a small meaning model downloaded once and checked, the scout and judge passes,
-the eyes, the ears, the taste learner, capped and explained score changes) and the punch-in fix from PR #33 (when
-your voice stays even after the cuts, every other cut zooms in a little, as before). The 77 setup tests passed,
-and all 788 app files were compared with that commit (six `.bat` files differ only by the declared CRLF export).
-[Windows setup check run 42408340705](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42408340705)
-installed the previous release (32485bd) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
-ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 788
-installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
-was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
-GPUs, the built-in model, the meaning model and real AI keys on a PC, and real uploads are not tested.
+It installs ClipForge from source commit `492d2541f9e2a119cb72df17cf118b8dce237bc2`: the release line with story
+clips (PR #40: Full story and Story parts, five minutes at most, a still centred picture), animated shorts (PR #36),
+pictures, video clips and voice-overs made on the computer (PR #39: ComfyUI and a built-in voice), the built-in AI
+engine and file-address safety fixes (PR #41), Make a YouTube video planned with ClipForge AI (PR #38), deleting
+projects (PR #35, with the clean-up follow-ups of PR #42 and PR #43) and ClipForge AI as a real assistant with helper
+agents (PR #37). The 77 setup tests passed, and all 865 app files were compared with that commit (six `.bat` files
+differ only by the declared CRLF export). The Windows install check for this ZIP is recorded here once it has run.
+FFmpeg is not installed on the check machine, so no video is processed on Windows there; Windows 10/11 desktops,
+Windows security acceptance, GPUs, the built-in model, ComfyUI and its models, real AI keys on a PC and real uploads
+are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+### Previous Windows setup (a far smarter ClipForge AI, long videos and the new look, November 7, 2026)
+
+Source commit `8593947e1e5bbabeec66c81527a858b71bc81102`, kept at
+https://github.com/landryschreiner33-coder/ClipForge-AI./raw/055ede71072dfb4f6e97a578a0ea8042f6ef7bef/ClipForge-Windows-Setup.zip
+(49,199,526 bytes, SHA-256 `3cf76b9221c697fedaf90ad61e1c39ffe967634bddd48e4bbb2961bd813a2e24`), checked by
+[Windows setup check run 42408340705](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42408340705).
 
 ### Previous Windows setup (ClipForge AI and FilmCraft inside the app, November 6, 2026)
 
