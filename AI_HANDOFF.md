@@ -550,6 +550,31 @@ engines it still works: the computer's own voice and designed cards with each sc
   entry in [AI_CHANGELOG.md](AI_CHANGELOG.md)). New tests: `tests/test_studio_shorts_undo.py`, `_stops.py`,
   `_edits.py`. Still only on real machines: the engines, Landry's downloaded voices, a real model writing and the
   speech model's word times.
+## Release 2026.11.07 published — 2026-11-07 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry said "publish the new changes". The smarter-AI work (PR #32) was merged into the
+release line; the release line's slow render test then caught a gap (the fast-paced "Edit it for me" left its jump
+cuts bare when the voice stays even), PR #33 fixed it, and ClipForge 2026.11.07 (long videos, the new look, ClipForge
+AI far smarter) is on the download page for Mac and Windows with its version notes.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `95a70e0` (PR #33), whose
+  tree equals that of `8593947`, the source commit of both downloads; Mac release `clipforge-mac-2026-11-07-8593947`; Windows ZIP at `raw/055ede7` on
+  `claude/clipforge-downloads` (record commit `7b3cd71`); `gh-pages` `0a7f3f0`; every URL, size,
+  hash and run in [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 42407317796 (macOS 15: native build and bundled-app smoke passed; 1,969 fast tests passed, 2 skipped; 27 slow tests passed, 1 skipped); the slow
+  suite locally with espeak-ng installed (27 passed, 1 skipped in 19 min); built-in AI check run 42402011931 on d1547e3's tree (the
+  meaning model downloaded and verified against its hashes, the judge and the eyes answered, on Linux, Mac and Windows
+  runners); FilmCraft check run 42402011877; Windows setup check run 42408340705; `build.py --check` and `--verify` on
+  gh-pages; Download page run 42409903435.
+- **Not verified (needs Landry's computer):** real footage with the built-in model (scout, judge, eyes), a 17 GB
+  folder and real speech, the taste learner on real choices, the new look on his screen, real AI keys, YouTube,
+  Windows security acceptance, notarization.
+- **Still open:** PR #29 (records for 2026.11.06) and PR #20 (release line → default branch) are unmerged; the nine
+  ClipForge AI plan questions; the follow-ups in SMARTER_AI.md (slow drift zoom on static shots, sculpted silence
+  before a payoff, the Qwen3 embedding through the built-in engine).
+- **Next release:** a second one today would be `2026.11.07.2`; new work starts from `claude/project-thread-x72wkd`
+  at 95a70e0 (same files as 8593947); a release, a website change or a merge needs Landry's explicit OK each time; run the slow suite before
+  merging into the release line.
 
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 
@@ -667,6 +692,22 @@ chatter, opens with the strongest line, and ClipForge AI reads the whole video i
   tried in the cloud; script matching is by words, not meaning (a paraphrased line counts as missing); the local
   browser was tried on Linux paths only; the look of the new panels is the UI thread's.
 - **Waiting on Landry:** review of the PR and a try with his own footage; the release (needs an explicit OK).
+## Release ClipForge 2026.11.06 (ClipForge AI and FilmCraft inside the app) — 2026-11-06 (Claude Code, cloud session)
+
+Landry chose "Merge and release" for PR #28. It was merged into the release line `claude/project-thread-x72wkd` as
+`32485bd` (the tree tested as `ae2d5f5`), and both downloads come from that commit: PR #25 (the built-in model, Clean
+up the sound), #26 (FilmCraft and EffectCraft inside ClipForge), #27 (ClipForge AI's memory and chat) and #28 (the
+know-how and the editors' numbers) are released together. Details: the top entry of [AI_CHANGELOG.md](AI_CHANGELOG.md)
+and `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+
+- Mac: release `clipforge-mac-2026-11-06-32485bd`, from tested run 42311548798, published by run 42316848534 (started on
+  `claude/project-thread-605vsm`, whose only difference from the release line was the release-notes text in
+  `.github/scripts/publish_personal_mac.py`). Windows: `raw/9ddbd62` on `claude/clipforge-downloads`, Windows setup
+  check run 42312199587. Page: `gh-pages` `eaa92df`.
+- Rollback: revert `eaa92df` on `gh-pages` with a normal commit; the 2026.11.05.2 files (2e5238e) stay listed
+  under All versions and their URLs never change.
+- PR #20 (the release line itself) is still not merged into the default branch.
+- **Waiting on Landry:** the nine ClipForge AI plan questions; whether to merge PR #20 into the default branch.
 
 ## ClipForge AI know-how from the research — 2026-11-06 (Claude Code, cloud session)
 
@@ -677,8 +718,8 @@ FilmCraft pass, clip scoring and post packages read, inside budgets, after the o
 the chat answers editing questions from them without a model; and the deterministic editors apply the numbers
 (outros, loss-framing hooks, caption safe zones, the voice chain, BT.709 colour, delivery settings).
 
-- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line at 936d7fc), draft PR into
-  `claude/project-thread-x72wkd`. No release.
+- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line at 936d7fc), PR #28, merged into
+  `claude/project-thread-x72wkd` as 32485bd and released as ClipForge 2026.11.06 (entry above).
 - **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "Know-how";
   [AI_CHANGELOG.md](AI_CHANGELOG.md) lists every number that changed.
 - **Code:** `clipfoundry/brain/knowhow.py` (new), `brain/chat.py`, `brain/routes.py`, `db.py` (`edit_requests.knowhow`),
@@ -695,7 +736,7 @@ the chat answers editing questions from them without a model; and the determinis
   and ducking were left as they are (no way to listen here).
 - **Not done:** vision (static frames, pattern interrupts from the picture), the retention-graph reader on real
   analytics, music ducking with the 150-250 ms release in the engine, a use counter for playbooks.
-- **Waiting on Landry:** review of the PR; the release (needs an explicit OK); the nine plan questions.
+- **Waiting on Landry:** the nine plan questions.
 
 ## ClipForge AI phase A: the brain and the chat — 2026-11-06 (Claude Code, cloud session)
 
@@ -708,7 +749,7 @@ change requests, the FilmCraft pass and smart edits, and adds a chat on every vi
 tab. The old "AI helper" is now ClipForge AI's model.
 
 - **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line after #25 and #26), PR #27,
-  merged into `claude/project-thread-x72wkd` as 936d7fc on 2026-11-06. Not released.
+  merged into `claude/project-thread-x72wkd` as 936d7fc on 2026-11-06. Released in ClipForge 2026.11.06.
 - **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md).
 - **Code:** `clipfoundry/brain/` (`memories.py`, `meaning.py`, `chat.py`, `routes.py`), `db.py` (four tables, the
   `memories` column on `edit_requests`), `studio/edit_requests.py`, `studio/video_flow.py`, `studio/ai_editor.py`,

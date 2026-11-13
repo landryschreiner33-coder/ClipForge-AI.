@@ -85,7 +85,7 @@ export default function Studio() {
             <div className="frame-shape wide" aria-hidden="true"><span className="strip"><i /><i /><i /><i /></span><span className="cap" /></div>
             <div>
               <h2>Make a YouTube video</h2>
-              <p>Upload your clips, answer four short questions, and get an edited video you can still change.</p>
+              <p>Drop in your files, tell ClipForge AI your idea, and get an edited video you can still change.</p>
               <span className="btn btn-primary go"><Icon name="create" />Make a YouTube video</span>
             </div>
           </a>

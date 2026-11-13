@@ -2,7 +2,7 @@
 
 This is the design, as built, of the November 2026 work that lets ClipForge make still pictures, short video clips
 and voice-overs itself, on the owner's computer, for free. The animated-shorts maker
-([ANIMATED_SHORTS.md](ANIMATED_SHORTS.md), built in its own thread) and ClipForge AI use them through one door,
+([ANIMATED_SHORTS.md](ANIMATED_SHORTS.md), built in its own thread) uses them through one door,
 `clipfoundry/engines/`.
 
 **What Landry asked for (Nov 7 2026):** look at seven open-source projects he found (FreeVideo, WanGP, ComfyUI
@@ -18,8 +18,10 @@ everything runs locally. His Mac is Apple silicon; the app also ships for Window
   Wan 2.2 (5B) for clips of up to 5 seconds. Settings recommends the one that suits the computer's memory.
 - **The voice runs inside ClipForge**: Supertonic 3 (OpenRAIL-M, commercial use allowed with use rules that the
   person agrees to before the download), 10 voices, 31 languages, on the processor, no extra program.
-- **Every download is pinned**: an exact address at a fixed version, the exact size and SHA-256 checksum. A file
-  that does not match is refused. Nothing is downloaded from an address not written in `engines/catalog.py`.
+- **Every download is pinned**: the models, the voice, ComfyUI and uv each have an exact address at a fixed
+  version, the exact size and SHA-256 checksum, and a file that does not match is refused. PyTorch and ComfyUI's
+  other packages are pinned by version (and by date, `EXCLUDE_NEWER`) and checked by uv as it downloads them.
+  Nothing is downloaded from an address not written in `engines/catalog.py`.
 - **Once downloaded, nothing goes online**: ComfyUI runs with `--offline`, without add-on nodes, and only listens on
   127.0.0.1. What it makes stays on the computer.
 
