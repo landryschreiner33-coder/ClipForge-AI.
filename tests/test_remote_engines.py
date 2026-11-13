@@ -221,7 +221,9 @@ def test_cloud_settings_are_checked_and_the_key_is_kept_sealed(monkeypatch):
     assert config.validate_settings({"engines_remote_key": "a key"}) == {}
     assert "engines_remote_key" in config.SECRET_KEYS
     client = TestClient(api.app)
-    client.put("/api/settings", json={"engines_remote_key": KEY})
+    client.put("/api/settings", json={"engines_remote_key": KEY})  # not from here (POST /api/engines/remote)
+    assert db.get_settings()["engines_remote_key"] == ""
+    db.save_settings({"engines_remote_key": KEY})
     assert client.get("/api/settings").json()["engines_remote_key"] == "********"
     with db.connect() as conn:
         stored = conn.execute("SELECT value FROM settings WHERE key = 'engines_remote_key'").fetchone()["value"]
@@ -391,6 +393,78 @@ def test_a_request_is_never_sent_twice(cloud_settings, cloud, fake_comfy, no_loc
     assert len(fake_comfy.prompts) == 1
 
 
+def _forget_after_submit(fake: FakeComfy) -> None:
+    """The cloud computer's ComfyUI restarts: the job is in neither its queue nor its history any more."""
+    fake.polls_before_done = 10_000
+    fake.stops_after = 0
+    fake._interrupted_at = fake._queue_asks  # noqa: SLF001 - its queue is empty from the next ask on
+
+
+def test_a_job_the_cloud_computer_lost_ends_in_plain_words(cloud_settings, cloud, fake_comfy, monkeypatch,
+                                                            no_local_graphics):
+    """A pod whose ComfyUI restarted forgot the job: ClipForge says so instead of waiting out the time limit (and
+    keeping every other job waiting for its turn)."""
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    monkeypatch.setattr(comfy, "LOST_CHECK_S", 0.3)
+    real_submit = comfy.Comfy.submit
+
+    def submit_then_restart(self, graph):
+        pid = real_submit(self, graph)
+        _forget_after_submit(fake_comfy)
+        return pid
+
+    monkeypatch.setattr(comfy.Comfy, "submit", submit_then_restart)
+    started = time.monotonic()
+    with pytest.raises(EngineError, match="restarted and lost"):
+        engines.make_image("a cat")
+    assert time.monotonic() - started < 20 and len(fake_comfy.prompts) == 1
+    assert remote._turn.acquire(timeout=0) and (remote._turn.release() is None)  # noqa: SLF001 - its turn is over
+
+
+def test_a_job_lost_in_an_outage_is_noticed_when_the_pod_answers_again(cloud_settings, cloud, fake_comfy, monkeypatch,
+                                                                       no_local_graphics):
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    assert comfy.LOST_CHECK_S >= 30  # only the outage makes it look now
+    real_submit = comfy.Comfy.submit
+
+    def submit_then_outage(self, graph):
+        pid = real_submit(self, graph)
+        cloud.state = "starting"  # RunPod's proxy answers 502 while the pod restarts
+        _forget_after_submit(fake_comfy)
+        threading.Timer(0.5, lambda: setattr(cloud, "state", "on")).start()
+        return pid
+
+    monkeypatch.setattr(comfy.Comfy, "submit", submit_then_outage)
+    started = time.monotonic()
+    with pytest.raises(EngineError, match="restarted and lost"):
+        engines.make_image("a cat")
+    assert time.monotonic() - started < 20
+
+
+def test_a_job_that_finishes_while_it_is_looked_for_is_not_lost(cloud_settings, cloud, fake_comfy, monkeypatch,
+                                                                no_local_graphics):
+    """Gone from the queue because it just finished: the history is asked once more before calling it lost."""
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    monkeypatch.setattr(comfy, "LOST_CHECK_S", 0.0)
+    real_running = comfy.Comfy.running
+
+    def finished_meanwhile(self, prompt_id):
+        fake_comfy.polls_before_done = 0  # it finished between the history and the queue
+        fake_comfy.stops_after, fake_comfy._interrupted_at = 0, fake_comfy._queue_asks  # noqa: SLF001
+        return real_running(self, prompt_id)
+
+    fake_comfy.polls_before_done = 10_000
+    monkeypatch.setattr(comfy.Comfy, "running", finished_meanwhile)
+    path = engines.make_image("a cat")
+    assert makers.png_size(path)[0] > 0
+
+
 def test_the_job_says_what_is_wrong_before_sending_anything(cloud_settings, cloud, fake_comfy):
     from clipfoundry import engines
 
@@ -477,6 +551,71 @@ def test_settings_connects_a_cloud_computer(client, cloud, fake_comfy, monkeypat
     d = client.post("/api/engines/remote", json={"url": cloud.url, "key": ""}, headers=APP).json()
     assert db.get_settings()["engines_remote_key"] == "" and not d["comfyui"]["remote"]["found"]
     assert "said no" in d["comfyui"]["remote"]["why"]
+
+
+def test_a_key_the_keychain_cannot_keep_is_said_plainly(client, cloud, monkeypatch):
+    """A Mac whose login Keychain is locked cannot seal the key: Settings says so, and nothing is half saved."""
+    from clipfoundry import db, secure
+
+    def locked(text):
+        raise secure.SecretError("macOS Keychain could not protect this connection. Unlock your login Keychain.")
+
+    monkeypatch.setattr(secure, "seal", locked)
+    r = client.post("/api/engines/remote", json={"url": cloud.url, "key": KEY}, headers=APP)
+    assert r.status_code == 422 and "Keychain" in r.json()["detail"]
+    s = db.get_settings()
+    assert s["engines_remote_url"] == "" and s["engines_comfyui"] != "remote" and s["engines_remote_key"] == ""
+
+
+def test_only_clipforges_own_page_sets_the_cloud_address_and_key(client, cloud):
+    """The general settings route cannot point the key somewhere else (another page could call it)."""
+    from clipfoundry import db
+
+    client.post("/api/engines/remote", json={"url": cloud.url, "key": KEY}, headers=APP)
+    r = client.put("/api/settings", json={"engines_remote_url": "https://elsewhere.example",
+                                          "engines_remote_key": "theirs", "engines_comfyui": "remote"})
+    assert r.status_code == 200
+    s = db.get_settings()
+    assert s["engines_remote_url"] == cloud.url and s["engines_remote_key"] == KEY
+
+
+def test_a_key_is_only_sent_to_the_address_it_was_typed_for(client, cloud, fake_comfy):
+    from clipfoundry import db
+
+    client.post("/api/engines/remote", json={"url": cloud.url, "key": KEY}, headers=APP)
+    port = urlsplit(cloud.url).port
+    d = client.post("/api/engines/remote", json={"url": cloud.url + "/index.html"}, headers=APP).json()
+    assert db.get_settings()["engines_remote_key"] == KEY and not d.get("note")  # the same computer keeps it
+    before = len(cloud.seen)
+    # the same stand-in by another name: to ClipForge another computer, so it does not get the key
+    d = client.post("/api/engines/remote", json={"url": f"http://localhost:{port}"}, headers=APP).json()
+    assert db.get_settings()["engines_remote_key"] == "" and "another address" in d["note"]
+    assert not d["comfyui"]["remote"]["key_set"] and "said no" in d["comfyui"]["remote"]["why"]
+    assert len(cloud.seen) > before and not any(auth for _m, _p, auth in cloud.seen[before:])
+
+
+def test_choosing_this_computer_again_forgets_the_cloud_computer(client, cloud, fake_comfy):
+    """Its key and its patience stay with it: a ComfyUI on this computer at the same address gets neither."""
+    from clipfoundry import db
+
+    client.post("/api/engines/remote", json={"url": cloud.url, "key": KEY}, headers=APP)
+    assert comfy.Comfy(cloud.url).remote
+    client.put("/api/settings", json={"engines_comfyui": "app", "engines_comfyui_url": cloud.url})
+    client.get("/api/engines")
+    c = comfy.Comfy(cloud.url)
+    assert not c.remote and "Authorization" not in c.headers and comfy.remote_key(cloud.url) is None
+    assert db.get_settings()["engines_remote_key"] == KEY  # kept for when the cloud computer is chosen again
+    r = client.get("/api/engines/remote/command", params={"model": "flux2-klein-4b"})
+    assert r.status_code == 409 and "A cloud computer" in r.json()["detail"]
+    assert comfy.remote_key(cloud.url) is None
+
+
+@pytest.mark.parametrize("key", ["tok\u200ben", "\ufefftoken", "tok\x80en", "tökén", "name:pässword"])
+def test_a_key_that_cannot_be_sent_is_refused(key):
+    with pytest.raises(EngineError, match="cannot send"):
+        remote.clean_key(key)
+    assert "engines_remote_key" not in config.validate_settings({"engines_remote_key": key})
+    assert remote.clean_key("name:p@ss~w0rd!") == "name:p@ss~w0rd!"
 
 
 def test_models_are_not_downloaded_into_or_removed_from_the_cloud_computer(client, cloud, fake_comfy):

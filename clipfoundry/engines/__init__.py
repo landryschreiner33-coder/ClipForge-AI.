@@ -160,19 +160,38 @@ def connect_remote(url: str, key: str | None = None) -> dict:
     from .. import db
     from . import makers, remote
 
+    before = _settings()
     patch: dict = {"engines_comfyui": "remote", "engines_remote_url": remote.normalize(url)}
+    note = ""
     if key is not None:
         patch["engines_remote_key"] = remote.clean_key(key)
+    elif before.get("engines_remote_key") and _host(before.get("engines_remote_url")) != \
+            _host(patch["engines_remote_url"]):
+        patch["engines_remote_key"] = ""  # a key is only ever sent to the computer it was typed for
+        note = ("The key you saved was for another address, so ClipForge removed it. If this cloud computer needs "
+                "one, enter it again.")
     db.save_settings(patch)
     makers.forget_found()
-    return overview()
+    view = overview()
+    if note:
+        view["note"] = note
+    return view
+
+
+def _host(url) -> str:
+    from . import remote
+
+    return remote.host(str(url or "")).lower()
 
 
 def remote_command(model_id: str, agreed: bool = False) -> dict:
     """The command that puts a model on the cloud computer (remote.command_for)."""
-    from . import remote
+    from . import makers, remote
 
-    return remote.command_for(model_id, _settings(), agreed=agreed)
+    settings = _settings()
+    if makers.mode(settings) != "remote":
+        raise EngineError("Choose \"A cloud computer\" in Settings, Pictures, video, voice first.")
+    return remote.command_for(model_id, settings, agreed=agreed)
 
 
 def _model_view(m, ready: bool, need: int, can_download: bool, removable: bool, machine: dict,

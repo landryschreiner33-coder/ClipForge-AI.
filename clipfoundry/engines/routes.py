@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from .. import config
+from .. import config, secure
 from ..cloud import settings as cloud_settings
 from ..pathguard import plain_parts
 from ..publish.common import app_request, local_only
@@ -67,7 +67,7 @@ def engines_remote(body: dict[str, Any]) -> dict:
         raise HTTPException(422, "The key must be text.")
     try:
         return connect_remote(str(body.get("url") or ""), key)
-    except EngineError as exc:
+    except (EngineError, secure.SecretError) as exc:  # SecretError: a Mac's locked Keychain could not seal the key
         raise HTTPException(422, str(exc)) from exc
 
 

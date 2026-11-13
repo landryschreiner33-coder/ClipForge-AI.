@@ -48,6 +48,7 @@ RETRIES = 3          # tries of an upload or a download to a cloud computer (a d
 RETRY_WAIT_S = 2.0
 # What a cloud computer's proxy answers while the program behind it is not there (RunPod's goes through Cloudflare:
 # 502 to 504 and its own 520 to 530 while the pod starts, stops or its ComfyUI is down)
+LOST_CHECK_S = 30.0  # how often a cloud job not finished yet is looked for in the cloud computer's queue
 GATEWAY = {502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530}
 Progress = Callable[[float, str], None]
 Cancel = Callable[[], bool]
@@ -313,14 +314,21 @@ class Comfy:
         (history raises); a cloud computer may not answer for up to LOST_S (the internet, its proxy) before it does."""
         if not self.remote:
             return self.history(prompt_id)
-        try:
-            r = self._get(f"/history/{quote(prompt_id, safe='')}")
-            entry = (r.json() or {}).get(prompt_id) if r.status_code == 200 else None
-            answered = r.status_code == 200
-        except (EngineError, ValueError, AttributeError):
-            entry, answered = None, False
+        entry, answered = self._remote_history(prompt_id)
         if answered:
+            came_back = bool(state.get("lost"))
             state["lost"] = 0.0
+            asked = state.setdefault("queue_at", time.monotonic())
+            # a cloud computer whose ComfyUI restarted (it ran out of memory, or the pod was restarted) forgot the
+            # job: it is in neither its queue nor its history, and waiting would only use up the time limit (and
+            # keep the other jobs waiting for their turn). Looked for after an outage, and every LOST_CHECK_S.
+            if entry is None and (came_back or time.monotonic() - asked >= LOST_CHECK_S):
+                state["queue_at"] = time.monotonic()
+                if self.running(prompt_id) is False:
+                    entry, answered = self._remote_history(prompt_id)  # it may have finished just now
+                    if answered and entry is None:
+                        raise EngineError("Your cloud computer restarted and lost this picture or clip, so ClipForge "
+                                          "stopped waiting for it. Make it again.")
             return entry
         state["lost"] = state.get("lost") or time.monotonic()
         if time.monotonic() - state["lost"] > LOST_S:
@@ -328,6 +336,16 @@ class Comfy:
                               "gave up on this one. Check in RunPod that it is still on (a pod stops by itself when "
                               "your RunPod money runs out), then try again.")
         return None
+
+    def _remote_history(self, prompt_id: str) -> tuple[dict | None, bool]:
+        """(the history entry or None, whether the cloud computer answered at all)."""
+        try:
+            r = self._get(f"/history/{quote(prompt_id, safe='')}")
+            if r.status_code != 200:
+                return None, False
+            return (r.json() or {}).get(prompt_id), True
+        except (EngineError, ValueError, AttributeError):
+            return None, False
 
     def wait(self, prompt_id: str, *, progress: Progress | None = None, cancel: Cancel | None = None,
              timeout_s: float = 1800.0, steps_node: str = "", labels: dict[str, str] | None = None) -> dict:

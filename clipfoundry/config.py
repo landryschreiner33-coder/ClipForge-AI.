@@ -261,7 +261,10 @@ SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "
                "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key", "engines_remote_key"}
 SEARCH_API_KEYS = {"youtube_api_key", "tavily_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
-ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port"}
+# set only by their own routes, never by PUT /api/settings (the cloud computer's address and key: only from ClipForge's
+# own page, POST /api/engines/remote, so no other page can point the key somewhere else)
+ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port",
+                    "engines_remote_url", "engines_remote_key"}
 AUTOPILOT_PROCESS = ["separate", "in_app"]
 YOUTUBE_PRIVACY = ["private", "public"]  # public also needs an explicitly confirmed public audience
 AUDIENCE_INTENTS = ["selected", "owner_only", "local_only", "public"]
@@ -333,8 +336,8 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             v = v.rstrip("/")[:300]
             if v and not _remote_url_ok(v):
                 continue
-        elif key == "engines_remote_key":
-            if len(v) > 1024 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in v):
+        elif key == "engines_remote_key":  # it goes in a header as it is: printable ASCII only
+            if len(v) > 1024 or any(not 33 <= ord(c) <= 126 for c in v):
                 continue
         elif key in ("engines_picture", "engines_video", "engines_voice"):
             v = v[:80]

@@ -145,7 +145,8 @@ export default function LocalMakersSettings() {
   const connect = (key?: string) => act(() => engines.connectCloud(cloudUrl.trim() || cloud?.url || "", key), (v) => {
     const r = v.comfyui.remote;
     if (r.url) setCloudUrl(r.url);
-    return r.found ? `Connected to your cloud computer${r.gpu ? ` (${r.gpu})` : ""}.` : "Saved. It did not answer yet: see below.";
+    const said = r.found ? `Connected to your cloud computer${r.gpu ? ` (${r.gpu})` : ""}.` : "Saved. It did not answer yet: see below.";
+    return v.note ? `${said} ${v.note}` : said;
   });
 
   const fetchCommand = async (m: EngineModel, agreed: boolean) => {

@@ -35,8 +35,16 @@ _found_lock = threading.Lock()
 
 # ------------------------------------------------------------------ which ComfyUI
 def mode(settings: dict) -> str:
+    """Which ComfyUI makes pictures and video. When it is not the cloud computer, a cloud computer chosen earlier is
+    forgotten here (every path reads the mode first), so no request to a ComfyUI on this computer that happens to have
+    the same address carries its key or waits out its outages."""
     m = str(settings.get("engines_comfyui") or "clipforge")
-    return m if m in config.ENGINES_COMFYUI else "clipforge"
+    m = m if m in config.ENGINES_COMFYUI else "clipforge"
+    if m != "remote":
+        from .comfy import use_remote
+
+        use_remote("")
+    return m
 
 
 def find_app(settings: dict, max_age: float = 15.0) -> str | None:

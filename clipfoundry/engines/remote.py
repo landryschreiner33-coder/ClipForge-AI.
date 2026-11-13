@@ -93,10 +93,14 @@ def normalize(text: str) -> str:
 
 
 def clean_key(text: str) -> str:
-    """The key as it is kept (sealed like a password, secure.py): "" removes it."""
+    """The key as it is kept (sealed like a password, secure.py): "" removes it. It is sent in a header as it is, so
+    only printable ASCII: letters, digits and the symbols on a US keyboard."""
     key = (text or "").strip()
     if len(key) > MAX_KEY or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in key):
         raise EngineError("Paste only the key, on one line, without spaces.")
+    if any(not 33 <= ord(c) <= 126 for c in key):
+        raise EngineError("The key has a letter ClipForge cannot send (like é, or an invisible character copied with "
+                          "it). Copy the key again, or choose one with only letters, digits and symbols.")
     return key
 
 

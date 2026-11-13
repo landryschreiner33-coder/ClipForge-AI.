@@ -72,13 +72,17 @@ again by themselves.
   picture a clip started from (its input folder) until you delete them or terminate the pod. RunPod's privacy rules
   apply to that computer.
 - If you set a key, it is kept locked on your computer (like the app's other keys) and sent only to the address you
-  saved, never anywhere else. It is never shown again in Settings.
+  saved, never anywhere else. It is never shown again in Settings. When you save a different cloud computer's
+  address, the key is removed (enter it again if that one needs it). On a Mac, a locked login Keychain cannot keep a
+  key: Settings says so and saves nothing.
 
 ## How it works (for whoever changes it next)
 
 - **Settings:** `engines_comfyui = "remote"`, `engines_remote_url` (https only, except plain http to this computer
-  for tests; no user name in the address), `engines_remote_key` (sealed like the other secrets, shown as `********`).
-  The local choices stay the default.
+  for tests; no user name in the address), `engines_remote_key` (printable ASCII only, since it goes in a header as it
+  is; sealed like the other secrets, shown as `********`). The address and key are `ACTION_ONLY_KEYS`: only
+  `POST /api/engines/remote` (ClipForge's own page) sets them, never `PUT /api/settings`, so no other page can point
+  the key somewhere else; a new host drops the kept key. The local choices stay the default.
 - **`clipfoundry/engines/remote.py`:** `normalize()` turns what was pasted (a bare pod ID, an address without
   https://, ComfyUI's page with `index.html`) into the address; `check()` asks `/system_stats` (cached 15 s, never
   raises) and turns every answer into plain words (the table above); `machine()` lets `makers.ranked/fit` pick the
@@ -95,7 +99,11 @@ again by themselves.
   nowhere else. For a cloud address only: uploads and downloads are tried again (3 times) on gateway answers and
   dropped connections; while waiting for a job, failures are waited out for up to 3 minutes (`LOST_S`) before it gives
   up in plain words; a graph is **never sent twice** (a retried `/prompt` could make it twice and charge twice).
-  This computer's ComfyUI behaves exactly as before.
+  A job the pod forgot (its ComfyUI restarted: the job is in neither its queue nor its history) ends in plain words
+  instead of waiting out the time limit; it is looked for after an outage and every 30 s (`LOST_CHECK_S`), and the
+  history is asked once more before calling it lost. `makers.mode()` forgets the cloud registration whenever another
+  ComfyUI is chosen, so a ComfyUI on this computer at the same address never gets the key or the waiting. This
+  computer's ComfyUI behaves exactly as before.
 - **Not offered for the cloud computer:** ClipForge's own Download and Remove buttons (it cannot reach the cloud
   computer's disk; the routes refuse with what to do instead). The voice always runs on this computer.
 - **Routes:** `POST /api/engines/remote` `{url, key?}` (app header; a missing key keeps the kept one, `""` removes
@@ -105,11 +113,13 @@ again by themselves.
 
 ## How it was checked
 
-- `tests/test_remote_engines.py` (26 tests) with a stand-in that plays RunPod's proxy in front of the stand-in
+- `tests/test_remote_engines.py` (38 tests) with a stand-in that plays RunPod's proxy in front of the stand-in
   ComfyUI (on, starting, off; 502/524 gateway answers; dropped connections; a key): the address and key rules,
   the key going only to the cloud address (also on the websocket), every check message, a picture and a clip made on
   the cloud computer with the right model for a 24 GB card, hiccups waited out, a pod that stops answering, a job
-  never sent twice, taking turns, the Settings routes, and the command run for real with bash (checked files, a
+  never sent twice, a job a restarted pod forgot, taking turns, the Settings routes (only ClipForge's page sets the
+  address and key; a key stays with its address; a locked Keychain; keys that cannot be sent; choosing this computer
+  again forgets the cloud computer), and the command run for real with bash (checked files, a
   resumed download, a damaged one deleted, a different file left alone, wget instead of curl, the folder found by
   itself, quoting that cannot be broken out of). Each rule was also broken on purpose to see a test fail.
 - The real-machine check (`scripts/local_engines_check.py --remote`, on GitHub's Linux and Mac machines) uses the real
