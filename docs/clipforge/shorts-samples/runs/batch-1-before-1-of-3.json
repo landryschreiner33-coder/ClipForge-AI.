@@ -21,6 +21,17 @@
    "references": [],
    "seconds": 550.7,
    "model": "flux2-klein-4b"
+  },
+  "before/scene-07": {
+   "prompt": "close-up of the girl's hopeful face lit by a warm street lamp in the rain. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field. cartoon3d",
+   "seed": 4107,
+   "size": [
+    448,
+    800
+   ],
+   "references": [],
+   "seconds": 570.5,
+   "model": "flux2-klein-4b"
   }
  },
  "notes": [
@@ -28,7 +39,8 @@
   "20:02:58 ComfyUI is running (14.9 GB memory and 28.3 GB swap free)",
   "20:06:39 the model is downloaded (14.9 GB memory and 28.3 GB swap free)",
   "20:16:27 made before/scene-01 in 581.7 s (5.0 GB memory and 19.8 GB swap free)",
-  "20:25:45 made before/scene-04 in 550.7 s (14.7 GB memory and 27.5 GB swap free)"
+  "20:25:45 made before/scene-04 in 550.7 s (14.7 GB memory and 27.5 GB swap free)",
+  "20:35:23 made before/scene-07 in 570.5 s (5.4 GB memory and 19.3 GB swap free)"
  ],
  "batch": "batch-1-before.json",
  "pins": {
