@@ -893,6 +893,15 @@ def test_the_memories_a_brain_file_lists_by_id_never_count_against_each_other(da
         assert brain.import_(WS, file(*memories)) == {"added": 1, "updated": 0, "skipped": 1, "invalid": 0}
         assert len(held()) == 1
         empty()
+    # a line without an id is no memory of its own where the file comes from: the memory for every video that this
+    # brain has in force makes it known, also when the file lists that memory too and adds something else first
+    assert brain.import_(WS, file(general))["added"] == 1
+    line, other = entry("", "project:p1"), entry("x-1", "all", "music under the voice")
+    for memories in ((general, line), (line, general)):
+        assert brain.import_(WS, file(*memories)) == {"added": 0, "updated": 0, "skipped": 2, "invalid": 0}
+    assert brain.import_(WS, file(other, line, general)) == {"added": 1, "updated": 0, "skipped": 2, "invalid": 0}
+    assert [m[0] for m in held()] == ["all-1", "x-1"]  # no note for the one video: the rule holds there as it is
+    empty()
     # ids another workspace has already: the entries get new ids here, and are the file's own all the same
     assert brain.import_("other", file(*pair))["added"] == 2
     assert brain.import_(WS, file(*pair)) == {"added": 2, "updated": 0, "skipped": 0, "invalid": 0}

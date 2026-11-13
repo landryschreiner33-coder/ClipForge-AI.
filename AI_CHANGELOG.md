@@ -957,11 +957,13 @@ Landry's projects, could never do anything, and without a downloaded model only 
     only noted in a video (an episode, an asset, an answer) no longer comes before another video's rule or fact.
     A rule or a fact of this video still does, and so does this video's log line before another video's log
     line (`memories.closest`, `LASTING`).
-  - Tests that fail without a rule: 31 rules of this round were each taken out of a copy of the code and the
-    brain and safety tests run against it. 28 failed a test at once. Three did not, and each got the test it
+  - Tests that fail without a rule: 32 rules of this round were each taken out of a copy of the code and the
+    brain and safety tests run against it. 28 failed a test at once. Four did not, and each got the test it
     lacked: a note the file lists without an id before the newer words of a memory this brain has (only the
-    order brings it in), an id of 41 characters, and an id with a line end after it. The 26 of the round before
-    were run again on this code, two of them with the text this round changed. Every one fails a test now.
+    order brings it in), an id of 41 characters, an id with a line end after it, and a hand-written line
+    without an id beside a memory for every video that the file lists too (the last one in the commit after
+    6145499, which changes tests only). The 26 of the round before were run again on this code, three of them
+    with the text this round changed. Every one fails a test now.
   - These fixes were not read by another reviewer, for the same reason there was one reviewer and not four.
     They rest on the tests written first, on the breakages above and on the full suites.
   - Docs: CLIPFORGE_AI.md (which of a brain file's memories count against each other, its ids, `enabled`, the
