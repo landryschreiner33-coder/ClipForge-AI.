@@ -143,7 +143,7 @@ export default function LocalMakersSettings() {
     <>
       <section className="panel" aria-labelledby="lm-what"><h2 id="lm-what">Pictures, video and voice on this computer</h2>
         <p className="small">ClipForge can make pictures, short video clips and voice-overs itself, on this computer, for free:
-          the animated-shorts maker and ClipForge AI use them. Pictures and clips are made by ComfyUI, a free, open-source
+          the animated-shorts maker uses them. Pictures and clips are made by ComfyUI, a free, open-source
           program, with models whose licences allow commercial use. The voice runs inside ClipForge. Once downloaded,
           nothing goes online and nothing you make leaves the computer.</p>
         {(["image", "video", "voice"] as EngineRole[]).map((r) => (
@@ -240,7 +240,9 @@ export default function LocalMakersSettings() {
             note, and goes when the short is deleted.</li>
           <li>ComfyUI {c.version} is GPL-3.0 open source (<a href={c.source} target="_blank" rel="noreferrer">its source</a>). It
             runs as a separate program that ClipForge talks to on this computer only.</li>
-          <li>Each download has a fixed address, size and checksum. A file that does not match is deleted and never used.</li>
+          <li>Each model, the voice and ComfyUI itself have a fixed address, size and checksum: a file that does not match
+            is deleted and never used. The parts ComfyUI runs on (its Python, PyTorch and their packages) are fixed
+            versions that uv checks as it downloads them.</li>
         </ul>
       </Disclosure>
 
