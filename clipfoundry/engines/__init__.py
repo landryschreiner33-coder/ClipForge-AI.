@@ -149,9 +149,19 @@ def _remote_view(cloud: dict | None, settings: dict) -> dict:
     """The cloud computer for Settings (never its key: only whether one is kept)."""
     view = dict(cloud) if cloud else {"url": str(settings.get("engines_remote_url") or ""), "base": None, "why": "",
                                       "host": "", "gpu": "", "vram_mb": 0, "ram_mb": 0, "version": "", "device": ""}
-    view["key_set"] = bool(settings.get("engines_remote_key"))
+    view["key_set"] = bool(settings.get("engines_remote_key")) or _key_kept()
     view["found"] = view.pop("base", None)
     return view
+
+
+def _key_kept() -> bool:
+    """Whether a cloud key is stored, even one this computer cannot read right now (a locked Keychain)."""
+    from .. import db
+
+    try:
+        return db.setting_kept("engines_remote_key")
+    except Exception:  # noqa: BLE001 - the page still shows the rest
+        return False
 
 
 def connect_remote(url: str, key: str | None = None) -> dict:
@@ -160,16 +170,22 @@ def connect_remote(url: str, key: str | None = None) -> dict:
     from .. import db
     from . import makers, remote
 
+    from .. import config
+
     before = _settings()
     patch: dict = {"engines_comfyui": "remote", "engines_remote_url": remote.normalize(url)}
     note = ""
     if key is not None:
         patch["engines_remote_key"] = remote.clean_key(key)
-    elif before.get("engines_remote_key") and _host(before.get("engines_remote_url")) != \
-            _host(patch["engines_remote_url"]):
-        patch["engines_remote_key"] = ""  # a key is only ever sent to the computer it was typed for
+    elif _origin(before.get("engines_remote_url")) != _origin(patch["engines_remote_url"]) and (
+            before.get("engines_remote_key") or _key_kept()):
+        # a key is only ever sent to the computer it was typed for: it goes even when it cannot be read right now
+        # (a locked Keychain), or it would reach the new address once the Keychain is unlocked
+        patch["engines_remote_key"] = ""
         note = ("The key you saved was for another address, so ClipForge removed it. If this cloud computer needs "
                 "one, enter it again.")
+    if set(config.validate_settings(patch)) != set(patch):  # all of it or nothing (never a new address, old key)
+        raise EngineError("ClipForge cannot keep that address or key. Copy it again from RunPod.")
     db.save_settings(patch)
     makers.forget_found()
     view = overview()
@@ -178,10 +194,17 @@ def connect_remote(url: str, key: str | None = None) -> dict:
     return view
 
 
-def _host(url) -> str:
-    from . import remote
+def _origin(url) -> tuple:
+    """Which computer an address reaches: scheme, host and port (two tunnels on this computer at different ports reach
+    different computers, so a key typed for one is never sent to the other)."""
+    from urllib.parse import urlsplit
 
-    return remote.host(str(url or "")).lower()
+    try:
+        parts = urlsplit(str(url or ""))
+        scheme = parts.scheme.lower()
+        return scheme, (parts.hostname or "").lower(), parts.port or {"https": 443, "http": 80}.get(scheme)
+    except ValueError:
+        return ("", str(url or ""), None)
 
 
 def remote_command(model_id: str, agreed: bool = False) -> dict:

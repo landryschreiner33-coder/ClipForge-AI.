@@ -27,8 +27,23 @@ ClipForge to it). Branch `claude/project-thread-64dck1` from the release line at
   keys are printable ASCII; `makers.mode()` forgets the cloud registration in the local modes and the command route
   needs cloud mode; a job a restarted pod forgot ends in plain words (`LOST_CHECK_S`); a locked Mac Keychain is a 422
   with its message.
-- **Checks:** `tests/test_remote_engines.py` (38, with a stand-in RunPod proxy; real bash runs of the command; every
-  rule broken on purpose once); `scripts/local_engines_check.py --remote` on Linux and Mac (Linux, run 43507318631:
+- **Second review fixes:** `POST /api/engines/remote` answers the whole view with the trial (the "I ran it: check
+  again" button blanked the page); the shorts door (`makers/local_engines.status`) passes `remote` on; questions to
+  the pod (`Comfy._get`) are retried on gateway answers and dropped connections, and a model or node list the pod's
+  proxy answered for raises plain words (`model_files`, `missing_nodes`, `models._listed`) instead of reading as
+  "not on it yet"; the note names the model that made the file; a job re-reads Settings when its turn comes and
+  stops if another ComfyUI was chosen; a new address drops a kept key even when a locked Keychain cannot read it,
+  `key_set` counts a kept unreadable key, and an address and key are saved together or not at all (addresses over
+  300 characters are refused, never cut); the address is `********` in `GET /api/settings`
+  (`config.UNSHOWN_KEYS`), `GET /api/engines` is this computer only, and status words and errors never name the
+  address; a key box with only spaces or a too-long key says so; the command dialog drops answers for a closed
+  dialog and shows that it is asking; the check script picks the smallest file ComfyUI does not list yet.
+  A third, smaller review: a job's history is asked once per look (retries had stretched Stop and `LOST_S`); RunPod's
+  404 for a pod stopped since the check reads as the pod being gone (`Comfy._down`), not as missing models or nodes;
+  the note's label is worked out inside the job's turn; a kept key also goes when only the port changes.
+- **Checks:** `tests/test_remote_engines.py` (51, with a stand-in RunPod proxy; real bash runs of the command; every
+  rule broken on purpose once, the later reviews' 28 rules too); a browser run of the cloud panel (Save and check,
+  the command dialog, "I ran it: check again", closing while it asks); `scripts/local_engines_check.py --remote` on Linux and Mac (Linux, run 43507318631:
   the command fetched Z-Image's smallest file from Hugging Face and ComfyUI listed it, and a real FLUX.2 klein picture
   was made in cloud mode in 169 s). Fast suite 2,644 passed, 7 skipped.
 

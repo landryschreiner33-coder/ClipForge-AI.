@@ -36,7 +36,7 @@ def _fail(exc: EngineError) -> HTTPException:
     return HTTPException(409, str(exc))
 
 
-@router.get("/api/engines")
+@router.get("/api/engines", dependencies=[Depends(local_only)])  # it names the cloud computer's address
 def engines_view() -> dict:
     _desktop()
     from . import overview
@@ -65,8 +65,8 @@ def engines_remote(body: dict[str, Any]) -> dict:
     key = body.get("key")
     if key is not None and not isinstance(key, str):
         raise HTTPException(422, "The key must be text.")
-    try:
-        return connect_remote(str(body.get("url") or ""), key)
+    try:  # the same view as GET /api/engines (with the trial), since the page puts it straight in its state
+        return {**connect_remote(str(body.get("url") or ""), key), "trial": trial_view()}
     except (EngineError, secure.SecretError) as exc:  # SecretError: a Mac's locked Keychain could not seal the key
         raise HTTPException(422, str(exc)) from exc
 

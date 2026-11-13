@@ -136,11 +136,18 @@ class Comfy:
         self.trust_env = self.remote and not local_address(self.base)
 
     def _unreachable(self, exc: Exception) -> EngineError:
-        if self.remote:
-            host = urlsplit(self.base).hostname or self.base
-            return EngineError(f"Your cloud computer ({host}) did not answer ({exc.__class__.__name__}). Check in "
-                               "RunPod that it is still on, then try again.")
+        if self.remote:  # its address is not named: these words reach pages (a short's scene) that need not know it
+            return EngineError(f"Your cloud computer did not answer ({exc.__class__.__name__}). Check in RunPod that "
+                               "it is still on, then try again.")
         return EngineError(f"ComfyUI at {self.base} did not answer ({exc.__class__.__name__}).")
+
+    def _down(self) -> EngineError | None:
+        """For a cloud computer that answered a question oddly (RunPod's proxy answers 404 for a pod that was just
+        stopped): what is wrong with it, in Settings' words, when its ComfyUI no longer answers; None when it does."""
+        from . import remote
+
+        view = remote._probe(self.base)  # noqa: SLF001 - the same check and words as Settings
+        return None if view.get("base") else EngineError(view.get("why") or "Your cloud computer did not answer.")
 
     def _gateway(self, r: httpx.Response) -> str:
         """Plain words for a cloud computer's proxy answering in place of ComfyUI ("" for any other answer)."""
@@ -155,12 +162,25 @@ class Comfy:
         return ""
 
     # ------------------------------------------------------------------ plain requests
-    def _get(self, path: str, **params) -> httpx.Response:
-        try:
-            return httpx.get(self.base + path, params=params or None, timeout=self.timeout, trust_env=self.trust_env,
-                             headers=self.headers)
-        except httpx.HTTPError as exc:
-            raise self._unreachable(exc) from exc
+    def _get(self, path: str, *, once: bool = False, **params) -> httpx.Response:
+        """A question to ComfyUI. A cloud computer whose proxy answers for ComfyUI for a moment, or that drops the
+        connection, is asked again (RETRIES), so a hiccup is not read as "it has no such model". `once`: asked once
+        (a job's history: wait() waits outages out itself, LOST_S, and checks Stop between questions)."""
+        tries = 1 if once else self._tries()
+        for n in range(1, tries + 1):
+            try:
+                r = httpx.get(self.base + path, params=params or None, timeout=self.timeout,
+                              trust_env=self.trust_env, headers=self.headers)
+            except httpx.HTTPError as exc:
+                if n < tries:
+                    time.sleep(RETRY_WAIT_S * n)
+                    continue
+                raise self._unreachable(exc) from exc
+            if r.status_code in GATEWAY and n < tries:
+                time.sleep(RETRY_WAIT_S * n)
+                continue
+            return r
+        raise AssertionError("unreachable")  # pragma: no cover - the last try returns or raises
 
     def _post(self, path: str, body: dict | None = None, **kwargs) -> httpx.Response:
         try:
@@ -189,10 +209,15 @@ class Comfy:
             return False
 
     def missing_nodes(self, classes: list[str]) -> list[str]:
-        """The node types of `classes` this ComfyUI does not have."""
+        """The node types of `classes` this ComfyUI does not have. A cloud computer whose proxy did not let ComfyUI
+        answer (or that said no) raises EngineError in plain words: that is not a missing node."""
         missing = []
         for cls in dict.fromkeys(classes):
             r = self._get(f"/object_info/{quote(cls, safe='')}")
+            if r.status_code != 200 and self.remote:  # ComfyUI answers 200 ({} for a node it lacks): not ComfyUI
+                raise EngineError(self._gateway(r)) if self._gateway(r) else self._down() or EngineError(
+                    f"Your cloud computer's ComfyUI did not say whether it has {cls} (it answered {r.status_code}). "
+                    "Try again in a minute.")
             try:
                 found = r.status_code == 200 and cls in (r.json() or {})
             except ValueError:
@@ -203,9 +228,18 @@ class Comfy:
 
     def model_files(self, folder: str) -> list[str] | None:
         """The files ComfyUI sees in one model folder (diffusion_models, text_encoders, vae...); None when this
-        ComfyUI cannot list them."""
+        ComfyUI cannot list them. A cloud computer whose proxy did not let ComfyUI answer (or that said no) raises
+        EngineError in plain words instead: that does not mean it has no models."""
         r = self._get(f"/models/{quote(folder, safe='')}")
         if r.status_code != 200:
+            if self.remote and self._gateway(r):
+                raise EngineError(self._gateway(r))
+            if self.remote and r.status_code == 404:
+                # either ComfyUI not knowing that folder (an older one: None, as on this computer) or RunPod's proxy
+                # for a pod that was just stopped: the cloud computer is checked again to tell which
+                down = self._down()
+                if down:
+                    raise down
             return None
         try:
             names = r.json()
@@ -340,7 +374,7 @@ class Comfy:
     def _remote_history(self, prompt_id: str) -> tuple[dict | None, bool]:
         """(the history entry or None, whether the cloud computer answered at all)."""
         try:
-            r = self._get(f"/history/{quote(prompt_id, safe='')}")
+            r = self._get(f"/history/{quote(prompt_id, safe='')}", once=True)
             if r.status_code != 200:
                 return None, False
             return (r.json() or {}).get(prompt_id), True

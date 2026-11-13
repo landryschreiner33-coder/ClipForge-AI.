@@ -180,8 +180,11 @@ def status(role: str, settings: dict) -> dict:
         cloud = remote.check(settings)
         if not cloud["base"]:
             return {"ready": False, "engine": "", "why": cloud["why"], "remote": True}
-        label = f"ComfyUI on your cloud computer ({cloud['gpu'] or cloud['host']})"
-        model = chosen(role, settings, cloud["base"])
+        label = engine_label(settings, cloud["base"])
+        try:
+            model = chosen(role, settings, cloud["base"])
+        except EngineError as exc:  # it answered the check, then not the question about its models
+            return {"ready": False, "engine": label, "why": str(exc), "remote": True}
         if not model:
             return {"ready": False, "engine": label, "remote": True,
                     "why": f"Your cloud computer has none of the models ClipForge uses for {what} yet: put one on it "
@@ -193,19 +196,33 @@ def status(role: str, settings: dict) -> dict:
                                                           "voice)."}
         model = chosen(role, settings)
         if not model:
-            return {"ready": False, "engine": "ClipForge's ComfyUI",
+            return {"ready": False, "engine": engine_label(settings, None),
                     "why": f"Download a model for {what} in Settings, Pictures, video, voice."}
-        return {"ready": True, "engine": f"ClipForge's ComfyUI · {model.name}", "why": "", "model": model.id}
+        return {"ready": True, "engine": f"{engine_label(settings, None)} · {model.name}", "why": "", "model": model.id}
     base = find_app(settings)
     if not base:
         return {"ready": False, "engine": "", "why": "ComfyUI is not running. Open the ComfyUI app, or choose "
                                                       "ClipForge's own ComfyUI in Settings."}
     model = chosen(role, settings, base)
     if not model:
-        return {"ready": False, "engine": f"ComfyUI at {base}",
+        return {"ready": False, "engine": engine_label(settings, base),
                 "why": f"That ComfyUI has none of the models ClipForge uses for {what}. Download one in Settings, "
                        "Pictures, video, voice."}
-    return {"ready": True, "engine": f"ComfyUI at {base} · {model.name}", "why": "", "model": model.id}
+    return {"ready": True, "engine": f"{engine_label(settings, base)} · {model.name}", "why": "", "model": model.id}
+
+
+def engine_label(settings: dict, base: str | None) -> str:
+    """Which ComfyUI makes it, in words for the pages and the note next to each file. A cloud computer is named by its
+    graphics card, never by its address: whoever has the address can use it, and these words reach other pages."""
+    m = mode(settings)
+    if m == "remote":
+        from . import remote
+
+        gpu = remote.check(settings).get("gpu") or ""
+        return f"ComfyUI on your cloud computer ({gpu})" if gpu else "ComfyUI on your cloud computer"
+    if m == "clipforge":
+        return "ClipForge's ComfyUI"
+    return f"ComfyUI at {base}"
 
 
 # ------------------------------------------------------------------ making things
@@ -242,8 +259,9 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
     cancel = cancel or (lambda: False)
     settings = _settings()
     started = time.time()
+    was = mode(settings)
     try:
-        if mode(settings) == "remote":  # this computer's graphics card is not used: wait only for other cloud jobs
+        if was == "remote":  # this computer's graphics card is not used: wait only for other cloud jobs
             from . import remote
 
             hold = remote.turn(cancel, progress, float(settings.get("gpu_wait_minutes") or 20) * 60)
@@ -251,7 +269,13 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
             hold = _gpu("picture maker" if role == "image" else "video maker", note.get("prompt", ""), cancel,
                         progress)
         with hold, comfy_server.job():
+            # the person may have chosen another ComfyUI (or another cloud computer) while this waited for its turn:
+            # the job goes where Settings says now, and never back to a cloud computer that is no longer chosen
+            settings = _settings()
+            if mode(settings) != was:
+                raise EngineError("The ComfyUI in Settings changed while this waited for its turn. Make it again.")
             base = base_url(settings, progress, cancel)
+            label = engine_label(settings, base)  # from the check that sent it here (never asked after its turn)
             model = chosen(role, settings, base)
             if model is None:
                 raise EngineError(status(role, settings).get("why") or "No model is set up for this.")
@@ -292,7 +316,8 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
         raise EngineError(f"Making the {kind} failed ({exc.__class__.__name__}: {str(exc)[:200]}).") from exc
     info = {**note, **extra, "model": model.id, "model_name": model.name, "maker": model.maker,
             "licence": model.licence, "licence_url": model.licence_url, "rule": model.rule,
-            "engine": status(role, settings).get("engine"), "seconds_taken": round(time.time() - started, 1),
+            "engine": f"{label} · {model.name}",  # the one that made it, not asked again
+            "seconds_taken": round(time.time() - started, 1),
             "made_at": time.time(), "file": dest.name}
     dest.with_suffix(".json").write_text(json.dumps(info, indent=1), encoding="utf-8")
     return dest, info

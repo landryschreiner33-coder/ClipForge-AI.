@@ -276,7 +276,8 @@ def test_the_check_says_what_is_wrong(cloud, fake_comfy, monkeypatch):
     view = remote.check({"engines_remote_url": cloud.url, "engines_remote_key": "wrong"}, max_age=0)
     assert view["base"] is None and "said no" in view["why"]
     view = remote.check({"engines_remote_url": "http://127.0.0.1:9"}, max_age=0)
-    assert view["base"] is None and "Nothing answered at 127.0.0.1" in view["why"]
+    assert view["base"] is None and "Nothing answered at the address you saved" in view["why"]
+    assert "127.0.0.1" not in view["why"]  # these words reach other pages: never the address itself
     files = FileServer({"/system_stats": b"<html>JupyterLab</html>"})
     try:
         view = remote.check({"engines_remote_url": files.url}, max_age=0)
@@ -484,6 +485,205 @@ def test_the_job_says_what_is_wrong_before_sending_anything(cloud_settings, clou
     assert not fake_comfy.prompts
 
 
+def test_a_hiccup_while_asking_which_models_it_has_is_waited_out(cloud_settings, cloud, fake_comfy,
+                                                                   no_local_graphics):
+    """One gateway answer or dropped connection on a question is asked again: it never reads as "not on it yet"."""
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    cloud.gateway["/models/"] = 1
+    cloud.drop["/models/"] = 1
+    assert engines.status("image")["ready"]
+    makers.forget_found()
+    cloud.gateway["/models/"] = 1
+    cloud.gateway["/object_info/"] = 1
+    cloud.drop["/object_info/"] = 1
+    path = engines.make_image("a cat")
+    assert makers.png_size(path)[0] > 0 and len(fake_comfy.prompts) == 1
+
+
+def test_a_cloud_computer_that_does_not_say_which_models_it_has_says_so(cloud_settings, cloud, fake_comfy, monkeypatch,
+                                                                        no_local_graphics):
+    """It answered the check, then never a question about its models (it is stopping): plain words, not "put a model
+    on it", and nothing is sent."""
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    assert engines.status("image")["ready"]  # the check is answered (and kept for a while)
+    cloud.gateway["/models/"] = 1000
+    st = engines.status("image")
+    assert not st["ready"] and st["remote"] and "did not pass the request on" in st["why"]
+    with pytest.raises(EngineError, match="did not pass the request on"):
+        engines.make_image("a cat")
+    cloud.gateway["/models/"] = 0
+    cloud.gateway["/object_info/"] = 1000  # the models answer, the nodes do not: not "this ComfyUI lacks ..."
+    with pytest.raises(EngineError, match="did not pass the request on"):
+        engines.make_image("a cat")
+    assert not fake_comfy.prompts
+    by = {m["id"]: m for m in engines.overview()["models"]}  # the Settings page still opens
+    assert set(by) >= {"flux2-klein-4b", "z-image-turbo"}
+
+
+def test_a_pod_stopped_after_the_check_is_not_read_as_missing_models(cloud_settings, cloud, fake_comfy,
+                                                                    no_local_graphics):
+    """RunPod's proxy answers 404 for a stopped pod: while the check still says it is there, its model and node lists
+    come back as 404 too. That says the pod is gone, never "put a model on it" or "this ComfyUI lacks ..."."""
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    assert engines.status("image")["ready"]  # the check is answered (and kept for a while)
+    cloud.state = "off"
+    st = engines.status("image")
+    assert not st["ready"] and "none of the models" not in st["why"] and "answered 404" in st["why"]
+    real = comfy.Comfy.missing_nodes
+    try:  # the models answer, then the pod stops before the nodes are asked about
+        def stopped_before_the_nodes(self, classes):
+            cloud.state = "off"
+            return real(self, classes)
+
+        cloud.state = "on"
+        comfy.Comfy.missing_nodes = stopped_before_the_nodes
+        with pytest.raises(EngineError) as err:
+            engines.make_image("a cat")
+    finally:
+        comfy.Comfy.missing_nodes = real
+    assert "lacks" not in str(err.value) and "answered 404" in str(err.value) and not fake_comfy.prompts
+    # a ComfyUI that answers but does not know a model folder (an older one) still just has none there
+    cloud.state = "on"
+    comfy.use_remote(cloud.url, KEY)
+    assert comfy.Comfy(cloud.url).model_files("no_such_folder") is None
+
+
+def test_a_jobs_history_is_asked_once_each_time(cloud_settings, cloud, fake_comfy, monkeypatch, no_local_graphics):
+    """While a job runs, an outage is waited out by the job itself (LOST_S, with Stop looked at between questions):
+    each question about its history is asked once, so the give-up time and Stop are not stretched by retries."""
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    fake_comfy.polls_before_done = 10_000
+    monkeypatch.setattr(comfy, "LOST_S", 0.5)
+    monkeypatch.setattr(comfy, "RETRY_WAIT_S", 2.0)  # a retry of each history question would wait 2 s, then 4 s
+    real_submit = comfy.Comfy.submit
+
+    def submit_then_gateway(self, graph):
+        pid = real_submit(self, graph)
+        cloud.state = "starting"  # the proxy answers 502 from now on
+        return pid
+
+    monkeypatch.setattr(comfy.Comfy, "submit", submit_then_gateway)
+    started = time.monotonic()
+    with pytest.raises(EngineError, match="stopped answering"):
+        engines.make_image("a cat")
+    assert time.monotonic() - started < 5
+
+
+def test_the_note_names_the_model_that_made_it(cloud_settings, cloud, fake_comfy, monkeypatch, no_local_graphics):
+    """Not whatever is chosen (or listed) after the job: the model is taken off the cloud computer while it works."""
+    from clipfoundry import engines
+
+    nvidia_stats(fake_comfy, monkeypatch)
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    real_submit = comfy.Comfy.submit
+
+    def submit_then_remove(self, graph):
+        pid = real_submit(self, graph)
+        for names in fake_comfy.models.values():
+            names.clear()
+        return pid
+
+    monkeypatch.setattr(comfy.Comfy, "submit", submit_then_remove)
+    path = engines.make_image("a cat")
+    note = json.loads(path.with_suffix(".json").read_text())
+    assert note["engine"] == "ComfyUI on your cloud computer (NVIDIA GeForce RTX 4090) · FLUX.2 klein 4B"
+    assert note["model"] == "flux2-klein-4b"
+
+
+def test_a_finished_job_does_not_bring_back_a_cloud_computer_no_longer_chosen(cloud_settings, cloud, fake_comfy,
+                                                                              monkeypatch, no_local_graphics):
+    """The person chose this computer's ComfyUI while a cloud picture was being made: when it is done, nothing about
+    it (its note) asks the cloud computer again, which would hand its key out again."""
+    from clipfoundry import engines
+
+    monkeypatch.setattr(makers, "_settings", lambda: dict(cloud_settings))
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    real_download = comfy.Comfy.download
+
+    def download_then_switch(self, file, dest):
+        got = real_download(self, file, dest)
+        cloud_settings["engines_comfyui"] = "app"
+        makers.mode(cloud_settings)  # what any page reading Settings now does
+        remote.forget()
+        return got
+
+    monkeypatch.setattr(comfy.Comfy, "download", download_then_switch)
+    path = engines.make_image("a cat")
+    assert path.is_file() and comfy.remote_key(cloud.url) is None
+
+
+def test_a_job_waiting_for_its_turn_follows_settings_when_its_turn_comes(cloud_settings, cloud, fake_comfy,
+                                                                          monkeypatch, no_local_graphics):
+    """Another ComfyUI chosen while it waited: it stops, sends nothing, and the cloud computer's key is not taken
+    out again for it."""
+    from clipfoundry import engines
+
+    monkeypatch.setattr(makers, "_settings", lambda: dict(cloud_settings))  # each read is a copy, like the database's
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    got: dict = {}
+    remote._turn.acquire()  # noqa: SLF001 - another cloud job has the turn
+
+    def make() -> None:
+        try:
+            got["path"] = engines.make_image("a cat")
+        except EngineError as exc:
+            got["error"] = str(exc)
+
+    t = threading.Thread(target=make)
+    try:
+        t.start()
+        time.sleep(0.8)
+        cloud_settings["engines_comfyui"] = "app"  # the person chose the ComfyUI app meanwhile
+        makers.mode(cloud_settings)
+    finally:
+        remote._turn.release()  # noqa: SLF001
+    t.join(30)
+    assert "changed while this waited" in got.get("error", "") and not fake_comfy.prompts
+    assert comfy.remote_key(cloud.url) is None
+
+
+def test_other_pages_never_get_the_cloud_computers_address(cloud_settings, cloud, fake_comfy, monkeypatch):
+    """Whoever has the address can use the cloud computer: the words for other pages name it by its graphics card."""
+    from clipfoundry import engines
+    from clipfoundry.makers import local_engines
+
+    where = urlsplit(cloud.url).hostname
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    st = engines.status("image")
+    assert st["ready"] and st["engine"] == "ComfyUI on your cloud computer · FLUX.2 klein 4B"  # no graphics card named
+    cloud_settings["engines_remote_url"] = "http://127.0.0.1:9"  # nothing there
+    makers.forget_found()
+    st = engines.status("image")
+    assert not st["ready"] and where not in json.dumps(st)
+    with pytest.raises(EngineError) as err:
+        comfy.use_remote("http://127.0.0.1:9", KEY)
+        comfy.Comfy("http://127.0.0.1:9").history("p1")
+    assert "did not answer" in str(err.value) and where not in str(err.value)
+    # the shorts maker's door keeps saying it is the cloud computer (its pages say so instead of "on this computer")
+    cloud_settings["engines_remote_url"] = cloud.url
+    makers.forget_found()
+    door = local_engines.status("image")
+    assert door["ready"] and door["remote"] is True and where not in json.dumps(door)
+
+
+def test_the_shorts_maker_knows_its_pictures_come_from_the_cloud_computer(cloud_settings, cloud, fake_comfy):
+    from clipfoundry.makers import shorts
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    shorts._status_cache.clear()  # noqa: SLF001
+    view = shorts._engines()  # noqa: SLF001 - what the shorts pages get
+    assert view["image"]["ready"] and view["image"]["remote"] is True and view["voice"]["remote"] is False
+    shorts._status_cache.clear()  # noqa: SLF001
+
+
 def test_cloud_jobs_take_turns(monkeypatch):
     from clipfoundry.pipeline.common import Cancelled
 
@@ -535,6 +735,8 @@ def test_settings_connects_a_cloud_computer(client, cloud, fake_comfy, monkeypat
     r = client.post("/api/engines/remote", json={"url": cloud.url + "/", "key": KEY}, headers=APP)
     assert r.status_code == 200
     d = r.json()
+    # the page puts this answer straight in its state ("I ran it: check again"): the whole view, trial and all
+    assert {"state", "role", "progress"} <= set(d["trial"]) and set(client.get("/api/engines").json()) <= set(d)
     s = db.get_settings()
     assert s["engines_comfyui"] == "remote" and s["engines_remote_url"] == cloud.url and s["engines_remote_key"] == KEY
     rv = d["comfyui"]["remote"]
@@ -592,6 +794,16 @@ def test_a_key_is_only_sent_to_the_address_it_was_typed_for(client, cloud, fake_
     assert db.get_settings()["engines_remote_key"] == "" and "another address" in d["note"]
     assert not d["comfyui"]["remote"]["key_set"] and "said no" in d["comfyui"]["remote"]["why"]
     assert len(cloud.seen) > before and not any(auth for _m, _p, auth in cloud.seen[before:])
+    # the same computer name at another port (two tunnels on this computer): another computer, so no key either
+    client.post("/api/engines/remote", json={"url": cloud.url, "key": KEY}, headers=APP)
+    other = CloudProxy(fake_comfy.url)
+    try:
+        assert urlsplit(other.url).hostname == urlsplit(cloud.url).hostname
+        d = client.post("/api/engines/remote", json={"url": other.url}, headers=APP).json()
+        assert db.get_settings()["engines_remote_key"] == "" and "another address" in d["note"]
+        assert other.seen and not any(auth for _m, _p, auth in other.seen)
+    finally:
+        other.stop()
 
 
 def test_choosing_this_computer_again_forgets_the_cloud_computer(client, cloud, fake_comfy):
@@ -608,6 +820,73 @@ def test_choosing_this_computer_again_forgets_the_cloud_computer(client, cloud, 
     r = client.get("/api/engines/remote/command", params={"model": "flux2-klein-4b"})
     assert r.status_code == 409 and "A cloud computer" in r.json()["detail"]
     assert comfy.remote_key(cloud.url) is None
+
+
+def test_a_key_that_cannot_be_read_still_stays_with_its_address(client, cloud, fake_comfy, monkeypatch):
+    """A locked Keychain cannot open the kept key: Settings still says one is kept, and a new address still drops it
+    (or the old key would reach the new address once the Keychain is unlocked)."""
+    from clipfoundry import db, secure
+
+    client.post("/api/engines/remote", json={"url": cloud.url, "key": KEY}, headers=APP)
+
+    def locked(text):
+        raise secure.SecretError("macOS Keychain is locked.")
+
+    monkeypatch.setattr(secure, "unseal", locked)
+    assert db.get_settings()["engines_remote_key"] == ""  # cannot be read right now
+    assert client.get("/api/engines").json()["comfyui"]["remote"]["key_set"]  # but it is kept
+    port = urlsplit(cloud.url).port
+    d = client.post("/api/engines/remote", json={"url": f"http://localhost:{port}"}, headers=APP).json()
+    assert "another address" in d["note"] and not db.setting_kept("engines_remote_key")
+    monkeypatch.undo()
+    assert db.get_settings()["engines_remote_key"] == ""
+
+
+def test_an_address_clipforge_cannot_keep_whole_is_not_kept_in_part(client, cloud):
+    from clipfoundry import db
+
+    client.post("/api/engines/remote", json={"url": cloud.url, "key": KEY}, headers=APP)
+    long = "a" * 60 + "." + "b" * 60 + "." + "c" * 60 + "." + "d" * 60 + "." + "e" * 40 + ".example.com"
+    assert len(long) <= 300 < len("https://" + long)
+    with pytest.raises(EngineError, match="cannot keep that address"):
+        remote.normalize(long)
+    assert config.validate_settings({"engines_remote_url": "https://" + long}) == {}  # never cut short
+    r = client.post("/api/engines/remote", json={"url": long}, headers=APP)
+    assert r.status_code == 422
+    s = db.get_settings()
+    assert s["engines_remote_url"] == cloud.url and s["engines_remote_key"] == KEY
+    # whatever the address turns into, Settings keeps all of the change or none of it (never a new address with
+    # the old key, or the old address with a new key)
+    real = remote.normalize
+    try:
+        remote.normalize = lambda text: "https://" + "a" * 400
+        r = client.post("/api/engines/remote", json={"url": "elsewhere", "key": "new-key"}, headers=APP)
+    finally:
+        remote.normalize = real
+    assert r.status_code == 422
+    s = db.get_settings()
+    assert s["engines_remote_url"] == cloud.url and s["engines_remote_key"] == KEY
+
+
+def test_pages_other_sites_could_read_do_not_show_the_cloud_address(client, cloud, fake_comfy):
+    """A page on another site that tricks the browser into asking this app (its name pointed at this computer) gets
+    neither the address nor the view that names it."""
+    client.post("/api/engines/remote", json={"url": cloud.url, "key": KEY}, headers=APP)
+    s = client.get("/api/settings").json()
+    assert s["engines_remote_url"] == "********" and s["engines_remote_key"] == "********"
+    assert cloud.url not in json.dumps(s)
+    assert client.get("/api/engines", headers={"Host": "rebound.example:8765"}).status_code == 403
+    assert client.get("/api/engines").json()["comfyui"]["remote"]["url"] == cloud.url  # its own page still can
+    client.put("/api/settings", json=s)  # a page saving back what it read changes nothing
+    assert client.get("/api/engines").json()["comfyui"]["remote"]["url"] == cloud.url
+
+
+def test_a_key_box_with_only_spaces_or_too_much_says_so():
+    with pytest.raises(EngineError, match="only spaces"):
+        remote.clean_key("\u3000\xa0")  # spaces that look like nothing: not "remove the key"
+    with pytest.raises(EngineError, match="too long"):
+        remote.clean_key("k" * (remote.MAX_KEY + 1))
+    assert remote.clean_key("") == ""  # Remove key
 
 
 @pytest.mark.parametrize("key", ["tok\u200ben", "\ufefftoken", "tok\x80en", "tökén", "name:pässword"])

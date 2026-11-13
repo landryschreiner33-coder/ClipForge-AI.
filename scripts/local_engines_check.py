@@ -568,13 +568,16 @@ def remote_command(run: Run, report: dict) -> None:
     res: dict = {}
     report["remote_command"] = res
     _use_cloud(run.base)
-    pairs = [(m, f) for m in catalog.MODELS if m.role != "voice" for f in m.files]
+    seen: dict = {}
+    # the smallest file ComfyUI does not list yet (--picture may already have put the smallest one there)
+    pairs = [(m, f) for m in catalog.MODELS if m.role != "voice" for f in m.files
+             if models._match(f, models._listed(run.base, f.folder, seen)) is None]  # noqa: SLF001
+    if not pairs:
+        raise RuntimeError("ComfyUI already lists every model file: nothing left for the command to put there")
     m, f = min(pairs, key=lambda mf: mf[1].size)
     folders = remote.remote_folders(run.base)
     command = remote.download_command(m, [f], folders)
     res.update(model=m.id, file=f.name, folder=f.folder, bytes=f.size, into=folders.get(f.folder))
-    if f.name in (models._listed(run.base, f.folder, {}) or []):  # noqa: SLF001
-        raise RuntimeError(f"{f.name} is already in ComfyUI's {f.folder} folder before the check")
     started = time.time()
     out = subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=3600)
     res.update(seconds=round(time.time() - started, 1), exit=out.returncode, said=out.stdout[-1500:],

@@ -29,6 +29,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from .. import config
 from . import Cancel, EngineError, Progress, catalog
 from .comfy import GATEWAY, Comfy, local_address, use_remote
 
@@ -89,14 +90,21 @@ def normalize(text: str) -> str:
     # ComfyUI's page itself is at "/"; its address in a browser can end in a page name or ?/# parts: not part of it
     if path.lower().endswith((".html", "/index")):
         path = path.rsplit("/", 1)[0]
-    return urlunsplit((scheme, netloc, path, "", ""))
+    out = urlunsplit((scheme, netloc, path, "", ""))
+    if len(out) > 300 or not config._remote_url_ok(out):  # noqa: SLF001 - exactly what Settings keeps
+        raise EngineError("ClipForge cannot keep that address. Copy it again from RunPod (Connect, port 8188).")
+    return out
 
 
 def clean_key(text: str) -> str:
     """The key as it is kept (sealed like a password, secure.py): "" removes it. It is sent in a header as it is, so
     only printable ASCII: letters, digits and the symbols on a US keyboard."""
     key = (text or "").strip()
-    if len(key) > MAX_KEY or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in key):
+    if text and not key:  # only spaces (or a space that looks like nothing): not "remove the key"
+        raise EngineError("The key box has only spaces in it. Paste the key, or press Remove key.")
+    if len(key) > MAX_KEY:
+        raise EngineError(f"That key is too long (a key has at most {MAX_KEY} letters). Copy only the key.")
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in key):
         raise EngineError("Paste only the key, on one line, without spaces.")
     if any(not 33 <= ord(c) <= 126 for c in key):
         raise EngineError("The key has a letter ClipForge cannot send (like é, or an invisible character copied with "
@@ -154,13 +162,13 @@ def _probe(url: str) -> dict:
         r = httpx.get(client.base + "/system_stats", timeout=PROBE_TIMEOUT_S, trust_env=client.trust_env,
                       headers=client.headers, follow_redirects=False)
     except httpx.TimeoutException:
-        return {"why": f"Your cloud computer ({name}) took too long to answer. If you just started it, wait a minute "
-                       "and press Check again."}
+        return {"why": "Your cloud computer took too long to answer. If you just started it, wait a minute and press "
+                       "Check again."}
     except httpx.ConnectError:
-        return {"why": f"Nothing answered at {name}. Check that your cloud computer is on (in RunPod: Pods, then "
-                       "Start) and that the address is right."}
+        return {"why": "Nothing answered at the address you saved. Check that your cloud computer is on (in RunPod: "
+                       "Pods, then Start) and that the address is right."}
     except httpx.HTTPError as exc:
-        return {"why": f"Could not reach {name} ({exc.__class__.__name__}). Check the address."}
+        return {"why": f"Could not reach your cloud computer ({exc.__class__.__name__}). Check the address."}
     code = r.status_code
     if code in (401, 403):
         return {"why": f"Your cloud computer said no (it answered {code}). It may need a key, or the key here is not "

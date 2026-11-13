@@ -52,16 +52,20 @@ Keep the address to yourself: anyone who has it can use your cloud computer whil
 
 | ClipForge says | What it means | What to do |
 |---|---|---|
-| Nothing answered at … | The pod is off, or the address is wrong | Start the pod in RunPod (Pods, Start), wait, press Check again |
+| Nothing answered at the address you saved | The pod is off, or the address is wrong | Start the pod in RunPod (Pods, Start), wait, press Check again |
 | Your cloud computer is there, but its ComfyUI is not ready (it answered 502, 524 …) | The pod is starting, or ComfyUI on it is still loading | Wait a few minutes and press Check again |
 | RunPod has nothing running at this address | The pod was terminated, or the address is for another port | Copy the address again from Connect (port 8188) |
 | That address answers, but it is not ComfyUI … use the one for port 8188 | You copied another port's address (JupyterLab is 8888) | Copy the one for port 8188 |
-| Your cloud computer said no (it answered 401 or 403) | It wants a password or key, or the one kept is wrong | Open "Does it need a password?" and type it |
+| Your cloud computer said no (it answered 401 or 403) | It wants a password or key, or the one kept is wrong | Open "Does it need a password?" (it says "Key: kept on this computer" when one is kept) and type it |
 | Your cloud computer stopped answering for 3 minutes | It was stopped (or ran out of credit) while working | Start it again in RunPod; make the picture again |
 | Waiting for your cloud computer: it is making another picture or clip | Another picture or clip is being made | Nothing: it starts by itself when the other is done |
 
+| Your cloud computer did not pass the request on to ComfyUI (it answered 502 …) | It answered the check, then not a question about its models (it is stopping or starting) | Check in RunPod that it is on, wait a minute, press Check again |
+| The ComfyUI in Settings changed while this waited for its turn | You chose another ComfyUI while the picture waited | Make it again |
+
 Short hiccups (RunPod's gateway answering 502 or 524 for a moment, a dropped connection) are waited out and tried
-again by themselves.
+again by themselves, also when ClipForge asks which models the cloud computer has (so a hiccup never reads as "not on
+it yet").
 
 ## What goes to the cloud computer
 
@@ -82,7 +86,12 @@ again by themselves.
   for tests; no user name in the address), `engines_remote_key` (printable ASCII only, since it goes in a header as it
   is; sealed like the other secrets, shown as `********`). The address and key are `ACTION_ONLY_KEYS`: only
   `POST /api/engines/remote` (ClipForge's own page) sets them, never `PUT /api/settings`, so no other page can point
-  the key somewhere else; a new host drops the kept key. The local choices stay the default.
+  the key somewhere else; a new address (another host, scheme or port: two tunnels on this computer are two
+  computers) drops the kept key (even one a locked Keychain cannot read right now), and an
+  address and key are saved together or not at all. Whoever has the address can use the cloud computer, so it is
+  kept off the pages other sites could read: `GET /api/settings` shows it as `********` (`config.UNSHOWN_KEYS`),
+  `GET /api/engines` answers this computer only, and the words on other pages (a short's maker, its notes, its
+  errors) name the cloud computer by its graphics card, never by its address. The local choices stay the default.
 - **`clipfoundry/engines/remote.py`:** `normalize()` turns what was pasted (a bare pod ID, an address without
   https://, ComfyUI's page with `index.html`) into the address; `check()` asks `/system_stats` (cached 15 s, never
   raises) and turns every answer into plain words (the table above); `machine()` lets `makers.ranked/fit` pick the
@@ -99,6 +108,12 @@ again by themselves.
   nowhere else. For a cloud address only: uploads and downloads are tried again (3 times) on gateway answers and
   dropped connections; while waiting for a job, failures are waited out for up to 3 minutes (`LOST_S`) before it gives
   up in plain words; a graph is **never sent twice** (a retried `/prompt` could make it twice and charge twice).
+  Questions about which models and nodes it has are asked again on a gateway answer or a dropped connection too;
+  one that still gets no answer from ComfyUI (or RunPod's 404 for a pod stopped since the check) says so in plain
+  words instead of "not on it yet" or "this ComfyUI lacks ...". A job's history is asked once per look: the job
+  waits outages out itself (`LOST_S`) and looks at Stop between questions.
+  A job waiting for its turn checks Settings again when its turn comes and stops if another ComfyUI was chosen
+  meanwhile; the note next to each file names the model that made it, not whatever is chosen afterwards.
   A job the pod forgot (its ComfyUI restarted: the job is in neither its queue nor its history) ends in plain words
   instead of waiting out the time limit; it is looked for after an outage and every 30 s (`LOST_CHECK_S`), and the
   history is asked once more before calling it lost. `makers.mode()` forgets the cloud registration whenever another
@@ -113,7 +128,7 @@ again by themselves.
 
 ## How it was checked
 
-- `tests/test_remote_engines.py` (38 tests) with a stand-in that plays RunPod's proxy in front of the stand-in
+- `tests/test_remote_engines.py` (51 tests) with a stand-in that plays RunPod's proxy in front of the stand-in
   ComfyUI (on, starting, off; 502/524 gateway answers; dropped connections; a key): the address and key rules,
   the key going only to the cloud address (also on the websocket), every check message, a picture and a clip made on
   the cloud computer with the right model for a 24 GB card, hiccups waited out, a pod that stops answering, a job

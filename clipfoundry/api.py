@@ -213,7 +213,7 @@ def health() -> dict:
 @app.get("/api/settings")
 def get_settings() -> dict:
     s = db.get_settings()
-    for k in config.SECRET_KEYS:
+    for k in config.SECRET_KEYS | config.UNSHOWN_KEYS:
         s[k] = "********" if s.get(k) else ""
     return s
 

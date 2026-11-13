@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { EngineCloudCommand, EngineModel, EngineRole, engines, EnginesView } from "../studio";
 import { Banner, ConfirmDialog, Dialog, Disclosure, Icon, Pill, ProgressBar, Segmented, toast } from "./ui";
@@ -24,7 +24,9 @@ export default function LocalMakersSettings() {
   const [cloudUrl, setCloudUrl] = useState("");
   const [cloudKey, setCloudKey] = useState("");
   // "Put it on your cloud computer": the model, then (once agreed to its use rules, if it has any) the command
-  const [command, setCommand] = useState<null | { model: EngineModel; view: EngineCloudCommand | null; error: string }>(null);
+  const [command, setCommand] = useState<null | { model: EngineModel; view: EngineCloudCommand | null; error: string;
+    asking?: boolean }>(null);
+  const asked = useRef(0);  // an answer for a dialog that was closed (or asked again) is dropped
 
   const load = useCallback(async () => {
     try {
@@ -38,7 +40,7 @@ export default function LocalMakersSettings() {
     }
   }, []);
   useEffect(() => { void load().then((v) => { if (v) { setUrl(v.comfyui.url); setCloudUrl(v.comfyui.remote?.url || ""); } }); }, [load]);
-  const running = st?.task.state === "running" || st?.trial.state === "running";
+  const running = st?.task?.state === "running" || st?.trial?.state === "running";
   useEffect(() => {
     if (!running) return;
     const t = window.setInterval(() => { void load(); }, 1500);
@@ -145,21 +147,24 @@ export default function LocalMakersSettings() {
   const connect = (key?: string) => act(() => engines.connectCloud(cloudUrl.trim() || cloud?.url || "", key), (v) => {
     const r = v.comfyui.remote;
     if (r.url) setCloudUrl(r.url);
-    const said = r.found ? `Connected to your cloud computer${r.gpu ? ` (${r.gpu})` : ""}.` : "Saved. It did not answer yet: see below.";
+    const said = r.found ? `Connected to your cloud computer${r.gpu ? ` (${r.gpu})` : ""}.` : "Saved, but it is not connected yet: see below.";
     return v.note ? `${said} ${v.note}` : said;
   });
 
   const fetchCommand = async (m: EngineModel, agreed: boolean) => {
-    setCommand({ model: m, view: null, error: "" });
+    const n = ++asked.current;
+    setCommand({ model: m, view: null, error: "", asking: true });
     try {
-      setCommand({ model: m, view: await engines.cloudCommand(m.id, agreed), error: "" });
+      const view = await engines.cloudCommand(m.id, agreed);
+      if (asked.current === n) setCommand({ model: m, view, error: "" });
     } catch (e) {
-      setCommand({ model: m, view: null, error: errorText(e) });
+      if (asked.current === n) setCommand({ model: m, view: null, error: errorText(e) });
     }
   };
+  const closeCommand = () => { asked.current++; setCommand(null); };
   // a model with use rules shows them first; pressing "Agree and show the command" is agreeing to them
   const openCommand = (m: EngineModel) => {
-    if (m.rule) setCommand({ model: m, view: null, error: "" });
+    if (m.rule) { asked.current++; setCommand({ model: m, view: null, error: "" }); }
     else void fetchCommand(m, false);
   };
   const copyCommand = async (text: string) => {
@@ -169,11 +174,12 @@ export default function LocalMakersSettings() {
   const checkCommand = async (m: EngineModel) => {
     setBusy(true);
     try {
-      const v = await engines.connectCloud(cloud?.url || cloudUrl.trim());
+      const got = await engines.connectCloud(cloud?.url || cloudUrl.trim());
+      const v = { ...got, trial: got.trial ?? trial };  // the page's state needs the whole view
       setSt(v);
       const now = v.models.find((x) => x.id === m.id);
       if (now?.ready) {
-        setCommand(null);
+        closeCommand();
         toast(`${m.name} is on your cloud computer.`);
       } else {
         toast(v.comfyui.remote.found ? `${m.name} is not all there yet. Wait until the command says Done, then check again.`
@@ -271,7 +277,7 @@ export default function LocalMakersSettings() {
             and the picture a clip starts from, and gets back what it made. The voice still runs on this computer.</p>
           <p className="small">{cloud.found ? <><Pill tone="good" icon="check">Connected</Pill> {cloudName}
             {cloud.version ? ` · ComfyUI ${cloud.version}` : ""}{cloud.vram_mb ? ` · ${Math.round(cloud.vram_mb / 1024)} GB of graphics memory` : ""}</>
-            : <><Pill>{cloud.url ? "Not answering" : "Not connected"}</Pill> {cloud.url ? cloud.why : "Follow the steps below, then paste its address."}</>}</p>
+            : <><Pill>{cloud.url ? "Not connected yet" : "Not connected"}</Pill> {cloud.url ? cloud.why : "Follow the steps below, then paste its address."}</>}</p>
           {cloud.found && <Banner tone="warn" title="It costs money every hour it is on">Your cloud computer costs money for
             every hour it is on, even when ClipForge is not using it. When you finish, open RunPod and press Stop on your pod.
             Start it again next time (its address stays the same).</Banner>}
@@ -371,7 +377,8 @@ export default function LocalMakersSettings() {
             of each picture and clip it made, and of each picture a clip started from, in its output and input folders
             there, until you delete them or terminate the pod. ClipForge keeps what it gets back in engines/made here.</li>}
           <li>ComfyUI {c.version} is GPL-3.0 open source (<a href={c.source} target="_blank" rel="noreferrer">its source</a>). It
-            runs as a separate program that ClipForge talks to on this computer only.</li>
+            runs as a separate program that ClipForge talks to{cloud ? ": on your cloud computer, over the internet at the address you saved (the one ClipForge sets up on this computer is not used then)"
+              : " on this computer only"}.</li>
           <li>Each model, the voice and ComfyUI itself have a fixed address, size and checksum: a file that does not match
             is deleted and never used. The parts ComfyUI runs on (its Python, PyTorch and their packages) are fixed
             versions that uv checks as it downloads them.</li>
@@ -396,18 +403,18 @@ export default function LocalMakersSettings() {
             <p>About {gb(confirm.model?.download_bytes || 0)} to download.</p></>}
       </ConfirmDialog>}
 
-      {command && <Dialog wide title={`Put ${command.model.name} on your cloud computer`} onClose={() => setCommand(null)}
+      {command && <Dialog wide title={`Put ${command.model.name} on your cloud computer`} onClose={closeCommand}
         actions={command.view?.command ? <>
-          <button type="button" className="btn btn-quiet" onClick={() => setCommand(null)}>Close</button>
+          <button type="button" className="btn btn-quiet" onClick={closeCommand}>Close</button>
           <button type="button" className="btn" onClick={() => void copyCommand(command.view?.command || "")}><Icon name="copy" />Copy the command</button>
           <button type="button" className="btn" disabled={busy} onClick={() => void checkCommand(command.model)}>
             <Icon name="refresh" />I ran it: check again</button>
-        </> : !command.view && !command.error && command.model.rule ? <>
-          <button type="button" className="btn btn-quiet" onClick={() => setCommand(null)}>Cancel</button>
+        </> : !command.view && !command.error && !command.asking && command.model.rule ? <>
+          <button type="button" className="btn btn-quiet" onClick={closeCommand}>Cancel</button>
           <button type="button" className="btn" onClick={() => void fetchCommand(command.model, true)}>Agree and show the command</button>
-        </> : <button type="button" className="btn" onClick={() => setCommand(null)}>Close</button>}>
+        </> : <button type="button" className="btn" onClick={closeCommand}>{command.asking ? "Cancel" : "Close"}</button>}>
         {command.error ? <Banner tone="bad" title="No command">{command.error}</Banner>
-          : !command.view && command.model.rule ? <>
+          : !command.view && !command.asking && command.model.rule ? <>
             <p>{command.model.about} {command.model.name} is made by {command.model.maker} and comes under
               {" "}<a href={command.model.licence_url} target="_blank" rel="noreferrer">{command.model.licence}</a>.</p>
             <p><b>Its use rules:</b> {command.model.rule}</p>

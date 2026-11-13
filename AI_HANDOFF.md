@@ -16,7 +16,11 @@ hour.
   LocalMakers.tsx`, `studio.ts`, `shorts.ts`, `MakeShort.tsx`, `ShortScenes.tsx`.
 - **For other work:** a client for the cloud address gets its key from `comfy.remote_key(base)`; only one cloud
   address is registered at a time (`use_remote`, called by `remote.check`). Never retry `/prompt` (it would make and
-  charge twice). Pages that say where a picture is made should read `status(role)["remote"]`.
+  charge twice). Pages that say where a picture is made should read `status(role)["remote"]` (the shorts door passes
+  it on). Never put the cloud address in words other pages get (labels, whys, errors): `makers.engine_label` names
+  the pod by its graphics card. With the cloud computer, `models._listed` raises when the pod did not answer.
+- **Open follow-up (not this PR):** `GET /api/settings` and other read routes have no Host check, so a page that
+  points its own name at 127.0.0.1 (DNS rebinding) can read them; this PR only hid the cloud address there.
 - **Verify:** `python -m pytest -q tests/test_remote_engines.py tests/test_local_engines.py`; the fast and slow suites;
   the "Local makers check" workflow (by hand on this branch) with `--remote`.
 - **Not done:** a real RunPod pod (Landry's account, costs money), RunPod's current menus and template names, real
