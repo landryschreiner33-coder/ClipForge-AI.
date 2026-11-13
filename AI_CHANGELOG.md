@@ -1710,6 +1710,30 @@ The picture, video and voice engines themselves come from the local-engines work
   scene moved, added and deleted; 1440 and 390 px wide.
 - **Not checked here:** the real picture, video and voice engines, macOS `say`, Windows SAPI, ClipForge AI writing
   with a real model and the speech model's word times (none can run in the cloud computer).
+## Release 2026.11.07: ClipForge AI far smarter, long videos and the new look — 2026-11-07 (Claude Code)
+
+Landry wrote "publish the new changes". PR #32 was merged into the release line `claude/project-thread-x72wkd` as
+`d1547e3`; the release line's slow render suite then failed one test on that commit (the fast-paced "Edit it for me"
+got no punch-ins on an even synthetic voice, because punch-ins had moved to the moments where the voice leans on a
+word), so PR #33 fixed it (an even voice falls back to the every-other-cut rhythm; the note says which rule) and was
+merged into the release line as `95a70e0`, whose tree equals that of its head `8593947`. ClipForge 2026.11.07 was
+published for Mac and Windows from `8593947` with its version notes on the download page. Everything merged since 2026.11.06 is in it: PR #31 (long videos), PR #30
+(the new look), PR #32 (ClipForge AI far smarter) and PR #33. Every URL, size, hash and run:
+[docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+
+- **Mac:** release `clipforge-mac-2026-11-07-8593947`, the unchanged DMG from build and test run 42407317796 (macOS 15:
+  native build and bundled-app smoke passed; 1,969 fast tests passed, 2 skipped; 27 slow tests passed, 1 skipped), published by run 42409176722.
+- **Windows:** `ClipForge-Windows-Setup.zip` at `raw/055ede7` on `claude/clipforge-downloads` (49,199,526 bytes; 788
+  app files equal to the Git tree at 8593947 except the six declared CRLF exports; 77 launcher tests); Windows setup
+  check run 42408340705 installed 2026.11.06 and then this ZIP over it on a Windows Server 2025 runner; record commit
+  `7b3cd71`.
+- **Download page:** `gh-pages` `0a7f3f0`: 2026.11.06 moved to All versions; ten "what changed" entries
+  (newest work first), what was checked (the tests, the Mac build, the built-in AI check with the real meaning model
+  and the eyes on Linux, Mac and Windows runners, the FilmCraft check, the Windows install check) and what was not
+  (real footage with the built-in model, a 17 GB folder and real speech, the taste learner on real choices, the look
+  on a real screen, real AI keys, YouTube, Windows security, notarization).
+- **Lesson:** the PR checks do not run the release line's slow suite; espeak-ng can be installed on the cloud
+  computer (`apt-get update` first), so `python -m pytest -m slow` (27 passed, 1 skipped in 19 min) now runs there before a merge.
 
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code)
 
