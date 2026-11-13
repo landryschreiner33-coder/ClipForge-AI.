@@ -670,12 +670,12 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
         if music.get("how") == "library":
             if lease:
                 lease.progress(0.78, "Making the background music")
-            a = library.asset(project["workspace_id"], music["key"])
+            a = library.asset(project["workspace_id"], music["key"], project_id=project["id"])
             music["asset_id"] = a["id"]
             added.append(a)
         if opts["sound_effects"] and not off:
             for key in ("whoosh", "swish"):
-                lib[key] = library.asset(project["workspace_id"], key)
+                lib[key] = library.asset(project["workspace_id"], key, project_id=project["id"])
                 added.append(lib[key])
     except (OSError, ValueError, RuntimeError) as exc:  # the edit goes on without them, and says so
         ctx["library_problem"] = str(exc)[:200]

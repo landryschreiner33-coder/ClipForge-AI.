@@ -988,6 +988,13 @@ CREATE TABLE IF NOT EXISTS short_files (     -- every file an animated short's b
     PRIMARY KEY (project_id, asset_id)
 );
 CREATE INDEX IF NOT EXISTS idx_short_files_asset ON short_files(asset_id);
+CREATE TABLE IF NOT EXISTS asset_hand_outs (  -- a stored file handed out again, and to whom (studio/uploads._mark),
+    asset_id TEXT NOT NULL,                     -- for the hour a hand-out counts: deleting a project keeps a file
+    at REAL NOT NULL,                           -- only for a hand-out to someone else (project_delete._handed_out)
+    project_id TEXT DEFAULT '',                 -- the project whose own work stored the same bytes again,
+    upload_id TEXT DEFAULT ''                   -- or the upload (also a file added from this computer) that got it
+);
+CREATE INDEX IF NOT EXISTS idx_asset_hand_outs_asset ON asset_hand_outs(asset_id, at);
 -- ---------------------------------------------------------------- Clips → Full stories
 CREATE TABLE IF NOT EXISTS story_proposals (
     id TEXT PRIMARY KEY,
@@ -1279,6 +1286,7 @@ JSON_FIELDS = {
     "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script", "short", "setup"},
     "short_scenes": {"pictures", "info"},
     "short_files": set(),
+    "asset_hand_outs": set(),
     "edit_plans": {"plan", "meta"},
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},
@@ -1340,7 +1348,8 @@ ADDED_COLUMNS = {
     "uploads": {"taken": "TEXT DEFAULT ''"},
     # when ClipForge last handed out a stored file again (the same bytes uploaded, linked or stored once more): a
     # short's tidying leaves it alone for a while, so the one it was handed to can record it (studio/uploads.py),
-    # and a delete that started before it keeps it (studio/project_delete._handed_out)
+    # and a delete that started before it keeps it when it went to someone else (table asset_hand_outs says whom:
+    # studio/project_delete._handed_out)
     "assets": {"reused_at": "REAL DEFAULT 0"},
 }
 

@@ -14,6 +14,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from test_studio_shorts_flow import SCRIPT, _fresh, _make, _plan, _run, _scenes, env  # noqa: F401
 
 
@@ -199,6 +201,38 @@ def test_a_file_only_another_shorts_list_names_stays_until_that_short_lets_it_go
     assert _kept(both["id"]) and both["id"] in _listed(other)
     assert shorts._tidy_files(other, "local") == 1 and _gone(both)
 
+
+def test_a_file_tidied_away_takes_the_notes_of_whom_it_was_handed_out_to_with_it(env):
+    """A build that stores bytes already stored is handed the stored copy, with a note that it went to this short
+    (uploads._mark). When that copy is tidied away later, its notes go with it."""
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import uploads
+
+    pid = _make(env)["id"]
+    stray = _loose(env, "Scene 8", "maroon")
+    shorts._list_file(pid, "local", stray["id"])
+    assert uploads._reuse("local", stray["sha256"], project_id=pid)  # noqa: SLF001
+    with db.connect() as conn:  # handed out more than the hour a hand-out counts ago
+        conn.execute("UPDATE assets SET reused_at = reused_at - 7200 WHERE id = ?", (stray["id"],))
+        conn.execute("UPDATE asset_hand_outs SET at = at - 7200 WHERE asset_id = ?", (stray["id"],))
+    assert db.select("asset_hand_outs", "asset_id = ?", (stray["id"],))
+    assert shorts._tidy_files(pid, "local") == 1 and _gone(stray)
+    assert not db.select("asset_hand_outs", "asset_id = ?", (stray["id"],))
+
+def test_a_shorts_music_and_whoosh_are_handed_to_that_short(env):
+    """ClipForge's own music bed and whoosh are stored once; each later build of the short gets the stored copy,
+    noted as handed to that short, so deleting the short lets them go when nothing else uses them."""
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+
+    project = _make(env)
+    music = [shorts._music_item(project, {"music": "balanced"}, set()) for _ in range(2)]  # noqa: SLF001
+    whoosh = [shorts._whooshes(project, [{"id": "c1"}, {"id": "c2"}], set()) for _ in range(2)]  # noqa: SLF001
+    assert music[0]["asset_id"] == music[1]["asset_id"] and whoosh[0][0]["asset_id"] == whoosh[1][0]["asset_id"]
+    notes = db.select("asset_hand_outs", "1 = 1", ())
+    assert {n["asset_id"] for n in notes} == {music[0]["asset_id"], whoosh[0][0]["asset_id"]}
+    assert {n["project_id"] for n in notes} == {project["id"]}, notes
 
 def test_tidying_leaves_a_file_an_upload_of_the_same_bytes_was_just_given(env, monkeypatch):
     """The owner uploads bytes ClipForge already has as a short's stray file: the upload is given the stored copy
@@ -517,3 +551,37 @@ def test_the_answer_after_a_picture_was_used_again_during_the_delete_keeps_its_o
     assert any(line.endswith("stay in ClipForge because they were used again just now.") for line in out["stays"])
     for p in pictures:
         assert _kept(p["id"]) and (uploads.work_dir(p) / "maker.json").is_file()
+
+
+@pytest.mark.parametrize("card", [False, True])
+def test_a_shorts_own_build_storing_its_files_again_while_it_is_deleted_lets_them_go(env, card):
+    """The owner presses Make again on a scene and deletes the short while it is being made, from the Projects window
+    or with a ClipForge AI card shown days ago. The build stored the scene's clip again: the same bytes, so the same
+    copy, handed out again to the short itself. It is the short's own, so it goes with the short; before, it stayed
+    "used again just now" with nothing naming it, for good."""
+    import time
+
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import project_delete
+
+    pid = _make(env)["id"]
+    scene = _scenes(pid, _plan(pid))[0]
+    shown = project_delete.plan("local", pid, "full_video")
+    time.sleep(0.01)
+    # a new picture idea and Make again: the stand-in maker draws the same picture, so the same clip is made too
+    shorts.update_scene(_fresh(pid), scene["id"], {"picture_prompt": scene["picture_prompt"] + " at night",
+                                                   "again": True})
+    _run(env)
+    now = _scenes(pid, _plan(pid))[0]
+    clip, picture = db.fetch("assets", now["clip_asset_id"]), db.fetch("assets", now["picture_asset_id"])
+    assert clip["id"] == scene["clip_asset_id"] and clip["reused_at"] > shown["as_of"]  # the same copy, again
+    assert picture["id"] == scene["picture_asset_id"] and picture["reused_at"] > shown["as_of"]
+    notes = db.select("asset_hand_outs", "at > ?", (shown["as_of"],))
+    assert {clip["id"], picture["id"]} <= {n["asset_id"] for n in notes}
+    assert {n["project_id"] for n in notes} == {pid} and not any(n["upload_id"] for n in notes)  # all its own
+    as_of = shown["as_of"] - 3 * 86400 if card else shown["as_of"]
+    out = project_delete.delete("local", pid, "full_video", as_of=as_of, removes=shown["removes"] if card else None)
+    assert out["deleted"] and out["counts"]["files_kept"] == 0, out["stays"]
+    assert not any("used again just now" in line for line in out["stays"])
+    assert _gone(clip) and not db.scalar("SELECT COUNT(*) FROM assets")  # nothing of the short's is left

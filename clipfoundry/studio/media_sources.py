@@ -848,8 +848,9 @@ def _decoded_ok(path: Path, kind: str) -> str:
 
 
 def import_one(ws: str, provider: str, kind: str, external_id: str, *, rules: dict, basis: str = "",
-               lease: Lease | None = None, label: str = "") -> tuple[dict, dict]:
-    """(asset, provenance row). Raises ProviderError or MediaError; never leaves a partial file or asset."""
+               lease: Lease | None = None, label: str = "", project_id: str = "") -> tuple[dict, dict]:
+    """(asset, provenance row) for the video `project_id` ("" for your media only). Raises ProviderError or
+    MediaError; never leaves a partial file or asset."""
     have = existing(ws, provider, external_id)
     if have:
         return db.fetch("assets", have["asset_id"]), have
@@ -899,7 +900,7 @@ def import_one(ws: str, provider: str, kind: str, external_id: str, *, rules: di
         slug = re.sub(r"[^A-Za-z0-9]+", "-", r["title"]).strip("-")[:50] or kind
         name = f"{slug}-{provider}-{re.sub(r'[^A-Za-z0-9]', '', external_id)[:16]}{ext}"
         try:
-            asset = uploads.store_file(ws, tmp, name)
+            asset = uploads.store_file(ws, tmp, name, project_id=project_id)
         except uploads.UploadError as exc:
             raise MediaError(str(exc), exc.status) from exc
     except netguard.UnsafeUrl as exc:
@@ -941,7 +942,8 @@ def import_job(job: dict, lease: Lease) -> dict:
     project = db.fetch("studio_projects", row["project_id"]) if row["project_id"] else None
     try:
         asset, prov = import_one(row["workspace_id"], row["provider"], row["kind"], row["external_id"],
-                                 rules=rules_for(project), basis=row["user_basis"], lease=lease)
+                                 rules=rules_for(project), basis=row["user_basis"], lease=lease,
+                                 project_id=row["project_id"] or "")
     except Canceled:
         db.update("media_imports", row["id"], status="canceled", message="Canceled")
         raise
@@ -1233,7 +1235,7 @@ def suggest_job(job: dict, lease: Lease) -> dict:
             provider, kind, external_id = _parse_id(pick["id"])
             try:
                 asset, prov = import_one(ws, provider, kind, external_id, rules=rules, lease=None,
-                                         label=o["query"])
+                                         label=o["query"], project_id=project_id)
                 # in the video's media at once, as one import does: the next picks may take long to download, and
                 # until the bin names this file a delete of another project that has it (the same item imported
                 # before, or the same bytes, whose hand-out counts only for an hour) would remove it

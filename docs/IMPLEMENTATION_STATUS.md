@@ -1,5 +1,20 @@
 # Implementation status
 
+## A project's own re-stored copies go with it; privacy page — 2026-11-13 (Claude Code)
+
+PR #43, branch `claude/project-thread-gvcf5h` from the release line at 3d337c8. Deleting a project no longer keeps a
+copy its own work stored again in the last hour (new `asset_hand_outs` notes); the privacy page now covers uploads,
+animated shorts and the local picture, video and voice makers. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-13, on ac764a7 (last code change) | `python -m pytest -m "not slow" -q` | 2623 passed, 2 skipped, 31 deselected (1790 s) |
+| 2026-11-13, on ac764a7 | `python -m pytest -m slow -q` | 30 passed, 1 skipped, 2625 deselected (1376 s) |
+| 2026-11-13 | `cd frontend && npm ci && npm run build` | passed; `frontend/dist` unchanged (no frontend change) |
+
+Not verified: a real Mac or Windows PC; real ComfyUI, models and the Supertonic voice.
+
 ## Latest Claude handoff and media-review result — 2026-11-04 (Codex)
 
 The owner's latest request is a detailed implementation prompt, including example-video learning and web media

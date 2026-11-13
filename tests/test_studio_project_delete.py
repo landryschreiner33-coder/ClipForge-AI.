@@ -1196,3 +1196,115 @@ def test_a_video_being_planned_goes_with_its_planning_chat_and_an_answer_written
     fn, args = later[0]
     fn(*args)  # the answer finishes after the delete
     assert not db.select("brain_chats", "project_id = ?", (vid,)) and not db.select("brain_chat_messages")
+
+
+def _handed_out_again(asset: dict, *, project_id: str = "", upload_id: str = "") -> None:
+    """ClipForge hands its copy of these bytes out again now, as an upload, a link or a build that stores the same
+    bytes does, with a note of whom it went to."""
+    from clipfoundry.studio import uploads
+
+    assert uploads._reuse("local", asset["sha256"], project_id=project_id, upload_id=upload_id)["id"] == asset["id"]
+
+
+@pytest.mark.parametrize("given, stays", [
+    (("its own work",), False),
+    (("its own work", "its own work"), False),
+    (("a project deleted since",), False),
+    (("an upload a project deleted since took",), False),
+    (("another project",), True),
+    (("a note that names nobody",), True),
+    (("an upload no project took",), True),
+    (("an upload still arriving",), True),
+    (("its own work", "another project"), True),
+    (("its own work", "an upload no project took"), True),
+    (("another project", "its own work"), True),
+    (("an upload still arriving", "its own work"), True),
+    (("a note that names nobody", "its own work"), True),
+])
+def test_a_copy_handed_out_again_keeps_a_file_only_for_someone_who_may_still_need_it(env, given, stays):
+    """Deleting a video looks once more, in its own step, at the copies ClipForge handed out again since its window
+    was shown, each with a note of whom it went to. A copy the video's own work stored again, or one that went to a
+    project deleted since (also as an upload that project took), is named by nothing once the video is gone: it goes,
+    as the window said, instead of staying for ever. One that went to another project, which may not have recorded it
+    yet, to an upload no project took yet (also one still arriving), or to someone the note does not name (a mark an
+    older version made), stays."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete, uploads
+
+    trip = _stored(70, filename="trip.mp4")
+    hike = _video("Hike", [trip["id"]])["id"]
+    beach, lake = _video("Beach", [])["id"], _video("Lake", [trip["id"]])["id"]
+    shown = project_delete.plan("local", hike, "full_video")
+    assert shown["counts"]["files"] == 0  # the lake video has it too
+    time.sleep(0.01)
+    for who in given:
+        if who == "its own work":
+            _handed_out_again(trip, project_id=hike)
+        elif who == "a project deleted since":
+            _handed_out_again(trip, project_id=lake)
+        elif who == "another project":
+            _handed_out_again(trip, project_id=beach)
+        elif who == "a note that names nobody":
+            _handed_out_again(trip)
+        else:
+            arriving = who == "an upload still arriving"
+            up = db.insert("uploads", {"workspace_id": "local", "filename": "trip.mp4", "size": 3000,
+                                       "status": "receiving" if arriving else "complete",
+                                       "asset_id": "" if arriving else trip["id"]})
+            _handed_out_again(trip, upload_id=up["id"])
+            if who == "an upload a project deleted since took":
+                uploads.taken("local", [up["id"]], lake, [trip["id"]])
+    project_delete.delete("local", lake, "full_video")
+    assert db.fetch("assets", trip["id"])  # the hike video still has it
+    out = project_delete.delete("local", hike, "full_video", as_of=shown["as_of"])
+    assert out["deleted"] and db.fetch("studio_projects", hike) is None
+    if stays:
+        assert db.fetch("assets", trip["id"]) and os.path.isfile(trip["path"])
+        assert out["counts"]["files"] == 0 and out["counts"]["files_kept"] == 1, out["stays"]
+    else:
+        assert db.fetch("assets", trip["id"]) is None and not os.path.exists(trip["path"])
+        assert out["counts"]["files"] == 1 and out["counts"]["files_kept"] == 0, out["stays"]
+        assert not any("used again just now" in line for line in out["stays"])
+        assert not db.scalar("SELECT COUNT(*) FROM asset_hand_outs WHERE asset_id = ?", (trip["id"],))
+
+
+def test_a_hand_out_before_the_window_does_not_keep_a_file_its_own_work_stored_again(env):
+    """A copy handed out to another project before the delete window was shown is recorded by then (or never will
+    be), and the window's own look said whether the file stays. Only notes since the window count, so when the
+    video's own work then stores the same bytes again, the file goes, as the window said."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    trip = _stored(74, filename="trip.mp4")
+    hike, beach = _video("Hike", [trip["id"]])["id"], _video("Beach", [])["id"]
+    _handed_out_again(trip, project_id=beach)  # the beach video's link stored the same bytes, then failed
+    with db.connect() as conn:  # 20 minutes ago: inside the hour, before the window
+        conn.execute("UPDATE asset_hand_outs SET at = at - 1200 WHERE asset_id = ?", (trip["id"],))
+        conn.execute("UPDATE assets SET reused_at = reused_at - 1200 WHERE id = ?", (trip["id"],))
+    shown = project_delete.plan("local", hike, "full_video")
+    assert shown["counts"]["files"] == 1
+    time.sleep(0.01)
+    _handed_out_again(trip, project_id=hike)  # the hike video's own rebuild stores the same bytes again
+    out = project_delete.delete("local", hike, "full_video", as_of=shown["as_of"])
+    assert out["deleted"] and out["counts"]["files"] == 1 and out["counts"]["files_kept"] == 0, out["stays"]
+    assert db.fetch("assets", trip["id"]) is None and not os.path.exists(trip["path"])
+
+def test_whom_a_copy_went_to_is_noted_only_for_the_hour_it_counts(env):
+    """Each hand-out notes whom it went to in the same step as the mark (assets.reused_at). Notes older than the hour
+    a hand-out counts (uploads.REUSE_HOLD_S) are removed at the next hand-out, and deleting a file removes its
+    notes."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete, uploads
+
+    trip, lake = _stored(72, filename="trip.mp4"), _stored(73, filename="lake.mp4")
+    hike = _video("Hike", [trip["id"]])["id"]
+    _handed_out_again(lake, project_id="vid-older")
+    with db.connect() as conn:
+        conn.execute("UPDATE asset_hand_outs SET at = at - ?", (uploads.REUSE_HOLD_S + 60,))
+    _handed_out_again(trip, project_id=hike)
+    with db.connect() as conn:
+        notes = [tuple(r) for r in conn.execute("SELECT asset_id, at, project_id, upload_id FROM asset_hand_outs")]
+    assert [(n[0], n[2], n[3]) for n in notes] == [(trip["id"], hike, "")]  # the lake's old note went
+    assert db.fetch("assets", trip["id"])["reused_at"] == notes[0][1]  # one step: the mark and its note
+    project_delete.delete("local", hike, "full_video")
+    assert db.fetch("assets", trip["id"]) is None and not db.scalar("SELECT COUNT(*) FROM asset_hand_outs")

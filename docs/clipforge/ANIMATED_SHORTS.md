@@ -266,7 +266,10 @@ crash or a full disk) becomes a designed card with the reason.
   just given and has not recorded yet. Working folders and
   half-recorded voices an app closed mid-build left are deleted once they are an hour old; the oldest recorded voices
   no scene uses go once a short has more than 120. Deleting the short (studio/project_delete.py) reaches every file on
-  its list, also one no scene or version names.
+  its list, also one no scene or version names. A build that stores bytes ClipForge has already (Make again on a
+  scene gives the same clip; the music and whooshes come from the library each time) hands that copy out again to the
+  short itself (`uploads.store_file(..., project_id=)`, noted in `asset_hand_outs`), so deleting the short while it is
+  being made lets those copies go with it instead of keeping them as used again just now.
 * The makers on this computer (clipfoundry/engines) save what they make in `data/engines/made` with a note. What a
   short uses is taken out of there and kept with what the short made from it, so it goes when that does: a made
   picture becomes the scene's stored picture (its note is `maker.json` in the picture's folder), the video maker's

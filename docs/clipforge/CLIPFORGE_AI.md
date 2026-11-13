@@ -638,11 +638,13 @@ it removes has changed since this was shown: it would now also remove … Nothin
 deleting it removes now.", code `changed`), and asking again shows a card that lists it. The project's own clips,
 versions, notes and chat are the project, and so is what ClipForge makes for a short's scenes after the card was
 shown: they go with it whatever their number. Only a file ClipForge handed out again within the last hour (the same
-bytes uploaded or stored once more, `uploads.REUSE_HOLD_S`) stays, since whoever got it may not have recorded it yet;
-a hand-out before that keeps a file only while something still names it (`project_delete._hand_out_since`). So a card
-that waited for days keeps a file nothing names only when it was handed out within the hour before OK (to the
-project itself, or to a project deleted since); every place that gets a copy names it at once (Find media's
-automatic round puts each pick in the video's media as it is imported). `as_of` and `removes` are internal arguments
+bytes uploaded or stored once more, `uploads.REUSE_HOLD_S`) to someone else stays, since whoever got it may not have
+recorded it yet; a hand-out before that keeps a file only while something still names it
+(`project_delete._hand_out_since`). Each hand-out notes whom it went to (`uploads._mark`, table `asset_hand_outs`,
+kept for that hour), so one to the project itself (its build, download or import stored the same bytes again, or its
+own page's upload or link that it took) or to a project deleted since keeps nothing: a card that waited for days, or
+a window left open while the project's own work ran, never leaves a file behind that nothing names. Every place that
+gets a copy names it at once (Find media's automatic round puts each pick in the video's media as it is imported). `as_of` and `removes` are internal arguments
 (`"internal": True` in the tool's schema): a model never reads them in the tool's line (`tools.signature`) and never
 gives them (`tools.check_args` keeps them only from the button's own saved arguments, `button=True` in
 `chat.decide`), and two cards that differ only there are one card (`tools.same_button`). Work still running on the

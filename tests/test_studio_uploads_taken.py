@@ -388,3 +388,63 @@ def test_a_project_made_another_way_never_counts_another_pages_upload_as_its_own
     assert db.fetch("assets", clip["id"]) and db.fetch("uploads", page["id"])["taken"] == ""
     video_setup.start("local", "local", asset_ids=[clip["id"]], idea="a lake day", mode="ask",
                       upload_ids=[page["id"]])  # the page's Start still works
+
+
+def test_the_videos_own_page_uploading_one_of_its_files_again_while_it_is_deleted_lets_it_go(env):
+    """While a video's delete window is open, the owner uploads one of its files again on the video's own page and
+    adds it to the video: ClipForge hands that upload the copy it has, and the page sends the upload with the file,
+    so the video takes it. That hand-out went to the video itself, so the copy goes with the video instead of staying
+    with nothing naming it. Another page's upload, which no project took, still keeps it (the test above)."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete, uploads, video_flow
+
+    clip = _had(101)
+    data = b"\x89PNG\r\n\x1a\n" + os.urandom(2000)  # a picture ClipForge keeps without reading it
+
+    def upload() -> dict:
+        up = uploads.start("local", "owl.png", len(data))
+        uploads.put_chunk(up["id"], 0, data)
+        return uploads.complete(up["id"])
+
+    owl = upload()
+    vid = video_flow.create("local", "local", name="Owls", asset_ids=[clip["id"], owl["id"]], brief={},
+                            style_id="settings", remember={"enabled": False}, upload_ids=[owl["upload_id"]])["id"]
+    plan = project_delete.plan("local", vid, "full_video")
+    assert plan["counts"]["files"] == 2 and plan["counts"]["files_kept"] == 0
+    time.sleep(0.01)
+    again = upload()
+    assert again["id"] == owl["id"] and again["upload_id"] != owl["upload_id"]
+    video_flow.add_media(vid, [owl["id"]], upload_ids=[again["upload_id"]])  # the bin has it already: still taken
+    assert db.fetch("uploads", again["upload_id"])["taken"] == vid
+    out = project_delete.delete("local", vid, "full_video", as_of=plan["as_of"])
+    assert out["counts"]["files"] == 2 and out["counts"]["files_kept"] == 0, out["stays"]
+    assert db.fetch("assets", owl["id"]) is None and db.scalar("SELECT COUNT(*) FROM uploads") == 0
+
+
+def test_each_hand_out_to_an_upload_notes_that_upload_with_its_mark(env):
+    """Each time ClipForge hands a stored file out again to an upload (the same bytes uploaded again, or one upload
+    finished on two pages), the mark (assets.reused_at) and a note naming that upload are one step, so deleting a
+    project tells its own page's upload from another page's. Storing a file for the first time hands nothing out."""
+    from clipfoundry import db
+    from clipfoundry.studio import uploads
+
+    data = b"\x89PNG\r\n\x1a\n" + os.urandom(3000)
+
+    def note(asset_id: str) -> str:
+        marked = db.fetch("assets", asset_id)["reused_at"]
+        return db.scalar("SELECT upload_id FROM asset_hand_outs WHERE asset_id = ? AND at = ?", (asset_id, marked))
+
+    first = uploads.start("local", "owl.png", len(data))
+    uploads.put_chunk(first["id"], 0, data)
+    owl = uploads.complete(first["id"])
+    assert not db.scalar("SELECT COUNT(*) FROM asset_hand_outs")
+    again = uploads.start("local", "owl.png", len(data))
+    uploads.put_chunk(again["id"], 0, data)
+    assert uploads.complete(again["id"])["id"] == owl["id"] and note(owl["id"]) == again["id"]
+    page1 = uploads.start("local", "owl.png", len(data), fingerprint="owl.png|3008|9")
+    page2 = uploads.start("local", "owl.png", len(data), fingerprint="owl.png|3008|9")
+    assert page1["id"] == page2["id"]
+    uploads.put_chunk(page1["id"], 0, data)
+    assert uploads.complete(page1["id"])["upload_id"] == page1["id"] and note(owl["id"]) == page1["id"]
+    second = uploads.complete(page2["id"])["upload_id"]
+    assert second != page1["id"] and note(owl["id"]) == second
