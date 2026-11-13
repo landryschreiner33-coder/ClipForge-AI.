@@ -26,7 +26,6 @@ import math
 import re
 import threading
 import time
-from urllib.parse import urlparse
 
 from .. import db
 from . import engine
@@ -577,16 +576,9 @@ def _ai_settings() -> tuple[dict, str]:
 
 
 def _local(settings: dict, provider: str) -> bool:
-    if provider == "builtin":
-        return True  # the built-in model only ever listens on 127.0.0.1
-    if provider == "ollama":
-        url = settings.get("ollama_url") or "http://localhost:11434"
-    elif provider == "openai_compatible":
-        url = settings.get("openai_url") or "http://localhost:1234/v1"
-    else:
-        return False
-    host = (urlparse(url).hostname or "").lower()
-    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")
+    from ..pipeline import llm
+
+    return llm.is_local(settings, provider)  # the one judge of "on this computer" (the daily limit uses it too)
 
 
 def disclosure(settings: dict, provider: str) -> str:
@@ -598,7 +590,9 @@ def disclosure(settings: dict, provider: str) -> str:
             "and your request. Never the video or the sound.")
     if _local(settings, provider):
         return f"Stays on this computer: {label} at a local address is sent {what}"
-    return f"Sent over the internet to {label}: {what}"
+    from ..brain import allowance
+
+    return f"{allowance.SENT_ONLINE} to {label}: {what}"  # how the daily limit tells it was sent online
 
 
 SPEC = """Operations (clip ids exactly as listed; times are milliseconds in the clip's own source file and must stay
@@ -725,9 +719,12 @@ def _proposal(plan: dict, ops: list, words: dict, assets: dict, summary: str) ->
             "duration_ms": [engine.duration_ms(plan), engine.duration_ms(new)]}
 
 
-def _today_start() -> float:
+def _sent_today(ws: str) -> int:
+    """The editor's own AI requests today in this workspace (its limit with a model on this computer)."""
     lt = time.localtime()
-    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    start = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    return int(db.scalar("SELECT COUNT(*) FROM edit_requests WHERE workspace_id = ? AND source = 'ai' AND "
+                         "created_at >= ?", (ws, start)) or 0)
 
 
 def ask(project_id: str, ws: str, text: str, base_revision: int | None = None) -> dict:
@@ -775,17 +772,25 @@ def ask(project_id: str, ws: str, text: str, base_revision: int | None = None) -
             "Requests it understands on its own include: " + "; ".join(f"“{x}”" for x in RULE_EXAMPLES) +
             ". Every change can also be made with the editor's controls."))
         return _view(db.insert("edit_requests", row))
+    from ..brain import allowance
     from ..pipeline import llm
 
+    online = allowance.online(settings)
     limit = int(settings.get("ai_edit_requests_per_day", 40))
+    failed = dict(row)
+
+    def at_limit() -> dict:
+        failed.update(status="failed", message=(
+            (allowance.message(settings) if online else f"Today's limit of {limit} AI requests is reached (Settings "
+             "→ Advanced, “AI requests a day”).") + " Nothing was sent; the editor's controls and the requests "
+            "ClipForge understands on its own still work."))
+        return _view(db.insert("edit_requests", failed))
+
     with _lock:
-        used = int(db.scalar("SELECT COUNT(*) FROM edit_requests WHERE workspace_id = ? AND source = 'ai' AND "
-                             "created_at >= ?", (ws, _today_start())) or 0)
-        if used >= limit:
-            row.update(status="failed", message=(
-                f"Today's limit of {limit} AI requests is reached (Settings → ClipForge AI). Nothing was sent; the "
-                "editor's controls and the requests ClipForge understands on its own still work."))
-            return _view(db.insert("edit_requests", row))
+        # an online AI: today's allowance, shared with ClipForge AI and its helpers; a model on this computer: the
+        # editor's own requests today, as always
+        if allowance.reached(ws, settings) if online else _sent_today(ws) >= limit:
+            return at_limit()
         guidance = (project.get("guidance") or {}).get("values") or {}
         rec = _recall(text, ws, project_id)
         know = _knowhow(text)
@@ -810,7 +815,13 @@ def ask(project_id: str, ws: str, text: str, base_revision: int | None = None) -
         row.update(source="ai", status="thinking", provider=llm.provider_label(settings),
                    sent=disclosure(settings, provider), prompt_chars=len(prompt), message="Asking the AI service",
                    memories=rec.snapshot(), knowhow=know.snapshot())
-        saved = db.insert("edit_requests", row)
+        if not online:
+            saved = db.insert("edit_requests", row)
+        else:  # checked again and counted together with ClipForge AI's requests: never one more than the limit
+            try:
+                saved = allowance.editor_request(ws, settings, lambda: db.insert("edit_requests", row))
+            except allowance.Reached:
+                return at_limit()
     _used(ws, rec, saved["id"])
     _think_pool.submit(_think, saved["id"], prompt)
     return _view(saved)

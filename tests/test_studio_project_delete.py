@@ -3,9 +3,10 @@ them (history, renders, folders, the media nothing else uses, the chat and the m
 posts that have not started), while the owner's own files, media another project or example uses, anything posted,
 memories for every video and the taste ClipForge AI learned stay. The plan says exactly that before anything changes;
 running work is stopped first (also work that was already asked to stop and the next step a stopped step queues);
-Autopilot's work and a post on its way out are never interrupted; a draft with only a planning chat goes too; a memory
-saved again for another project and a file added again since stay; files that are in use are deleted at the next
-start; and the routes answer with the plan or a reason and its code, only to ClipForge's own page on this computer.
+Autopilot's work and a post on its way out are never interrupted; a draft with only a planning chat goes too; the
+same words remembered again for another project and a file added again since stay; files that are in use are
+deleted at the next start; and the routes answer with the plan or a reason and its code, only to ClipForge's own
+page on this computer.
 """
 from __future__ import annotations
 
@@ -495,21 +496,25 @@ def test_a_post_that_starts_uploading_while_deleting_stops_the_delete(env, monke
 
 
 def test_a_memory_saved_again_for_another_project_stays(env):
-    """A memory keeps the project it was first saved for in its project_id even after it was saved again for
-    another project (its scope says whom it is for now), so only the scope decides what goes."""
+    """The same words saved again for another project are a memory of their own there (ClipForge AI no longer moves
+    the first one), so that one stays when the first project goes, and the first project's own goes with it. A
+    memory an older version did move to the other project may still name the first project in its project_id: only
+    the scope decides what goes."""
     from clipfoundry import db
     from clipfoundry.brain import memories
     from clipfoundry.studio import project_delete
 
     first, second = _video("First", [])["id"], _video("Second", [])["id"]
-    moved = memories.remember("local", "Open on the drone shot", kind="rule", project_id=first)
-    memories.remember("local", "Open on the drone shot", kind="rule", project_id=second)
-    moved = db.fetch("brain_memories", moved["id"])
-    assert moved["scope"] == f"project:{second}" and moved["project_id"] == first
+    mine = memories.remember("local", "Open on the drone shot", kind="rule", project_id=first)
+    other = memories.remember("local", "Open on the drone shot", kind="rule", project_id=second)
+    assert other["id"] != mine["id"] and (other["scope"], other["project_id"]) == (f"project:{second}", second)
+    assert db.fetch("brain_memories", mine["id"])["scope"] == f"project:{first}"  # it stayed where it was said
+    db.update("brain_memories", other["id"], project_id=first)  # as an older version kept a memory it had moved
     only_first = memories.remember("local", "Use the blue title card", kind="rule", project_id=first)
-    assert project_delete.plan("local", first, "full_video")["counts"]["memories"] == 1
+    assert project_delete.plan("local", first, "full_video")["counts"]["memories"] == 2
     project_delete.delete("local", first, "full_video")
-    assert db.fetch("brain_memories", moved["id"]) and db.fetch("brain_memories", only_first["id"]) is None
+    assert db.fetch("brain_memories", other["id"])
+    assert db.fetch("brain_memories", mine["id"]) is None and db.fetch("brain_memories", only_first["id"]) is None
 
 
 def test_a_file_added_again_after_the_project_was_made_stays_while_it_is_new(env):
@@ -900,6 +905,167 @@ def test_a_file_the_window_said_stays_still_stays_when_delete_is_pressed_a_while
         done = api.delete(f"/api/studio/videos/{vid}?as_of={plan['as_of']}", headers=H)
     assert done.status_code == 200 and done.json()["deleted"] and done.json()["counts"]["files_kept"] == 1
     assert db.fetch("assets", asset["id"]) and os.path.isfile(asset["path"])
+
+
+def test_a_delete_given_its_confirmations_list_removes_no_more_than_that_or_nothing(env, monkeypatch):
+    """A confirmation that can wait long (ClipForge AI's delete card) sends back what it listed beyond the project
+    (`removes`). When deleting would now remove more (the other video that used a file was deleted meanwhile, a post
+    was planned since), nothing is deleted, and nothing is stopped; checked again on what is deleted once running
+    work has stopped. The project's own clips go with it whatever their number, and a plan made again lists what
+    goes now."""
+    from clipfoundry import db
+    from clipfoundry.jobs import worker
+    from clipfoundry.studio import project_delete
+
+    summit = _stored(51, filename="summit.mp4")
+    day = _video("Summit day", [summit["id"]])["id"]
+    night = _video("Summit night", [summit["id"]])["id"]
+    shown = project_delete.plan("local", night, "full_video")
+    assert shown["removes"] == {"files": [], "source": False, "posts": [], "kept": [summit["id"]]}
+    assert "“summit.mp4” stays in ClipForge because another project or example uses it." in shown["stays"]
+    project_delete.delete("local", day, "full_video")  # meanwhile, the other video that used it goes
+    with pytest.raises(project_delete.DeleteError) as changed:
+        project_delete.delete("local", night, "full_video", as_of=shown["as_of"], removes=shown["removes"])
+    assert changed.value.status == 409 and changed.value.code == "changed"
+    assert str(changed.value) == ("What deleting it removes has changed since this was shown: it would now also "
+                                  "remove ClipForge's copy of “summit.mp4”, which no other project uses now. Nothing "
+                                  "was deleted.")
+    assert db.fetch("studio_projects", night) and db.fetch("assets", summit["id"]) and os.path.isfile(summit["path"])
+    again = project_delete.plan("local", night, "full_video")
+    assert again["removes"] == {"files": [summit["id"]], "source": False, "posts": [], "kept": []}
+    assert "ClipForge's copy of “summit.mp4”, which no other project uses." in again["goes"]
+    done = project_delete.delete("local", night, "full_video", as_of=again["as_of"], removes=again["removes"])
+    assert done["deleted"] and db.fetch("studio_projects", night) is None and db.fetch("assets", summit["id"]) is None
+
+    # a clips project whose clips are being made: a post planned since its confirmation stops the delete before
+    # that work is stopped; more clips are the project itself
+    p = db.create_project("Lake day", workspace_id="local", status="processing")
+    clip = db.create_clip(p["id"], start=0, end=10, status="ready")
+    shown = project_delete.plan("local", p["id"], "clips")
+    assert shown["removes"] == {"files": [], "source": False, "posts": [], "kept": []}
+    db.create_clip(p["id"], start=20, end=30)
+    post = db.insert("scheduled_publications", {"clip_id": clip["id"], "platform": "youtube", "status": "approved",
+                                                "planned_at": 2e9})
+    monkeypatch.setattr(worker, "current", p["id"])
+    with pytest.raises(project_delete.DeleteError) as changed:
+        project_delete.delete("local", p["id"], "clips", wait=0.3, as_of=shown["as_of"], removes=shown["removes"])
+    assert changed.value.code == "changed" and str(changed.value).endswith(
+        "it would now also remove 1 planned post of its clips. Nothing was deleted.")
+    assert p["id"] not in worker.cancelled
+    assert db.get_project(p["id"]) and db.fetch("scheduled_publications", post["id"])["status"] == "approved"
+    monkeypatch.setattr(worker, "current", None)
+    shown = project_delete.plan("local", p["id"], "clips")
+    assert shown["removes"]["posts"] == [post["id"]] and shown["counts"]["clips"] == 2
+    db.create_clip(p["id"], start=40, end=50)  # one more since: the project's own, it goes with it
+    assert project_delete.delete("local", p["id"], "clips", as_of=shown["as_of"], removes=shown["removes"])["deleted"]
+    assert db.get_project(p["id"]) is None and not db.list_clips(p["id"])
+    assert db.fetch("scheduled_publications", post["id"])["status"] == "canceled"
+
+    # what changes while its running work stops is checked too: nothing goes, and it says the work was stopped
+    summit = _stored(52, filename="summit.mp4")
+    day = _video("Summit day", [summit["id"]])["id"]
+    night = _video("Summit night", [summit["id"]])["id"]
+    job = db.insert("studio_jobs", {"workspace_id": "local", "kind": "video_render", "target_id": night,
+                                    "revision": 1, "idempotency_key": f"video_render:{night}:1", "status": "running"})
+    shown = project_delete.plan("local", night, "full_video")
+    stop = project_delete._stop  # noqa: SLF001
+
+    def stopping(s):  # while it stops, the other video that used the file is deleted
+        stop(s)
+        project_delete.delete("local", day, "full_video")
+
+    monkeypatch.setattr(project_delete, "_stop", stopping)
+    with pytest.raises(project_delete.DeleteError) as changed:
+        project_delete.delete("local", night, "full_video", wait=1.0, as_of=shown["as_of"], removes=shown["removes"])
+    assert changed.value.code == "changed" and str(changed.value).endswith(
+        "which no other project uses now. Nothing was deleted, but the work running on it was stopped.")
+    assert db.fetch("studio_jobs", job["id"])["status"] == "canceled"
+    assert db.fetch("studio_projects", night) and db.fetch("assets", summit["id"])
+
+
+def test_a_delete_given_its_confirmations_list_never_removes_a_scene_picture_it_said_stays(env):
+    """What ClipForge made for a short's scenes goes with the short whatever its number, but not a picture the
+    confirmation said stays because another project used it then (the owner put the same picture in another video:
+    ClipForge keeps one file). When that other video is deleted meanwhile, deleting the short would now remove the
+    picture, so nothing is deleted; a picture made for a new scene since is the short's own; a plan made again lists
+    the pictures and its delete removes them."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    picture = _stored(61, kind="image", filename="Scene 1 picture.png")
+    short = _video("Shark facts", [], workflow="animated_short")["id"]
+    db.insert("short_scenes", {"project_id": short, "workspace_id": "local", "position": 1, "narration": "Teeth",
+                               "picture_asset_id": picture["id"], "info": {"picture": {"source": "engine"}}})
+    reef = _video("Reef trip", [picture["id"]])["id"]
+    shown = project_delete.plan("local", short, "full_video")
+    assert "“Scene 1 picture.png” stays in ClipForge because another project or example uses it." in shown["stays"]
+    assert shown["removes"] == {"files": [], "source": False, "posts": [], "kept": [picture["id"]]}
+    project_delete.delete("local", reef, "full_video")  # meanwhile: the picture stays, the short uses it
+    assert db.fetch("assets", picture["id"])
+    later = _stored(62, kind="image", filename="Scene 2 picture.png")  # made for a new scene since: the short's own
+    db.insert("short_scenes", {"project_id": short, "workspace_id": "local", "position": 2, "narration": "Fins",
+                               "picture_asset_id": later["id"], "info": {"picture": {"source": "engine"}}})
+    with pytest.raises(project_delete.DeleteError) as changed:
+        project_delete.delete("local", short, "full_video", as_of=shown["as_of"], removes=shown["removes"])
+    assert changed.value.status == 409 and changed.value.code == "changed"
+    assert str(changed.value) == ("What deleting it removes has changed since this was shown: it would now also "
+                                  "remove “Scene 1 picture.png”, which ClipForge made for its scenes and no other "
+                                  "project uses now. Nothing was deleted.")
+    assert db.fetch("studio_projects", short) and db.fetch("assets", picture["id"]) and os.path.isfile(picture["path"])
+    again = project_delete.plan("local", short, "full_video")
+    assert "What ClipForge made for its scenes: 2 pictures." in again["goes"]
+    assert again["removes"]["kept"] == [] and set(again["removes"]["files"]) == {picture["id"], later["id"]}
+    done = project_delete.delete("local", short, "full_video", as_of=again["as_of"], removes=again["removes"])
+    assert done["deleted"] and db.fetch("assets", picture["id"]) is None and db.fetch("assets", later["id"]) is None
+    assert not os.path.exists(picture["path"])
+
+
+def test_a_file_the_confirmation_said_stays_is_not_removed_once_a_scene_of_the_short_takes_it(env):
+    """`kept` lists every file the confirmation said stays, not only what ClipForge had made for the short's scenes
+    then: a picture another video used when it was shown, that a scene of the short takes before OK (so it is now one
+    ClipForge made for its scenes), still stays when that other video is deleted meanwhile, and nothing is deleted."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    lake = _stored(63, kind="image", filename="Lake.png")
+    short = _video("Lake facts", [lake["id"]], workflow="animated_short")["id"]
+    trip = _video("Lake trip", [lake["id"]])["id"]
+    shown = project_delete.plan("local", short, "full_video")
+    assert "“Lake.png” stays in ClipForge because another project or example uses it." in shown["stays"]
+    assert shown["removes"] == {"files": [], "source": False, "posts": [], "kept": [lake["id"]]}
+    db.insert("short_scenes", {"project_id": short, "workspace_id": "local", "position": 1, "narration": "Lake",
+                               "picture_asset_id": lake["id"], "info": {"picture": {"source": "engine"}}})
+    project_delete.delete("local", trip, "full_video")
+    with pytest.raises(project_delete.DeleteError) as changed:
+        project_delete.delete("local", short, "full_video", as_of=shown["as_of"], removes=shown["removes"])
+    assert changed.value.status == 409 and changed.value.code == "changed" and "“Lake.png”" in str(changed.value)
+    assert db.fetch("studio_projects", short) and db.fetch("assets", lake["id"]) and os.path.isfile(lake["path"])
+
+
+@pytest.mark.parametrize("ago, stays", [(2 * 3600, False), (600, True)])
+def test_a_confirmation_that_waited_for_days_keeps_only_a_file_handed_out_again_in_the_last_hour(env, ago, stays):
+    """ClipForge AI's delete card can wait for days. A file ClipForge handed out again meanwhile (the same bytes
+    uploaded or stored once more, for a video deleted since) stays when that was within the hour that a short's
+    tidying waits too (uploads.REUSE_HOLD_S: whoever got it may not have recorded it yet). One handed out before that
+    is named by nothing now: it goes, as the card said, instead of staying for ever."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    trip = _stored(64, filename="trip.mp4")
+    hike = _video("Hike", [trip["id"]])["id"]
+    shown = project_delete.plan("local", hike, "full_video")
+    assert shown["removes"] == {"files": [trip["id"]], "source": False, "posts": [], "kept": []}
+    with db.connect() as conn:
+        conn.execute("UPDATE assets SET reused_at = ? WHERE id = ?", (time.time() - ago, trip["id"]))
+    done = project_delete.delete("local", hike, "full_video", as_of=shown["as_of"] - 3 * 86400,
+                                 removes=shown["removes"])
+    assert done["deleted"] and db.fetch("studio_projects", hike) is None
+    if stays:
+        assert db.fetch("assets", trip["id"]) and os.path.isfile(trip["path"])
+        assert "“trip.mp4” stays in ClipForge because it was used again just now." in done["stays"]
+    else:
+        assert db.fetch("assets", trip["id"]) is None and not os.path.exists(trip["path"])
+        assert done["removes"]["kept"] == [] and done["counts"]["files"] == 1
 
 
 def test_a_shorts_window_reads_its_saved_versions_and_a_picture_waiting_to_be_replaced(env):

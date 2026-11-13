@@ -76,6 +76,8 @@ export const memoryApi = {
     req<Memory>("PATCH", `${mem}/${id}`, body),
   confirm: (id: string) => req<Memory>("POST", `${mem}/${id}/confirm`),
   forget: (id: string) => req<{ forgotten: Memory }>("DELETE", `${mem}/${id}`),
+  /** A chat's Undo chip: forgets the memory only while it is as that answer added it (revision 1, these words). */
+  undo: (id: string, words: string) => req<{ forgotten: Memory }>("POST", `${mem}/${id}/undo`, { words }),
   uses: (id: string) => req<MemoryUse[]>("GET", `${mem}/${id}/uses`),
   recall: (query: string, projectId = "") => req<Recalled>("POST", `${mem}/recall`, { query, project_id: projectId }),
   check: () => req<MemoryCheck>("GET", `${mem}/check`),
@@ -86,21 +88,85 @@ export const memoryApi = {
   knowhow: () => req<KnowHow>("GET", `${mem}/knowhow`),
 };
 
-export type ChatTool = "remember" | "forget" | "list" | "explain" | "change" | "answer" | "help";
+/** What answered a message: the rules alone (remember … explain, help), a change request ("change"), the assistant
+ * ("talk") or the new-video planner ("plan"). */
+export type ChatTool = "remember" | "forget" | "list" | "explain" | "change" | "answer" | "help" | "talk" | "plan";
 export type UsedMemory = { id: string; kind: MemoryKind; text: string; score?: number };
+/** A helper agent as a chat shows it. */
+export type AgentCard = { id: string; name: string; icon: string };
+/** A tool ClipForge AI used while answering ("Looked at your projects (3)"). */
+export type ChatStep = { tool: string; label: string; ok: boolean; why?: string };
+/** A button to a page or a project inside the app ("#/project/…"). */
+export type ChatLink = { label: string; href: string };
+export type ChatActionState = "waiting" | "done" | "failed" | "skipped" | "blocked";
+/** A change or a delete ClipForge AI proposed: it happens only when you press OK. */
+export type ChatAction = { id: string; tool: string; args: Record<string, unknown>; risk: "change" | "delete"; label: string;
+  detail: string[]; blocked: string; state: ChatActionState; result: string };
+/** A helper agent's work inside ClipForge AI's answer. */
+export type HelperWork = { agent: AgentCard; task: string; text: string; ok: boolean; steps?: ChatStep[] };
+export type ChatAsk = { question: string; choices: string[] };
 export type ChatData = { tool?: ChatTool; used?: UsedMemory[]; knowhow?: UsedKnowHow[]; memory?: Memory; forgotten?: Memory;
   candidates?: { id: string; kind: MemoryKind; text: string }[]; memories?: { id: string; kind: MemoryKind; text: string; source: MemorySource }[];
-  request_id?: string; request?: import("./studio").ChangeRequest; provider?: string; sent?: string };
-export type ChatMessage = { id: string; chat_id: string; role: "owner" | "ai"; text: string; status: "done" | "thinking" | "failed";
-  data: ChatData; created_at: number; updated_at: number };
-export type Chat = { id: string; workspace_id: string; project_id: string; title: string; messages: ChatMessage[] };
+  request_id?: string; request?: import("./studio").ChangeRequest; provider?: string; sent?: string; remote?: boolean;
+  /** an @mention's answer: the agent that wrote it (role "agent") */
+  agent?: AgentCard; steps?: ChatStep[]; pending?: ChatAction[]; links?: ChatLink[]; helpers?: HelperWork[];
+  /** a helper agent's work while it is being written */
+  helper_live?: { agent: AgentCard; task: string; text: string };
+  /** what the assistant saved with its remember tool */
+  remembered?: Memory[]; ask?: ChatAsk;
+  /** answered without a model: it offers to set up the built-in model */
+  setup?: boolean };
+export type ChatMessage = { id: string; chat_id: string; role: "owner" | "ai" | "agent"; text: string;
+  status: "done" | "thinking" | "failed"; data: ChatData; created_at: number; updated_at: number;
+  /** after pressing OK: the action deleted this chat's own video (and the chat with it) */
+  gone?: boolean };
+/** ClipForge AI's model as the chat shows it, and the built-in model's setup when it is (or could be) the one. */
+export type ChatAi = { ready: boolean; provider: string; label: string; local: boolean;
+  builtin?: { supported: boolean; recommended: string; level: string; task: import("./api").BuiltinTask;
+    levels: Pick<import("./api").BuiltinLevel, "id" | "name" | "model" | "installed" | "download_bytes" | "recommended" | "fits">[] };
+  /** a level of the built-in model this computer runs well and that talks better than the one in use */
+  better?: { level: string; name: string; model: string; installed: boolean; download_bytes: number } };
+/** A switched-on helper agent you can talk to with "@Name …". */
+export type ChatAgent = AgentCard & { role: string };
+export type Chat = { id: string; workspace_id: string; project_id: string; title: string; messages: ChatMessage[];
+  ai?: ChatAi; agents?: ChatAgent[] };
+export const MAX_CHAT_TEXT = 4000;
 const chats = "/api/brain/chats";
 export const chatApi = {
   open: (projectId = "") => req<Chat>("POST", chats, { project_id: projectId }),
   messages: (chatId: string, after = "") => req<ChatMessage[]>("GET", `${chats}/${chatId}/messages?after=${encodeURIComponent(after)}`),
-  say: (chatId: string, text: string, baseRevision?: number) =>
-    req<{ owner: ChatMessage; ai: ChatMessage }>("POST", `${chats}/${chatId}/messages`, { text, base_revision: baseRevision ?? null }),
+  /** `choice`: a quick reply pressed (words the model or the editor offered): it never forgets anything at once.
+   * `forget`: a "Which one?" button's memory words, forgotten exactly as they are (not read from the message). */
+  say: (chatId: string, text: string, baseRevision?: number, choice = false, forget?: string) =>
+    req<{ owner: ChatMessage; ai: ChatMessage }>("POST", `${chats}/${chatId}/messages`,
+      { text, base_revision: baseRevision ?? null, ...(choice ? { choice: true } : {}),
+        ...(forget !== undefined ? { forget } : {}) }),
   clear: (chatId: string) => req<{ cleared: number }>("DELETE", `${chats}/${chatId}/messages`),
   apply: (chatId: string, messageId: string) => req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/apply`),
   discard: (chatId: string, messageId: string) => req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/discard`),
+  /** Stop the answer being written; it keeps what it wrote so far. Returns the chat's messages. */
+  stop: (chatId: string) => req<ChatMessage[]>("POST", `${chats}/${chatId}/stop`),
+  /** Your OK (true) or no (false) for a change or delete ClipForge AI proposed. */
+  decide: (chatId: string, messageId: string, actionId: string, doIt: boolean) =>
+    req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/actions/${actionId}`, { do: doIt }),
+};
+
+// ------------------------------------------------------------------ helper agents (Brain → Agents)
+export type Agent = { id: string; template: string; name: string; icon: string; role: string; instructions: string;
+  tools: string[]; helps_plans: boolean; enabled: boolean; position: number; runs: number; last_run_at: number | null;
+  created_at: number; updated_at: number };
+/** A ready-made helper; `added` when you already have it. */
+export type AgentTemplate = { template: string; name: string; icon: string; role: string; instructions: string;
+  tools: string[]; helps_plans: boolean; added: boolean };
+/** A tool a helper may be given: only looking and making ones (a helper never changes or deletes anything). */
+export type AgentTool = { name: string; risk: "look" | "make"; label: string; about: string; video_only: boolean };
+export type AgentsView = { agents: Agent[]; templates: AgentTemplate[]; tools: AgentTool[]; icons: string[]; limit: number };
+export type AgentInput = { name: string; icon: string; role: string; instructions: string; tools: string[];
+  helps_plans: boolean; enabled: boolean };
+const agentsBase = "/api/brain/agents";
+export const agentsApi = {
+  list: () => req<AgentsView>("GET", agentsBase),
+  add: (body: Partial<AgentInput> & { template?: string }) => req<Agent>("POST", agentsBase, body),
+  edit: (id: string, body: Partial<AgentInput> & { position?: number }) => req<Agent>("PATCH", `${agentsBase}/${id}`, body),
+  remove: (id: string) => req<{ removed: Agent }>("DELETE", `${agentsBase}/${id}`),
 };

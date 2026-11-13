@@ -1,6 +1,10 @@
 """A stand-in for llama.cpp's llama-server in tests: the same flags, /health (503 while "loading", then 200) and an
-OpenAI-style /v1/chat/completions that needs the key and echoes the prompt as JSON. FAKE_LLAMA_FAIL=1 makes it exit
-while loading, like an engine that ran out of memory."""
+OpenAI-style /v1/chat/completions that needs the key and echoes the prompt as JSON. A conversation (more than the
+system text and one message, or a streamed answer) is echoed whole: every message, and the options it was asked with.
+"stream": true answers like llama.cpp does, in pieces (data: {...} lines, then data: [DONE]), 0.3 seconds apart when
+the last message says SLOW; last-stream.json then says how many pieces there were, how many were sent, and whether
+the app closed the connection first. FAKE_LLAMA_FAIL=1 makes it exit while loading, like an engine that ran out of
+memory."""
 from __future__ import annotations
 
 import json
@@ -32,6 +36,31 @@ def main() -> int:
             self.end_headers()
             self.wfile.write(out)
 
+        def _stream(self, content: str, slow: bool) -> None:
+            pieces = [content[i:i + 8] for i in range(0, len(content), 8)]
+            events = [{"choices": [{"index": 0, "delta": {"role": "assistant", "content": None}}]}]
+            events += [{"choices": [{"index": 0, "delta": {"content": p}, "finish_reason": None}]} for p in pieces]
+            events.append({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                           "usage": {"prompt_tokens": 20, "completion_tokens": len(pieces)},
+                           "timings": {"predicted_n": len(pieces), "predicted_ms": 1.0}})
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            sent, cut = 0, False
+            try:
+                for n, event in enumerate(events):
+                    if slow and n:
+                        time.sleep(0.3)
+                    self.wfile.write(b"data: " + json.dumps(event).encode() + b"\n\n")
+                    self.wfile.flush()
+                    sent += 1
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                cut = True  # the app stopped reading: the engine stops writing
+            Path("last-stream.json").write_text(json.dumps({"pieces": len(events), "sent": sent, "cut": cut}),
+                                                encoding="utf-8")
+
         def do_GET(self):  # noqa: N802
             if self.path == "/health":
                 if time.monotonic() - started < 0.3:
@@ -46,8 +75,14 @@ def main() -> int:
             if self.path != "/v1/chat/completions":
                 return self._json(404, {})
             msgs = body.get("messages") or []
-            content = json.dumps({"echo": msgs[-1]["content"], "system": msgs[0]["content"]})
-            return self._json(200, {"choices": [{"message": {"role": "assistant", "content": content}}]})
+            echo = {"echo": msgs[-1]["content"], "system": msgs[0]["content"]}
+            if len(msgs) > 2 or body.get("stream"):
+                echo.update(messages=msgs, options={k: v for k, v in body.items() if k not in ("messages", "model")})
+            content = json.dumps(echo)
+            if body.get("stream"):
+                return self._stream(content, slow="SLOW" in str(msgs[-1]["content"]))
+            return self._json(200, {"choices": [{"message": {"role": "assistant", "content": content},
+                                                 "finish_reason": "stop"}]})
 
     ThreadingHTTPServer((opt["--host"], int(opt["--port"])), Handler).serve_forever()
     return 0

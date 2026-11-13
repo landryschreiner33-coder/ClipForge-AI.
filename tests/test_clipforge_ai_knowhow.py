@@ -71,23 +71,24 @@ def test_the_chat_answers_editing_questions_from_the_know_how_without_a_model(en
 
 
 def test_the_model_reads_the_memories_first_and_the_know_how_second(env, monkeypatch):
-    from clipfoundry import brain, db
-    from clipfoundry.brain import chat, knowhow, memories
-    from clipfoundry.pipeline import llm
-    from test_clipforge_ai_chat import _settled
+    from fake_model import install, say, settled
 
-    calls = []
-    monkeypatch.setattr(llm, "complete", lambda settings, prompt, **kw: calls.append(prompt) or json.dumps({"say": "ok"}))
-    db.save_settings({"ai_provider": "ollama", "ollama_url": "http://localhost:11434"})
+    from clipfoundry import brain
+    from clipfoundry.brain import chat, knowhow, memories
+
+    fake = install(monkeypatch, say("ok"))  # the conversation engine's model (Ollama on this computer)
     brain.remember(WS, "Keep my music quiet", kind="rule")
     c = chat.open_chat(WS)
-    first = chat.send(WS, c["id"], "how loud should the music be under my voice?")["ai"]
-    assert first["status"] == "thinking" and first["data"]["knowhow"][0]["id"] == "sound"
-    assert "built-in know-how" in first["data"]["sent"]
-    assert _settled(c["id"], first["id"])["text"] == "ok"
-    prompt = calls[0]
-    assert prompt.index(memories.HEADER) < prompt.index(knowhow.HEADER) < prompt.index("The owner asks")
-    assert "Voice and sound mix:" in prompt and "- [rule] Keep my music quiet" in prompt
+    question = "how loud should the music be under my voice?"
+    first = chat.send(WS, c["id"], question)["ai"]
+    assert first["status"] == "thinking"
+    done = settled(c["id"], first["id"])
+    assert done["text"] == "ok" and done["data"]["knowhow"][0]["id"] == "sound"
+    assert done["data"]["sent"] == "Stays on this computer: Ollama llama3.1:8b answers it."
+    system = fake.calls[0]["system"]  # what the model reads before the conversation
+    assert system.index(memories.HEADER) < system.index(knowhow.HEADER)
+    assert "Voice and sound mix:" in system and "- [rule] Keep my music quiet" in system
+    assert fake.last_user(0) == question  # the owner's words come after, as the conversation
 
 
 def test_change_requests_carry_the_know_how_that_fits_inside_the_budget(env, monkeypatch):

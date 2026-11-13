@@ -1,5 +1,1056 @@
 # AI changelog
 
+## ClipForge AI becomes a real assistant: conversation, actions, helper agents — 2026-11-08 (Claude Code)
+
+Landry asked for a built-in AI to actually talk to like a real AI, and for agents to add that work alongside
+it. The old chat caught ordinary sentences with rules ("I want…" became a memory, anything in a video's
+chat became a change request), sent each question to the model alone with no conversation, never told the model about
+Landry's projects, could never do anything, and without a downloaded model only gave canned answers. Branch
+`claude/project-thread-sa113l` from the release line at 95a70e0 (PR #33 merged). No release. Design and numbers:
+[docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "The assistant", "Actions", "Helper agents".
+
+- **The conversation engine** (`clipfoundry/brain/assistant.py`, new): one engine for both chats and for the helper
+  agents. Each turn sends who ClipForge AI is (`persona()`) and how it works, what it knows right now
+  (`app_context()`: the date, the owner's projects newest first, this chat's video in detail, the model, the
+  switched-on helpers), the memories and know-how that fit the message, its tools and the conversation so far
+  (`history()`), inside budgets sized for the built-in model's 8,192-token context (2,200 / 1,200 / 900 / 5,000
+  characters; 3,600 / 1,600 / 1,400 / 12,000 for bigger models). The model answers with one JSON object (`say`, up to
+  three tools in `do`, an optional `ask` with up to four quick replies), held to that shape by a JSON schema where the
+  provider takes one and read leniently otherwise (`parse_reply`: plain words, fences, other spellings, cut-off
+  answers). Looking tools run and the model answers again with their results, at most 4 rounds, the last one without
+  tools (`think`). The answer is written in the background and streams into the chat message (`partial_say`, saved
+  every 0.25 s); Stop keeps the words so far; an answer has 300 s on this computer and 60 to 240 s online.
+- **Actions** (`brain/tools.py`, `brain/toolbox.py`, new): a tool registry with checked arguments (known names only,
+  simple types fixed, text cut to its length, choices, ranges and required ones checked) and four risks. Twelve tools:
+  `find_projects`, `open_project`, `recall`, `knowhow`, `app_status` and `go_to` look and run at once; `remember`,
+  `propose_change` (a video's chat only) and `ask_agent` make something new and run at once; `forget` and
+  `rename_project` (change) and `delete_project` (delete) only show what would happen with OK and No, and run when the
+  owner presses OK (`chat.decide`), checked again then. A button is answered once, and later turns read what became of
+  it. `delete_project` uses the Projects page's safe delete (`studio/project_delete.py`, on
+  `claude/project-thread-8i3krg`); without it the tool says deleting from the chat is not possible yet and points to
+  the Projects page. Other parts add their own tools with `tools.register`.
+- **Helper agents** (`brain/agents.py`, new; table `brain_agents`): eight ready-made helpers (Researcher, Script
+  writer, Hook and title writer, Editor, Critic, Sound and music advisor, Thumbnail planner, Growth coach) added with
+  one press, or the owner's own (name, icon, job, instructions, tools), 24 at most. They think with ClipForge AI's
+  model, are only given looking and making tools and never hand work on. ClipForge AI hands them jobs (`ask_agent`,
+  their work shown live in a card inside its answer); the owner talks to one with "@Name …"; `consult()` gives the
+  new-video planner a short note from each helper set to help with plans, inside a time budget. The memories a job
+  read are recorded as used by `agent`.
+- **The chat** (`brain/chat.py`): with a model, every message goes to the assistant except the fast paths: "remember:
+  …" (with the colon, no question in it) saves exactly those words, "forget" with the exact words of a memory removes
+  it, and in a video's chat a change the editor's rules fully understand is proposed at once. "Remember that …" is a
+  turn of the conversation; when a plainly said lasting rule or fact ("From now on, never use red captions.") ends
+  without the model saving it, ClipForge keeps the owner's words itself, with Undo. Without a model the old rules
+  answer as before and the chat offers to set up the built-in model. Messages up to 4,000 characters (was 500); one
+  answer at a time per chat; `route()` lets another part answer some chats (the new-video planner, a draft video's
+  chat); `stop()`; `decide()`. With an online model every request counts against the daily AI limit (each round of an
+  answer, each round of a helper, each planner note, and the editor's change requests: `brain/allowance.py`, new, rows
+  in `ai_usage`); a model on this computer has no daily limit.
+- **Every kind of model** (`pipeline/llm.py` `converse()`, `builtin_ai.converse()`): whole conversations for the
+  built-in model, Ollama, OpenAI-style servers, Anthropic and NVIDIA; streamed from the built-in model (llama-server's
+  server-sent events), Ollama and OpenAI-style servers; a JSON schema where the provider takes one (asked once more
+  without it when a server refuses it); `Canceled` when stopped, also while waiting for the GPU; a model on this
+  computer waits for the GPU at most the time the answer has left; an error sent in the middle of an answer is said in
+  plain words. The built-in engine is never stopped as idle while it answers (`Server.answering(seconds)`); `gpu.py`
+  says a wait shorter than a minute in seconds.
+- **In the app** (`components/ClipForgeAI.tsx`, `components/AgentsTab.tsx` (new), `pages/Brain.tsx`, `brain.ts`,
+  `components/AiHelperSettings.tsx`, `styles.css`): the chat shows the answer as it is written, a line for each step,
+  buttons to pages and projects, OK / No cards for changes and deletes, quick replies, a helper's work as its own card,
+  Stop, "@" to talk to a helper (a list while you type, an "Ask a helper" row, and the helpers beside the chat in
+  Brain → Talk), the model in use, a setup card when there is no model (the built-in model in one press, with progress
+  and Cancel) and a tip when the computer can run a better level. Brain → Agents (`#/brain/agents`) adds, edits,
+  switches on and off, and removes helpers. `frontend/dist` rebuilt.
+- **API:** `POST /api/brain/chats/{id}/stop`; `POST /api/brain/chats/{id}/messages/{mid}/actions/{aid}` `{do}`;
+  `GET`/`POST /api/brain/agents`, `PATCH`/`DELETE /api/brain/agents/{id}`; opening a chat also returns the model's
+  state and the switched-on helpers.
+- **Privacy page** (`docs/legal/privacy.html`): a new "ClipForge AI" part says what its chats, memories, helper agents
+  and online request counts keep and until when; "An AI service you choose" says what talking with it sends (and that
+  the built-in model sends nothing off the computer, while an Ollama cloud model answers online), and NVIDIA's row
+  says the same for NVIDIA. The public website is not updated (that needs Landry's OK).
+- **Checks:** `tests/test_clipforge_ai_assistant.py` (63 passed), `tests/test_clipforge_ai_agents.py` (9),
+  `tests/test_clipforge_ai_safety.py` (new, 34: memory safety, the grounded check's parts, broken emoji, broken
+  tools, one-line outside text, the round budget, plainly said rules), `tests/test_llm_converse.py` (21),
+  `tests/test_clipforge_ai_chat.py` (22; its two model tests now go through the conversation engine),
+  `tests/test_clipforge_ai_knowhow.py` (12; its model test too), `tests/test_clipforge_ai_brain.py` (40;
+  memories in other languages), `tests/test_builtin_ai.py` (24; new: a conversation streamed piece by piece,
+  Stop and the time limit, never stopped as idle while it answers, the background load under the GPU lock),
+  `tests/test_assistant_check.py` (new, 5), `tests/test_video_setup_flow.py` (41),
+  `tests/test_studio_project_delete.py` (32) and `tests/test_studio_media_sources.py` (16), with a scripted fake
+  model (`tests/fake_model.py`, new) and the stand-in engine (`tests/fake_llama_server.py`, which now streams),
+  all on the code merged with the release line (PRs #40, #36, #39, #41, #38, #35 and #42); `python -m pytest -q
+  -m "not slow"`: 2597 passed, 2 skipped; `python -m pytest -q -m slow`: 30 passed, 1 skipped; pyflakes on the
+  changed files: no warning in the changed code but one import made for what it sets up (`brain/tools.py` loads
+  the toolbox); in the tests only pytest fixtures that are imported and named as arguments; `cd frontend && npm
+  run build`; a click-through in a real browser at desktop and phone widths (the chat, Brain → Agents, the setup
+  card, the OK buttons, Stop, remembering with Undo, Forget on a memory gone meanwhile, deleting a video from
+  its chat with the real safe delete) against a throwaway app with a fake streaming model (outside the repo): no
+  failed steps; `python scripts/assistant_check.py --fake` passes.
+- **Safety and robustness pass** (after an independent review of the first version found 13 problems, each
+  reproduced before it was fixed): `remember` saves at once only the owner's own words from this message (60% of
+  its meaningful words in the message, `toolbox.grounded`); words from a transcript, a name, a result or a helper
+  become a "Remember “…”?" card (`save_memory`, a change tool the model is never offered, `tools.AskFirst`), and a
+  helper is told to suggest it instead; it never changes a memory the owner already has (switched off, kept for
+  one video or platform, or a guess: the step says so and links to Brain → Memory), so Undo only ever forgets what
+  that answer added, and a merged memory's video or platform follows its scope (`memories.remember`). Names, clip
+  titles, notes and transcript words are one line in what the model reads (`tools.one_line`; link import stores
+  titles as one line), so a downloaded title cannot fake a rule. A tool that breaks fails only its own step and the
+  model goes on; "Nothing was changed." is said only when true. Half of an emoji anywhere in an answer is left out
+  (`tools.whole`, `clean`). A long answer before a follow-up stays in the conversation, shortened (start and end),
+  and a helper reads as much of it as ClipForge AI. One round reads at most 21,000 characters on the built-in model
+  or Ollama (earlier results shortened first) and an overflowing model is said in plain words. The wait for the GPU
+  and loading the built-in model count in the answer's time; the planner's helper notes are skipped while the
+  built-in model is not loaded (`Server.warm` starts it in the background; on Linux the engine is now started from
+  one long-lived thread, because it was stopped with the thread that started it). What a helper saves shows with its
+  Undo chip; a finished helper's work shows once. On the page: a press can never send or act twice, the focus stays
+  in place after OK, Undo, Apply, Clear and Send, reading slows when the page is hidden and stops when the chat is
+  gone, a screen reader hears new messages (not the whole chat on opening) and download steps (not every megabyte),
+  and a request that never reached ClipForge says so in plain words.
+- **Second review pass** (a second independent review of the fixes found 15 more problems, each reproduced before
+  it was fixed and each with a test): the shortened earlier answer before a follow-up now really reaches the model
+  (`llm._turns` puts a short "(Earlier in this chat:)" turn on the owner's side before it instead of dropping it);
+  memories in other languages are compared by their own words, so a Russian rule is no longer the "twin" of a
+  Russian fact (`memories._norm` is Unicode-aware; older memories are matched by their old form too and Tidy updates
+  them); the "Remember …?" card shows a long memory whole, since OK keeps exactly the words it shows; `grounded`
+  also compares each part of a memory with the part of the owner's message it comes from: turned-around words (no,
+  never, don't, avoid, less …), numbers and limiting words (only, except, more …) must match, so "No zooms" is not
+  saved at once for "I love the zooms you added"; a reply to ClipForge AI's question ("Only this one") counts the
+  message it was about as the owner's words (`assistant.owner_words`); the rule safety net keeps only orders on one
+  line ("Never use …", not "Never had this problem before …") and waits when the model asked a question or a helper
+  kept a memory; a helper's memory keeps its line and Undo chip when the helper's next round fails; the background
+  load of the built-in model holds the graphics card (never next to a transcription); a model on this computer is
+  not asked with less than a useful part of the time left (`builtin_ai.answer_floor`), and a slow one is said to be
+  slow ("The model took longer than 300 seconds (40 of them waiting for the graphics card)."), not unreachable; the
+  daily limit counts only the editor's requests that went online, a model on this computer no longer lets ClipForge
+  AI's online requests block the editor (it keeps the editor's own limit, as always), and the editor counts under
+  the same lock as ClipForge AI (`allowance.counted`); "on this computer" now covers every loopback address
+  (127.x.x.x, ::1, 0.0.0.0) and an Ollama cloud model (`…-cloud`) counts as online and is disclosed as sent over the
+  internet (one check, `llm.is_local`, for the chat, the editor and the AI editor); an answer nested deeper than any
+  real one is read as words instead of failing; the chat page keeps reading an answer after a passing error (only a
+  deleted chat stops it). Settings → Advanced calls the limit "AI requests a day" and says what it covers.
+- **Small models** (after the first real-model run): the round instructions ask the model to answer from the
+  results (name the projects), a helper is told to do the job in the same answer ("never only say that you will do
+  it"), ClipForge AI is told to always hand a job to a helper when the owner asks for that helper's work and is
+  shown one of the owner's own helpers in an example.
+- **The real model** (`scripts/assistant_check.py`, new, run by the new GitHub workflow `assistant-check.yml`): a
+  conversation with the real built-in model through the app's own chat, in a fresh data folder (a greeting, the
+  projects, a memory, the owner's name four turns later, a rule, a delete that must wait for OK, a helper by "@" and
+  by hand-off, `consult`). Hard checks fail the run: nothing crashes, every answer finishes within the app's own time
+  limit and is neither empty nor raw JSON, nothing is deleted and no button runs without the OK, "remember that …" and
+  "From now on, never use red captions." are kept (by the model's `remember` tool, or by ClipForge when the model
+  forgot), an "@Name" message is answered by that helper, and `consult` gives one note. How good the answers are is
+  reported without failing it (including whether the model saved the memories itself). `--fake` checks the script
+  itself with a stand-in model. The first run (on d02bb25, run 42478720316) passed on Linux and on a Mac (Basic
+  level, Qwen3-VL 2B: 11 turns in 307 s, 3.2 tokens a second, answers in 14 to 68 s); the small model did not name
+  the projects it found, did not save the red-captions rule itself, did not hand the title job to the Script
+  writer, and the Script writer said it was ready instead of writing: the "Small models" changes above answer that.
+  The run on the merged version (56aae46, run 42745705173) passed on Linux (11 turns in 110 s, 8.8 tokens a second,
+  answers in 6 to 21 s) and on a Mac (359 s, 2.8 tokens a second, answers in 19 to 61 s): every must-check held. The
+  Basic model again did not name the projects it found (the step's buttons showed them), did not save the two
+  memories itself (ClipForge kept the owner's words), did not hand the title job to the Script writer, and the Script
+  writer said it would write instead of writing; its three rounds that were each only "Here are your projects:"
+  showed that line three times, which `Outcome.text` now shows once. The run on the final version is linked in PR #37.
+- **Last review pass** (an independent review of the stutter fix, the check workflow, the privacy page and the docs;
+  each finding reproduced, each fix with a test): an answer's rounds stay in the order they were said, and a round that
+  says earlier rounds again and goes on replaces them at the end, so the answer's last words come last (a "Let me check
+  …" said before the answer no longer ends up after it); a short answer that only starts like an earlier round ("No."
+  after "Now let me check …", "Step 1" after "Step 10") is kept, and one of fewer than three words counts as said again
+  only where its words end a phrase ("Got it." in "Got it, I'll remember that."); words are compared with their marks
+  (Thai, Hindi); a round that only repeats the start of several earlier rounds in a row adds nothing, and the round
+  being written shows only once it has a new word, so a repeated lead-in (one round's or several rounds') or a lone "**"
+  does not flash up. With NVIDIA, ClipForge AI's instructions (memories, project details, helpers' instructions) lose
+  web addresses that start with http://, https:// or www. and email addresses, like the conversation, and a conversation
+  longer than NVIDIA's input limit loses its oldest messages first (the limit cut its end, where the newest message is).
+  `assistant-check.yml` can run on both machines, only Linux or only the Mac (`machines`), gives an answer 900 s on
+  GitHub's machines when there is no graphics chip for the model (the Mac, and Linux at the Standard level), and a run
+  by hand never cancels a push's run, nor one with other choices. The daily-limit messages now point to where the limit
+  is ("Settings → Advanced, “AI requests a day”"; they said Settings → ClipForge AI). The privacy page now matches the
+  code: what the chats, memories (guesses expire after 60 days; Tidy), helpers, the change requests made in a video's
+  chat (kept until the data folder is deleted; Clear this chat leaves them) and the request records keep; which features
+  send text to the AI helper you choose (scoring and titling, the editor, smart editing, FilmCraft, a short's script,
+  Full stories, ClipForge AI and its helpers; never files, pictures or sound) and what a conversation sends (standing
+  rules, the date and time, the chat's video, part labels that are often file names); and, for NVIDIA, that web
+  addresses starting with http://, https:// or www. and email addresses go from everything, the size limit cuts each
+  request's words but not its instructions, and its one repair request is not counted again against "AI requests a day".
+  The run on the merged version (a1d489d, run 42777938926) passed on Linux and on a Mac and showed the projects' lead-in
+  once ("Let me look. Here are your projects:"), but on Linux the Basic model answered "Delete the project Old gear
+  review" with "… It's been removed." although the delete could not be offered (nothing was deleted). A change or delete
+  that cannot be offered is now a failed step the owner sees ("Could not delete Old talk", with the reason), like any
+  other tool that fails; the note the model reads for a waiting button says that nothing is done yet; and the check
+  reports words that say a project was deleted or removed, also beside a waiting button.
+- **A last independent read of these fixes** (a code reader and a privacy-page reader; 11 points, each checked
+  here, each fix with a test that failed first): with NVIDIA, a newest message that did not fit with the note "Earlier
+  messages were left out" lost its whole text (NVIDIA cuts at the last whole line, which was the note's): it now
+  goes alone, and one too long on its own keeps its start and its end (`llm._start_and_end`). A short answer is no
+  longer taken for a repeat where a hyphen, an apostrophe or a point or comma inside a number follows the same
+  words ("No." after "No-one has …", "1." after "1,000 views", "Step 1" after "Step 1.5"); only a stop, or
+  no more words, ends a phrase (`_ends_phrase`). Emoji drawn with a look selector (❤️, ⚠️, 🎞️) count as having no
+  words, like 📂; rounds are compared decomposed and without case, so an accent written after its letter (as macOS
+  writes file names) or a Greek capital sigma no longer makes a repeated lead-in flash up while it is written. The
+  same failed step asked for twice in one answer shows once (`_add_step`). The check's delete detector reads each
+  sentence on its own ("It's been removed. Let me know if …" is a claim), knows "successfully deleted", and no longer
+  takes "Tap OK to delete it. Its clips are removed too." for one (30 phrasings checked). The privacy page: a change
+  asked for in a chat is kept in the words ClipForge AI wrote from what was said (not always the words as typed);
+  downloading the built-in model contacts GitHub (llama.cpp) and Hugging Face (its files, no sign-in token sent),
+  now listed; clip making also sends a one-line summary of the kinds of clips the owner keeps; and NVIDIA's row says
+  exactly which addresses go (those starting with http://, https:// or www., and email addresses; "youtube.com/@name"
+  is sent as written). Left as it is, and written down: a lead-in that each round goes on from with different words
+  ("Here are your projects: Hike day …", then "Here are your projects: Lake day …") is shown each time; the real
+  model's repeated rounds were each only the lead-in, which is handled, and cutting words from inside a round's
+  answer risks losing what it said.
+- **The real-model run on the version merged with PR #41** (5322fd0, run 42818369465): on Linux every must-check
+  passed and the projects' lead-in showed once, but the Basic model, asked again after the delete could not be
+  offered, said "I've deleted the project 'Old gear review' for you. It's gone now." (nothing was deleted; the check
+  reported it). A change or delete that is not offered (it cannot be offered at all, or it is shown blocked) is no
+  longer a reason to ask the model again: the owner sees what the model wrote before it knew and the failed step or
+  the button that cannot be pressed, each with its reason; beside a tool the model does read, it reads that the change
+  was not done (`assistant._offer`). `scripts/assistant_check.py` counts such a failed step as the answer's words and
+  as the polite no. The run on that fix (3c8fe24, run 42820370845) passed every must-check on Linux and on the Mac,
+  and the model claimed no delete on either machine. An independent review of this fix then found that the next turn
+  could not know such a change was not done (an answer that was only the failed step was not in the conversation at
+  all, and one with words kept only the model's promise): `history` now adds "[Could not delete Old talk, so nothing
+  was done: …]" after the answer's words (its steps are marked `not_offered`). `scripts/assistant_check.py` counts
+  only such steps as words (a change with wrong arguments goes back to the model, which must answer), wants the failed
+  delete of the right project (`delete_verdict`) and shows the step in the job summary instead of "(empty)";
+  `tests/test_assistant_check.py` (new) tries its judgements on answers written by hand.
+- **Merged with PR #38, Make a YouTube video** (the release line at b5707fa): the new-video planner asks ClipForge
+  AI's model, and counted its requests its own way (chat messages marked as sent online, plus every AI change request,
+  also one to a model on this computer) and sent the owner to Settings → ClipForge AI for the limit. It now takes each
+  planning request from the same daily allowance as the chat, its helpers, their notes and the editor
+  (`allowance.take`, task `video_plan`, just before the request is sent, in a draft's chat and in the build job:
+  `video_setup._take`; `video_setup.limit_reached` asks `allowance.reached`), so together they never send more than
+  "AI requests a day" allows, and the message names Settings → Advanced, "AI requests a day". NVIDIA's agreement note
+  (Settings → Integrations) now names conversations with ClipForge AI and its helper agents too, not only planning,
+  and the privacy page's "An AI service you choose" and NVIDIA rows describe both (planning leaves memories out for
+  NVIDIA; the conversation does not). New test: `test_planning_and_clipforge_ai_share_one_daily_allowance` in
+  `tests/test_video_setup_flow.py` (it failed on the planner's old counting).
+- **Merged with PR #35, deleting projects** (the release line at bc7250f): `delete_project` uses its safe delete
+  (`studio/project_delete.py`) itself; the stand-in answer for a version without it is gone. The card shows the plan's
+  sentences and keeps the moment the plan was judged (`as_of`), which OK sends back, so a file the card said stays
+  because the owner added it again still stays however long the card waited; `as_of` is an internal argument
+  (`"internal": True` in a tool's schema: `tools.signature` hides it from the model, `tools.check_args` keeps it only
+  from a button's own saved arguments, `button=True` in `chat.decide`, and `tools.same_button` makes two cards that
+  differ only there one card). Work still stopping keeps the card for another press (`TryAgain`). A rename or delete
+  card whose project was deleted since says "That project is not there any more: it was deleted." instead of naming
+  the project's id. A memory "for this video" that an
+  answer saves after its video was deleted is not kept (`toolbox._keep`). The chat page drops a project deleted from
+  the chat from its pins, as the Projects page does. The privacy page's ClipForge AI part says a chat, a memory kept
+  for one project and a video's change requests go when that project is deleted. PR #35's
+  `test_a_memory_saved_again_for_another_project_stays` expected a memory saved again for another project to keep
+  the first project's id in `project_id`; since this branch's review fixes, `project_id` follows the scope, so the test
+  now checks that and also an older version's memory (its comment in `project_delete.py` says so). New tests:
+  `test_the_chat_deletes_with_the_safe_delete_of_the_projects_page` (the real module: the card's words, its `as_of`,
+  OK deletes the video with its chat and its own memories, a memory for every video stays),
+  `test_nothing_is_kept_for_a_video_deleted_while_the_answer_was_written`; the two tests that used a version without
+  the safe delete now use a project deleted while it was offered. Each failed on the code before this merge.
+- **An independent review of that merge** (three reviewers, one for the delete path, one for what is kept and the
+  privacy page, one for the tests and docs, and a separate check of each finding that tried to refute it) found three
+  real problems and three small ones. Each fix has a test that failed before it:
+  - A card could delete a file it said stays. A card is judged when it is shown, and one answer can show two delete
+    cards for videos that share a file: both say the file stays because the other video uses it, and OK on both
+    deleted it. `project_delete.plan()` now also lists what goes beyond the project itself (`removes`: media files,
+    the copy of the video it was made from, planned posts); the card keeps it as a second internal argument, and
+    `project_delete.delete(..., removes=)` deletes no more than that, or nothing (`DeleteError` 409, code `changed`:
+    "What deleting it removes has changed since this was shown: it would now also remove … Nothing was deleted."),
+    checked before any work is stopped and again on what is deleted once it has stopped. The card then fails and says
+    to ask again; a new card lists what goes now. A post planned after the card was shown is caught the same way. The
+    project's own clips, versions, notes and chat are the project and go with it whatever their number. The Projects
+    page does not send `removes` and works as before.
+  - A card that Autopilot got in the way of kept its OK, and a later press deleted what Autopilot made meanwhile (a
+    clip, a planned post), which no card the owner saw had listed. A `blocked` answer now ends the card with what it
+    waits for; asking again later shows a card with what goes then.
+  - Deleting a video gave the day's online AI requests back: the editor's change requests counted from their
+    `edit_requests` rows, which the delete removes. Each one now also writes its own `ai_usage` row (task
+    `edit_request`, `allowance.editor_request`), which stays; one sent before this counts from its `edit_requests` row
+    while that is there, never twice. The privacy page says the record stays after its video is deleted.
+  - Small ones: a memory deleted while an answer was written got a use record left over for nothing
+    (`memories.record_use` now counts and records in one transaction, only for a memory that is there); a clips
+    project and a YouTube video with the same name could not be told apart (`toolbox.find` takes the `kind` the model
+    gives, and without it asks which one, naming each one's kind); and new tests show a model can neither read nor
+    give a card's internal arguments.
+  - New tests: in `tests/test_clipforge_ai_assistant.py`,
+    `test_two_delete_cards_for_videos_that_share_a_file_never_remove_more_than_they_listed`,
+    `test_a_delete_card_autopilot_got_in_the_way_of_ends_and_a_new_card_says_what_goes_then`,
+    `test_a_delete_card_never_cancels_a_post_planned_after_it_was_shown`,
+    `test_a_clips_project_and_a_video_with_the_same_name_are_told_apart_by_their_kind`,
+    `test_a_buttons_own_arguments_never_come_from_a_model` and
+    `test_deleting_a_video_keeps_the_days_count_of_its_change_requests`; in `tests/test_studio_project_delete.py`,
+    `test_a_delete_given_its_confirmations_list_removes_no_more_than_that_or_nothing` (also the variant where work that
+    stops changes what goes); `test_a_delete_that_must_wait_or_would_remove_more_since_its_card_was_shown_ends_the_card`
+    replaces the test that kept a blocked card, and `test_uses_are_recorded_and_counted` and
+    `test_the_editors_change_requests_and_the_chat_share_one_daily_count` check more.
+  - Left as it was: with a model on this computer, the editor's own daily limit (`edit_requests._sent_today`) counts
+    its change requests from their rows, so deleting a video still gives those back, as before this merge. The
+    reviewers' doubt about `scripts/assistant_check.py`'s polite-no verdict did not hold up.
+- **A check of those fixes** (three more reviewers: the delete guard, the daily count and memory uses, the tests and
+  docs; each finding checked again by one who tried to refute it) found one more real problem and three small ones,
+  each fixed with a test that failed before:
+  - A card could still delete a picture ClipForge made for a short's scenes that it said stays: what ClipForge makes
+    for a short goes with it whatever its number, and that rule also covered a picture another project used when the
+    card was shown (the owner put the same picture in another video, or two shorts share one; ClipForge keeps one
+    file). When the other project was deleted meanwhile, OK deleted it. The plan's `removes` now also lists, as
+    `kept`, the files it says stay, and `project_delete.delete(..., removes=)` counts
+    such a file as more ("it would now also remove “Scene 1 picture.png”, which ClipForge made for its scenes and no
+    other project uses now. Nothing was deleted."). What it makes for a new scene after the card was shown still goes
+    with the short.
+  - The day's count of online requests looked through every earlier day's requests, once for each of today's change
+    requests, before every request under the allowance's lock (about a second after a year of heavy use). A new index
+    (`idx_ai_usage_job` on `ai_usage(provider, task, job_id)`, made at the next start) keeps it to today's.
+  - Forget and Tidy deleted a memory and the record of its uses in separate steps, so a use recorded in between was
+    left over for nothing; Tidy's merge of twins likewise. Each is now one transaction.
+  - `docs/clipforge/CLIPFORGE_AI.md` and `AI_HANDOFF.md` still said the editor counts with `allowance.counted` and its
+    own row; they now name `allowance.editor_request` and say a part counts only through its `ai_usage` rows.
+  - New tests: `test_a_delete_given_its_confirmations_list_never_removes_a_scene_picture_it_said_stays` in
+    `tests/test_studio_project_delete.py`; `test_two_shorts_delete_cards_never_remove_a_scene_picture_one_said_stays`
+    and `test_the_days_count_takes_no_longer_after_a_year_of_requests` (counted in SQLite's own steps, not time) in
+    `tests/test_clipforge_ai_assistant.py`; in `tests/test_clipforge_ai_brain.py`,
+    `test_a_use_recorded_while_a_memory_is_forgotten_or_tidied_away_is_never_left_behind`. Two doubts did not hold
+    up: a card that waited for work to stop and then found more to delete says only that nothing was deleted (the
+    earlier press said the work was being stopped), and the editor's two rows cannot be split by anything in ClipForge
+    (each write waits up to 30 seconds for the database).
+- **A last check of these fixes** (two reviewers, each finding checked again) found two small things in Tidy and one
+  sentence too strong, each fixed with a test that failed before:
+  - Tidy's merge of twins wrote the kept memory's use count from what it read at the start, so uses recorded while it
+    ran were not counted; and when the kept memory was forgotten while Tidy ran, its twin's use records were moved to
+    a memory that was gone. Now one transaction per twin first adds the twin's count as it is at that moment to the
+    kept memory (so forgetting that one waits), then moves the records and deletes the twin; when the kept one was
+    forgotten meanwhile, the twins stay as they are, each with its own uses.
+  - `removes.kept` now lists every file the card says stays, not only what ClipForge made, so nothing it said stays
+    can go, whatever becomes ClipForge-made meanwhile.
+  - "Only `ai_usage` rows count" was too strong: the editor's change requests from before it wrote its own row still
+    count from their own rows; the docs say so.
+  - New test: `test_a_twin_merged_into_a_memory_forgotten_meanwhile_leaves_no_use_behind` in
+    `tests/test_clipforge_ai_brain.py`; the test of uses recorded during Forget and Tidy now also checks the count.
+    Two doubts did not hold up: a card saved without `kept` (only builds of this unreleased branch made one) and a
+    file the card said stays turning into one ClipForge made (a picture it makes comes from the scene's own random
+    seed).
+- **A check of that last round** (one reviewer, each finding checked again by one who tried to refute it) confirmed
+  its fixes and found three rare problems in Tidy that are older than this branch, one sentence that said too little
+  and two tests that checked too little:
+  - Tidy read the expired memories and deleted them by id in a later step, so a guess confirmed (or said again) in
+    between was deleted anyway, with its uses, and a confirmation that came a moment later answered with an error. Its
+    merge of twins likewise worked on the twins as it had read them: a twin given other words meanwhile was merged
+    away, and the kept memory's tags were written from what it had read. Tidy is now one step that takes the
+    database's write lock first (`BEGIN IMMEDIATE`) and works on what is there then. An edit or a confirmation of a
+    memory deleted between its reading and writing it answers "Memory not found." (`memories._written`).
+  - Tidy merged twins kept for different videos, or switched on or off apart, into the stronger one as it was: a
+    memory for every video could shrink to one video (and go when that video was deleted), and one switched on could
+    end up switched off. Twins now merge only when they apply in the same place and are switched on or off alike; the
+    one kept takes their uses, use count, last use and tags, and lasts as long as the last of them would
+    (`memories.tidy`). The design notes say so.
+  - `project_delete._beyond`'s docstring named one of the two reasons a file is in `kept`; the owner having just added
+    it again is the other.
+  - New tests, in `tests/test_clipforge_ai_brain.py`: `test_what_the_owner_does_while_tidy_runs_is_never_lost`,
+    `test_a_confirmation_or_edit_of_a_memory_gone_meanwhile_says_it_is_gone` and
+    `test_tidy_merges_only_twins_kept_for_the_same_videos_and_switched_on_or_off_alike` (each failed before);
+    `test_a_twin_merged_into_a_memory_forgotten_meanwhile_leaves_no_use_behind` now also checks that the twin stays
+    with its own uses and what Tidy says it merged. In `tests/test_studio_project_delete.py`,
+    `test_a_file_the_confirmation_said_stays_is_not_removed_once_a_scene_of_the_short_takes_it`: the case `kept` was
+    widened for, which the made-only list deleted.
+- **Merged with PR #42** (the release line at e5912bf, merge 4dca7f7: leftover files and upload races after deleting
+  projects). PR #42's last look inside the delete's write lock (a file another project took meanwhile, or a copy handed
+  out again, stays), `_added_again` with `_marked_since` and `uploads.taken`, and `_maker_originals` are kept as they
+  are; the delete card's `removes.kept` now also lists the files a delete's answer says were handed out again
+  (`s.handed`), so all of them count as staying. That last look only ever takes files out of what goes, so it never
+  conflicts with the card's "no more than it listed" check. `brain.chat.open_chat(create=False)` merged cleanly; the
+  change logs keep both sides' entries; `frontend/dist` was rebuilt from the merged sources.
+- **A review of how the two fit together** (four reviewers: the delete card, the chat, the docs, Tidy; each finding
+  checked again by one who tried to refute it, though two of those checks did not run, so every fix below was first
+  shown by a test that failed without it) found:
+  - A delete card can wait for days, and PR #42's last look kept every file handed out again since the card was shown
+    (the same bytes uploaded, added or stored once more), also when it went to a project deleted since or to the
+    project itself: the file then stayed with nothing naming it, though the card had said it goes (three reviewers
+    found it; two checks confirmed it end to end). A copy handed out again now keeps a file only within the hour a
+    short's tidying waits too (`uploads.REUSE_HOLD_S`, `project_delete._hand_out_since`); one handed out before that
+    is recorded by now, and what names the file then decides. The design notes, the `_view` comment and the privacy
+    page say so.
+  - `remember` read the memory with the same words and wrote over it later: when Tidy, Forget or a video's delete
+    came in between, it returned nothing (adding a memory answered 500, the chat said something went wrong), or put
+    back the tags and expiry Tidy had just merged. It now writes only over the revision it read
+    (`memories._write_over`, one locked step) and reads again otherwise (409 "The memory changed while this was being
+    saved. Try again." after five tries). A brain file's import does the same, counts a memory gone meanwhile as
+    added with the file's words, and never makes a twin (an edit refuses one too).
+  - No test acted while Tidy held its write lock (the tests passed without it). They now do, from another thread:
+    a confirmation, an edit and the same words said again wait for Tidy, then apply or answer "Memory not found.".
+  - Twins Tidy keeps apart (one for every video and one for a video) were both read into that video's prompt; the
+    same kind and words are now read once. The brain check says Tidy merges only exact twins kept for the same videos.
+  - The delete card cut its lines at ten, so a long plan could leave off what goes; it shows all of them (at most 16).
+  - The Memory tab kept showing a memory that was gone after "Memory not found."; it reloads after a failed action.
+  - The privacy page now says a project can be deleted by asking ClipForge AI, that a copy stays only when added again
+    on another page in the last day and not used there yet, or handed out again within the hour before deleting, and
+    that Tidy merges twins kept for the same videos; one over-long docstring line in `project_delete` was wrapped; the
+    hand-off no longer says nothing the owner does during Tidy is lost (a confirmation of a memory Tidy removed
+    answers "Memory not found.").
+  - New tests: `test_a_confirmation_that_waited_for_days_keeps_only_a_file_handed_out_again_in_the_last_hour` in
+    `tests/test_studio_project_delete.py`; in `tests/test_clipforge_ai_brain.py`,
+    `test_what_the_owner_does_while_tidy_runs_waits_for_it_and_is_never_lost` (replaces
+    `test_what_the_owner_does_while_tidy_runs_is_never_lost`, whose owner acted only after Tidy),
+    `test_the_same_words_said_again_while_their_memory_changes_or_goes_are_kept`,
+    `test_a_brain_file_never_makes_twins_and_a_memory_gone_meanwhile_gets_its_newer_words` and
+    `test_the_same_words_kept_for_every_video_and_for_one_are_read_once_and_left_to_the_owner`; in
+    `tests/test_clipforge_ai_assistant.py`, `test_a_delete_card_shows_all_of_what_goes_and_what_stays`.
+  - Left for PR #42's owners (told): a project's own build or upload that stores the same bytes again within the hour
+    before its delete still keeps that copy with nothing naming it (on the Projects page too, while its window is
+    open); the privacy page does not yet describe PR #42's upload records, a short's list of stored files or where
+    the makers' originals go.
+- **A last look at those fixes** (two reviewers, the memories and the delete; each finding checked again by one who
+  tried to refute it, and all ten held up; each code fix has a test that failed before it):
+  - A brain file's newer revision of a memory was skipped whenever another memory said those words: also when it only
+    switched the memory off or retagged it, and when the owner had given it the words of a rule this computer already
+    had, the replaced words stayed in force beside the new ones (counted as "already known"). A newer revision is
+    applied again, as before 3719ab0; the twins it leaves are read once, and Tidy merges those kept for the same videos
+    and switched on or off alike.
+  - Twins were read once by keeping the higher score before the relevance floor: when that twin fell under the floor
+    (its meaning still from the embedder used before Rebuild), the memory was not read at all. The one read is now
+    chosen among those that fit the question (`memories._once`).
+  - An edit and a confirmation wrote their own read + 1 as the revision, so two different states of a memory could
+    share one, and an answer saying the same words again meanwhile wrote over the edit (its old words back, beside the
+    edit's stored form and meaning) or undid the confirmation. Both now write only over the memory as they read it
+    (`memories._write_over`) and read it again otherwise, like `remember`.
+  - The Memory tab's Forget (and Where it was used) on a memory forgotten elsewhere meanwhile left the gone row listed;
+    it reloads the list (the dialog says "Memory not found.").
+  - Find media's automatic round imported every pick first and put them in the video's media only after the last
+    download. A delete of another project with the same file in between (the same item imported before, which no
+    hand-out marks, or the same bytes handed out more than an hour before) removed it, and the round failed with "Asset
+    not found.". Each pick now goes into the video's media as it is imported, as one import does.
+  - Docs: the privacy page says what the card's OK removes (no file, video copy or planned post it did not list; what
+    belongs to the project goes however much there is by then), that a copy added again since the day before the list
+    was shown stays, and that Tidy merges twins switched on or off alike; the design notes and the hand-off no longer
+    say an old card keeps no file nothing names (one handed out within the hour before OK still stays) or that what
+    the owner does during Tidy is never merged away.
+  - New tests: in `tests/test_clipforge_ai_brain.py`,
+    `test_a_brain_files_newer_revision_is_applied_beside_a_twin_and_a_memory_gone_meanwhile_gets_its_newer_words` (in
+    place of `test_a_brain_file_never_makes_twins_and_a_memory_gone_meanwhile_gets_its_newer_words`),
+    `test_an_edit_or_a_confirmation_writes_only_over_the_memory_as_it_read_it` and
+    `test_twins_are_read_once_from_those_that_fit_the_question`; in `tests/test_studio_media_sources.py`,
+    `test_a_pick_is_in_the_videos_media_before_the_next_one_downloads`.
+    `test_a_confirmation_or_edit_of_a_memory_gone_meanwhile_says_it_is_gone` now forgets the memory right after it is
+    read (it hooked `db.update`, which an edit no longer calls). The click-through presses Forget on a memory forgotten
+    elsewhere meanwhile.
+- **One more look at those fixes** (two reviewers, the memories and the delete; each finding checked again by one who
+  tried to refute it: four of five held up, one in the code and three about two sentences of the design notes; one about
+  the delete's wording did not; the code fix has tests that failed before it): "forget …" with a memory's exact words
+  removed only one memory that says them. A twin (the same words kept for one video, switched off, or as another kind)
+  stayed in force while the answer said "Forgotten", and the Forget card named one memory. Now every memory that says
+  those words goes (`memories.forget_words`, `memories.saying`), the answer says how many times it was kept, and the
+  rules-only chat also understands "forget my …" as the fast path does. The Forget card names each memory it forgets
+  (where it applies, switched off or not); its OK forgets only those (`memory_ids`, which only the button keeps), each
+  only while it still says the card's words (`memories.forget(..., words=)`, checked and deleted in one locked step),
+  and says how many went and how many were changed since and stay. Docs: the design notes say that "remember" and a
+  brain file keep the words of a memory gone in between while an edit or a confirmation answers "Memory not found.", and
+  that a brain file's twins are merged by Tidy when kept for the same videos and switched on or off alike; the privacy
+  page says that asking ClipForge AI to forget forgets every memory that says those words. New tests:
+  `test_forget_with_the_exact_words_forgets_every_memory_that_says_them` (`tests/test_clipforge_ai_chat.py`) and
+  `test_forget_takes_every_memory_that_says_those_words_and_its_button_only_what_it_listed`
+  (`tests/test_clipforge_ai_assistant.py`).
+- **A look at that fix** (one reviewer; each finding checked again by one who tried to refute it, and all five held up;
+  each fix has a test that failed before it):
+  - A Forget card saved by an earlier build of this branch named one memory (`memory_id`), which the new arguments
+    dropped, so its OK looked for memories again: it could forget the closest other memory ("Zoom in on faces in
+    interviews" when "Never zoom in on faces" was forgotten meanwhile) or twins the card never named. `memory_id` is a
+    button-only argument again, and OK forgets only the memories its card named; it never looks again.
+  - "forget" was not a whole word: saying again a memory that starts with "Forgetting …" or "Forgetful …" deleted it (in
+    the chat without a model since that fix, with a model before it), and "forget mystery music" read as "forget my" and
+    "stery music". "forget" and the words it skips are whole words now, and so are "remember" and "note" in the chat
+    without a model ("Notes from the shoot …" was kept as the memory "s from the shoot …" since phase A).
+  - "forget my intro is 3 seconds" (what the Forget chip of "my intro is 3 seconds" sends) also forgot a memory that
+    says "intro is 3 seconds", and named that one. The words after "forget" come first now; those after a leading "my",
+    "that", "the", "about" or "what I said about" count only when no memory says them all (`chat._said`).
+  - A Forget card showed at most 19 of the memories it forgot (a card shows 20 lines) yet forgot up to 50, and with more
+    than 50 it said "them all" and left some. A card names at most 16 (`toolbox.FORGET_MAX`); one that would need more
+    cannot be pressed and says to use the exact words in the chat, which forget them all, or Brain → Memory.
+  - The design notes said "remember" and a brain file keep the words of a memory tidied into its twin "as a memory of
+    their own": "remember" writes into the twin Tidy kept, and a brain file whose words a memory says is skipped. A
+    Forget card for one memory now also says where it applies.
+  - New tests: `test_forget_takes_only_the_words_the_owner_named_and_only_as_a_whole_word`
+    (`tests/test_clipforge_ai_chat.py`) and `test_ok_on_a_forget_card_never_looks_for_memories_again`
+    (`tests/test_clipforge_ai_assistant.py`).
+- **A last look at forgetting** (one reviewer; each finding checked again by one who tried to refute it, and all six
+  held up; each fix has a test that failed before it, and the click-through tried the buttons in the app):
+  - A correction such as "Forget that, keep the music low" (or "Forget that. Keep …", "Forget, keep …", "Forget about
+    that - keep …", "Forget. Keep …", or "Forget that" with the rule on the next line) forgot at once the very rule it
+    says again, with its twins. "forget" and each word it skips now count only with a space after them (a colon after
+    "forget"); anything else goes to the conversation, or without a model to "Which one?", and nothing is forgotten.
+  - A "Which one?" button pressed again, or after its memory was forgotten or changed elsewhere, forgot another memory
+    with fewer words ("intro is 3 seconds" for "the intro is 3 seconds"). The button now sends the words in quotes;
+    quoted words go only as they are, and when no memory says them the answer is "Nothing I remember says “…”, so
+    nothing was forgotten."
+  - A quick reply the model offered ("Forget “Keep the music low”") forgot every memory that says those words on one
+    press, with no Forget card. The page now sends a quick reply (the model's choices and the editor's) with `choice`,
+    which never forgets at once: the model's Forget card shows what would go, or without a model "Which one?".
+  - In the chat without a model "Remember that's my sister in the intro" was kept as "'s my sister in the intro",
+    "Note-taking …" as "taking …", and "Forget-me-nots …" asked which memory to forget. "remember", "note", "keep in
+    mind", "forget" and the "that" left out are whole words now; a dash separates only after a space ("note - the drone
+    shots …").
+  - "Which one?" listed the same words kept twice (a rule and a fact) as two picks, and either pick forgot both. It
+    lists the same words once now, with how many times they are kept and that picking them forgets each.
+  - OK on a Forget card saved by the build before (it named up to 50 memories) forgot only the first 16 and said
+    nothing of the rest. Such a card now forgets none and says to use the exact words or Brain → Memory
+    (`toolbox.FORGET_IDS`).
+  - New tests: `test_a_correction_never_forgets_and_a_longer_word_is_never_cut` and
+    `test_which_one_lists_each_set_of_words_once_and_its_button_forgets_only_those_words`
+    (`tests/test_clipforge_ai_chat.py`), and
+    `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`
+    (`tests/test_clipforge_ai_assistant.py`); `frontend/dist` rebuilt. The click-through (outside the repo) checks
+    that a quick reply is sent with `choice`, and that the "Which one?" button sends the words in quotes, forgets both
+    twins, and pressed again forgets nothing.
+- **A look at those fixes** (one reviewer; each finding checked again by one who tried to refute it, and all three held
+  up; each fix has a test that failed before it):
+  - A correction with an emoji, a smiley, a bracket or an arrow after "forget" or "that" ("Forget that 😅 keep the
+    music low", "Forget :) keep …", "Forget that (keep …)", or "Forget that 🙈" with the rule on the next line) still
+    forgot the rule it says again, with its twins: only sentence punctuation ended the request, and a memory's words
+    count only letters and digits. "forget" and each word it skips now count only when a word (a letter or a digit)
+    or an opening quote follows the space (`chat._GOES_ON`); anything else goes to the conversation, or without a
+    model to "Which one?". Typing "forget" and the exact words of a memory that starts with an emoji or a "#" now
+    asks first too.
+  - Without a model, "Remember that.", "Note that." and "Keep in mind that." (and "Remember that!") kept a memory
+    saying "that" for every video. "that" is left out wherever it ends as a word; words that only point back ("that",
+    "this", "it" …) or have no letter or digit keep nothing and ask what to remember; "Remember that. The outro is 2
+    seconds" keeps the sentence after it.
+  - A "Which one?" button for a memory with quotes of its own ("Call the series “Trail Notes”", 'Say "hello" …') did
+    not count as quoted: pressed again it listed other memories (or, with a model, went to the model) instead of
+    saying "Nothing I remember says …". In curly quotes the quoted words now run from the first “ to the last ”, as
+    long as the curly quotes inside pair up (`chat._quoted`); “a” and “b” typed in one message stay two quotes.
+  - New cases in `test_a_correction_never_forgets_and_a_longer_word_is_never_cut` and
+    `test_which_one_lists_each_set_of_words_once_and_its_button_forgets_only_those_words`
+    (`tests/test_clipforge_ai_chat.py`) and in
+    `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`
+    (`tests/test_clipforge_ai_assistant.py`); no frontend change.
+- **A look at the emoji fix** (two reviewers; each finding checked again by one who tried to refute it: eight
+  held up, two of them the same problem; two more were judged older or only cosmetic and are fixed too; each code
+  fix has a test that failed before it):
+  - A correction with a quote that more words follow ("Forget the “🔇”, keep the music low", "Forget that “…” keep
+    the music low") still forgot the rule it says again, with its twins, with or without a model: an opening quote
+    let "forget" go on, and a memory's words count only letters and digits. A quote now counts only when it holds
+    all the words (`chat._said`); otherwise the conversation, or without a model "Which one?", answers it. The docs
+    now name the two quote marks that count (“ and "); other quote marks (« », „ “ …) ask first.
+  - Without a model, words that name nothing on their own still kept a memory: "Remember that one" kept "one",
+    "Remember this…", "Remember it 👍" and "Remember this :)" kept "this…", "it 👍" and "this :)", and "Remember that
+    :D" kept "D". The check now reads only the words, leaves smileys out, and knows "that one", "these", "please" and
+    the like (`chat._names_nothing`).
+  - "Note -14 LUFS for YouTube" and "Remember that -3 dB is right for music" lost their minus ("14 LUFS …"): a dash
+    now separates only with a space on both sides. The "that" is left out only before a space, a colon, a comma, or
+    ".", "!", "?" or "…" that end a sentence, so "Remember that; …" keeps its words whole, as before the last round.
+  - With a model, "remember: it" failed with "Say what to remember"; words that name nothing on their own now go to
+    the conversation, which can read what "it" is.
+  - "remember: …" (or, without a model, "Remember that. …") on words a memory already says switched that memory on
+    and showed an Undo chip that deleted it: the older memory was gone, not put back as it was. The answer now says
+    "I already remember “…”" (with "switched on again" when it was off) and has no Undo chip, so Undo still forgets
+    only what an answer added. (Older than the last round; fixed here.)
+  - Docs: the handoff now says a colon after "forget" counts too; CLIPFORGE_AI.md step 4 and the rules table say what
+    "remember: …" does with words that name nothing and with words a memory already says.
+  - New tests: `test_remembering_words_a_memory_already_says_offers_no_undo` (`tests/test_clipforge_ai_chat.py`) and
+    `test_remember_with_a_colon_needs_words_that_name_something_and_offers_no_undo_for_an_older_memory`
+    (`tests/test_clipforge_ai_assistant.py`), and new cases in
+    `test_a_correction_never_forgets_and_a_longer_word_is_never_cut` and
+    `test_a_tapped_quick_reply_never_forgets_at_once_and_quoted_words_forget_only_themselves`; no frontend change.
+- **A look at the quote fix** (two reviewers; each finding checked again by one who tried to refute it: all thirteen
+  held up, two of them the same problem; each code fix has a test that failed before it):
+  - Words that differ only in a Thai tone mark or an Indic vowel sign ("ตัดคลิปข่าวออก", cut the news clips, and
+    "ตัดคลิปข้าวออก", cut the rice clips), in the sign of a number ("voice at -3 dB" and "+3 dB") or in a colon or a
+    point between digits ("0:42" and "0.42") counted as the same words: "forget …" forgot both, a Forget card showed
+    one, and "remember: …" wrote the new words over the other memory. A memory's words now keep the marks that
+    belong to a letter (composed first, so an accent typed apart is the same letter), the sign or point in front of
+    a number and a point, comma, colon or slash between two digits (`memories._norm`). Memories saved with the old
+    form are still found and compared again by their words, and Tidy stores the new form.
+  - Undo forgot its memory by id whatever it said now: after "remember: …" wrote over it, an edit in Brain → Memory
+    or a switch, it deleted words its answer never added, and a chip an earlier build saved for a memory it wrote
+    over did the same. Undo now sends the chip's words to `POST /api/brain/memories/{id}/undo`, and the memory goes
+    only while it is as the answer added it (revision 1 and the same words, `memories.undo`); otherwise the chip says
+    it changed since and the memory stays. A chip whose memory is past revision 1 shows no Undo, and "remember: …"
+    reads "added" from what it wrote, not from a look just before.
+  - The "Which one?" Forget button never forgot a memory with German, Polish or Swedish quotation marks („…“, ”…”) or
+    an inch mark: the words it sent in quotes did not pair up, so each press asked "Which one?" again. The button now
+    sends the memory's words apart from the message (`forget` in `POST …/messages`, `chat._forget_picked`): every
+    memory that says exactly those words goes, with or without a model, and pressed again it says nothing says them.
+  - "remember: …" on words a memory of the other kind already said (a rule, when the words read as a fact) added a
+    second memory with Undo, against the docs. A memory of either kind is now written over, and the answer says what
+    it was before: "(switched on again; before, only for tiktok)", "(no longer only a guess)", or "I already had “…”;
+    it now says “…”" when its symbols or punctuation differed (case, spacing and the kind of apostrophe do not count).
+  - "Forget that" with the rule on the next line still forgot the rule when the line break was a line or paragraph
+    separator, NEL, a vertical tab or a page break (pasted text): every line break counts now (`chat._message`).
+  - In a video's chat, "Remember -3 dB here" kept "3 dB", "here's the plan" kept "'s the plan" and a title like "Here
+    Comes the Sun" lost its "Here". "for this video" still counts anywhere, "here" only where the words end (also "in
+    here", "right here") or as "here:" before them, and only the separators around them go, never a minus.
+  - Words that only ask nicely or say when still kept a memory ("Remember this, please", "Remember that for later",
+    "remember: that, please"), and with a model "remember: that for this video" failed with "Say what to remember"
+    instead of going to the conversation. Without a model "Never mind" became a rule and "I like that", "Always." or
+    "Never again" a memory; now "All right: nothing was kept or forgotten." and "Say what to remember …".
+  - Docs: CLIPFORGE_AI.md (how words compare, Undo, the "Which one?" button, "here", twins of either kind, "never
+    mind"), the handoff, and the privacy page (Undo forgets a memory only while it is as its answer saved it).
+  - New tests: `test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words` (`tests/test_clipforge_ai_brain.py`);
+    `test_undo_forgets_a_memory_only_while_it_is_as_its_answer_added_it`,
+    `test_a_which_one_button_forgets_exactly_the_words_it_shows_whatever_quotes_they_hold`,
+    `test_forget_that_with_the_rule_on_the_next_line_forgets_nothing_whatever_the_line_break`,
+    `test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule`,
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole` and new cases in
+    `test_remembering_words_a_memory_already_says_offers_no_undo` (`tests/test_clipforge_ai_chat.py`);
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`). Frontend: the Undo chip and the "Which one?" button (`ClipForgeAI.tsx`,
+    `brain.ts`), `frontend/dist` rebuilt.
+- **A look at the Undo and marks fix** (two reviewers, thirteen findings; six were checked again by one who tried to
+  refute them and held up, the second check of the other seven could not run, so I reproduced each of those myself;
+  each code fix has a test that failed before it). Three rounds in a row had found one more mark or one more phrase
+  the rules missed, so this round changes the rules themselves instead of adding cases:
+  - Words that differ only in a sign after a letter ("亮度+10" and "亮度-10", "EV+1" and "EV-1", "UTC+2" and "UTC-2"),
+    in how a sign is written ("+/-3 dB" and "-3 dB", "+.5" and "-.5", full-width "＋３" and "－３") or in a symbol
+    ("<3 s" and ">3 s") still counted as the same words: the second was written over the first, and forgetting one
+    forgot both. Words are now compared strictly (`memories._norm`). Only what cannot change what they say is left
+    out: capitals, spacing, how an accent or a full-width character was typed, the kind of dash or apostrophe,
+    characters nobody sees, and the quotes, brackets and sentence marks around a word. Every sign, symbol, emoji,
+    hyphen inside a word and mark of a letter counts. When in doubt words are different, so two memories stand side
+    by side instead of one replacing the other. Known limit: a quote mark right after a number is read as a quote,
+    so 5' and 5" are both 5.
+  - A memory an earlier build stored was looked up by guessing that build's stored form from the new words, which
+    missed one whose accent was typed apart ("Café" was stored as "cafe" and asked for as "caf"). The stored forms
+    are now brought up to date once, at the first lookup after a start (`memories._refresh_norms`: one step, the
+    words, revision and dates stay), and every lookup uses the one current form.
+  - In a video's chat, "here" followed by a polite word, a comma, a bracket, a smiley or "too" no longer kept the
+    memory to the video (the last fix broke that), and cutting the place words out of the sentence broke the words:
+    "never zoom in here" was kept as "never zoom", "the music in this video's intro" as "the music 's intro", "slow
+    motion only for this one clip" as "slow motion only clip". "this video", "for this one" and "here" as a word of
+    its own now only say where the memory applies, and the words are kept whole ("Remember -3 dB here" keeps "-3 dB
+    here", for this video). Only a label in front goes: "for this video: -14 LUFS" keeps "-14 LUFS".
+  - "Always for this video.", "Remember that from now on", "Remember it forever" and, in the general chat,
+    "remember: that for this video" were kept as memories. One list of words that name nothing (`chat._NO_CONTENT`:
+    words that point back, ask nicely, or say when or where) now decides it the same way in both chats.
+  - "Never mind" answered "nothing was kept or forgotten" even right after an answer that had kept a memory. It now
+    says it did nothing with that message, that what was kept or forgotten before stays, and how to remove a memory.
+  - A message sent with both `choice` and `forget` forgot at once, against the rule that a quick reply never forgets.
+    It is refused now (422); the page never sends both.
+  - Not changed, on purpose: the same words said again for another video still move that memory there
+    (`memories.remember`, as released, documented and tested); the answer says where it was kept before.
+  - Docs: CLIPFORGE_AI.md (how words compare, earlier builds' memories, "here" and the label, words that name
+    nothing, "never mind", the API list with `POST /api/brain/memories/{id}/undo` and the `forget` field) and the
+    handoff. The privacy page needed no change: what is stored, sent, kept and deleted is the same.
+  - Tests: `test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words` and
+    `test_memories_in_any_language_are_twins_only_when_they_say_the_same_words` (`tests/test_clipforge_ai_brain.py`);
+    `test_remembering_words_a_memory_already_says_offers_no_undo`,
+    `test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule`,
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole` and
+    `test_a_which_one_button_forgets_exactly_the_words_it_shows_whatever_quotes_they_hold`
+    (`tests/test_clipforge_ai_chat.py`);
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`): all seven failed on the code before. No frontend change.
+- **A look at the strict comparison** (two reviewers, eight findings; two were checked again by one who tried to
+  refute them and held up, the second check of the other six could not run, so I reproduced each of those myself on
+  the code as it was; each code fix has a test that failed before it):
+  - The list of words that name nothing had grown to 169 everyday words ("I", "is", "not", "in", "one", "time" …),
+    so facts made only of such words were refused, or with a model sent to the conversation: "remember: I am not in
+    the videos", "remember: I'm in the US", "remember: one video at a time", "Always be on time". Words now name
+    nothing only when all they do is point back, ask nicely or say when or where, read as turns of speech and not
+    word by word (`chat._names_nothing`: "that one, please", "it from now on", "keep that in mind", "do that
+    again", "for all my videos"). When in doubt they are kept (their answer has an Undo). A first version of this
+    was one pattern over the whole message, which never finished on a long run of "one one one …"; it is read turn
+    by turn now, a few short matches per word (`test_a_long_message_of_repeated_words_is_read_at_once`).
+  - Words that are only a quote mark ("remember: '") were kept as a memory with nothing in it. They name nothing.
+  - In a video's chat every mention of "this video" kept the memory to that video, also when the words are about
+    other videos or about later: "use this video as the template for the next ones", "Never use the music from this
+    video again", "Always keep the voice up, not only in this video". Now "for/in/on this video" and "here" say
+    where the words apply, unless "not only", "not just", "than" or "unlike" stands right before them, or it is
+    "from here on" (from now on); words that only mention this video are kept for it when they speak of no other
+    video and of no later time (`chat._for_this_video`). On purpose "here" always means this video, also as a place:
+    "my office is here in Lyon" said in a video's chat is kept for that video.
+  - Marks that stand alone were left out of the comparison, so "Never end a caption with !" and "… with ?" were the
+    same words, as were "- 3 dB" and "3 dB", "!= 30" and "= 30", ":)" and ":(": the second was written over the
+    first, and forgetting one forgot both. Any other mark at the edge of a word was dropped too ("5*" was "5",
+    "٥٠٪" was "٥٠"), and folding capitals made "Maßen" and "Massen" one word. `memories._norm` now lists what it
+    leaves out, and nothing else is: around a word that has a letter or a digit its quotes and brackets, ¿ or ¡
+    before it and the marks that end a sentence after it; whatever stands alone between spaces counts exactly as it
+    is; capitals are made small, not folded. On 600,000 texts made from the tests' sentences with marks, capitals
+    and spacing added, the new comparison only told more words apart than the one before: no two that differed
+    before were the same after. (That is true of that sample, not of every text; the next look found one pair the
+    other way, rightly so.) What follows from "when in doubt, different", and is documented: a mark
+    typed with a space before it, as French does ("basse !"), makes other words than "basse!" (a second memory at
+    worst); "- keep it low" is not "keep it low". The known limit stays: 5' and 5" are both 5.
+  - A sentence's last full stop is left out of the words kept only when it ends a word: "Never end a caption with ."
+    keeps its mark.
+  - Without a model, "forget -3 dB here" (words that start with a sign never forget at once) answered "I have
+    nothing like that in my memory" although a memory said exactly that; so did "forget -3 dB" for the memory "-3
+    dB here", and words in another script: the search by meaning reads only Latin words longer than two letters.
+    "Which one?" now lists first the memories that say exactly the words named, then those that hold them as whole
+    words in that order (`memories.holding`, read from the words themselves), then what the search finds. Not
+    changed: "what do you know about …" still uses that search alone.
+  - Tidy as the first thing after a start, on memories an earlier build stored, had no test: a version of Tidy that
+    trusted the stored form passed the whole suite. `test_tidy_first_thing_after_a_start_goes_by_the_words_and_not_
+    by_a_form_an_earlier_build_stored` fails for it.
+  - Docs: CLIPFORGE_AI.md (what the comparison leaves out, where a memory applies in a video's chat, words that
+    name nothing, what "Which one?" lists) and the handoff. The privacy page needed no change: what is stored, sent,
+    kept and deleted is the same.
+  - Tests: `test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words` (new pairs),
+    `test_tidy_first_thing_after_a_start_goes_by_the_words_and_not_by_a_form_an_earlier_build_stored` and
+    `test_memories_that_hold_the_words_named_are_found_by_their_words_in_any_script`
+    (`tests/test_clipforge_ai_brain.py`); `test_words_that_name_nothing_keep_nothing_and_never_mind_is_no_rule`,
+    `test_a_long_message_of_repeated_words_is_read_at_once`,
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole`,
+    `test_remembering_words_a_memory_already_says_offers_no_undo` and
+    `test_forget_offers_the_memories_that_say_or_hold_the_words_named_whatever_they_start_with`
+    (`tests/test_clipforge_ai_chat.py`);
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`). No frontend change.
+- **A look at the lone marks and the "this video" fix** (two reviewers, fourteen findings: one medium, thirteen low.
+  Only one had its second check, by one who tried to refute it, and it held up; the second check of the other
+  thirteen could not run, so I reproduced each of those myself on the code as it was. Each code fix has a test that
+  failed before it: the four changed test files run on the code before give 15 failed, every new or changed test):
+  - The medium one: in a video's chat, facts about that very video were kept for every video when they also said
+    "each one", "the other one" or "never … again", or placed the video in a series ("this video is private, never
+    upload it again", "in this video each one speaks for a minute"); words with a bare "this one" were too. Words
+    that point at this video can only be read in its own chat: in another video's chat "this video" means that
+    other video. So they now always keep the memory to this video (`memories.points_here`, read by the chat and by
+    the model's `remember` tool, whatever scope the model chose): "this video", "this project", "this one", a piece
+    of it ("this clip", "this shot", "these scenes"), or "here" as a word of its own. When such words also speak of
+    other videos or of later, or liken something to this one ("like in this video", "shorter than this one", "from
+    this video on"), the owner may have meant a rule for every video, so the answer says why it stayed and how to
+    say it for every video: "It applies to this video only, because it says “this video”. To keep it for every
+    video, say the video's name (“Hike”) instead." (for a piece of it: "say which clip instead"). Only two turns of
+    speech reach further by themselves, and then the memory is for every video: "not only" or "not just" right
+    before the words, and "from here on" where it can only mean from now on. Not pointing at all: "this channel",
+    "this one thing: …", "this one rule", and "here is …" or "here are …" in front of the words.
+  - Found by me on the way, the same kind of loss: the same words said in a second video's chat moved the first
+    video's note to the second video (identical episodes of two videos moved too), and the model's tool refused the
+    second one as "only for another video". An earlier round had left this as released. Where a memory is kept is
+    now part of what it is (`memories.twin(ws, text, kind, scope)`, `_same_words`): a write goes over the memory
+    that says the words in the same place, else over the one kept for every video (which stays so), else, for words
+    to keep for every video, over the oldest kept anywhere (it widens). A memory kept for another video, platform or
+    kind of project never moves: the same words there are a memory of their own. Editing ("Another memory already
+    says that", 409), the brain file's import (skipped) and the health check's twins follow the same rule.
+  - With that, "forget …" asked in a video's chat is about that video (`memories.meant`): a note another video keeps
+    under the same words stays when this video, or every video, has one too, and the answer says so ("Another video
+    keeps the same words: its note stays."). When only other videos keep the words, the words name those notes,
+    which go as before; in the general chat all go. Typed words, the "Which one?" list and its buttons, and the
+    model's Forget card all follow it.
+  - A sentence mark of another script behind a word (Armenian ։, Ethiopic ።, Burmese ။, Khmer ។, Tibetan །, the
+    half-width ｡, the Greek raised point) made other words than the same words without it; the version before had
+    left such marks out, and the docs said they are. `memories._STOPS` is now Unicode's own list of the marks that
+    end a sentence or a part of one (Terminal_Punctuation as of Unicode 17, written out so that every Python reads
+    the same 295 marks, with … and ·).
+  - "Which one?" did not find a part of a memory written in a script without spaces between words ("forget 字幕"
+    for "字幕は大きくする") or a Korean word without its ending, though the docs said "any script".
+    `memories.holding` finds a part wherever it stands when the characters that meet there belong to such a script
+    (`_holds`, `_UNSPACED`).
+  - A long "forget" message made of words the request skips ("forget: my my my …", "forget that that that …") took
+    7 to 8 seconds: every leading word gave one more reading of the whole rest, each compared and looked up two or
+    three times. One request is read at most twelve ways now (`chat._FORMS`); the same messages take 0.02 to 0.11 s.
+  - With a model, the Forget card did not find a memory by a number, a short word or a word in another script
+    ("-3 dB" for "-3 dB here", "на голос", "0:42"): it failed with "Nothing like that is in the memory." After the
+    exact words the card now looks for the newest memory that holds them (`toolbox._memories_for`), never for
+    little words alone ("that", "the rule").
+  - Without a model, "forget -3 dB here, please", "… too" and "forget the rule about -3 dB" found nothing, because
+    the words were looked up only whole. For the list to pick from they are also read without a polite word behind
+    them and without "the rule about" or "the one that says" in front (`chat._named`, `_LEADS`, `_POLITE`).
+    Forgetting at once still takes a memory's exact words only.
+  - Three rules had no test that fails without them (not listing every memory that holds "that" or "the"; the
+    memory that says the words before the ones that hold them; "not only this video"). Each has one now, checked by
+    taking the rule out.
+  - Kept on purpose, and pinned by a test now: `forget "!"` typed in quotes forgets the memory “!” at once, as
+    quoted words always do.
+  - The entry above said the strict comparison "only tells more words apart than the one before". That held for
+    the 600,000 texts checked, not for every text: a Greek capital with an iota subscript and two accents typed
+    apart, and its small form, were different words before and are rightly the same now (they differ only in
+    capitals). That sentence is corrected. Against the version before, this round makes words the same only through
+    a newly listed sentence mark behind a word (103,605 of 600,000 pairs); none that were the same became different.
+  - Also found on the way: a message or a memory with half of an emoji in it (text cut in the middle of one) got a
+    server error instead of an answer. The half is left out now in everything the brain's addresses receive
+    (`routes.Input`, `tools.whole`). Other pages' addresses still answer such text with a server error, as released.
+  - Known and left for later: the Memory page shows "One video" without the video's name, so the notes two videos
+    keep under the same words look alike there.
+  - Docs: CLIPFORGE_AI.md (where a memory applies and the hint, the same words in two videos, "forget" in a
+    video's chat, sentence marks, scripts without spaces, how "Which one?" and the Forget card read the words, half
+    an emoji), the handoff, and the privacy page: asked in one video's chat, "forget" leaves a note that another
+    video keeps under the same words when this video, or every video, has one too.
+  - Tests: `test_a_mark_of_a_letter_or_the_sign_of_a_number_makes_other_words` (other scripts' marks, the 295),
+    `test_memories_that_hold_the_words_named_are_found_by_their_words_in_any_script` (scripts without spaces) and
+    `test_the_same_words_kept_for_two_videos_are_two_memories_everywhere` (new) in
+    `tests/test_clipforge_ai_brain.py`;
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole`,
+    `test_the_same_words_said_in_two_videos_are_kept_for_each_of_them` (new),
+    `test_forget_offers_the_memories_that_say_or_hold_the_words_named_whatever_they_start_with`,
+    `test_forget_with_only_words_it_skips_lists_no_memory_that_merely_holds_such_a_word` (new),
+    `test_half_an_emoji_in_a_message_or_a_memory_is_left_out` (new) and
+    `test_a_long_message_of_repeated_words_is_read_at_once` in `tests/test_clipforge_ai_chat.py`;
+    `test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video` (new),
+    `test_a_forget_card_finds_a_memory_by_a_number_a_short_word_or_a_word_in_another_script` (new),
+    `test_the_remember_tool_leaves_a_memory_for_one_video_where_it_is` and
+    `test_a_memory_said_again_keeps_its_scope_and_its_video_together` in `tests/test_clipforge_ai_safety.py`;
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`). No frontend change.
+- **A look at the "this video" round** (b28ad7c). The two reviewers set on it both ran out of usage before they
+  could report, so this round has no independent findings. I ran again every check they had left behind on that
+  version (how each sentence is placed, the same words in several places, the model's tool, forgetting in every
+  place, the addresses, the brain file, an upgrade from the released build, 2,000 made-up "forget" messages against
+  the version before, their list of deliberate breakages) and read the code again myself. What came of it, each
+  code fix with a test that failed before it:
+  - The full fast suite had one failure on b28ad7c, which the runs of the AI test files alone had not shown: a
+    test of the delete feature (PR #35) still expected the same words said for a second video to move the first
+    video's memory. It now checks what holds since the round before: both videos keep their own memory, and
+    deleting the first video leaves the second's.
+  - A brain file's memory for every video was skipped when only one video (or one platform) kept those words
+    here, so a rule brought over from another computer held in that one video only. It is added beside that note
+    now (`memories._import_one`). A file never changes or widens a memory with another id: its memory may be
+    switched off or only a guess.
+  - The versions released before this one moved a memory to the video that said its words last and left its
+    `project_id` column naming the first video. Three readers went by that column: the list of one video's
+    memories (`list_`), the small boost a video's own memories get in a search (`_scores`) and a video's "why …"
+    answer (`chat._explain`). Such a memory showed up for the video it had left and not for the one it is kept for.
+    All three go by the scope now, as recall and a video's delete already did. Old data is not rewritten: the
+    column is still written, and never read by itself.
+  - With a model, the Forget card for words that are a part of several memories ("captions here") was for the
+    newest of them, also when that was another video's note and this video had its own. In a video's chat the card
+    is now for the newest that applies there (`toolbox._memories_for`); when only other videos' notes hold the
+    words, and in the general chat, for the newest of all, as before.
+  - An answer said "It applies to this video." without saying why, also when no place was meant ("this one song
+    is my favourite", "I'm here for the comments"). Such words stay with the video on purpose: too narrow is the
+    safer mistake than a private note read in every video. The answer now names the words, "It applies to this
+    video, because it says “here”." (`chat._applies`), the model's tool tells the model the same, and the step line
+    of a memory kept for one video ends with "for this video", since the model may have said every video
+    (`toolbox._keep`).
+  - When the owner says a rule plainly and a small model only answers "Got it", ClipForge keeps the words itself
+    (`assistant._keep_said`). When the memory already held them switched off, only as a guess, or for one video or
+    one platform, nothing showed, so "Got it" stood over a rule that stayed off. The answer now shows the step the
+    tool shows ("Already in your memory, but switched off: “…”") with the button to Brain → Memory. Nothing is
+    changed for the owner, as before.
+  - A request to the Brain's addresses nested thousands of levels deep got a server error. It is refused in plain
+    words now (422, "That is nested too deeply to read.", `routes.Input`). Nothing ClipForge sends is nested so.
+  - Tests that fail without a rule: the reviewers' list of 46 deliberate breakages (each takes one rule out of
+    the code) had left three standing and ten unrun. With the rules of this round the list has 59, run against
+    the AI test files and the delete test on copies of the code. 57 now fail a test. The two that do not change
+    nothing the owner can see: in the general chat no note is left to count after "forget", and the "Which one?"
+    list groups memories by their words whichever one it finds first. Seven rules got the test they lacked: the
+    health check lists a memory for every video beside one video's own; what kind a memory is never comes from
+    another video's note; a platform's memory counts as applying in a video's chat when forgetting; the answer
+    counts two other videos' notes ("2 other videos keep the same words: their notes stay."); the Forget card
+    leaves out another video's note with the found memory's very words; a video's own memories come first in its
+    searches by their scope; and the plainly said rule that is already there (above).
+  - Known and left as they are: the Forget card does not mention a note another video keeps under the same words
+    (the typed "forget" does); "its note stays" reads the same when that other video keeps the words twice;
+    "forget everything" answers "I have nothing like that in my memory."; for words such as "the note" the card
+    can offer a weak match of the search (nothing goes without OK); changing only the spelling of a one-video
+    memory whose words a memory for every video also says answers 409; the same words can be kept as a rule and
+    as a fact through the address; an Ethiopic wordspace, or a danda with no space behind it, is not read as a
+    sentence mark. As released and outside this change: the older Autopilot Brain addresses
+    (`/api/brain/observations`, `/api/brain/import`, `/api/brain/knowledge…`) still answer half of an emoji with a
+    server error.
+  - Docs: CLIPFORGE_AI.md (the brain file, whom a memory is for, the health check beside a memory for every
+    video, the words an answer names, the step line, the plainly said rule that is already there, the Forget
+    card's choice, the nested request), the handoff, and one sentence of the privacy page made exact: asked in one
+    video's chat, "forget" leaves a note that another video keeps under the same words when the same words are
+    also kept for this video or for more than one video (a platform's memory counts too).
+  - Tests: `test_a_brain_file_adds_a_memory_for_every_video_beside_one_kept_for_one_video` (new),
+    `test_a_memory_an_older_build_moved_is_listed_for_the_video_it_is_kept_for` (new) and
+    `test_the_same_words_kept_for_two_videos_are_two_memories_everywhere` in `tests/test_clipforge_ai_brain.py`;
+    `test_a_memory_an_older_build_moved_shows_in_the_chat_of_the_video_it_is_kept_for` (new),
+    `test_another_videos_note_decides_nothing_about_the_same_words_said_here` (new),
+    `test_here_and_for_this_video_keep_a_memory_to_the_video_and_leave_its_words_whole`,
+    `test_the_same_words_said_in_two_videos_are_kept_for_each_of_them` and
+    `test_half_an_emoji_in_a_message_or_a_memory_is_left_out` in `tests/test_clipforge_ai_chat.py`;
+    `test_a_forget_card_for_a_part_of_the_words_is_about_a_memory_that_applies_here_first` (new),
+    `test_a_rule_said_plainly_that_is_in_the_memory_but_not_in_force_is_shown` (new),
+    `test_a_rule_the_model_forgot_to_save_is_kept_once`,
+    `test_the_safety_net_waits_when_the_model_asks_or_a_helper_kept_it` and
+    `test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video` in
+    `tests/test_clipforge_ai_safety.py`;
+    `test_with_a_model_scope_words_alone_name_nothing_and_a_which_one_button_needs_no_model`
+    (`tests/test_clipforge_ai_assistant.py`); `test_a_memory_saved_again_for_another_project_stays`
+    (`tests/test_studio_project_delete.py`). No frontend change.
+- **A look at the scope round** (66509f1). Four reviewers were set on it. Two finished (the memories, the answers)
+  with seven findings; the other two and every second reader ran out of usage, so I reproduced each finding
+  myself before fixing it, and did by hand what the two missing reviewers were to read (below). Each code fix
+  has a test that failed before it:
+  - A backup of the brain could come back without one video's note. The round before lets the same words be kept
+    for every video and for one video side by side. Read into another brain, the file's note for one video was
+    skipped whenever a memory for every video said its words, also one that is switched off, only a guess or
+    expired, and also one the file itself had just added, so the result depended on the order of the file. An
+    unknown entry is now skipped only when a memory in that very place says its words (whatever the owner did
+    with it), or one that is in force for every video and did not come with this same file
+    (`memories._import_one`, `_in_force`). The same file read twice adds nothing the second time.
+  - A file that changed a memory this brain has, and also brought a note which that memory's old words covered,
+    dropped the note on the first read and added it on the second: entries were weighed in the file's order,
+    before the file's own changes. The file's newer revisions of known memories are applied first
+    (`memories.import_`).
+  - A hand-made file with text where a number belongs was stored as it was. A date in `last_used_at` then made
+    every search, recall and chat answer fail until that memory was removed by hand; the other number fields gave
+    a server error with the file half read (both as released). Such an entry is counted as invalid and the rest
+    of the file is read. Text that is a number is still read as one, and a revision or a use count stays within
+    what the database can hold (`memories._number`, `MAX_COUNT`).
+  - A memory's extra data nested 254 levels or more could be read and stored but not sent back, so the Memory
+    page, the search and recall answered with a server error from then on (as released). A request to the
+    Brain's addresses with lists and objects nested more than 100 deep is refused before anything is stored (422,
+    "That is nested too deeply to read.", `routes.MAX_DEPTH`, `tools.clean`). A brain file has five levels.
+  - With a model, "forget the caption rule" in one video's chat could show a card for another video's note.
+    When no memory says or holds the words named, the card took the search's first match without a look at this
+    chat's video, and of two that fit alike the newer. In a video's chat the card is now for a match that applies
+    there when it holds a word named and at least as much of the words named as the other video's note, or fits
+    exactly as well (`memories.closest`). A note of another video that holds more of the words named is still the
+    one offered, since the owner named it, and a memory that shares no word with the request never comes first.
+    The card says which video its memory is kept for, as before.
+  - The newest memory that holds a card's words and applies in this video was looked for among the newest 500
+    holders only, so 500 newer notes of other videos hid it. The ones the request is about are chosen before the
+    cut (`memories.holding` with the chat's video).
+  - The step line said "Remembered “…” for this video" without the reason. The reason, and how to keep the words
+    for every video, were only in the tool's result, which nobody reads: a tool that keeps a memory gets no
+    further round, so the model's own words ("Saved for all your videos.") were written before and stand. The
+    step line now says it: "Remembered “…” for this video, because it says “here”", and for words that also
+    speak of other videos or of later "… for this video only, because it says “this video” (to keep it for every
+    video, say the video's name instead)" (`toolbox._keep`). The docs said the model passes it on; they now say
+    who reads what.
+  - What the two missing reviewers were to read. Who uses the changed code: the brain file is read by one
+    address; `holding` and `clean` only gained an argument that the other callers leave out; the step line is
+    shown as text by the page and read by no script, check or browser test. The docs against the code: the
+    passages on the brain file, the step line, the Forget card and the nested request were each read beside the
+    code they describe and rewritten where they differed. The privacy page says nothing about brain files or
+    step lines, and what is stored, sent, kept and deleted did not change.
+  - Tests that fail without a rule: 26 rules of this round were each taken out of a copy of the code and the brain and
+    safety tests run against it. 23 failed a test at once. Three did not, and each got the test it lacked: a
+    memory for every video whose time is over (the test's expired memory had also been a guess), a use count
+    below zero, and a request of no words at all. All 26 fail a test now.
+  - Known and left as they are: without a model, "forget the caption rule" in a video's chat lists both videos'
+    notes, the newer first, without saying which video each is for (nothing goes before a pick, and the pick
+    names its words); with a meaning model, a note of another video that is closer in meaning but names no more
+    of the words comes second to one that applies in this video (the card names the video); a brain file's text
+    that is a number or a list is kept as it is written; a memory that is no guess but has an expiry behind it
+    (only a hand-made file makes one) still counts as "already in my memory" until Tidy removes it; a tool call
+    with a wrong argument shows the tool's line with the argument's name ("Remembered “text”") beside the reason.
+  - The real-model check on this round's code (3728222) passed on GitHub's Linux machine and failed on its Mac at
+    the last step, the planner's note. That Mac has no graphics chip for the model and wrote about 2 tokens a
+    second, so a note of full length (260 tokens, `agents.NOTE_TOKENS`) cannot be written in the 120 s the check
+    gave it; the runs before passed with a shorter note or a little more speed. In the app the planner goes on
+    without a note that did not come in time. The check (`scripts/assistant_check.py`, `slow_limits`) now gives a
+    planner's note three times the time on GitHub's machines without a graphics chip (360 s), as it already gave
+    every answer there (900 s instead of 300 s), and its report says so. No change to the app.
+  - Docs: CLIPFORGE_AI.md (the brain file's rule and its numbers, the step line, who reads the tool's result, the
+    Forget card's search, the nested request) and the handoff. No change to the privacy page.
+  - Tests: `test_a_brain_file_brings_back_what_is_not_in_force_here_yet_in_either_order` (new),
+    `test_a_brain_file_changes_the_memories_it_knows_before_it_adds_the_rest` (new),
+    `test_a_brain_file_entry_with_a_value_that_is_no_number_is_left_out_and_the_rest_is_read` (new),
+    `test_a_brain_file_nested_deeper_than_anything_real_is_refused_before_anything_is_stored` (new),
+    `test_the_closest_memory_in_a_videos_chat_applies_there_unless_another_videos_note_names_more` (new) and
+    `test_a_brain_file_adds_a_memory_for_every_video_beside_one_kept_for_one_video` in
+    `tests/test_clipforge_ai_brain.py`;
+    `test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first` (new),
+    `test_a_forget_card_looks_past_any_number_of_newer_notes_of_other_videos` (new),
+    `test_the_step_line_says_why_a_memory_stays_with_this_video_whatever_the_model_wrote` (new),
+    `test_the_remember_tool_keeps_words_that_point_at_this_video_for_this_video` and
+    `test_a_rule_the_model_forgot_to_save_is_kept_once` in `tests/test_clipforge_ai_safety.py`;
+    `test_githubs_machines_without_a_graphics_chip_get_three_times_the_time_for_a_note_too` (new) and
+    `test_the_planner_note_gets_the_runs_time_and_is_judged_by_it` (new) in `tests/test_assistant_check.py`. No
+    frontend change.
+- **A last look at that round's fixes** (3728222). One reviewer read the round once: reviewers share this
+  session's usage, and the round before ran out of it. Five findings, each reproduced before it was fixed, and a
+  sixth that I found while reproducing the third. Each fix has a test that failed before it:
+  - A brain file with its numbers as text (a converted file) switched a memory back on that the owner had
+    switched off: `"enabled": "0"` was read as on, like any text. And a "0" where 0 stands for none, as in
+    `expires_at`, became an end in 1970, so no answer followed that memory and Tidy removed it (both as
+    released). `enabled` is now read like the other numbers: a number, or text that is one, and 0 is off; left
+    out it is on, null and "" are off; anything else ("false", a list, a number that is not finite) makes the
+    entry invalid. A "0" as text is none, as the number 0 is (`memories._on`, `import_`).
+  - A backup could still come back without one video's note. The round before set aside only what the file
+    itself added: when the file also brought the memory for every video up to date, or this brain had that
+    memory as the file has it, the video's note counted as known and was skipped. And of two memories in the
+    same place of which one is switched off (Tidy leaves such a pair alone), only the one listed first came
+    back, so with the switched-off one first the rule was no longer in force. A memory the file lists under an
+    id of its own never counts against another entry that has an id: the two were memories of their own where
+    the file comes from (`listed` in `memories.import_` and `_import_one`). Entries without an id are told apart
+    by their words as before, so a line a hand-made file repeats is added once, and what this brain kept before
+    the file, under an id the file does not list, counts as it did.
+  - Two ids of more than 40 characters with the same first 40 gave a server error with the file half read, at
+    every try: an id was cut to 40 characters (as released), so the second was the first's. Reproducing it I
+    found that an id with "/" in it, or of dots only, was stored as it was, and such a memory had no address: the
+    Memory page could neither switch it off nor forget it. An id is now kept only when it can be one, at most 40
+    letters, digits, "-" and "_", as the app's own are. With any other the entry is read as one without an id:
+    it gets a new id and is told apart by its words (`memories._file_id`, `MAX_ID`).
+  - A number that is not finite (1e999, NaN) in a memory's extra data was stored, and from then on the brain
+    could not be exported (a server error) until that memory was forgotten. Such an entry is invalid, like one
+    with no number where its own numbers belong, and the rest of the file is read (`memories._data`).
+  - With a model, "forget the caption rule" in a video's chat could show a card for the log line of a change
+    ClipForge AI made in that video ("Asked … → applied: …") instead of another video's rule, and OK would have
+    removed the log line: the round before lets a match that applies in this video come first. What ClipForge AI
+    only noted in a video (an episode, an asset, an answer) no longer comes before another video's rule or fact.
+    A rule or a fact of this video still does, and so does this video's log line before another video's log
+    line (`memories.closest`, `LASTING`). The next entry narrows this to a log line that holds no more of the
+    words named.
+  - Tests that fail without a rule: 32 rules of this round were each taken out of a copy of the code and the
+    brain and safety tests run against it. 28 failed a test at once. Four did not, and each got the test it
+    lacked: a note the file lists without an id before the newer words of a memory this brain has (only the
+    order brings it in), an id of 41 characters, an id with a line end after it, and a hand-written line
+    without an id beside a memory for every video that the file lists too (the last one in the commit after
+    6145499, which changes tests only). The 26 of the round before were run again on this code, three of them
+    with the text this round changed. Every one fails a test now.
+  - These fixes rest on the tests written first, on the breakages above and on the full suites. The review
+    they got afterwards is the next entry.
+  - Docs: CLIPFORGE_AI.md (which of a brain file's memories count against each other, its ids, `enabled`, the
+    extra data, the `forget` tool's search) and the handoff. No change to the privacy page: what is stored,
+    sent, kept and deleted did not change.
+  - Tests: `test_a_brain_file_with_its_numbers_as_text_keeps_a_switched_off_memory_off` (new),
+    `test_the_memories_a_brain_file_lists_by_id_never_count_against_each_other` (new),
+    `test_a_brain_file_id_that_cannot_be_one_is_read_as_no_id` (new),
+    `test_a_brain_file_entry_whose_extra_data_holds_no_real_number_is_left_out` (new),
+    `test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_taught_another` (new) and
+    `test_a_brain_file_changes_the_memories_it_knows_before_it_adds_the_rest` in
+    `tests/test_clipforge_ai_brain.py`;
+    `test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first` in
+    `tests/test_clipforge_ai_safety.py`. No frontend change.
+- **A review of those fixes** (6145499 and 8a6cc21). Two reviewers were set on the two risky parts, reading a
+  brain file back and the Forget card's search, and a second reader was to reproduce each finding. The session's
+  usage ran out while they worked: the brain-file reviewer stopped before it reported, the Forget-card reviewer
+  finished with three findings.
+  - The Forget card's new rule went too far. Asked in a video's chat to forget a change ClipForge AI applied
+    there, by words only that change's log line holds ("forget the captions size change you applied"), the card
+    was for another video's rule ("no captions in the outro", for “Beach” only), and OK forgot that rule: a log
+    line of this video never came before another video's rule or fact, however many more of the words named it
+    held. Of 540 natural wordings of such a request 88 gave the other video's rule (none before that round),
+    and with a caption rule for every video in the brain the card could be for that one, ranked third. What
+    ClipForge AI only noted in a video now comes before another video's rule or fact when it holds more of the
+    words named, and only then: with no more of them ("forget the caption rule") the card is still for what was
+    taught (`memories.closest`). The second reader had called this documented behaviour. It forgot a rule nobody
+    had named, so it is fixed.
+  - Checked on the fixed code: none of the 540 wordings gives the other video's rule (the reviewer's own
+    probes). Over 40,000 random cases of memories and scores the choice differs from the code before that round
+    only where a log line of this video holds no more of the words named than another video's rule or fact, and
+    from that round's code only where it holds more.
+  - Left as it is (the third finding, also in the code before that round): the kind is looked at only in the
+    search. When the words named are a whole part of both memories ("forget captions"), the card is for the
+    newest memory that holds them and applies in this chat, which can be this video's log line
+    (`memories.holding`). The card names it, and nothing goes without OK.
+  - Reading a brain file back, checked by me in the reviewer's place. Its unfinished probes run to the end: a
+    fuzzed file of 753 entries through the route, 3,735 cases of ids that another workspace holds, and about
+    21,900 small brains and files in every order. They flag only what the docs describe (a memory in that very
+    place makes an entry known whatever its state; entries without an id go by their words). A probe of my own
+    compares every order of a file with a model written from the rules in the docs, not from the code: 15,212
+    random brains and files as Export writes them (124,056 orders, each read twice), and 5,766 hand-made ones
+    with ids taken off (47,590 orders) for the promises that hold for those too (a second read adds nothing,
+    nothing is removed, a memory the file does not name is unchanged, nothing is followed where neither the
+    brain nor the file had it). No difference. The same probe finds the fault the round fixed (a switched-off
+    twin that did not come back) in the code before the round within seconds.
+  - Known and left, each as released or for hand-made files only: an entry that names a memory this brain has,
+    with a higher revision, is read as the whole memory, so one that leaves out where it applies or whether it
+    is on makes it a memory for every video, switched on (a file Export writes carries every field). A memory
+    in that very place makes an entry known whatever its state, also a guess or one that ran out, until Tidy
+    removes it. Of two entries that say the same words in the same place, of which one has no id, the one
+    listed first is kept.
+  - Tests that fail without a rule: the new rule was broken 13 ways, each in a copy of the code. Every one
+    fails a test.
+  - No other reviewer read this fix: a third review would have spent the usage the checks need. It rests on
+    the tests written first, the 13 breakages, the two comparisons above and the full suites.
+  - Docs: CLIPFORGE_AI.md (the `forget` tool's search) and the handoff. No change to the privacy page: what is
+    stored, sent, kept and deleted did not change.
+  - Tests: `test_this_videos_log_line_comes_before_what_another_video_was_taught_only_with_more_of_the_words`
+    (the round's `test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_taught_another`
+    under a new name, its "however many of the words it holds" turned around) and
+    `test_a_change_named_by_words_only_its_log_line_holds_is_the_closest_memory_in_its_video` (new) in
+    `tests/test_clipforge_ai_brain.py`; `test_a_forget_card_is_for_this_videos_log_line_when_the_words_name_it`
+    (new: the chat, the card and its OK) and
+    `test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first` in
+    `tests/test_clipforge_ai_safety.py`. No frontend change.
+- **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer):
+  the `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level; on the
+  final code: run 43362758634 on dbdd78b passed on both machines with every must-check. Linux took about two
+  minutes; the Mac wrote 3.1 tokens a second (11 turns in 272 s, the planner's note in 12.5 s). The small model
+  missed the same four softer checks on both: it named none of the three projects, left two saves to ClipForge's
+  own safety net, and answered for the Script writer instead of handing the job over. The Standard level (what a
+  Mac with 16 GB of memory or more gets): run 43362792362 on dbdd78b passed on GitHub's Linux machine with every
+  must-check (Gemma 4 E4B, 11 turns in 588 s at 7.5 tokens a second); one softer miss, a hook from the Script
+  writer that did not say “mountain biking”. Pro (chosen by hand) was never run. Landry's own computer was not
+  tested. Ollama, LM Studio and the online services were played by stand-ins.
+
 ## Leftover files and upload races after deleting projects — 2026-11-11 (Claude Code)
 
 Follow-ups from the delete-projects review (PR #35), passed on by the coordinator. Branch

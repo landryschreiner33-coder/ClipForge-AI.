@@ -109,8 +109,9 @@ class GpuManager:
                     raise Cancelled()
                 holder = st.get("gpu:holder") or {}
                 if max_wait_s is not None and time.monotonic() - t0 > max_wait_s:
-                    raise GpuBusy(f"The GPU stayed busy with {holder.get('kind', 'another job')} for "
-                                  f"{max(1, int(max_wait_s // 60))} minute(s).")
+                    raise GpuBusy(f"The GPU stayed busy with {holder.get('kind', 'another job')} for " + (
+                        f"{int(max_wait_s // 60)} minute(s)." if max_wait_s >= 60 else
+                        f"{max(1, round(max_wait_s))} seconds."))
                 if on_wait:
                     busy = f"{holder.get('kind', 'another job')}: {holder.get('label', '')}".rstrip(": ")
                     on_wait(f"Waiting for the GPU ({busy})")

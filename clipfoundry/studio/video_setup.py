@@ -1181,27 +1181,32 @@ def _persona() -> str:
         return PERSONA
 
 
-def _today_start() -> float:
-    lt = time.localtime()
-    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+def _limit_words(settings: dict) -> str:
+    from ..brain import allowance
+
+    return (f"today's limit of {allowance.limit(settings)} requests to your online AI is reached; it is set in "
+            "Settings → Advanced, “AI requests a day”")
 
 
 def limit_reached(ws: str, settings: dict) -> str:
-    """'' unless today's requests to an online AI are used up (`ai_edit_requests_per_day`, shared with the chat
-    and change requests); a model on this computer has no limit."""
-    from ..pipeline import llm
+    """'' unless today's requests to an online AI are used up: "AI requests a day" (`ai_edit_requests_per_day`),
+    counted by `brain.allowance` for every part that asks an online AI (the chat and its helper agents, their notes,
+    the editor's change requests and these plans); a model on this computer has no limit."""
+    from ..brain import allowance
 
-    if llm.is_local(settings):
-        return ""
-    limit = int(settings.get("ai_edit_requests_per_day", 40))
-    start = _today_start()
-    rows = db.select("brain_chat_messages", "workspace_id = ? AND role IN ('ai', 'agent') AND created_at >= ?",
-                     (ws, start))
-    asked = sum(1 for m in rows if (m.get("data") or {}).get("remote"))
-    asked += int(db.scalar("SELECT COUNT(*) FROM edit_requests WHERE workspace_id = ? AND source = 'ai' AND "
-                           "created_at >= ?", (ws, start)) or 0)
-    return f"today's limit of {limit} requests to your online AI is reached (Settings → ClipForge AI)" \
-        if asked >= limit else ""
+    return _limit_words(settings) if allowance.reached(ws, settings) else ""
+
+
+def _take(ws: str, settings: dict, ref: str) -> None:
+    """Count one planning request to an online AI in today's allowance just before it is sent (it counts even when
+    it fails or is given up on); SetupError, and nothing is sent, when the allowance is used up. A model on this
+    computer is never counted."""
+    from ..brain import allowance
+
+    try:
+        allowance.take(ws, settings, "video_plan", ref)
+    except allowance.Reached:
+        raise SetupError(_limit_words(settings)) from None
 
 
 def brain_allowed(settings: dict) -> bool:
@@ -1818,6 +1823,7 @@ def _think(project_id: str, message_id: str, owner_id: str, first: bool) -> None
                 log.exception("memory use not recorded")
         if _stopped(message_id):
             raise _Stop()
+        _take(project["workspace_id"], settings, message_id)
         attempted = True  # a request to an online AI counts toward today's limit even when it fails
         raw = ask_model(settings, _persona() + "\n\n" + PLANNER, _history(chat["id"], owner_id), request,
                         files, timeout=answer_timeout(settings), cancel=lambda: _stopped(message_id))
@@ -2181,6 +2187,7 @@ def plan_in_build(project: dict, assets: dict[str, dict], words_by_file: dict[st
                                             words_by_file)
                 if gave_up.is_set() or lease.canceled():
                     raise SetupError("no answer in time")
+                _take(project["workspace_id"], settings, project["id"])
                 attempted.set()
                 return ask_model(settings, _persona() + "\n\n" + PLANNER, [], request, files,
                                  timeout=answer_timeout(settings),

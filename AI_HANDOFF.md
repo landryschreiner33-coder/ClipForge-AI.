@@ -1,5 +1,205 @@
 # AI handoff
 
+## ClipForge AI becomes a real assistant: conversation, actions, helper agents — 2026-11-08 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for a built-in AI to actually talk to like a real AI, and for agents that work
+alongside it. ClipForge AI now holds a real conversation in both chats (on each video, and Brain → Talk): it reads the
+conversation so far, knows Landry's projects and memories and its know-how, writes its answer word by word (Stop keeps
+what it wrote), and does things in ClipForge with twelve tools. Looking things up and making new things (a memory, a
+proposed change, a helper's work) happen at once; renaming, forgetting and deleting only happen when Landry presses OK
+on the card it shows. Helper agents (eight ready-made, or Landry's own, in Brain → Agents) are specialists that
+ClipForge AI hands jobs to, that Landry talks to with "@Name", and that give the new-video planner short notes.
+Without a model the old rules still answer, and the chat offers the built-in model in one press.
+
+- **Branch / PR:** `claude/project-thread-sa113l` from the release line at 95a70e0 (PR #33 merged), PR #37. Landry's
+  standing OK (Nov 9): merge finished work into the release line once its checks pass; no release without an explicit
+  OK. A safety and robustness pass followed an independent review (13 problems, each reproduced first), and a second
+  pass followed a second review of those fixes (15 more; AI_CHANGELOG.md, "Safety and robustness pass" and "Second
+  review pass").
+- **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "The assistant",
+  "Actions", "Helper agents", "API", "Not done yet"; [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Privacy page:** `docs/legal/privacy.html` has a "ClipForge AI" part (what its chats, memories, helpers, the change
+  requests made in a video's chat and the online request records keep, and until when) and says which features send text
+  to the AI helper you choose and what a conversation sends ("An AI service you choose", NVIDIA's row: web addresses
+  starting with http://, https:// or www. and email addresses removed from everything, the size limit on each request's
+  words), and that downloading the built-in model contacts GitHub and Hugging Face. Since the merge with PR #35 it says
+  that deleting a project removes its chat, the memories kept for it alone and a video's change requests, while the
+  record of each request sent to an online AI (the editor's change requests too) stays for the daily limit. It also
+  says Undo on an answer forgets the memory it saved only while it is as that answer saved it. The public website
+  (gh-pages) is not updated: that needs Landry's OK.
+- **Code:** new `clipfoundry/brain/assistant.py`, `tools.py`, `toolbox.py`, `agents.py`, `allowance.py` (the daily
+  limit, per request); changed `brain/chat.py`,
+  `routes.py`, `memories.py` (use place `agent`, `twin()`), `db.py` (table `brain_agents`, role `agent`), `api.py`,
+  `pipeline/llm.py` (`converse`; the GPU wait counts in its time; `is_local` knows every loopback address and
+  Ollama cloud models), `builtin_ai.py` (`converse`, never idle while answering, loading counts in the time,
+  `answer_floor`, `Server.warm` under the GPU lock, one spawner thread on Linux), `gpu.py`,
+  `studio/edit_requests.py` (the shared daily count for an online AI, its own limit for a model on this computer),
+  `studio/ai_editor.py` (asks `llm.is_local`), `studio/link_import.py` (titles stored as one line),
+  `pages/Settings.tsx` ("AI requests a day");
+  `frontend/src/components/ClipForgeAI.tsx`, `AgentsTab.tsx` (new), `pages/Brain.tsx`, `brain.ts`,
+  `components/AiHelperSettings.tsx`, `styles.css`; `frontend/dist` rebuilt; `tests/test_clipforge_ai_assistant.py`,
+  `test_clipforge_ai_agents.py`, `test_clipforge_ai_safety.py` (new), `test_llm_converse.py`, `fake_model.py`
+  (new), `test_clipforge_ai_chat.py`,
+  `test_clipforge_ai_knowhow.py`, `test_builtin_ai.py`, `fake_llama_server.py`; `scripts/assistant_check.py` and
+  `.github/workflows/assistant-check.yml` (new: the real built-in model in a conversation).
+- **The contract with the other threads** (other branches call these; keep the names and shapes):
+  - **The new-video planner thread** answers a draft video's chat with `brain.chat.route(applies, handle)` (its
+    messages have `data.tool` "plan", which the page shows like "talk"), registers `make_youtube_video` with
+    `tools.register(tools.Tool(...))` (its `Result.data` has `links` `[{label, href: "#/create/video?idea=…"}]`), asks
+    the helpers with `agents.consult(ws, task, *, context="", agent_ids=None, where="plans", ref_id="",
+    budget_s=60.0)` (`ref_id` is recorded on the online requests it counts; it returns `[]` when today's online
+    requests are used up and while the built-in model is not loaded yet, which then starts loading), and speaks as
+    ClipForge AI with
+    `assistant.persona()`, `assistant.history(chat_id, budget_chars=3000, *, as_json=False, before="")`,
+    `assistant.app_context(ws, project_id="", budget_chars=2000)`, `assistant.ready(settings=None)` and
+    `llm.converse(settings, messages, *, system, task, json_object, json_schema, max_tokens, timeout, temperature,
+    num_ctx, on_text, cancel)`. Also public: `tools.Tool`, `tools.Result`, `tools.ToolError`,
+    `agents.list_(ws, enabled_only=False)`, `agents.run(ws, agent_id, task, …, owner_text="")`, and
+    `allowance.take(ws, settings, task, ref="")` before each request the planner sends to an online model itself
+    (it raises `allowance.Reached` when today's limit is reached; a model on the computer is never counted). A part
+    counts only through its `ai_usage` rows (the editor's change requests from before it wrote its own are the one
+    exception): `allowance.counted(ws, settings, write)` runs a `write` that must itself write that row with the
+    part's own (the check and both rows are one step under one lock). The editor's change requests use
+    `allowance.editor_request`, which writes their `edit_requests` row and their own `ai_usage` row (task
+    `edit_request`), so deleting a video does not give the day's requests back. A video counts as
+    being planned (its chat and links open the setup page) only when it is a draft with its setup and the full_video
+    workflow, the same rule as the planner's `video_setup.is_draft`.
+  - **Deleting projects** (PR #35, merged in) is `clipfoundry/studio/project_delete.py`: `plan(ws, project_id,
+    kind)` (`goes`, `stays`, `blocked`, `working`, `as_of`, `removes`) and `delete(ws, project_id, kind, *, wait,
+    as_of, removes)`, which raises `DeleteError` (`code`: `not_found`, `blocked`, `stopping`, `changed`, `kind`).
+    `delete_project` calls exactly these: the card keeps the plan's `as_of` and `removes` (what it listed beyond the
+    project: media files, the copy of the video it was made from, planned posts, and as `kept` the files it said
+    stay; internal arguments: `"internal": True` in the schema, hidden from the model,
+    kept only from the button's saved arguments) and OK sends them back
+    with `wait=10.0`, so it never deletes more than the card listed. `stopping` keeps the card for another press;
+    `blocked` (Autopilot or a post started since) and `changed` (it would now remove more) end it, and asking again
+    shows a card with what goes then; `not_found` says the project was deleted already. Deleting a project also
+    deletes its chat (`chat.decide` answers `gone`). `test_clipforge_ai_assistant.py` tests the card with the real module
+    and the engine's corners with a stand-in.
+  - Chat messages keep the `brain_chat_messages` table and its columns; roles are `owner`, `ai` and `agent`;
+    `data.tool` values include "talk" (the assistant) and "plan" (the planner).
+- **Verify:** `python -m pytest -q tests/test_clipforge_ai_assistant.py tests/test_clipforge_ai_agents.py
+  tests/test_clipforge_ai_safety.py tests/test_llm_converse.py tests/test_clipforge_ai_chat.py
+  tests/test_clipforge_ai_knowhow.py tests/test_builtin_ai.py`, then `python -m pytest -q tests -m "not slow"` and
+  `python -m pytest -q -m slow`; `cd frontend && npm run build`; on a
+  runner, the `assistant-check.yml` workflow (the real built-in model on Linux and Mac; it runs when a push to this
+  branch changes the AI's code, or by hand; its job summary has a table of every turn, and the run keeps the JSON
+  report for 14 days; `python scripts/assistant_check.py --fake --out report.json` checks the script itself without
+  a download). On Landry's computer: set up the built-in model from the chat's card; in Brain → Talk ask "What
+  projects do I have?" and for hook ideas; say "From now on, never put music under my intros." (a memory with
+  Undo); ask it to
+  rename a project and press OK on the card; add the Critic in Brain → Agents and write "@Critic review my last
+  video"; press Stop on a long answer; in a video's chat ask "What would make this video better?".
+- **Judgement calls to know about:** the built-in model and Ollama get the smaller budgets (an 8,192-token context);
+  change and delete tools never run on the model's word, even after a "yes" in the conversation: only the card's OK
+  runs them, and a change or delete that cannot be offered (or is blocked) is shown with its reason and is no reason
+  to ask the model again (the Basic model, asked again, said a delete it could not offer was done); beside a tool the
+  model does read, it reads that it was not done, and the next turns read it in the conversation (`history`);
+  "remember: …" and an exact "forget …" skip the model (forgetting every memory that says the words after "forget",
+  its twins too, `memories.forget_words`, or those after a leading "my", "that", "the" or "about" only when no memory
+  says them all; "forget", "remember" and "note" are whole words, and "forget" or a skipped word followed by anything
+  but a space (or, after "forget", a colon) and then a word or an opening “ or " (a comma, a full stop, a new line,
+  an emoji, other quote marks …, and a line break of any kind) forgets nothing ("Forget that, keep the music low" is
+  a correction); quoted words go only as they are, also with quotes of their own (`chat._quoted`), and only when the
+  quote holds all the words ("Forget the “🔇”, keep …" is a correction too); a "Which one?" button sends its
+  memory's words apart from the message (`forget`, `chat._forget_picked`), so its quote marks change nothing (sent
+  together with `choice` it is refused, 422); words are compared strictly by `memories._norm`, which lists what it
+  leaves out: capitals (lowered, not folded: "Maßen" is not "Massen"), spacing, how an accent or a full-width
+  character was typed, the kind of dash or apostrophe, unseen characters and, around a word that has a letter or a
+  digit, its quotes and brackets, ¿ or ¡ before it and the sentence marks after it (Unicode's list for every script,
+  written out in `memories._STOPS`); so a sign, a symbol, an emoji, a
+  hyphen inside a word, the marks of a letter and whatever stands alone between spaces all count ("-3 dB" is not
+  "+3 dB", "EV+1" not "EV-1", "<3 s" not ">3 s", "50%" not "50", "never end a caption with !" not "… with ?"; when
+  in doubt words are different, and two memories stand side by side: French spacing, "basse !", is not "basse!";
+  the one known limit is that 5' and 5" are both 5); a memory an earlier build
+  stored gets its stored form brought up to date at the first lookup after a start (`memories._refresh_norms`, once
+  per database and process; a test that writes an old form calls `memories._norms_current.clear()` for "a
+  restart"); words that name nothing on their own, also when they only ask nicely or say when or where ("Remember
+  that one", "Remember this, please", "Remember that from now on", "Always for this video", "remember: that for
+  this video", "Never do that again") keep nothing in either chat, and with a model they go to the conversation:
+  `chat._names_nothing` reads them as turns of speech (`chat._TURN`, a few short matches per word, never one
+  pattern over the whole message), not word by word, so a fact made of everyday words ("I am not in the videos",
+  "one video at a time") is kept, and when in doubt the words are kept; "Never mind" keeps nothing and says only
+  that (`chat.NEVER_MIND`: what was kept before stays); in a video's chat, words that point at this video ("this video", "this
+  one", "this clip", "here" as a word of its own) say where the memory applies (`memories.points_here`): it is kept
+  for this video, also when the words speak of other videos or of later or liken something to it; the answer names
+  the words that keep it there ("It applies to this video, because it says “here”.", `chat._applies`; the step
+  line of the model's tool says the same, `toolbox._keep`: a tool that keeps a memory gets no further round, so
+  the model does not read its result), and when they also speak of other videos or of later, how to
+  keep it for every video (with the video's name, which reads the same in any chat);
+  only "not only/not just" right before them and "from here on" where it can only mean from now on (in front, at
+  the end, before a comma, "from here on out") reach further; "here" always means this video, also in "my office
+  is here in Lyon"; the model's `remember` tool keeps such words for this video whatever scope it chose
+  (`toolbox._here`); the words are kept whole ("never zoom in here" stays every word), with only a label in front
+  left out ("for this video: …", "here: …", `chat._LABEL`); where a memory is kept is part of what it is
+  (`memories.twin(ws, text, kind, scope)`): the same words kept for another video, or platform, are a memory of
+  their own (they used to move the first video's note to the second), said for every video they widen the oldest,
+  an edit follows the same rule, a brain file adds its memory for every video beside a note one video or platform
+  keeps and never changes or widens a memory with another id (`memories._import_one`), applies its changes to
+  known memories first and weighs what it adds against the brain as they leave it, never against what the file
+  itself added or lists under an id of its own (a memory in that very place, whatever its state, or one in force
+  for every video makes an entry known; entries without an id, or with one that cannot be one, over 40 characters
+  or with anything but letters, digits, "-" and "_" in it (`memories._file_id`), go by their
+  words), so a backup comes back whole in any order (`memories.import_`), and counts an entry with something that
+  is no number where a number belongs as invalid, `enabled` and the extra data included (`memories._number`,
+  `_on`, `_data`), whom a memory is for is read
+  from its scope alone (`list_`, `_scores`, `chat._explain`: the released builds left the `project_id` column of a
+  moved memory naming the first video), the brain check does not call two videos' notes twins, and
+  "forget" asked in a video's chat leaves a note another video keeps under the same words when this video or every
+  video has one, saying so (`memories.meant`; typed words, the "Which one?" buttons and the Forget card alike; for
+  words that are a part of memories the card is for the newest that applies in this chat, before any newer notes
+  of other videos (`memories.holding` with the chat's video), and for a description no memory says or holds for
+  the search's best match, in a video's chat one that applies there before another video's note that holds no
+  more of the words named; a log line of this video comes before another video's rule or fact only when it holds
+  more of the words named (`memories.closest`, `LASTING`); `toolbox._memories_for`);
+  without a model "forget …" lists first the memories that say exactly the words named, then those that hold them
+  as whole words (`memories.holding`: any script, a part of the words wherever it stands in a script written
+  without spaces, numbers, short words), then the search's, reading the words also without "the rule about" in
+  front or "please" behind (`chat._named`, at most `chat._FORMS` readings of one message); half of an emoji is left
+  out of a memory, a message and whatever the Brain's addresses receive, and a request nested more than
+  `routes.MAX_DEPTH` (100) deep is refused with 422 (`tools.whole`, `routes.Input`: a memory's data nested a few
+  hundred levels could be stored but not sent back, and every list of memories failed); the step line of a memory
+  the model's tool (or the safety net for plainly said rules) keeps for one video says "for this video" and which
+  words decided it (`toolbox._keep`), and the safety net
+  shows the tool's failed step with the Brain → Memory button when the words are in the memory but not in force as
+  said (switched off, a guess, one video's or one platform's: `assistant._keep_said`);
+  "remember: …" on words a memory of either kind
+  already says answers "I already remember …" or "I already had “…”; it now says “…”" with what changed and no Undo
+  chip (Undo would forget that older memory); Undo forgets only while the memory is as its answer added it
+  (`memories.undo`, `POST /api/brain/memories/{id}/undo`: revision 1 and the chip's words, otherwise 409 and it
+  stays); a quick reply pressed (`choice`) never forgets at once; the
+  Forget card names each memory, at most 16, and its OK forgets only those, each only while it still says the card's
+  words, and never looks again: a card saved by an earlier build forgets only the memory it named, or none when it
+  named more than 16), while "I like …" and "always …" now go to the conversation,
+  where the model saves lasting preferences with `remember` (and ClipForge keeps a plainly said one itself when a
+  small model forgets); `remember` saves at once only the owner's own words from this message and never changes a
+  memory the owner already has (anything else is a "Remember “…”?" card); a video's chat still proposes the changes
+  the editor's rules fully understand without the model; one answer at a time per chat, and at most two being written
+  in the whole app; helpers run one after another (inside an answer and in `consult`); every request to an online
+  model counts against the daily limit, `consult` notes and the new-video planner's requests included (since the merge
+  with PR #38 the planner takes each request from the same allowance: `allowance.take`, task `video_plan`, in
+  `video_setup._take`, and `video_setup.limit_reached` asks `allowance.reached`); Tidy (Brain → Memory) is one step
+  under the database's write lock and merges only twins kept for the same videos and switched on or off alike, so
+  tidying never changes what ClipForge AI follows; what the owner does meanwhile waits for it and is never undone by
+  it (a confirmation or an edit of a memory Tidy removed answers "Memory not found."; the same words said again are
+  kept, because `remember`, an edit, a confirmation and a brain file write only over the revision they read,
+  `memories._write_over`, so no two states of a memory share a revision); a brain file's newer revision applies
+  also beside a twin; twins Tidy keeps apart are read once in a prompt (the best of those that fit the question)
+  and left to the owner (the brain check names those switched on); since the merge with PR #42, the delete's last
+  look counts a copy handed out again only within `uploads.REUSE_HOLD_S` (an hour,
+  `project_delete._hand_out_since`), so a delete card that waited for days keeps a file nothing names only when it
+  was handed out within the hour before OK; Find media's automatic round puts each pick in the video's media as it
+  is imported, so it names its copy at once.
+- **Not done:** the real built-in model's answers could not be run here (the model hub is blocked): the
+  `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (every must-check
+  passed on d02bb25 and 56aae46; the small model rarely uses its tools itself, so ClipForge's safety nets do the
+  remembering; PR #37 links the run on the final version). The Standard level a Mac with 16 GB or more gets can be
+  run by hand on the Linux machine (`level: standard`, `machines: linux`; without a graphics chip its answers get
+  900 s there and a planner's note 360 s, as on GitHub's Mac). Landry's computer was not tested; web
+  research for the Researcher, a model per helper, helpers in parallel, pictures in the chat, voice (CLIPFORGE_AI.md,
+  "Not done yet").
+- **Waiting on Landry:** a try of the chat and the helpers on Landry's computer; the release (explicit OK).
+
 ## Leftover files and upload races after deleting projects — 2026-11-11 (Claude Code, cloud session)
 
 **Plain-English summary:** follow-ups from the review of deleting projects. Deleting an animated short now also
@@ -64,8 +264,9 @@ in another program (Windows) is deleted the next time ClipForge starts.
   project can remove a file it still needs. Work a delete cannot see (a thread, not a studio job) must re-check that
   its project still exists before it writes anything for it: the planning answer (`video_setup._think`) opens the
   project's chat with `open_chat`, which makes a new empty chat if the delete lands between its two reads. ClipForge AI's delete tool calls `plan()` and `delete()` (pass the
-  plan's `as_of` to `delete` when a person read the plan first); deleting from a project's own chat deletes that
-  chat too. A new kind of file ClipForge makes for one project should be recorded where `_video_asset_ids` reads it,
+  plan's `as_of` to `delete` when a person read the plan first, and its `removes` when the confirmation can wait
+  long, as ClipForge AI's card can: then nothing more than it listed is deleted, or nothing, code `changed`);
+  deleting from a project's own chat deletes that chat too. A new kind of file ClipForge makes for one project should be recorded where `_video_asset_ids` reads it,
   or it stays after the project is deleted.
 - **Verify:** `python -m pytest -q tests/test_studio_project_delete.py`; the fast and slow suites; `cd frontend && npm
   run build`; in the app, delete a full video and a clips project from Projects and read the window first.

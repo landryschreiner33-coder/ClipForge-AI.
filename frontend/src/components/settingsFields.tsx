@@ -70,7 +70,7 @@ add("advanced", {
   encoder: "Video encoder", crf: "Quality (CRF)", x264_preset: "x264 preset", max_fps: "Frame rate",
   ffmpeg_path: "FFmpeg location", min_score: "Minimum Viral Potential", hook_seconds: "Hook length",
   ai_provider: "AI scoring", ai_max_candidates: "Max candidates", ollama_url: "Ollama address",
-  ai_edit_requests_per_day: "Editor requests a day", ai_edit_timeout_s: "Editor request timeout",
+  ai_edit_requests_per_day: "AI requests a day", ai_edit_timeout_s: "Editor request timeout",
   ollama_model: "Ollama model", openai_url: "Server address", openai_model: "Server model",
   openai_api_key: "Server API key", anthropic_api_key: "Claude API key", anthropic_model: "Claude model",
   brain_min_clips: "Brain: clips before a change", brain_max_step: "Brain: largest step",

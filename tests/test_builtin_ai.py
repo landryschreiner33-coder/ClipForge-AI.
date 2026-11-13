@@ -1,7 +1,8 @@
 """The built-in model (clipfoundry/builtin_ai.py): choosing the level from the computer, downloading and checking the
 engine and a model (resume, damaged files, unsafe archives), starting the engine on this computer only with a fresh
-key, sharing it with another ClipForge process, stopping it when idle, when other GPU work needs the memory and when
-it was left over from a killed run, and ClipForge AI using it like any other provider.
+key, sharing it with another ClipForge process, stopping it when idle (never in the middle of an answer), when other
+GPU work needs the memory and when it was left over from a killed run, ClipForge AI using it like any other provider,
+and a conversation streamed piece by piece, stopped midway or cut at its time limit.
 
 The engine here is a stand-in program that speaks the same HTTP as llama.cpp's server (tests/fake_llama_server.py);
 the real engine and models are checked by scripts/builtin_ai_check.py on GitHub's Mac, Windows and Linux machines.
@@ -384,6 +385,128 @@ def test_the_ai_helper_uses_the_builtin_ai_like_any_provider(hub):
     assert ai_editor.disclosure(settings, "builtin").startswith("Stayed on this computer")
 
 
+TALK = [{"role": "system", "content": "SYSTEM"}, {"role": "user", "content": "Make the intro shorter"},
+        {"role": "assistant", "content": "Which video?"}, {"role": "user", "content": "The hike one"}]
+
+
+def _last_stream(timeout: float = 10.0) -> dict:
+    """What the engine says about its last streamed answer, once it has finished with it (read once)."""
+    from clipfoundry import builtin_ai
+
+    path = builtin_ai.engine_dir() / "llama-test" / "last-stream.json"
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            got = json.loads(path.read_text())
+            path.unlink()
+            return got
+        except (OSError, ValueError):  # not written yet
+            time.sleep(0.05)
+    raise AssertionError("the engine never finished its streamed answer")
+
+
+def test_a_conversation_streams_from_the_engine_piece_by_piece(hub):
+    from clipfoundry import builtin_ai
+    from clipfoundry.pipeline import llm
+
+    _install()
+    settings = {"ai_provider": "builtin", "builtin_ai_level": "basic"}
+    schema = {"type": "object", "properties": {"say": {"type": "string"}}, "required": ["say"]}
+    seen: list[str] = []
+    answer = builtin_ai.converse(settings, TALK, json_schema=schema, max_tokens=200, temperature=0.3,
+                                 on_text=seen.append)
+    got = json.loads(answer)
+    assert got["echo"] == "The hike one" and got["system"] == "SYSTEM" and got["messages"] == TALK
+    assert got["options"] == {"temperature": 0.3, "max_tokens": 200, "stream": True, "response_format": {
+        "type": "json_schema", "json_schema": {"name": "answer", "schema": schema}}}
+    assert len(seen) > 3 and seen[-1] == answer  # it grew piece by piece
+    assert all(later.startswith(earlier) for earlier, later in zip(seen, seen[1:]))
+    assert builtin_ai.last_answer["finish"] == "stop" and builtin_ai.last_answer["usage"]["completion_tokens"] > 3
+    assert _last_stream() == {"pieces": len(seen) + 2, "sent": len(seen) + 2, "cut": False}
+    # ClipForge AI's own call: the system text first, then the conversation; one answer when nothing streams
+    whole = json.loads(llm.converse(settings, TALK[1:], system="SYSTEM", json_object=True))
+    assert whole["messages"] == TALK
+    assert whole["options"] == {"temperature": 0.4, "response_format": {"type": "json_object"}}
+
+
+def test_stop_and_the_time_limit_end_a_streamed_answer(hub):
+    from clipfoundry import builtin_ai
+    from clipfoundry.pipeline import llm
+
+    _install()
+    settings = {"ai_provider": "builtin", "builtin_ai_level": "basic"}
+    stop = threading.Event()
+    seen: list[str] = []
+
+    def first_words(text: str) -> None:
+        seen.append(text)
+        stop.set()  # the owner presses Stop as soon as the first words arrive
+
+    with pytest.raises(llm.Canceled, match="Stopped"):
+        llm.converse(settings, [{"role": "user", "content": "SLOW, please"}], system="S", on_text=first_words,
+                     cancel=stop.is_set)
+    assert len(seen) == 1
+    stream = _last_stream()
+    assert stream["cut"] and stream["sent"] < stream["pieces"]  # the engine stopped writing
+    # the whole answer has a time limit, even when every piece comes in time
+    seen.clear()
+    t0 = time.monotonic()
+    with pytest.raises(builtin_ai.BuiltinError, match="took longer than 1 seconds"):
+        builtin_ai.converse(settings, [{"role": "system", "content": "S"}, {"role": "user", "content": "SLOW again"}],
+                            timeout=1.0, on_text=seen.append)
+    assert time.monotonic() - t0 < 3 and 0 < len(seen) < 6
+    assert _last_stream()["cut"]
+    # the engine is still there for the next answer
+    hi = builtin_ai.converse(settings, [{"role": "system", "content": "S"}, {"role": "user", "content": "hi"}])
+    assert json.loads(hi) == {"echo": "hi", "system": "S"}
+
+
+def test_a_quick_caller_starts_the_engine_in_the_background_instead_of_waiting(hub):
+    """warm(): an engine that answers at once says so; one that is not loaded starts loading in the background, and
+    the caller (the planner's helper notes) goes on without it this time."""
+    from clipfoundry import builtin_ai
+
+    _install()
+    settings = {"ai_provider": "builtin", "builtin_ai_level": "basic"}
+    assert not builtin_ai.server.running()
+    t0 = time.monotonic()
+    assert builtin_ai.server.warm(settings) is False
+    assert time.monotonic() - t0 < 0.25  # it did not wait for the load
+    end = time.monotonic() + 10
+    while not builtin_ai.server.warm(settings) and time.monotonic() < end:
+        time.sleep(0.05)
+    assert builtin_ai.server.running() and builtin_ai.server.warm(settings)
+    # an answer after the load gets its whole time; loading counts in it when it has to wait for one
+    hi = builtin_ai.converse(settings, [{"role": "system", "content": "S"}, {"role": "user", "content": "hi"}],
+                             timeout=5)
+    assert json.loads(hi) == {"echo": "hi", "system": "S"}
+    builtin_ai.server.stop()
+    with pytest.raises(builtin_ai.BuiltinError, match="^Loading the built-in model took most of the 1 seconds"):
+        builtin_ai.converse(settings, [{"role": "system", "content": "S"}, {"role": "user", "content": "hi"}],
+                            timeout=0.4)  # the stand-in takes 0.3 s to load
+    assert builtin_ai.server.running()  # loaded now, for the next answer
+
+
+def test_the_engine_is_not_stopped_as_idle_while_it_answers(hub):
+    from clipfoundry import builtin_ai
+
+    _install()
+    stop = threading.Event()
+    seen: list[str] = []
+
+    def on_text(text: str) -> None:
+        seen.append(text)
+        builtin_ai.server.idle_s = 0.2  # a short idle time: this answer takes longer than that
+        if len(seen) == 4:
+            stop.set()
+
+    with pytest.raises(builtin_ai.Canceled):
+        builtin_ai.converse({"builtin_ai_level": "basic"}, [{"role": "system", "content": "S"},
+                                                            {"role": "user", "content": "SLOW"}],
+                            on_text=on_text, cancel=stop.is_set)
+    assert len(seen) == 4  # it went on writing past the idle time
+
+
 def test_routes_set_up_use_and_remove_the_builtin_ai(hub):
     from fastapi.testclient import TestClient
 
@@ -416,3 +539,46 @@ def test_a_chosen_provider_is_kept_when_the_download_finishes(hub):
     db.save_settings({"ai_provider": "ollama"})
     api_module._builtin_ready("basic")
     assert db.get_settings()["ai_provider"] == "ollama" and db.get_settings()["builtin_ai_level"] == "basic"
+
+
+def test_the_background_load_waits_for_the_graphics_card(hub, monkeypatch):
+    """warm() loads the engine holding the graphics card, like every other engine start: never next to a
+    transcription that holds it (it gives up after a few seconds, and the next answer loads it), and a
+    transcription that starts meanwhile waits for the load instead of stopping it halfway."""
+    from clipfoundry import builtin_ai, gpu
+
+    _install()
+    monkeypatch.setattr(builtin_ai, "WARM_GPU_WAIT_S", 0.3)
+    settings = {"ai_provider": "builtin", "builtin_ai_level": "basic"}
+    holders: list[str] = []
+    real = builtin_ai.server.ensure
+
+    def ensure(s):
+        holders.append((gpu._state().get("gpu:holder") or {}).get("kind", ""))  # noqa: SLF001
+        return real(s)
+
+    monkeypatch.setattr(builtin_ai.server, "ensure", ensure)
+
+    def warmed() -> None:
+        end = time.monotonic() + 10
+        while any(t.name == "builtin-ai-warm" for t in threading.enumerate()) and time.monotonic() < end:
+            time.sleep(0.02)
+
+    release, held = threading.Event(), threading.Event()
+
+    def transcription():
+        with gpu.manager.heavy("transcription", "a long video"):
+            held.set()
+            release.wait(10)
+
+    job = threading.Thread(target=transcription, daemon=True)
+    job.start()
+    assert held.wait(5)
+    assert builtin_ai.server.warm(settings) is False
+    warmed()
+    assert holders == [] and not builtin_ai.server.running()  # never loaded next to the transcription
+    release.set()
+    job.join(5)
+    assert builtin_ai.server.warm(settings) is False
+    warmed()
+    assert holders == ["local AI model"] and builtin_ai.server.running()

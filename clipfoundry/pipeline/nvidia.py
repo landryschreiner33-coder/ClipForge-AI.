@@ -90,10 +90,12 @@ def view(settings: dict) -> dict:
                 "nvidia_max_input_tokens", "nvidia_price_per_mtok_usd", "nvidia_daily_spend_cap_usd")},
             "data_note": ("When on, the sentences of the strongest clip candidates (links and email addresses "
                           "removed), the video's name and fixed recognized editing-priority labels are sent to "
-                          "NVIDIA. If you plan a video in Make a YouTube video with NVIDIA as ClipForge AI's model, "
-                          "your idea, the conversation, the plan, your file names and what is said in your videos "
-                          "are sent as text too. Raw Brain notes, example files, video, audio, account tokens and "
-                          "viewer lists are never sent. Choosing selected viewers does not keep these excerpts on "
+                          "NVIDIA. With NVIDIA as ClipForge AI's model, what you use it for is sent as text too "
+                          "(links and email addresses removed): your conversations with ClipForge AI and its helper "
+                          "agents, with the memories that fit them and your projects' details; and when you plan a "
+                          "video in Make a YouTube video, your idea, the conversation, the plan, your file names and "
+                          "what is said in your videos. Raw Brain notes, example files, video, audio, account tokens "
+                          "and viewer lists are never sent. Choosing selected viewers does not keep these excerpts on "
                           "this PC. Check NVIDIA's current terms for retention and training before you turn it on."),
             "development_note": ("Development mode uses NVIDIA's hosted catalog, which NVIDIA describes as "
                                  "development and prototyping access. ClipForge uses it only for work you start "
@@ -228,10 +230,20 @@ URL_RE = re.compile(r"https?://\S+|www\.\S+", re.I)
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
+def scrub(text: str) -> str:
+    """Links and email addresses removed."""
+    return EMAIL_RE.sub("[email]", URL_RE.sub("[link]", text))
+
+
+def input_chars(limit_tokens: int) -> int:
+    """The most characters of text one request sends: the input limit in tokens, about 4 characters each."""
+    return max(200, int(limit_tokens) * 4)
+
+
 def minimize(text: str, limit_tokens: int) -> str:
     """Links and email addresses removed; cut at the input limit (whole lines only, and said so)."""
-    text = EMAIL_RE.sub("[email]", URL_RE.sub("[link]", text))
-    limit = max(200, int(limit_tokens) * 4)
+    text = scrub(text)
+    limit = input_chars(limit_tokens)
     if len(text) <= limit:
         return text
     kept = text[:limit].rsplit("\n", 1)[0]
@@ -328,6 +340,7 @@ def complete(settings: dict, system: str, prompt: str, *, task: str = "clip_scor
              job_id: str = "") -> str:
     """One JSON-answer request. Raises NvidiaUnavailable whenever local analysis should be used instead."""
     _allowed(settings, unattended)
+    system = scrub(system)  # ClipForge AI's instructions hold the owner's memories and project details
     prompt = minimize(prompt, int(settings.get("nvidia_max_input_tokens") or 6000))
     key = _cache_key(settings, system, prompt)
     hit = db.fetch("api_cache", key, "key")

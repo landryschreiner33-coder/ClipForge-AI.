@@ -96,6 +96,8 @@ MARKER = "clipforge-verified.json"   # written only after every file of a folder
 ALIAS = "clipforge-builtin"
 CONTEXT = 8192
 START_TIMEOUT_S = 300.0              # loading a large model from a slow disk can take minutes
+WARM_GPU_WAIT_S = 5.0                # a background warm-up waits this long for a graphics card another job holds
+ANSWER_FLOOR_S = 5.0                 # see answer_floor
 DEFAULT_IDLE_MIN = 10.0
 IDLE_POLL_S = 15.0
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -725,8 +727,50 @@ class Server:
             time.sleep(0.5)
         raise BuiltinError("The built-in model took too long to load its model.")
 
+    def warm(self, settings: dict) -> bool:
+        """True when an engine for the chosen level answers right away (running here, or in another ClipForge
+        process). Otherwise it starts loading in the background, for the next request, and False is returned: a
+        caller with only seconds to spare (the planner's helper notes) skips the model this time instead of waiting
+        minutes for the load."""
+        level = chosen_level(settings)
+        if not level or not engine_path():
+            return False
+        if not self._lock.acquire(blocking=False):
+            return False  # it is being started right now
+        try:
+            if self.running() and self.level == level:
+                return True
+            try:
+                if self._shared(level):
+                    return True
+            except BuiltinError:
+                return False
+        finally:
+            self._lock.release()
+        threading.Thread(target=self._warm_up, args=(dict(settings),), daemon=True, name="builtin-ai-warm").start()
+        return False
+
+    def _warm_up(self, settings: dict) -> None:
+        """Load the engine for the next request, holding the graphics card like every other engine start: never next
+        to a transcription (it would run out of memory), and a transcription that starts meanwhile waits for the
+        load instead of stopping it halfway. A card that stays busy for `WARM_GPU_WAIT_S` means no warm-up this time:
+        the next answer loads the engine itself."""
+        from . import gpu
+
+        try:
+            with gpu.manager.heavy("local AI model", label(settings), max_wait_s=WARM_GPU_WAIT_S):
+                self.ensure(settings)
+        except gpu.GpuBusy as exc:
+            log.info("the built-in model was not loaded in the background: %s", exc)
+        except BuiltinError as exc:
+            log.info("the built-in model could not start in the background: %s", exc)
+
     def touch(self) -> None:
         self.last_used = time.time()
+
+    def answering(self, seconds: float) -> None:
+        """The engine is answering for up to `seconds`: it is not idle meanwhile (never stopped mid-answer)."""
+        self.last_used = time.time() + max(0.0, float(seconds))
 
     def _idle_loop(self) -> None:
         while True:
@@ -821,6 +865,7 @@ def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, js
     if max_tokens:
         body["max_tokens"] = int(max_tokens)
     try:
+        server.answering(timeout)  # never stopped as idle in the middle of an answer
         r = httpx.post(f"{base}/chat/completions", json=body, headers={"Authorization": f"Bearer {key}"},
                        timeout=timeout, trust_env=False)
     finally:
@@ -836,6 +881,98 @@ def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, js
     last_answer.update(finish=got["choices"][0].get("finish_reason"), timings=got.get("timings") or {},
                        usage=got.get("usage") or {})
     log.info("built-in model answered: %s", last_answer)
+    return text
+
+
+class Canceled(BuiltinError):
+    """The person stopped the answer while it was being written."""
+
+
+def answer_floor(limit: float) -> float:
+    """The least time worth asking a model on this computer with, of an answer that had `limit` seconds: 5 seconds,
+    or a tenth of a long limit (a model reads a long prompt before its first word), never more than half the limit.
+    With less left after waiting for the graphics card or loading the model, the owner is told that plainly instead
+    of the model being asked and timing out."""
+    return min(max(ANSWER_FLOOR_S, limit / 10), limit / 2)
+
+
+def converse(settings: dict, messages: list[dict], *, timeout: float = 180.0, json_object: bool = False,
+             json_schema: dict | None = None, max_tokens: int | None = None, temperature: float = 0.4,
+             on_text: Callable[[str], None] | None = None, cancel: Callable[[], bool] | None = None,
+             limit: float | None = None) -> str:
+    """A whole conversation sent to the built-in model; the answer's text.
+
+    `messages` is the exchange so far, oldest first: [{"role": "system" | "user" | "assistant", "content": str}],
+    the system text first. `json_object` / `json_schema` / `max_tokens` work as in `chat`. With `on_text` the answer
+    streams: `on_text(text_so_far)` is called as it grows, and `cancel()` returning True stops it (the engine stops
+    writing as soon as the connection closes) and raises `Canceled`. `timeout` bounds the whole answer, not only the
+    wait for its first word, and loading the model first (after it stopped as idle) counts in it too. `limit`: the
+    answer's whole time as the owner knows it, when a wait for the graphics card already used some of `timeout`."""
+    total = float(timeout)
+    limit = float(limit or total)
+    deadline = time.monotonic() + total
+    base, key = server.ensure(settings)
+    timeout = deadline - time.monotonic()  # what loading the model left of the time
+    if timeout < min(answer_floor(limit), total / 2):  # (too little left to answer in)
+        raise BuiltinError(f"Loading the built-in model took most of the {max(1, round(limit))} seconds this answer "
+                           "had. It is loaded now: ask again.")
+    body: dict = {"model": ALIAS, "temperature": float(temperature),
+                  "messages": [{"role": str(m["role"]), "content": m["content"]} for m in messages]}
+    if json_schema:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": json_schema}}
+    elif json_object:
+        body["response_format"] = {"type": "json_object"}
+    if max_tokens:
+        body["max_tokens"] = int(max_tokens)
+    headers = {"Authorization": f"Bearer {key}"}
+    try:
+        server.answering(timeout)  # never stopped as idle in the middle of an answer
+        if on_text is None:
+            r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout, trust_env=False)
+            if r.status_code != 200:
+                raise BuiltinError(f"The built-in model answered {r.status_code}: {r.text[:200]}")
+            try:
+                got = r.json()
+                text = got["choices"][0]["message"]["content"] or ""
+                finish = got["choices"][0].get("finish_reason")
+            except (KeyError, IndexError, TypeError, ValueError) as exc:
+                raise BuiltinError("The built-in model sent an answer in an unexpected shape.") from exc
+            timings, usage = got.get("timings") or {}, got.get("usage") or {}
+        else:
+            body["stream"] = True
+            text, finish, timings, usage = "", None, {}, {}
+            with httpx.stream("POST", f"{base}/chat/completions", json=body, headers=headers,
+                              timeout=httpx.Timeout(timeout, connect=15.0), trust_env=False) as r:
+                if r.status_code != 200:
+                    r.read()
+                    raise BuiltinError(f"The built-in model answered {r.status_code}: {r.text[:200]}")
+                for line in r.iter_lines():
+                    if cancel and cancel():
+                        raise Canceled("Stopped.")
+                    if time.monotonic() > deadline:
+                        raise BuiltinError(f"The built-in model took longer than {round(limit)} seconds.")
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except ValueError:
+                        continue
+                    timings = chunk.get("timings") or timings
+                    usage = chunk.get("usage") or usage
+                    for choice in chunk.get("choices") or []:
+                        piece = (choice.get("delta") or {}).get("content") or ""
+                        if piece:
+                            text += piece
+                            on_text(text)
+                        finish = choice.get("finish_reason") or finish
+    finally:
+        server.touch()
+    last_answer.clear()
+    last_answer.update(finish=finish, timings=timings, usage=usage)
+    log.info("built-in model answered a conversation: %s", last_answer)
     return text
 
 

@@ -968,6 +968,36 @@ def test_a_failed_online_request_still_counts_toward_the_daily_limit(env, monkey
     assert out["ai"]["status"] == "done" and "today's limit" in out["ai"]["data"]["say"] and len(fake.calls) == 1
 
 
+def test_planning_and_clipforge_ai_share_one_daily_allowance(env, monkeypatch):
+    """Each planning request to an online AI is one request of the allowance ClipForge AI's chat, its helper agents
+    and the editor's change requests share ("AI requests a day" in Settings → Advanced, `brain.allowance`), so
+    together they never send more than it; a model on this computer is never counted."""
+    from clipfoundry import db
+    from clipfoundry.brain import allowance
+    from clipfoundry.studio import video_setup
+
+    files = _files(env)
+    answer = {"say": "ok", "plan": PLAN, "questions": []}
+    fake = _model(monkeypatch, answer, answer, answer)
+    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask", idea="a lake vlog")
+    _settled(_last_ai(v)["id"])
+    assert len(fake.calls) == 1 and allowance.used(WS) == 0  # the model on this computer: never counted
+    db.save_settings({"ai_provider": "openai_compatible", "openai_url": "https://api.example.com/v1",
+                      "ai_edit_requests_per_day": 2})
+    out = video_setup.say(WS, v["id"], "make it 6 minutes")
+    _settled(out["ai"]["id"])
+    rows = db.select("ai_usage", "provider = ?", (f"{allowance.PROVIDER}:{WS}",))
+    assert len(fake.calls) == 2 and [(r["task"], r["job_id"]) for r in rows] == [("video_plan", out["ai"]["id"])]
+    assert not allowance.reached(WS, db.get_settings())
+    allowance.take(WS, db.get_settings(), "chat", "m1")  # ClipForge AI's chat sends the day's last request
+    out = video_setup.say(WS, v["id"], "make it 7 minutes")
+    said = out["ai"]["data"]["say"]
+    assert out["ai"]["status"] == "done" and len(fake.calls) == 2  # nothing more was sent
+    assert "today's limit of 2 requests" in said and "Settings → Advanced, “AI requests a day”" in said
+    assert video_setup.view(WS, v["id"])["plan"]["length_min"] == 7  # the built-in rules still read it
+    assert allowance.used(WS) == 2
+
+
 def test_after_the_build_a_plan_change_keeps_your_choices_and_undo_brings_the_plan_back(env, monkeypatch):
     from test_studio_smart_edit import _Lease
 

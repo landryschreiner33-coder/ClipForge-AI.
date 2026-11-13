@@ -700,7 +700,7 @@ CREATE TABLE IF NOT EXISTS brain_memories (   -- ClipForge AI's memories (brain/
     workspace_id TEXT NOT NULL DEFAULT 'local',
     kind TEXT NOT NULL,                       -- rule | fact | episode | asset | answer
     text TEXT NOT NULL,                       -- the memory in plain words (what a model reads)
-    norm TEXT NOT NULL DEFAULT '',            -- the words lower-cased and single-spaced (twins are merged)
+    norm TEXT NOT NULL DEFAULT '',            -- the words as they are compared (brain/memories._norm)
     source TEXT NOT NULL DEFAULT 'said',      -- said | did | guessed | imported
     confidence REAL DEFAULT 1.0,
     scope TEXT DEFAULT 'all',                 -- all | project:<id> | platform:<name> | mode:<clips|video>
@@ -724,7 +724,7 @@ CREATE TABLE IF NOT EXISTS brain_memory_uses ( -- where an answer used a memory
     id TEXT PRIMARY KEY,
     memory_id TEXT NOT NULL,
     workspace_id TEXT NOT NULL DEFAULT 'local',
-    where_used TEXT NOT NULL,                 -- change_request | filmcraft | smart_edit | chat | guidance
+    where_used TEXT NOT NULL,                 -- change_request | filmcraft | smart_edit | chat | guidance | agent
     ref_id TEXT DEFAULT '',                   -- the request, project or chat message
     created_at REAL NOT NULL
 );
@@ -742,7 +742,7 @@ CREATE TABLE IF NOT EXISTS brain_chat_messages (
     id TEXT PRIMARY KEY,
     chat_id TEXT NOT NULL,
     workspace_id TEXT NOT NULL DEFAULT 'local',
-    role TEXT NOT NULL,                       -- owner | ai
+    role TEXT NOT NULL,                       -- owner | ai | agent
     text TEXT DEFAULT '',
     data TEXT DEFAULT '{}',                   -- tool, request_id, used (memories), candidates, proposal
     status TEXT DEFAULT 'done',               -- done | thinking | failed
@@ -750,6 +750,24 @@ CREATE TABLE IF NOT EXISTS brain_chat_messages (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_brain_chat_messages ON brain_chat_messages(chat_id, created_at);
+CREATE TABLE IF NOT EXISTS brain_agents (     -- helper agents that work alongside ClipForge AI (brain/agents.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    template TEXT DEFAULT '',                 -- the ready-made agent it started from ('' = the owner's own)
+    name TEXT NOT NULL,
+    icon TEXT DEFAULT '',
+    role TEXT DEFAULT '',                     -- its job in one line (ClipForge AI reads it to pick a helper)
+    instructions TEXT DEFAULT '',             -- how it works, in the owner's words
+    tools TEXT DEFAULT '[]',                  -- the looking and making tools it may use
+    helps_plans INTEGER DEFAULT 0,            -- gives a note on new video plans (agents.consult)
+    enabled INTEGER DEFAULT 1,
+    position INTEGER DEFAULT 0,
+    runs INTEGER DEFAULT 0,
+    last_run_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_agents ON brain_agents(workspace_id, position);
 CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every request and its budget reservation
     id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
@@ -767,6 +785,8 @@ CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every r
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage(provider, day);
+-- allowance.used(): whether an editor's change request has its own row, without reading every earlier day
+CREATE INDEX IF NOT EXISTS idx_ai_usage_job ON ai_usage(provider, task, job_id);
 
 -- ---------------------------------------------------------------- ClipForge: identity and workspaces (cloud/)
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -1243,6 +1263,7 @@ JSON_FIELDS = {
     "brain_memory_uses": set(),
     "brain_chats": set(),
     "brain_chat_messages": {"data"},
+    "brain_agents": {"tools"},
     "ai_usage": set(),
     "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
     "clip_blueprints": {"blueprint", "issues"},

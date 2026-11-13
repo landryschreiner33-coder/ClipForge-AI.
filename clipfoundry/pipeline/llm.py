@@ -14,8 +14,10 @@ the heuristic evaluator on any error.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
+import time
 
 import httpx
 
@@ -260,7 +262,10 @@ def provider_label(settings: dict) -> str:
 
 
 def is_local(settings: dict, provider: str | None = None) -> bool:
-    """True when the provider runs on this computer (a localhost address)."""
+    """True when the provider runs on this computer: the built-in model, or Ollama or an OpenAI-style server at a
+    loopback address (localhost, 127.x.x.x, ::1, 0.0.0.0 …). An Ollama cloud model (a tag ending in "cloud", such as
+    gpt-oss:120b-cloud) is answered online even through the Ollama on this computer, so it is not local: what is
+    sent goes over the internet, and it counts against the daily limit for an online AI."""
     from urllib.parse import urlparse
 
     provider = provider or settings.get("ai_provider", "heuristic")
@@ -268,12 +273,26 @@ def is_local(settings: dict, provider: str | None = None) -> bool:
         return True  # always 127.0.0.1, started by ClipForge
     if provider == "ollama":
         url = settings.get("ollama_url") or "http://localhost:11434"
+        name, _, tag = str(settings.get("ollama_model") or "").lower().rpartition(":")
+        if name and tag.endswith("cloud"):
+            return False
     elif provider == "openai_compatible":
         url = settings.get("openai_url") or "http://localhost:1234/v1"
     else:
         return False
-    host = (urlparse(url).hostname or "").lower()
-    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")
+    try:
+        host = (urlparse(url).hostname or "").lower().rstrip(".")
+    except ValueError:  # a malformed address
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_loopback or ip.is_unspecified
 
 
 def _strip_thinking(text: str) -> str:
@@ -314,6 +333,311 @@ def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str
             except gpu.GpuBusy as exc:
                 raise ProviderError(str(exc)) from exc
         return _strip_thinking(fn(settings, prompt))
+    except httpx.HTTPError as exc:
+        raise ProviderError(f"{provider} is not reachable: {exc}") from exc
+
+
+# ------------------------------------------------------------------ conversations (ClipForge AI's chat)
+class Canceled(ProviderError):
+    """The person stopped the answer while it was being written."""
+
+
+EARLIER = "(Earlier in this chat:)"  # the owner's side before an answer that opens the conversation
+
+
+def _turns(messages: list[dict]) -> list[dict]:
+    """The exchange as alternating owner/assistant turns, starting with the owner (what every provider accepts):
+    other roles are dropped, empty turns skipped, two turns in a row by the same side joined. An answer that comes
+    first (a chat that opens with ClipForge AI's words, or a long answer whose question no longer fit) is kept behind
+    a short `EARLIER` turn on the owner's side, never dropped: the follow-up after it is about it. Nothing to answer
+    (no turn of the owner's at all) is []."""
+    out: list[dict] = []
+    for m in messages:
+        role = "assistant" if m.get("role") == "assistant" else "user" if m.get("role") == "user" else ""
+        text = str(m.get("content") or "").strip()
+        if not role or not text:
+            continue
+        if out and out[-1]["role"] == role:
+            out[-1] = {"role": role, "content": out[-1]["content"] + "\n\n" + text}
+        else:
+            out.append({"role": role, "content": text})
+    if not any(t["role"] == "user" for t in out):
+        return []
+    if out[0]["role"] != "user":
+        out.insert(0, {"role": "user", "content": EARLIER})
+    return out
+
+
+def _said(err) -> str:
+    """An error a server sent in the middle of an answer, as words."""
+    return str((err.get("message") if isinstance(err, dict) else None) or err)[:200]
+
+
+def _sse(r: httpx.Response, on_text, cancel, deadline: float, timeout: float) -> str:
+    """The text of an OpenAI-style streamed answer (data: lines), reported as it grows."""
+    import time
+
+    text = ""
+    for line in r.iter_lines():
+        if cancel and cancel():
+            raise Canceled("Stopped.")
+        if time.monotonic() > deadline:
+            raise ProviderError(f"The model took longer than {round(timeout)} seconds.")
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data)
+        except ValueError:
+            continue
+        if not isinstance(chunk, dict):
+            continue
+        if chunk.get("error"):  # the service failed in the middle of the answer (OpenRouter says it this way)
+            raise ProviderError(f"OpenAI-compatible server error: {_said(chunk['error'])}")
+        for choice in chunk.get("choices") or []:
+            piece = (choice.get("delta") or {}).get("content") or ""
+            if piece:
+                text += piece
+                on_text(text)
+    return text
+
+
+def _conv_builtin(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    from .. import builtin_ai
+
+    try:
+        return builtin_ai.converse(settings, [{"role": "system", "content": system}, *turns], timeout=o["timeout"],
+                                   json_object=o["json_object"], json_schema=o["json_schema"],
+                                   max_tokens=o["max_tokens"], temperature=o["temperature"], on_text=o["on_text"],
+                                   cancel=o["cancel"], limit=o.get("limit"))
+    except builtin_ai.Canceled as exc:
+        raise Canceled(str(exc)) from exc
+    except builtin_ai.BuiltinError as exc:
+        raise ProviderError(str(exc)) from exc
+
+
+def _conv_ollama(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    import time
+
+    url = settings.get("ollama_url", "http://localhost:11434").rstrip("/") + "/api/chat"
+    body: dict = {"model": settings.get("ollama_model") or "llama3.1:8b",
+                  "messages": [{"role": "system", "content": system}, *turns], "stream": bool(o["on_text"]),
+                  "options": {"temperature": o["temperature"], "num_ctx": int(o["num_ctx"] or 8192),
+                              **({"num_predict": int(o["max_tokens"])} if o["max_tokens"] else {})}}
+    if o["json_schema"]:
+        body["format"] = o["json_schema"]
+    elif o["json_object"]:
+        body["format"] = "json"
+    if not o["on_text"]:
+        r = httpx.post(url, json=body, timeout=o["timeout"])
+        if r.status_code != 200:
+            raise ProviderError(f"Ollama error {r.status_code}: {r.text[:200]}")
+        try:
+            return str((r.json().get("message") or {}).get("content") or "")
+        except (AttributeError, ValueError) as exc:
+            raise ProviderError("Ollama sent an answer in an unexpected shape.") from exc
+    deadline, text = time.monotonic() + o["timeout"], ""
+    with httpx.stream("POST", url, json=body, timeout=httpx.Timeout(o["timeout"], connect=10.0)) as r:
+        if r.status_code != 200:
+            r.read()
+            raise ProviderError(f"Ollama error {r.status_code}: {r.text[:200]}")
+        for line in r.iter_lines():
+            if o["cancel"] and o["cancel"]():
+                raise Canceled("Stopped.")
+            if time.monotonic() > deadline:
+                raise ProviderError(f"The model took longer than {round(o.get('limit') or o['timeout'])} seconds.")
+            try:
+                chunk = json.loads(line) if line.strip() else {}
+            except ValueError:
+                continue
+            if not isinstance(chunk, dict):
+                continue
+            if chunk.get("error"):  # Ollama failed in the middle of the answer (out of memory, a crashed runner)
+                raise ProviderError(f"Ollama error: {_said(chunk['error'])}")
+            piece = (chunk.get("message") or {}).get("content") or ""
+            if piece:
+                text += piece
+                o["on_text"](text)
+            if chunk.get("done"):
+                break
+    return text
+
+
+def _conv_openai(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    import time
+
+    base = (settings.get("openai_url") or "http://localhost:1234/v1").rstrip("/")
+    headers = {"Authorization": f"Bearer {settings['openai_api_key']}"} if settings.get("openai_api_key") else {}
+    body: dict = {"model": settings.get("openai_model") or "local-model", "temperature": o["temperature"],
+                  "messages": [{"role": "system", "content": system}, *turns],
+                  **({"max_tokens": int(o["max_tokens"])} if o["max_tokens"] else {})}
+    if o["json_schema"]:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": o["json_schema"]}}
+    elif o["json_object"]:
+        body["response_format"] = {"type": "json_object"}
+
+    def refused(r: httpx.Response) -> None:
+        if r.status_code == 429:
+            raise ProviderError("The AI service's free limit is used up for now (rate limit). Try again later.")
+        if r.status_code in (401, 403):
+            raise ProviderError("The AI service refused the API key. Check it in Settings → ClipForge AI.")
+        if r.status_code != 200:
+            raise ProviderError(f"OpenAI-compatible server error {r.status_code}: {r.text[:200]}")
+
+    for attempt in (1, 2):  # a server that does not know response_format is asked again without it
+        if not o["on_text"]:
+            r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=o["timeout"])
+            if r.status_code in (400, 422) and attempt == 1 and "response_format" in body:
+                body.pop("response_format")
+                continue
+            refused(r)
+            try:
+                return r.json()["choices"][0]["message"]["content"] or ""
+            except (KeyError, IndexError, TypeError, ValueError) as exc:
+                raise ProviderError("The AI service sent an answer in an unexpected shape.") from exc
+        with httpx.stream("POST", f"{base}/chat/completions", json={**body, "stream": True}, headers=headers,
+                          timeout=httpx.Timeout(o["timeout"], connect=10.0)) as r:
+            if r.status_code != 200:
+                r.read()
+                if r.status_code in (400, 422) and attempt == 1 and "response_format" in body:
+                    body.pop("response_format")
+                    continue
+                refused(r)
+            return _sse(r, o["on_text"], o["cancel"], time.monotonic() + o["timeout"],
+                        o.get("limit") or o["timeout"])
+    raise ProviderError("The AI service did not answer.")
+
+
+def _conv_anthropic(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    try:
+        import anthropic
+    except ImportError as exc:
+        raise ProviderError("The 'anthropic' package is not installed (pip install anthropic)") from exc
+    client = anthropic.Anthropic(api_key=settings.get("anthropic_api_key") or None, max_retries=2,
+                                 timeout=o["timeout"])
+    model = settings.get("anthropic_model") or "claude-opus-5"
+    try:
+        resp = client.messages.create(model=model, max_tokens=int(o["max_tokens"] or 2000), system=system,
+                                      messages=turns)
+    except anthropic.AuthenticationError as exc:
+        raise ProviderError("Anthropic API key is invalid") from exc
+    except anthropic.NotFoundError as exc:
+        raise ProviderError(f"Unknown Anthropic model '{model}'") from exc
+    except anthropic.RateLimitError as exc:
+        raise ProviderError("Anthropic rate limit reached") from exc
+    except anthropic.APIStatusError as exc:
+        raise ProviderError(f"Anthropic API error {exc.status_code}") from exc
+    except anthropic.APIConnectionError as exc:
+        raise ProviderError("Could not reach the Anthropic API") from exc
+    if resp.stop_reason == "refusal":
+        raise ProviderError("The model declined to answer")
+    return "".join(b.text for b in resp.content if b.type == "text")
+
+
+PART_LEFT_OUT = "\n[part of this message was not sent]\n"
+
+
+def _start_and_end(text: str, limit: int) -> str:
+    """`text` in at most `limit` characters: its start and its end, and a note where its middle was."""
+    if len(text) <= limit:
+        return text
+    keep = max(0, limit - len(PART_LEFT_OUT))
+    head = keep * 2 // 3
+    return text[:head] + PART_LEFT_OUT + text[len(text) - (keep - head):]
+
+
+def _conv_flat(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    """A provider that takes one prompt (NVIDIA): the conversation written out, the newest message last. NVIDIA cuts a
+    prompt longer than its input limit at its last whole line, which can drop the newest message, so the oldest
+    messages are left out first (counted without links and email addresses, which NVIDIA's check removes); when even
+    that is too long, the newest message goes alone, and one too long on its own keeps its start and its end (the
+    question can be at either)."""
+    from . import nvidia
+
+    lines = [nvidia.scrub(("The owner" if t["role"] == "user" else "You") + ": " + t["content"]) for t in turns[:-1]]
+    last = nvidia.scrub("The owner's new message: " + (turns[-1]["content"] if turns else ""))
+    limit = nvidia.input_chars(int(settings.get("nvidia_max_input_tokens") or 6000))
+
+    def written(earlier: list[str], left_out: bool) -> str:
+        note = "(Earlier messages were left out.)\n" if left_out else ""
+        return (f"The conversation so far:\n{note}" + "\n\n".join(earlier) + "\n\n" if earlier else
+                (note + "\n" if note else "")) + last
+
+    gone = 0
+    prompt = written(lines, False)
+    while len(prompt) > limit and gone < len(lines):
+        gone += 1
+        prompt = written(lines[gone:], True)
+    if len(prompt) > limit:  # the owner's words come before the note that earlier ones were left out
+        prompt = _start_and_end(last, limit)
+    fn = PROVIDERS[settings.get("ai_provider", "heuristic")]
+    flat = {**settings, "_system": system, "_ai_task": o["task"], "_timeout": o["timeout"],
+            **({"_max_tokens": int(o["max_tokens"])} if o["max_tokens"] else {}),
+            **({"_json_object": True} if o["json_object"] or o["json_schema"] else {})}
+    return fn(flat, prompt)
+
+
+CONVERSE = {"builtin": _conv_builtin, "ollama": _conv_ollama, "openai_compatible": _conv_openai,
+            "anthropic": _conv_anthropic, "nvidia": _conv_flat}
+
+
+def converse(settings: dict, messages: list[dict], *, system: str = "", task: str = "chat", json_object: bool = False,
+             json_schema: dict | None = None, max_tokens: int | None = None, timeout: float | None = None,
+             temperature: float = 0.4, num_ctx: int | None = None, on_text=None, cancel=None) -> str:
+    """A conversation with the configured provider: `messages` is the exchange so far, oldest first
+    ([{"role": "user" | "assistant", "content": str}]; the instructions go in `system`). Returns the answer's text,
+    without any <think> part. Raises ProviderError in heuristic mode or on failure, and Canceled when `cancel()`
+    returned True while the answer streamed.
+
+    `json_schema` makes the built-in model, Ollama and servers that support it answer in exactly that shape (others
+    get `json_object` or the instructions alone); `on_text(text_so_far)` streams the answer as it is written (the
+    built-in model, Ollama and OpenAI-style servers; the others answer all at once and never call it); `timeout`
+    bounds the whole answer, the wait for the GPU of a model on this computer included (the model gets what is left
+    of it); `cancel()` also stops that wait; `num_ctx` is Ollama's context size."""
+    provider = settings.get("ai_provider", "heuristic")
+    fn = CONVERSE.get(provider)
+    if fn is None or provider not in PROVIDERS:
+        raise ProviderError("heuristic mode")
+    turns = _turns(messages)
+    if not turns:
+        raise ProviderError("Nothing to answer.")
+    o = {"task": task, "json_object": json_object, "json_schema": json_schema, "max_tokens": max_tokens,
+         "timeout": float(timeout or 180), "temperature": float(temperature), "num_ctx": num_ctx,
+         "on_text": on_text, "cancel": cancel, "limit": float(timeout or 180)}  # limit: the whole time, as said
+    if provider in ("anthropic", "nvidia"):
+        o["on_text"] = None  # answered at once; the caller shows it when it arrives
+    deadline = time.monotonic() + o["timeout"]
+    waited = 0.0  # seconds spent waiting for the graphics card
+    try:
+        if provider in LOCAL_PROVIDERS and is_local(settings, provider):
+            from .. import builtin_ai, gpu  # a local model shares the GPU with Whisper: one heavy GPU job at a time
+            from .common import Cancelled
+
+            try:
+                with gpu.manager.heavy("local AI model", provider_label(settings) if provider == "builtin" else str(
+                        settings.get("ollama_model") if provider == "ollama" else
+                        settings.get("openai_model") or "local model"), cancelled=cancel,
+                        max_wait_s=min(900.0, o["timeout"])):
+                    left = deadline - time.monotonic()  # the wait for the GPU counts in the time limit
+                    waited = o["limit"] - left
+                    if left < builtin_ai.answer_floor(o["limit"]):  # too little left to answer in
+                        raise ProviderError(f"The graphics card was busy with other work for {round(waited)} of the "
+                                            f"{round(o['limit'])} seconds this answer had, so there was no time left "
+                                            "to answer. Try again when that work is done.")
+                    o["timeout"] = left
+                    return _strip_thinking(fn(settings, system, turns, o))
+            except gpu.GpuBusy as exc:
+                raise ProviderError(str(exc)) from exc
+            except Cancelled as exc:  # stopped while waiting for the GPU
+                raise Canceled("Stopped.") from exc
+        return _strip_thinking(fn(settings, system, turns, o))
+    except httpx.TimeoutException as exc:
+        if isinstance(exc, httpx.ConnectTimeout):
+            raise ProviderError(f"{provider} is not reachable: {exc}") from exc
+        raise ProviderError(f"The model took longer than {round(o['limit'])} seconds" + (
+            f" ({round(waited)} of them waiting for the graphics card)" if waited >= 1 else "") + ".") from exc
     except httpx.HTTPError as exc:
         raise ProviderError(f"{provider} is not reachable: {exc}") from exc
 

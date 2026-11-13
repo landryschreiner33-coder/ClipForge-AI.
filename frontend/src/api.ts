@@ -274,9 +274,14 @@ export async function responseError(res: Response): Promise<ApiError> {
   }
 }
 
-/** Message plus fix, for toasts. */
+/** What a person reads when a request never reached ClipForge (the browser itself only says "Failed to fetch"). */
+export const NOT_ANSWERING = "ClipForge is not answering right now. Try again in a moment.";
+
+/** Message plus fix, for toasts. A request that could not reach ClipForge at all says so in plain words. */
 export const errorText = (e: unknown) =>
-  e instanceof ApiError && e.fix ? `${e.message} ${e.fix}` : (e as Error).message;
+  e instanceof ApiError ? (e.fix ? `${e.message} ${e.fix}` : e.message)
+    : e instanceof TypeError && /fetch|network|load failed/i.test(e.message) ? NOT_ANSWERING
+      : (e as Error)?.message || String(e);
 
 export type Platform = "youtube" | "tiktok";
 

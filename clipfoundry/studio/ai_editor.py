@@ -19,7 +19,6 @@ import json
 import re
 import time
 from typing import Callable
-from urllib.parse import urlparse
 
 WINDOW_CHARS = 6000       # sentences per request, as text (fits a small local model's context with room to answer)
 MAX_WINDOWS = 64          # requests per smart edit at most (a 10-hour project); the time budget usually stops first
@@ -50,16 +49,9 @@ def configured(settings: dict) -> str:
 
 
 def is_local(settings: dict, provider: str) -> bool:
-    if provider == "builtin":
-        return True  # the built-in model only ever listens on 127.0.0.1
-    if provider == "ollama":
-        url = settings.get("ollama_url") or "http://localhost:11434"
-    elif provider == "openai_compatible":
-        url = settings.get("openai_url") or "http://localhost:1234/v1"
-    else:
-        return False
-    host = (urlparse(url).hostname or "").lower()
-    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")
+    from ..pipeline import llm
+
+    return llm.is_local(settings, provider)  # the one judge of "on this computer"
 
 
 def disclosure(settings: dict, provider: str) -> str:

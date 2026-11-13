@@ -256,8 +256,10 @@ Text only: the idea, the conversation, the plan so far (with what the owner set 
 is said in the videos, the Brain rules and the other memories that fit the idea (never to NVIDIA), the built-in
 know-how and the helper agents' notes (bounded as above). Never the video, the sound or file paths. Each answer
 says whether it stayed on this computer or went over the internet, and to whom. Every planning request to an online
-model counts against `ai_edit_requests_per_day` (shared with the chat and change requests), also one that failed or
-was given up on; a model on this computer has no limit. A model request may take
+model counts against `ai_edit_requests_per_day` ("AI requests a day" in Settings → Advanced), also one that failed or
+was given up on: `brain.allowance.take` (task `video_plan`) counts it just before it is sent, in the same count as
+ClipForge AI's chat, its helper agents and their notes, and the editor's change requests, and at the limit nothing is
+sent and the rules answer (`limit_reached`, `_take`); a model on this computer has no limit. A model request may take
 `max(60, ai_edit_timeout_s × 2)` seconds, at most 300; in the build job it renews the job's lease while it waits.
 
 ## Tests

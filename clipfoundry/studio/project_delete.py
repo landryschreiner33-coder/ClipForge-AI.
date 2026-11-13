@@ -18,14 +18,18 @@ What goes is everything ClipForge keeps only for that project:
 What stays: the owner's own files where they are (never deleted, never changed), everything posted already (post
 history, results, and the clip fingerprints that stop a clip from being posted twice), the memories that apply to
 every video, a platform or a mode, the taste ClipForge AI learned from choices, and a file the owner added again
-within the last day (an upload no project took: a new page may be about to use it). Deleting a project is tidying up, not a verdict on its
-clips, so it is not a taste lesson.
+within the last day (an upload no project took: a new page may be about to use it). Deleting a project is tidying
+up, not a verdict on its clips, so it is not a taste lesson.
 
 `plan` says all of this in plain sentences without changing anything, so a confirmation can show exactly what will
 happen; `delete` does it and returns the same sentences. The window's moment (`as_of`) goes back with the delete, so
-a file the window said stays is not deleted because the window stayed open. Work running for the project is stopped
-first. Autopilot's work, a post that is uploading (or may already be live) and a video still being copied in are never
-interrupted: deleting waits for them.
+a file the window said stays because it was added again is not deleted because the window stayed open past the day.
+Whether another project uses a file is judged when deleting; a confirmation that can wait long (ClipForge AI's delete
+card) also sends back what it listed beyond the project itself (`removes`: media files, the copy of the video it was
+made from, planned posts, and the files it said stay), and when deleting would now remove more (the other project
+that used a file was deleted meanwhile, a post was planned), nothing is deleted. Work
+running for the project is stopped first. Autopilot's work, a post that is uploading (or may already be live) and a
+video still being copied in are never interrupted: deleting waits for them.
 """
 from __future__ import annotations
 
@@ -73,8 +77,9 @@ SCENE_FILES = ("picture_asset_id", "clip_asset_id", "pictures")  # what an anima
 
 class DeleteError(ValueError):
     """Why a project was not deleted, in plain words. `status`: 404 not found (or another workspace's), 409 work on
-    it must end first, 422 an unknown kind. `code`: not_found, blocked (wait for it), stopping (try again in a
-    moment: deleting already asked the work to stop) or kind."""
+    it must end first or what it removes has changed, 422 an unknown kind. `code`: not_found, blocked (wait for it),
+    stopping (try again in a moment: deleting already asked the work to stop), changed (it would now remove more than
+    the confirmation listed: look at it again) or kind."""
 
     def __init__(self, message: str, status: int = 422, code: str = ""):
         super().__init__(message)
@@ -385,11 +390,21 @@ def _marked_since() -> float:
 
 
 def _handed_out(conn, asset_id: str, since: float) -> bool:
-    """ClipForge handed this copy out again after `since`, the moment the window looked (an upload of the same bytes,
-    Add from this computer, a build storing the same bytes): whoever got it holds it now, so it stays. Asked inside
-    the delete's transaction, which such a hand-out waits for (it marks the copy, assets.reused_at, first)."""
+    """ClipForge handed this copy out again after `since` (an upload of the same bytes, Add from this computer, a
+    build storing the same bytes): whoever got it may not have recorded it yet, so it stays. Asked inside the
+    delete's transaction, which such a hand-out waits for (it marks the copy, assets.reused_at, first)."""
     row = conn.execute("SELECT reused_at FROM assets WHERE id = ?", (asset_id,)).fetchone()
     return row is not None and float(row[0] or 0) > since
+
+
+def _hand_out_since(as_of: float) -> float:
+    """From when a copy handed out again keeps a file the delete would remove: since the window looked, and at most
+    for the hold a short's tidying waits too (uploads.REUSE_HOLD_S). Whoever got a copy records it a moment later
+    (an upload, a link, a short's scene, a Find media pick in the video's media), so one handed out before that is
+    recorded by now, and the last look's `_used_elsewhere` (or the survey's `_added_again`) says whether it stays.
+    ClipForge AI's delete card can wait for days: a copy handed out meanwhile to a project deleted since is named by
+    nothing, and must not keep the file for good."""
+    return max(as_of, time.time() - uploads.REUSE_HOLD_S)
 
 
 def _pending() -> tuple[str | None, set[str]]:
@@ -594,6 +609,11 @@ def _view(s: _Survey) -> dict:
         working = f"ClipForge is still working on it ({', '.join(s.working)}). Deleting stops that first."
     return {"id": row["id"], "kind": s.kind, "name": row["name"], "blocked": s.blocked, "working": working,
             "goes": goes, "stays": stays, "freed_bytes": s.freed_bytes, "as_of": s.as_of,
+            # what goes beyond the project itself, for a delete that must remove no more than was shown (`delete`),
+            # and the files this says stay (also what ClipForge made for its scenes that another project uses, and,
+            # in a delete's answer, a file handed out again just now, which whoever got it may hold)
+            "removes": {"files": [a["id"] for a in s.drop], "source": bool(s.source_copy),
+                        "posts": list(s.planned_posts), "kept": [a["id"] for a in s.keep + s.again + s.handed]},
             "counts": {"clips": s.clips, "versions": s.versions, "revisions": s.revisions, "renders": s.renders,
                        "files": len(s.drop) + (1 if s.source_copy else 0),
                        "files_kept": len(s.keep) + len(s.again) + len(s.handed),
@@ -794,18 +814,61 @@ POSTING = ("One of its clips is being posted right now, or ClipForge is still ch
            "Wait until that finishes (see Publishing), then delete the project.")
 
 
-def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: float | None = None) -> dict:
+def _beyond(s: _Survey, removes: dict | None) -> str:
+    """What deleting now would remove beyond what the confirmation listed (its plan's `removes`), in words: a media
+    file, the copy of the video it was made from, a planned post. "" when nothing more. The project's own clips,
+    versions, notes, chat and what ClipForge made for its scenes are the project: they go with it whatever their
+    number, but not a file the confirmation said stays (`kept`: another project used it then, or the owner had just
+    added it again)."""
+    if removes is None:
+        return ""
+    files, posts = set(removes.get("files") or []), set(removes.get("posts") or [])
+    kept = set(removes.get("kept") or [])
+    more = [a for a in s.drop if a["id"] not in files and (a["id"] not in s.made or a["id"] in kept)]
+    words = []
+    made = [a for a in more if a["id"] in s.made and not uploads.is_linked(a)]
+    copies = [a for a in more if not uploads.is_linked(a) and a["id"] not in s.made]
+    linked = [a for a in more if uploads.is_linked(a)]
+    if made:
+        words.append(f"{_names(made)}, which ClipForge made for its scenes and no other project uses now")
+    if copies:
+        words.append(f"ClipForge's {'copy' if len(copies) == 1 else 'copies'} of {_names(copies)}, which no other "
+                     "project uses now")
+    if linked:
+        words.append(f"what ClipForge made from {_names(linked)} to work with {'it' if len(linked) == 1 else 'them'}")
+    if s.source_copy and not removes.get("source"):
+        words.append(f"ClipForge's copy of the video it was made from (“{s.source_copy[:60]}”)")
+    planned = [p for p in s.planned_posts if p not in posts]
+    if planned:
+        words.append(f"{_n(len(planned), 'planned post')} of its clips")
+    return _listed(words) if words else ""
+
+
+def _check_removes(s: _Survey, removes: dict | None, stopped: bool) -> None:
+    more = _beyond(s, removes)
+    if more:
+        raise DeleteError(f"What deleting it removes has changed since this was shown: it would now also remove "
+                          f"{more}. Nothing was deleted" + (", but the work running on it was stopped." if stopped
+                                                             else "."), 409, "changed")
+
+
+def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: float | None = None,
+           removes: dict | None = None) -> dict:
     """Delete the project and what only it uses (see the module notes); returns `plan`'s words with "deleted":
     True ("left_behind": True when some files were in use; the next start removes them). `as_of` is the plan's
-    moment (a file added again is judged as the window judged it). Running work is asked to stop and given up to
-    `wait` seconds; DeleteError (409, "stopping") when it has not stopped by then, so the caller can ask again in a
-    moment."""
+    moment (a file added again is judged as the window judged it). `removes` is the plan's own list of what goes
+    beyond the project: given it, deleting removes no more than that, or nothing (DeleteError 409, "changed"; checked
+    before any work is stopped and again on what is deleted). Running work is asked to stop and given up to `wait`
+    seconds; DeleteError (409, "stopping") when it has not stopped by then, so the caller can ask again in a moment."""
     s = _survey(ws, project_id, kind, as_of)
     if s.blocked:
         raise DeleteError(s.blocked, 409, "blocked")
+    _check_removes(s, removes, stopped=False)
+    stopped = False
     end = time.monotonic() + max(0.0, wait)
     while s.working:
         _stop(s)
+        stopped = True
         while _running(s) and time.monotonic() < end:
             time.sleep(0.2)
         if _running(s):
@@ -819,6 +882,8 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
                 _stop(s)
                 raise DeleteError(STOPPING, 409, "stopping")
             time.sleep(0.2)
+    if stopped:  # what is deleted is this survey's: the stopped work may have changed it
+        _check_removes(s, removes, stopped=True)
     out = _view(s)
     if s.planned_posts:
         from ..autopilot import scheduler
@@ -837,7 +902,8 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
         conn.execute("BEGIN IMMEDIATE")
         named = _used_elsewhere(ws, kind, project_id) if s.drop else ""
         now_used = [a for a in s.drop if a["id"] in named]
-        handed = [a for a in s.drop if a not in now_used and _handed_out(conn, a["id"], s.as_of)]
+        since = _hand_out_since(s.as_of)
+        handed = [a for a in s.drop if a not in now_used and _handed_out(conn, a["id"], since)]
         have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         if kind == "clips":
             for table in db.CLIP_CHILDREN:
@@ -860,8 +926,8 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
         conn.execute("DELETE FROM brain_chat_messages WHERE chat_id IN (SELECT id FROM brain_chats WHERE "
                      "workspace_id = ? AND project_id = ?)", (ws, project_id))
         conn.execute("DELETE FROM brain_chats WHERE workspace_id = ? AND project_id = ?", (ws, project_id))
-        # the scope says whom a memory is for (a memory saved again for another project or a platform keeps the
-        # project_id it was first saved with, so that column is not used here)
+        # the scope says whom a memory is for (a memory an older version saved again for another project or a
+        # platform still has the project_id it was first saved with, so that column is not used here)
         conn.execute("DELETE FROM brain_memory_uses WHERE memory_id IN (SELECT id FROM brain_memories WHERE "
                      "workspace_id = ? AND scope = ?)", (ws, scope))
         conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND scope = ?", (ws, scope))

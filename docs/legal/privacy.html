@@ -224,8 +224,9 @@
     <tr><td>Settings and keys</td><td>Your choices, and any API keys or client secrets you enter</td><td>Until you
       change or remove them</td></tr>
     <tr><td>Optional NVIDIA AI</td><td>When you turn it on: the date you agreed to send excerpts, each request's
-      time, task, model, token counts and status (to keep the daily limits), and its answers so the same excerpt is
-      not sent twice</td><td>Request counts: until you delete the data folder. Saved answers: 30 days</td></tr>
+      time, task, model, token counts and status (to keep the daily limits), and its answers, ClipForge AI's
+      included, so the same request is not sent twice</td><td>Request counts: until you delete the data folder.
+      Saved answers: 30 days</td></tr>
     <tr><td>Logs</td><td>Technical messages for troubleshooting, such as file names, video titles and links, steps,
       error messages, and the items shown under Needs you</td><td>Background jobs that completed or were canceled, and
       the step messages of all jobs: 30 days. Failed background jobs: until you delete the data folder. Autopilot's
@@ -293,6 +294,36 @@
   are encrypted on the server with a key kept outside the data folder. Nothing is sent to any other new service.
 </p>
 
+<h3 id="clipforge-ai">ClipForge AI (added 2026-11-10)</h3>
+<p>
+  ClipForge AI is the assistant you talk with in Brain and in each video's chat. It keeps, in the same data folder:
+  each chat's messages (yours, its answers and its helper agents' answers, the steps it took, the OK and No buttons it
+  showed with what became of them, and a copy of the memories each answer used, saved or forgot), the newest 200 per
+  chat, until you press Clear this chat or delete its video; the memories you or it saved, with a record of the
+  answers that used them, until you forget them in Brain → Memory or ask it to (asking forgets every memory that says
+  those words; asked in one video's chat, a note that another video keeps under the same words stays when the same
+  words are also kept for this video or for more than one video), press Undo on the answer that saved one (only while it is as that answer saved it),
+  or delete the
+  one project or video a memory is kept for (a memory it only guessed is no longer used after 60 days unless you
+  confirm it, and Tidy in
+  Brain → Memory removes such expired memories and merges exact twins kept for the same videos and switched on or
+  off alike); and the helper agents
+  you add (name, icon,
+  job, instructions, the tools they may use, and how many times and when each last worked), until you remove them in
+  Brain → Agents.
+</p>
+<p>
+  A change you ask for in a video's chat is also kept with that video's change requests, like one typed in the editor
+  (the change in words, as you typed it or as ClipForge AI wrote it from what you said; the change proposed; the
+  memories and know-how it used; and a note of what was sent to an AI service), until you delete that video or the
+  data folder; Clear this chat does not remove it. When its model is an online service, each request ClipForge AI, a
+  helper agent or the video planner in Make a YouTube video sends, and each change request the editor sends, is
+  recorded (the time, the task, the model and the chat message, video or change request it was for) to keep the daily
+  limit, "AI requests a day" in Settings → Advanced, until you delete the data folder; deleting the video it was for
+  does not remove it. With NVIDIA, its answers are also saved as described under "Optional NVIDIA AI" above.
+  Talking with it does not train a model. What it sends, and where, is under "An AI service you choose" in section 3.
+</p>
+
 <h2>3. When information leaves your computer</h2>
 <p>
   ClipFoundry sends information only to the services below, only for the features that need them, and straight from
@@ -328,32 +359,62 @@
       first words of the titles of TikTok videos it found, to look for the longer YouTube videos they came from; and
       your key. Pressing Test saved Tavily connection instead sends only your key in an Authorization header to
       read account usage; it does not run a search or send Brain text, video titles or topics</td></tr>
-    <tr><td>An AI service you choose</td><td>Only if you turn on AI scoring in Settings (off by default), or when
-      you plan a video in Make a YouTube video with a model you set up in Settings → ClipForge AI</td><td>The
-      words said in a video's strongest moments (up to 12 by default), the sentence just before each one, each
-      moment's length and the video's name, so they can be scored; and the words said in each clip, so titles and
-      captions can be written. When you plan a video: your idea and the conversation, the plan so far (also what you
-      set by hand), your file names and lengths, what is said in your videos, your Brain rules and the other Brain
-      memories that fit your idea, built-in know-how and your helper agents' notes, as text; never the video, its
-      sound or where your files are. If you choose an AI program on
-      your own computer (such as Ollama or LM Studio),
-      ClipFoundry sends this text only to the address you set for that program. If you choose a cloud AI service (for
+    <tr><td>An AI service you choose</td><td>Only if you choose an AI helper in Settings → ClipForge AI or in
+      Settings → Advanced (AI scoring); none is chosen by default. The built-in model runs on this computer,
+      so with it none of the text in this row leaves your computer (downloading it, once, contacts GitHub and Hugging
+      Face, as listed further down). With another helper, whenever a feature uses it: for example when clips
+      are made, scored and titled, when you ask the editor for a change it does not understand on its own, for smart
+      editing, FilmCraft, a short's script and Full stories, when you plan a video in Make a YouTube video, and each
+      time you talk with ClipForge AI or one of its helper agents</td><td>Text only: never your files, their pictures
+      or their sound. To make clips: the video's name, the words said in it (read in order, a part at a time), the
+      words said in its strongest moments (up to 12 by default) with the sentence just before each one and each
+      moment's length, the memories and know-how that fit, and a one-line summary of the kinds of clips you usually
+      keep, learned from the clips you leave out, put back, export or publish, so moments can be found and scored; and
+      the words said in each clip, so titles and captions can be written. The other features send the words and
+      details they work on (for example your brief or topic, the words
+      said with their times, and the list of clips); the editor, smart editing, FilmCraft and the script writer also
+      send the memories and know-how that fit. When you talk with ClipForge AI: your message and the conversation so
+      far (the oldest messages are left out first when it does not fit); your standing rules (up to 8) and the other
+      memories and know-how that fit it; today's date and the time on this computer; your projects' names with their
+      kind, counts, status and age; the details of the chat's video and of the projects it looks at (a video's brief,
+      its script's name, each part's label, often a file's name, with the words said in it, and its status note; a
+      clips project's clip titles, scores and lengths); your helper agents' names and jobs (and, for the helper doing
+      a job, its instructions); and the results of the looking steps it takes (such as what is running). When you plan
+      a video in Make a YouTube video: your idea and the conversation, the plan so far (also what you set by hand),
+      your file names and lengths, what is said in your videos, your standing rules and the other memories that fit
+      your idea, built-in know-how and your helper agents' notes, never where your files are (a helper agent that
+      helps with plans writes its note from your idea and your files' names, lengths and what is said in them, with
+      its own name, job and instructions). Each request ClipForge AI, a helper agent, the video planner or the
+      editor (a change request) sends to an online service counts once against "AI requests a day" in Settings →
+      Advanced (0 sends none).
+      If you choose an AI program on your own computer (such as Ollama or LM Studio),
+      ClipFoundry sends this text only to the address you set for that program; an Ollama cloud model (a model name
+      ending in "cloud") answers online even through the Ollama on your computer. If you choose a cloud AI service (for
       example Anthropic's Claude API, or another server address you enter), that service receives the text and your
       API key, under your own account with it</td></tr>
     <tr><td>NVIDIA (build.nvidia.com)</td><td>Only if you turn on NVIDIA AI in Settings → Integrations, choose it
       as the AI provider and agree once that excerpts may leave this computer (off by default). In development mode
-      only for work you start yourself, never for Autopilot's unattended work</td><td>The words said in a video's
-      strongest moments (links and email addresses removed, cut to your size limit) and the video's name, so they
-      can be scored and titled; fixed recognized editing-priority names; and your NVIDIA API key. If you also plan a
-      video in Make a YouTube video with NVIDIA as ClipForge AI's model: your idea and the conversation, the plan so
-      far, your file names and lengths, what is said in your videos, built-in know-how and your helper agents' notes,
-      as text. Never raw Brain notes (planning leaves them out for NVIDIA), example files, video, audio, account
+      only for work you start yourself, never for Autopilot's unattended work</td><td>The text described in the row
+      above for the features you use with it (for example the words said in a video's strongest moments and the
+      video's name, so they can be scored and titled, your conversations with ClipForge AI, and your video plans
+      without your memories, which planning leaves out for NVIDIA), with web addresses
+      that start with http://, https:// or www. and email addresses removed from all of it (an address written
+      without them, such as youtube.com/@yourname, is sent as written); each request's words are cut to your size
+      limit (a conversation with ClipForge AI leaves out its oldest messages first, and a message too long on its own
+      loses its middle), while the instructions sent with them, which hold your memories and project details, are
+      not cut; fixed recognized editing-priority names; and your NVIDIA API key. An
+      answer that is not in the right form is asked for once more; that second request counts toward NVIDIA's budget
+      but not again toward "AI requests a day". Never raw Brain teaching notes, example files, video, audio, account
       tokens or lists of viewers.
       Choosing selected viewers for your uploads does not keep these excerpts on your computer. NVIDIA handles them
       under its own terms, which you should read before turning this on</td></tr>
     <tr><td>Hugging Face</td><td>The first time you use each speech-recognition model, and again if its files are
-      missing or damaged</td><td>A request to download the model. If you have signed in to Hugging Face on this
-      computer, the download also sends your Hugging Face sign-in token</td></tr>
+      missing or damaged; and when you download ClipForge AI's built-in model (in Settings → ClipForge AI or from
+      its chat)</td><td>A request to download the model. If you have signed in to Hugging Face on this
+      computer, a speech-recognition model's download also sends your Hugging Face sign-in token; the built-in
+      model's download sends no token</td></tr>
+    <tr><td>GitHub</td><td>When you download ClipForge AI's built-in model, if the program that runs it (llama.cpp)
+      is not on this computer yet</td><td>A request to download that program from its public release page</td></tr>
     <tr><td>YouTube, TikTok and other video sites</td><td>You explicitly submit a public video link, or existing
       source/download settings allow acquisition in optional discovery or stream tools</td><td>Requests to identify
       and download the supplied/selected media, or record the stream. These downloads use the guarded importer,
@@ -495,11 +556,16 @@
     Missions → Submitted videos → Cancel video to stop its future work/uploads. Turning off separate standing
     permission affects its own unstarted approvals; it does not revoke a different input-scoped request.
     Completed and uncertain uploads retain their history/session. TikTok posts always require per-post consent.</li>
-  <li><b>Delete a project:</b> in Projects (the trash button on its card) or on a clips project's own page; a window
-    first lists what goes and what stays. This deletes the project's clips or a video's versions, transcript and
-    analysis, its ClipForge AI chat and the notes kept only for it, and ClipFoundry's copy of the video when nothing
+  <li><b>Delete a project:</b> in Projects (the trash button on its card), on a clips project's own page, or by
+    asking ClipForge AI in a chat; a window (or ClipForge AI's card) first lists what goes and what stays, and the
+    card's OK removes no file, copy of a video or planned post it did not list (what belongs to the project goes with
+    it however much there is by then: its clips or versions, chat and notes, and what ClipForge makes for an animated
+    short's scenes, also after the list was shown). This deletes the project's clips or a video's versions,
+    transcript and analysis, its ClipForge AI chat and the notes kept only for it, and ClipFoundry's copy of the video when nothing
     else uses it; planned posts that have not started uploading are canceled. Your own original is not touched,
-    and a copy of a file you added again in the last day stays (another page may be about to use it). Notes for all
+    and a copy of a file you added again on another page since the day before the list was shown and have not used
+    there yet, or one that was uploaded or stored again after the list was shown and within the hour before deleting,
+    stays (another page may be about to use it). Notes for all
     your videos stay. A separate uploaded source copy under
     <code>submitted/</code>, its request and source history remain until you delete the data folder. Some records stay until you delete
     the data folder: the history of posts that were planned or published; for each clip Autopilot made, a short
