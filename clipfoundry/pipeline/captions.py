@@ -1,6 +1,7 @@
 """Caption chunking and ASS/SRT generation (burned in by ffmpeg/libass)."""
 from __future__ import annotations
 
+import math
 import re
 
 from ..config import OUTPUT_H, OUTPUT_W
@@ -20,7 +21,54 @@ STYLE_PRESETS = {
                 "emphasis": ""},
 }
 
-POSITIONS = {"bottom": (2, 0.23), "middle": (5, 0.0), "top": (8, 0.16)}
+# Alignment and margin (share of the height). Phone apps cover the bottom 35% and the top 15% of a 9:16 frame, so
+# "bottom" sits just above the buttons and the description, "top" just below the top bar, and "middle" is the
+# 45-55% band the platforms leave clear.
+POSITIONS = {"bottom": (2, 0.36), "middle": (5, 0.0), "top": (8, 0.16)}
+HOOK_TOP = 0.15                                   # the headline starts below the apps' top bar
+HOOK_SIZES = ((36, 68), (60, 58), (10 ** 9, 50))  # (up to this many characters, font size): one to three lines
+HOOK_MARGIN = 110                                 # the headline's left and right margins
+HOOK_GAP = 36                                     # pixels between the headline's box and captions under it
+# Measured with libass (Poppins ExtraBold): a headline character is under a third of the font size wide on average
+# (rounded up here, so a line too many is guessed rather than one too few), and each line of the box adds 1.1 font
+# sizes, the box 0.15 more.
+HOOK_CHAR_EM = 0.34
+# "above": the captions sit just above the picture when it is fitted into the frame (layout "fit": the whole
+# picture, centred over a blurred fill), so none of it is covered; story clips use this. Two lines must fit between
+# the apps' top bar (or the headline) and the picture, the words shrinking by at most a fifth; otherwise the
+# captions go to the lower third as usual. Two caption lines reach at most twice the font size above their
+# baseline (measured with libass for every style, the outline and the growing highlighted word included).
+ABOVE_GAP = 28                                    # pixels between the captions and the picture
+ABOVE_SCALES = (1.0, 0.9, 0.8)
+TWO_LINES_EM = 2.0
+TWO_LINES_SPARE = 6                               # pixels to spare on top of that
+
+
+def above_picture(picture_top: float | None, size: int, ceiling: float) -> tuple[int, int] | None:
+    """(MarginV for bottom-centre alignment, font size) that put two caption lines right above a picture whose top
+    edge is `picture_top` pixels down, below `ceiling`; None when there is no picture edge or not enough room."""
+    if picture_top is None:
+        return None
+    room = float(picture_top) - ABOVE_GAP - ceiling
+    for scale in ABOVE_SCALES:
+        px = int(size * scale)
+        if TWO_LINES_EM * px + TWO_LINES_SPARE <= room:
+            return int(OUTPUT_H - float(picture_top) + ABOVE_GAP), px
+    return None
+
+
+def hook_size(text: str) -> int:
+    """The headline's font size: 3-6 words stay big; a long hook shrinks so it still fits above the face."""
+    n = len(" ".join(text.split()))
+    return next(size for limit, size in HOOK_SIZES if n <= limit)
+
+
+def hook_bottom(text: str) -> float:
+    """Where the headline's box ends, in pixels from the top of the frame."""
+    px = hook_size(text)
+    width = len(" ".join(text.split())) * HOOK_CHAR_EM * px
+    lines = max(1, math.ceil(width / (OUTPUT_W - 2 * HOOK_MARGIN)))
+    return OUTPUT_H * HOOK_TOP + (1.1 * lines + 0.15) * px
 
 
 def hex_to_ass(color: str, alpha: int = 0) -> str:
@@ -86,14 +134,21 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     size = int(p["size"] * max(0.5, min(1.8, scale)))
     align, margin_frac = POSITIONS.get(opts.get("caption_position", "bottom"), POSITIONS["bottom"])
     margin_v = int(OUTPUT_H * margin_frac)
+    hook_on = bool(opts.get("hook_overlay", True)) and hook_text.strip()
+    under_hook = int(hook_bottom(hook_text) + HOOK_GAP) if hook_on else 0
+    if opts.get("caption_position") == "above":
+        ceiling = under_hook or OUTPUT_H * POSITIONS["top"][1]
+        placed = above_picture(opts.get("picture_top"), size, ceiling)
+        if placed:
+            align, (margin_v, size) = 2, placed
     highlight = hex_to_ass(opts.get("highlight_color") or p["highlight"])
     primary = hex_to_ass(opts.get("caption_color") or "#FFFFFF")
     outline_col = "&H00000000"
     back = "&H64000000" if style != "minimal" else "&H96000000"
     bold_flag = -1 if style in {"bold", "high_energy"} else 0
     emph = hex_to_ass(p["emphasis"]) if opts.get("caption_emphasis") and p.get("emphasis") else ""
-    hook_on = bool(opts.get("hook_overlay", True)) and hook_text.strip()
     hook_secs = float(opts.get("hook_seconds", 3.0) or 3.0)
+    hook_px = hook_size(hook_text) if hook_on else HOOK_SIZES[0][1]
 
     lines = [
         "[Script Info]",
@@ -110,17 +165,23 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
         "Alignment, MarginL, MarginR, MarginV, Encoding",
         f"Style: Caption,{p['font']},{size},{primary},{highlight},{outline_col},{back},{bold_flag},0,0,0,100,100,"
         f"1,0,1,{p['outline']},{p['shadow']},{align},90,90,{margin_v},1",
-        f"Style: Hook,Poppins ExtraBold,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H28161616,-1,0,0,0,100,100,0,0,3,"
-        f"18,0,8,110,110,{int(OUTPUT_H * 0.11)},1",
+        f"Style: Hook,Poppins ExtraBold,{hook_px},&H00FFFFFF,&H00FFFFFF,&H00000000,&H28161616,-1,0,0,0,100,100,0,0,3,"
+        f"18,0,8,{HOOK_MARGIN},{HOOK_MARGIN},{int(OUTPUT_H * HOOK_TOP)},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
 
+    hook_end = 0.0
     if hook_on:
         text = _escape(hook_text.strip())
-        end = min(duration, hook_secs)
+        hook_end = end = min(duration, hook_secs)
         lines.append(f"Dialogue: 2,{_ass_time(0)},{_ass_time(end)},Hook,,0,0,0,,{{\\fad(120,250)}}{text}")
+    # captions at the top go under the headline while it shows ("Part N" on a story part shows the whole time)
+    below = under_hook if align == POSITIONS["top"][0] and under_hook > margin_v else 0
+
+    def caption_at(start: float) -> str:
+        return f"Caption,,0,0,{below if start < hook_end else 0},,"
 
     if opts.get("captions_enabled", True):
         highlight_on = bool(opts.get("highlight_words", True)) and style != "minimal"
@@ -140,7 +201,7 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
                          for t, w in zip(texts, chunk)]
             pop = "{\\fscx80\\fscy80\\t(0,90,\\fscx100\\fscy100)}" if p["pop"] else ""
             if not highlight_on:
-                lines.append(f"Dialogue: 1,{_ass_time(c_start)},{_ass_time(c_end)},Caption,,0,0,0,,{pop}"
+                lines.append(f"Dialogue: 1,{_ass_time(c_start)},{_ass_time(c_end)},{caption_at(c_start)}{pop}"
                              + " ".join(texts))
                 continue
             for wi, w in enumerate(chunk):
@@ -156,7 +217,7 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
                     else:
                         parts.append(t)
                 lead = pop if wi == 0 else ""
-                lines.append(f"Dialogue: 1,{_ass_time(w_start)},{_ass_time(w_end)},Caption,,0,0,0,,{lead}"
+                lines.append(f"Dialogue: 1,{_ass_time(w_start)},{_ass_time(w_end)},{caption_at(c_start)}{lead}"
                              + " ".join(parts))
     return "\n".join(lines) + "\n"
 

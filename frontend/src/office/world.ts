@@ -17,18 +17,19 @@ const room = (id: RoomId, x: number, y: number, w: number, h: number,
       : { x: side === "left" ? x : x + w, y: lane } };
 };
 
+/** The rooms follow the workflow: Intake → Story & analysis → Editing → Sound & captions → Quality & export →
+ * Publishing, with Media research, the Brain and the Control room beside it and the Lounge for robots off duty. */
 export const ROOMS: Room[] = [
   room("lounge", 8, 8, 416, 264, "right", { x: 440, y: 252 }),
-  room("boss", 456, 8, 192, 128, "bottom", { x: 552, y: 148 }),
-  room("workspace", 456, 160, 192, 112, "bottom", { x: 552, y: 284 }),
+  room("control", 456, 8, 192, 128, "bottom", { x: 552, y: 148 }),
+  room("research", 456, 160, 192, 112, "bottom", { x: 552, y: 284 }),
   room("brain", 680, 8, 272, 264, "left", { x: 664, y: 252 }),
-  room("discover", 8, 296, 288, 140, "right", { x: 316, y: 416 }),
-  room("analyze", 336, 296, 288, 140, "left", { x: 316, y: 416 }),
-  room("studio", 664, 296, 288, 140, "left", { x: 644, y: 416 }),
-  room("system", 8, 464, 208, 168, "right", { x: 232, y: 612 }),
-  room("caption", 248, 464, 208, 168, "left", { x: 232, y: 612 }),
-  room("schedule", 488, 464, 208, 168, "left", { x: 472, y: 612 }),
-  room("dock", 728, 464, 208, 168, "left", { x: 712, y: 612 }),
+  room("intake", 8, 296, 288, 140, "right", { x: 316, y: 416 }),
+  room("story", 336, 296, 288, 140, "left", { x: 316, y: 416 }),
+  room("editing", 664, 296, 288, 140, "left", { x: 644, y: 416 }),
+  room("quality", 8, 464, 208, 168, "right", { x: 232, y: 612 }),
+  room("sound", 248, 464, 208, 168, "left", { x: 232, y: 612 }),
+  room("publishing", 488, 464, 448, 168, "left", { x: 472, y: 612 }),
 ];
 export const ROOM: Record<string, Room> = Object.fromEntries(ROOMS.map(r => [r.id, r]));
 // A small entry threshold in the main hall; it is scenery, not a standing station.
@@ -37,24 +38,23 @@ export const ENTRANCE = { x: 436, y: 440, w: 48, h: 20 };
 const at = (id: RoomId, x: number, y: number): Pt => ({ x: ROOM[id].x + x, y: ROOM[id].y + y });
 /** Desk foot anchors. Every role retains its own workplace and its stable identity. */
 export const STATION: Record<string, Pt> = {
-  command: at("boss", 96, 106),
-  tracker: at("discover", 44, 106), radar: at("discover", 144, 106), archive: at("discover", 244, 106),
-  pulse: at("analyze", 44, 106), gavel: at("analyze", 108, 106),
-  boost: at("analyze", 176, 106), vector: at("analyze", 244, 106),
-  frame: at("studio", 44, 106), spark: at("studio", 112, 106),
-  story: at("studio", 180, 106), splice: at("studio", 244, 106),
-  switch: at("system", 44, 118), check: at("system", 108, 118), patch: at("system", 172, 118),
-  glyph: at("caption", 44, 118), quill: at("caption", 108, 118), script: at("caption", 172, 118),
-  clock: at("schedule", 104, 118),
-  lock: at("dock", 44, 118), dock: at("dock", 108, 118), harbor: at("dock", 172, 118),
+  command: at("control", 96, 106),
+  tracker: at("intake", 44, 106), radar: at("intake", 144, 106), gavel: at("intake", 244, 106),
+  clock: at("research", 56, 86), pulse: at("research", 136, 86),
+  archive: at("story", 44, 106), spark: at("story", 108, 106),
+  boost: at("story", 176, 106), vector: at("story", 244, 106),
+  frame: at("editing", 44, 106), story: at("editing", 144, 106), splice: at("editing", 244, 106),
+  glyph: at("sound", 60, 118), script: at("sound", 150, 118),
+  switch: at("quality", 44, 118), check: at("quality", 108, 118), patch: at("quality", 172, 118),
+  quill: at("publishing", 60, 118), lock: at("publishing", 160, 118), dock: at("publishing", 260, 118),
+  harbor: at("publishing", 380, 118),
   metric: at("brain", 40, 236), synapse: at("brain", 120, 236), curator: at("brain", 208, 236),
 };
 /** Managers oversee their teams from clear floor space, away from desk and doorway footprints. */
 export const SUPERVISE: Record<string, Pt> = {
-  tracker: at("discover", 194, 76), vector: at("analyze", 144, 76),
-  frame: at("studio", 144, 76), switch: at("system", 140, 84),
-  script: at("caption", 76, 84), harbor: at("dock", 76, 84),
-  curator: at("brain", 80, 194), clock: at("schedule", 151, 86),
+  tracker: at("intake", 194, 76), clock: at("research", 96, 88), vector: at("story", 144, 76),
+  frame: at("editing", 94, 76), script: at("sound", 105, 84), switch: at("quality", 140, 84),
+  harbor: at("publishing", 210, 84), curator: at("brain", 80, 194),
 };
 export const CORE_AT: Pt = { x: 812, y: 146 };
 
@@ -115,13 +115,13 @@ function horizontal(y: number, xs: number[]) {
 function vertical(x: number, ys: number[]) {
   for (let i = 1; i < ys.length; i++) link({ x, y: ys[i - 1] }, { x, y: ys[i] });
 }
-// The 32–40px vertical aisles join two broad horizontal halls. The smaller upper hall only spans the boss area.
+// The 32–40px vertical aisles join two broad horizontal halls. The smaller upper hall only spans the control room.
 horizontal(148, [440, 552, 664]);
 for (const x of [440, 664]) vertical(x, [148, 252, 284]);
 horizontal(284, [16, 232, 316, 440, 552, 644, 664, 712, 944]);
 for (const x of [316, 644]) vertical(x, [284, 416, 450]);
 horizontal(450, [16, 232, 316, 472, 644, 712, 944]);
-for (const x of [232, 472, 712]) vertical(x, [450, 612]);
+for (const x of [232, 472]) vertical(x, [450, 612]);  // Publishing is one wide room: no aisle through it
 
 function nearestNode(p: Pt): string {
   let best = "", distance = Infinity;

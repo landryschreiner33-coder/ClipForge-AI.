@@ -1,5 +1,10 @@
 # Editor integration: FilmCraft evaluation and the engine adapter
 
+> **2026-11-06:** FilmCraft is now plugged in as a hand-off, not as the render engine: "Open in FilmCraft" writes the
+> cut as an OpenTimelineIO timeline with captions and opens it in a FilmCraft the person installed, and a GitHub
+> check imports and renders that timeline with FilmCraft's official release. See [FILMCRAFT.md](FILMCRAFT.md).
+> Rendering through FilmCraft (below) is still not done.
+
 Checkpoint: 2026-11-04. Status: **FilmCraft integration Blocked; FFmpeg engine adapter Implemented** for the
 operations listed in the capability table below.
 
@@ -46,20 +51,34 @@ Until the experiment passes, **full-video assembly renders through ClipForge's o
 versioned adapter (`clipfoundry/studio/engine.py`). The adapter is what a FilmCraft engine would implement
 later; swapping engines does not change the saved edit plan.
 
-| Adapter call | FFmpeg engine (`ffmpeg-v1`) |
+**Engine `ffmpeg-v2`, plan schema 2 (2026-11-05).** The first engine (`ffmpeg-v1`) built one FFmpeg filter graph
+with every input, so memory and open files grew with the number of clips. `ffmpeg-v2` renders in pieces:
+
+| Step | What happens | Bound |
+| --- | --- | --- |
+| Frame map | Every element (title card, clip, image) ends on the output frame nearest its ideal end; the next starts one transition earlier. Rounding never accumulates. | — |
+| Picture | Each element body and each join between two neighbours is its own FFmpeg run (at most two inputs), encoded without B-frames and cached by content (`pieces-preview/`, `pieces-final/` per project). The pieces are joined by byte concatenation and muxed by stream copy. | 2 inputs per process |
+| Captions | Burned into each piece from the same output-timeline captions, shifted to the piece. | — |
+| Sound | Each clip's sound and each audio item is decoded to raw samples of exactly its frame length (gain, mute, fades, loops applied), then mixed in 10-second blocks into speech, ducking and non-ducking buses. Ducking is measured from the speech bus (default 12 dB, adjustable 0–30 dB), then one constant loudness gain, the limiter and the rebuilt sample clock are applied as before. | 10 s blocks |
+| Disk | Free space is checked before anything starts; a render that would fill the disk is refused with the size needed. | — |
+| Reuse | A revision whose plan equals an already rendered one (after undo, redo or going back) links that artifact instead of rendering again. | — |
+
+| Adapter call | FFmpeg engine (`ffmpeg-v2`) |
 | --- | --- |
-| `capabilities()` | Declares the supported operations below; anything else is reported as unsupported before render. |
-| `validate(plan)` | Checks every clip references an asset of the same project/workspace and every operation is declared. |
-| `render(plan, out, progress, cancelled)` | Server render from full originals; cancellable; progress from FFmpeg's own `out_time`. |
-| `preview(plan)` | Low-resolution proxy render of the same plan (same code path, smaller size and faster preset). |
+| `capabilities()` | Declares the supported operations below, tracks, caption sizes/positions, frame rates and ducking range; anything else is reported as unsupported before render. |
+| `upgrade(plan)` | Reads a schema-1 plan as schema 2 (its music bed becomes a looping, ducking item on the music track). Stored revisions are never rewritten. |
+| `validate(plan)` | Checks every clip and audio item references an asset of the same project/workspace, ranges, fades, gains and every operation is declared. |
+| `render(plan, out, progress, cancelled)` | Server render from full originals; cancellable between and inside pieces; progress by frames done. |
+| `preview(plan)` | Low-resolution render of the same plan (same code path, smaller size and faster preset). |
 
-Supported operations: ordered clips with source in/out trims (rational times), still images for a set duration
-with optional slow zoom, cross-dissolve/fade-through-black transitions, title cards, burned-in captions from the
-source transcript, a supplied music bed with constant gain and speech ducking, per-clip gain, aspect ratio 16:9,
-9:16, 1:1 or 4:5 with fit (blurred background) or fill. Mixed frame rates and sample rates are normalised to the
-plan's output rate. The final audio clock is rebuilt after all filters and the output must pass the raw AAC
-packet check.
+Supported operations: ordered clips with source in/out trims, insert, replace and split; still images for a set
+duration; cross-dissolve/fade-through-black transitions; title cards; burned-in captions from the source transcript
+with per-word corrections, three sizes and four positions; per-clip gain, mute, sound fades and framing; voiceover,
+music and effects items on their own tracks with start time or clip attachment, trim, loop, gain, mute, fades and
+ducking; per-track gain and mute; aspect ratio 16:9, 9:16, 1:1 or 4:5 with fit (blurred background) or fill;
+24/25/30/50/60 fps. Mixed frame rates and sample rates are normalised to the plan's output rate. The final audio
+clock is rebuilt after all filters and the output must pass the raw AAC packet check.
 
-Not supported (reported, never silently dropped): colour grading, keyframed motion other than the still-image
-zoom, picture-in-picture, speed ramps, effects plugins, multicam, and project interchange formats other than
-ClipForge's own JSON edit plan.
+Not supported (reported, never silently dropped): colour grading, keyframed motion, picture-in-picture, speed
+changes, effects plugins, multicam, and project interchange formats other than ClipForge's own JSON edit plan
+(`clipforge.edit-plan/v2`).

@@ -1,0 +1,115 @@
+name: Local makers check
+# Sets ClipForge's own ComfyUI up on real Mac, Linux and Windows machines exactly as the app does, runs every graph
+# ClipForge sends, makes a real picture with a pinned model on Linux, checks the built-in voice everywhere, and
+# compares every pinned download with its source (scripts/local_engines_check.py).
+on:
+  push:
+    branches: ['claude/project-thread-nnvh05']
+    paths: ['clipfoundry/engines/**', 'scripts/local_engines_check.py', '.github/workflows/local-engines-check.yml']
+  workflow_dispatch:
+    inputs:
+      picture:
+        description: 'Picture model to make a real picture with on Linux (empty: none)'
+        type: string
+        default: 'flux2-klein-4b'
+permissions:
+  contents: read
+concurrency:
+  group: local-engines-check-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pins:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install httpx
+      - name: Compare every pin with its source
+        run: python scripts/local_engines_check.py --pins --out "$RUNNER_TEMP/check/pins.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-engines-pins
+          path: ${{ runner.temp }}/check
+          retention-days: 14
+  linux:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Room for a picture model (the second disk)
+        run: |
+          sudo mkdir -p /mnt/clipforge && sudo chown "$USER" /mnt/clipforge
+          df -h / /mnt
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip install httpx numpy onnxruntime pillow websockets
+      - name: Check
+        run: >-
+          python scripts/local_engines_check.py --comfy --graphs --voice --data /mnt/clipforge/data
+          --out "$RUNNER_TEMP/check/linux.json"
+          ${{ (github.event_name != 'workflow_dispatch' || inputs.picture != '') && format('--picture {0}', inputs.picture || 'flux2-klein-4b') || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-engines-linux
+          path: ${{ runner.temp }}/check
+          retention-days: 14
+  mac:
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          brew install ffmpeg
+          python -m pip install httpx numpy onnxruntime pillow websockets
+      - name: Check
+        run: python scripts/local_engines_check.py --comfy --graphs --voice --out "$RUNNER_TEMP/check/mac.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-engines-mac
+          path: ${{ runner.temp }}/check
+          retention-days: 14
+  windows:
+    if: github.event.repository.private == false
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch the files the check needs (this repository's folder name cannot be checked out on Windows)
+        shell: pwsh
+        working-directory: ${{ runner.temp }}
+        run: |
+          $base = "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}"
+          New-Item -ItemType Directory -Force check/clipfoundry/engines, check/clipfoundry/cloud, check/scripts | Out-Null
+          $files = 'clipfoundry/__init__.py', 'clipfoundry/config.py', 'clipfoundry/builtin_ai.py',
+                   'clipfoundry/cloud/__init__.py', 'clipfoundry/cloud/settings.py', 'scripts/local_engines_check.py'
+          foreach ($m in '__init__', 'catalog', 'comfy', 'comfy_server', 'files', 'graphs', 'makers', 'models', 'tasks', 'voice') {
+            $files += "clipfoundry/engines/$m.py"
+          }
+          foreach ($f in $files) { Invoke-WebRequest -Uri "$base/$f" -OutFile "check/$f" }
+          python -m pip install httpx numpy onnxruntime pillow websockets
+      - name: Check
+        shell: pwsh
+        working-directory: ${{ runner.temp }}
+        run: python check/scripts/local_engines_check.py --comfy --graphs --voice --data "$env:RUNNER_TEMP\cfdata" --out "$env:RUNNER_TEMP\out\windows.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-engines-windows
+          path: ${{ runner.temp }}/out
+          retention-days: 14

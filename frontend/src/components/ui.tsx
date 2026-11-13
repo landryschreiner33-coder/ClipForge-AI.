@@ -233,7 +233,7 @@ export function EmptyState({ icon = "film", title, children, actions, level = 2 
   const H = level === 2 ? "h2" : "h3";
   return (
     <div className="empty">
-      <Icon name={icon} className="lg" />
+      <span className="empty-icon" aria-hidden="true"><Icon name={icon} /></span>
       <H>{title}</H>
       {children && <div className="muted">{children}</div>}
       {actions && <div className="row wrap">{actions}</div>}
@@ -273,9 +273,11 @@ export function PageHead({ kind, title, sub, actions, crumbs }: {
 export type LinkTab = { id: string; href: string; label: ReactNode; count?: number; countTone?: "warn" | "bad" };
 
 /** Page sections as links: they change the address, so Back works and a section can be bookmarked. */
-export function LinkTabs({ label, tabs, current }: { label: string; tabs: LinkTab[]; current: string }) {
+export function LinkTabs({ label, tabs, current, vertical = false }: {
+  label: string; tabs: LinkTab[]; current: string; vertical?: boolean;
+}) {
   return (
-    <nav className="tabs" aria-label={label}>
+    <nav className={`tabs${vertical ? " tabs-side" : ""}`} aria-label={label}>
       {tabs.map((t) => (
         <a key={t.id} href={t.href} aria-current={t.id === current ? "page" : undefined}>
           {t.label}
@@ -329,10 +331,19 @@ export function LoadingPage({ label = "Loading" }: { label?: string }) {
   return (
     <div className="page" aria-busy="true">
       <span className="sr-only" role="status">{label}…</span>
-      <Skel className="skel-title" />
-      <Skel className="skel-line" style={{ width: "40%" }} />
-      <Skel className="skel-block" />
-      <Skel className="skel-block" />
+      <div className="skel-head">
+        <Skel className="skel-title" />
+        <Skel className="skel-line" style={{ width: "40%" }} />
+      </div>
+      <div className="skel-panel">
+        <Skel className="skel-line" style={{ width: "28%" }} />
+        <Skel className="skel-block" />
+      </div>
+      <div className="skel-panel">
+        <Skel className="skel-line" style={{ width: "22%" }} />
+        <Skel className="skel-line" style={{ width: "70%" }} />
+        <Skel className="skel-line" style={{ width: "55%" }} />
+      </div>
     </div>
   );
 }
@@ -462,22 +473,19 @@ export type MenuItem =
   | "separator";
 
 /**
- * Rare and destructive actions: "⋯" with a name that says whose menu it is ("More for Morning Mic episode 12").
- * A disabled item says why ("Cancel processing first").
+ * Keyboard and pointer behaviour for a menu button: opening focuses the first item, arrows and Home/End move between
+ * items, Escape closes and gives focus back to the button, and Tab or a click elsewhere closes.
  */
-export function MoreMenu({ label, items, up, text }: { label: string; items: MenuItem[]; up?: boolean; text?: string }) {
-  const [open, setOpen] = useState(false);
+export function useMenu(open: boolean, setOpen: (open: boolean) => void) {
   const wrap = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  const id = useId();
   useEffect(() => {
     if (!open) return;
-    const first = wrap.current?.querySelector<HTMLElement>('[role="menuitem"]');
-    first?.focus();
+    wrap.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     const away = (e: MouseEvent) => wrap.current && !wrap.current.contains(e.target as Node) && setOpen(false);
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
-  }, [open]);
+  }, [open, setOpen]);
   const onKey = (e: ReactKeyboardEvent) => {
     if (!open) return;
     const all = Array.from(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') || []);
@@ -497,6 +505,17 @@ export function MoreMenu({ label, items, up, text }: { label: string; items: Men
       setOpen(false);
     }
   };
+  return { wrap, button, onKey };
+}
+
+/**
+ * Rare and destructive actions: "⋯" with a name that says whose menu it is ("More for Morning Mic episode 12").
+ * A disabled item says why ("Cancel processing first").
+ */
+export function MoreMenu({ label, items, up, text }: { label: string; items: MenuItem[]; up?: boolean; text?: string }) {
+  const [open, setOpen] = useState(false);
+  const { wrap, button, onKey } = useMenu(open, setOpen);
+  const id = useId();
   const pick = (fn?: () => void) => {
     setOpen(false);
     button.current?.focus();

@@ -125,7 +125,7 @@ def test_upcoming_identifies_the_source_request_instead_of_claiming_manual_revie
     assert upcoming["auto"] is False
 
 
-def test_one_time_profile_migration_keeps_brain_settings_approvals_and_later_mode_choice(data):
+def test_one_time_profile_migration_keeps_brain_settings_approvals_and_refuses_retired_discovery(data):
     from clipfoundry import db
 
     db.execute("DELETE FROM autopilot_state WHERE key = ?", (db.SUBMITTED_INPUT_MIGRATION,))
@@ -145,18 +145,19 @@ def test_one_time_profile_migration_keeps_brain_settings_approvals_and_later_mod
     assert db.fetch("brain_knowledge", note["id"]) == old_note
     assert db.fetch("scheduled_publications", post["id"]) == old_post
     assert not db.select("publish_consents")
+    # Discovery is retired (CF2-16): an old client asking for it keeps the submitted-input mode after a restart.
     db.save_settings({"autopilot_input_mode": "discovery"})
     db.init()
-    assert db.get_settings()["autopilot_input_mode"] == "discovery"
+    assert db.get_settings()["autopilot_input_mode"] == "submitted"
 
 
-def test_optional_discovery_mode_can_still_be_selected_and_invalid_mode_is_ignored(data):
+def test_retired_discovery_mode_cannot_be_selected_and_invalid_mode_is_ignored(data):
     from clipfoundry import config, db
 
     db.save_settings({"autopilot_input_mode": "discovery"})
-    assert config.discovery_enabled(db.get_settings())
+    assert not config.discovery_enabled(db.get_settings())
     db.save_settings({"autopilot_input_mode": "invented"})
-    assert db.get_settings()["autopilot_input_mode"] == "discovery"
+    assert db.get_settings()["autopilot_input_mode"] == "submitted"
 
 
 @pytest.mark.parametrize("publishing_paused", [False, True])

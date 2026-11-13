@@ -81,8 +81,10 @@ def test_submitted_file_uses_saved_brain_then_uploads_exact_checked_unclipped_au
 
     google, tiktok, tmp = env
     connect(google, tiktok)
+    # The source sound is a measured test tone, not a voice, so "Clean up the sound" is off like the other
+    # processing here (it would treat the steady tone as background noise; tests/test_clean_sound.py covers it).
     db.save_settings({"encoder": "x264", "x264_preset": "ultrafast", "tracking": "center", "auto_zoom": False,
-                      "hook_overlay": False, "silence": "off", "caption_style": "bold",
+                      "hook_overlay": False, "silence": "off", "clean_sound": "off", "caption_style": "bold",
                       "caption_position": "bottom", "autopilot_clips_per_source": 1,
                       "autopilot_youtube": youtube_enabled, "autopilot_tiktok": True, "autopilot_min_quality": 0,
                       "min_duration": 12, "max_duration": 28, "target_duration": 20})

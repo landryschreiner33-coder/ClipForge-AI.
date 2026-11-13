@@ -29,7 +29,7 @@ add("defaults", {
   target_duration: "Ideal clip length", caption_style: "Caption style", caption_position: "Caption position",
   highlight_words: "Word highlight", tracking: "Framing", layout: "Layout", silence: "Silence cleanup",
   auto_zoom: "Auto-zoom", remove_fillers: "Cut filler words", caption_emphasis: "Emphasize key words",
-  hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", autopilot_daily_target: "Daily clip cap",
+  hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", clean_sound: "Clean up the sound", autopilot_daily_target: "Daily clip cap",
   autopilot_active_start: "Posting hours (from)", autopilot_active_end: "Posting hours (to)", trend_topics: "Topics",
 });
 add("advanced", {
@@ -70,6 +70,7 @@ add("advanced", {
   encoder: "Video encoder", crf: "Quality (CRF)", x264_preset: "x264 preset", max_fps: "Frame rate",
   ffmpeg_path: "FFmpeg location", min_score: "Minimum Viral Potential", hook_seconds: "Hook length",
   ai_provider: "AI scoring", ai_max_candidates: "Max candidates", ollama_url: "Ollama address",
+  ai_edit_requests_per_day: "AI requests a day", ai_edit_timeout_s: "Editor request timeout",
   ollama_model: "Ollama model", openai_url: "Server address", openai_model: "Server model",
   openai_api_key: "Server API key", anthropic_api_key: "Claude API key", anthropic_model: "Claude model",
   brain_min_clips: "Brain: clips before a change", brain_max_step: "Brain: largest step",
@@ -91,6 +92,7 @@ add("integrations", {
 const RANGES: Record<string, [number, number]> = {
   clip_count: [1, 20], min_duration: [5, 180], max_duration: [5, 180], target_duration: [5, 180], crf: [10, 35],
   max_fps: [15, 60], min_score: [0, 100], ai_max_candidates: [1, 30], whisper_beam_size: [0, 10], hook_seconds: [0, 10],
+  ai_edit_requests_per_day: [0, 1000], ai_edit_timeout_s: [5, 300],
   autopilot_daily_target: [0, 100], autopilot_sources_per_day: [0, 30], autopilot_clips_per_source: [1, 10],
   autopilot_min_quality: [0, 100], autopilot_replacement_threshold: [0, 500],
   autopilot_replacement_cooldown_hours: [0, 168], autopilot_active_start: [0, 23], autopilot_active_end: [1, 24],
@@ -108,7 +110,7 @@ const RANGES: Record<string, [number, number]> = {
   brain_min_clips: [30, 1000], brain_max_step: [0.01, 0.1], brain_min_views: [1, 100_000], brain_min_testers: [2, 100],
 };
 const INTEGER = new Set([
-  "clip_count", "crf", "max_fps", "ai_max_candidates", "whisper_beam_size", "autopilot_daily_target",
+  "clip_count", "crf", "max_fps", "ai_max_candidates", "ai_edit_requests_per_day", "whisper_beam_size", "autopilot_daily_target",
   "autopilot_sources_per_day", "autopilot_clips_per_source", "autopilot_active_start", "autopilot_active_end",
   "autopilot_min_gap_minutes", "autopilot_youtube_daily_limit", "autopilot_tiktok_daily_limit",
   "autopilot_upload_lead_minutes", "autopilot_max_source_minutes", "trend_poll_minutes", "trend_max_age_hours",

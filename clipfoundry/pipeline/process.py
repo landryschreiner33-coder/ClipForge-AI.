@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .. import db, gpu
 from . import candidates as cand_mod
-from . import blueprint, postpack, render, scoring, transcribe, virality
+from . import blueprint, postpack, render, scoring, scout, transcribe, virality
 from .audio import Loudness, loudness_envelope
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import extract_audio, make_silent_wav, probe, thumbnail
@@ -35,6 +35,7 @@ def _options(project: dict, settings: dict, *, words: list[dict] | None = None) 
     opts = dict(settings)
     opts.update({k: v for k, v in (project.get("options") or {}).items() if v is not None})
     opts["origin"] = project.get("origin") or "manual"  # Autopilot work is unattended (pipeline/nvidia.py)
+    opts["workspace_id"] = str(project.get("workspace_id") or "local")  # taste.py: whose choices to learn from
     opts["min_duration"] = float(opts.get("min_duration", 20))
     opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 60)))
     opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 35))))
@@ -63,6 +64,14 @@ class Prepared:
     sentences: list[dict]
     loud: Loudness
     t_start: float = field(default_factory=time.time)
+    _brief: object = None
+
+    @property
+    def brief(self):
+        """The brief ClipForge AI's scout and judge read (built once per run)."""
+        if self._brief is None:
+            self._brief = scout.brief(self.opts, self.project)
+        return self._brief
 
     @property
     def id(self) -> str:
@@ -141,6 +150,7 @@ def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) ->
                 transcript = transcribe.transcribe(wav, meta["duration"], settings, ctx, P_AUDIO, P_TRANSCRIBE,
                                                    allow_cpu_fallback=policy.get("allow_cpu_fallback", True))
             gpu.manager.record_transcription(transcript.get("runtime") or {}, project["name"])
+            transcribe.release_model()  # one file per project: give the GPU back to the local AI model
         write_json(tpath, transcript)
     words = transcribe.flatten_words(transcript)
     info["transcript_source"] = transcript.get("source", "")
@@ -181,12 +191,22 @@ def load_prepared(project_id: str) -> Prepared | None:
 def candidate_pool(p: Prepared, ctx: JobContext) -> list[dict]:
     """Stage 4: cheap scoring of every sentence-aligned window; the best distinct ones form the pool."""
     p.stage("candidates", P_TRANSCRIBE, "Finding the best moments")
-    pool = int(p.opts.get("pool_size") or 0) or min(24, max(p.opts["clip_count"] * 2 + 2, 8))
+    deep_on = bool(p.opts.get("deep_analysis"))
+    pool = int(p.opts.get("pool_size") or 0) or (min(40, max(p.opts["clip_count"] * 4, 24)) if deep_on
+                                                else min(24, max(p.opts["clip_count"] * 2 + 2, 8)))
     if p.sentences:
-        overlap = 0.5 if p.opts.get("deep_analysis") else 0.15  # a broad pool; overlaps are resolved later
+        overlap = 0.5 if deep_on else 0.15  # a broad pool; overlaps are resolved later
         cands = cand_mod.find_candidates(p.words, p.sentences, p.loud, p.opts, pool_size=pool, max_overlap=overlap)
     else:
         cands = cand_mod.fallback_windows(p.loud, p.meta["duration"], p.opts, pool)
+    if p.sentences and deep_on and scout.configured(p.opts):
+        # ClipForge AI reads the whole video and names moments the word lists may have missed
+        p.stage("candidates", P_TRANSCRIBE, "ClipForge AI is reading the video")
+        feats = cand_mod.sentence_features(p.sentences, p.words)
+        added, notes = scout.nominate(p.sentences, feats, p.loud, p.opts, ctx, cands, p.brief,
+                                      lo=P_TRANSCRIBE, hi=P_ANALYZE)
+        cands += added
+        p.info["scout"] = notes
     for k, c in enumerate(cands):
         c["cid"] = k
     write_json(p.pdir / "candidates.json", [{k: v for k, v in c.items() if k != "tf"} for c in cands])
@@ -206,7 +226,9 @@ def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywo
         chosen, results, notes = deep.evaluate_select(
             p.sentences, p.words, p.loud, p.opts, ctx, p.project["name"], cands,
             video_path=p.project.get("source_path", ""), meta=p.meta, lo=P_ANALYZE, hi=P_SCORE,
-            trend_keywords=trend_keywords, prior=prior)
+            trend_keywords=trend_keywords, prior=prior, brief=p.brief, wav_path=p.pdir / "audio.wav")
+        if notes.get("judge"):
+            p.info["judge"] = notes.pop("judge")
         report = scoring.quality_report(results, chosen, p.opts["clip_count"], min_score)
         report["rejected"] = notes.pop("rejected", [])[:12] or report["rejected"]
         report["stages"] = notes.get("stages", {})
@@ -220,6 +242,17 @@ def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywo
     p.info["quality"] = report
     p.save_info()
     return chosen
+
+
+def _deep_summary(d: dict) -> dict:
+    """What the deeper stages found, stored with the clip for its "Why" (small: no vectors, few numbers)."""
+    out = {k: d.get(k) for k in ("semantic", "audio", "extras", "visual") if d.get(k) is not None}
+    if d.get("prosody"):
+        out["prosody"] = {k: v for k, v in d["prosody"].items() if k != "emphasis_times"}
+        out["prosody"]["emphasis_times"] = list(d["prosody"].get("emphasis_times") or [])[:12]
+    if d.get("seen"):
+        out["seen"] = d["seen"]
+    return out
 
 
 def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_existing: bool = True,
@@ -262,7 +295,13 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
             hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=post["hashtags"] or r["hashtags"],
             category=r["category"], score=r["score"], scores=r["scores"], score_source=r["score_source"],
             reason=r["reason"], analysis={**virality.summary(r["analysis"]),
-                                        "brain_knowledge": list(r.get("brain_knowledge") or [])},
+                                        "brain_knowledge": list(r.get("brain_knowledge") or []),
+                                        **({"judge": r["judge"]} if r.get("judge") else {}),
+                                        **({"taste": r["taste"]} if r.get("taste") else {}),
+                                        **({"scout": r["scout"]} if r.get("scout") else {}),
+                                        **({"clip_score": r["clip_score"], "explanation": r.get("explanation") or []}
+                                           if r.get("clip_score") is not None else {}),
+                                        **({"deep": _deep_summary(r["deep"])} if r.get("deep") else {})},
             post=post, edit={}, status="queued",
             duration=round(end - start, 2), **stable,
         ))

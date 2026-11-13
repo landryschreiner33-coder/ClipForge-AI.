@@ -174,7 +174,7 @@ async ({ page, request }) => {
   await expect(robot(page, "radar")).toHaveAttribute("data-break-activity", "");
   await expect(splice).toHaveAttribute("data-pose", "work");
   await expect(splice).toHaveAttribute("data-posture", "desk");
-  await expect(splice).toHaveAttribute("data-room", "studio");
+  await expect(splice).toHaveAttribute("data-room", "editing");
   await expect(splice).toHaveAttribute("data-break-activity", "");
   await uniqueClaims(page);
 

@@ -1,28 +1,44 @@
-"""The robot office's cast: one Director (COMMAND), eight section managers and sixteen workers, plus the Brain Core.
+"""The robot office's cast: one Director, eight department managers and sixteen workers, plus the Brain Core.
 
-A role is a responsibility over the real job system (autopilot/queue.py), not a separate process or AI session. This
-registry is the one place that says which role does which job kind and stage, which department and room it belongs to
-and who its manager is. The frontend draws each role from its own sprite registry (frontend/src/office/cast.ts);
-tests/test_office.py checks that both list exactly the same 25 identities.
+A role is a responsibility over real work, not a separate process or AI session: the owner's own projects (Make clips,
+Make a YouTube video, Find media, example videos) and Autopilot's jobs on submitted videos. This registry is the one
+place that says which role does which kind of work and stage, which department and room it belongs to and who its
+manager is. The rooms follow the real workflow (studio upgrade handoff, section 4): Intake, Media research, Story &
+analysis, Editing, Sound & captions, Brain, Quality & export, Publishing, the Control room and the Lounge.
+
+Role ids never change (custom robot names, office history and tests refer to them); titles and rooms moved when
+automatic discovery was retired. The frontend draws each role from its own sprite registry
+(frontend/src/office/cast.ts); tests/test_office.py checks that both list exactly the same 25 identities.
 """
 from __future__ import annotations
 
-# rooms of the office (image A): departments plus the shared spaces
 ROOMS = {
-    "lounge": "Lounge", "boss": "Boss Hub", "brain": "Brain Room", "discover": "Discover", "analyze": "Analyze",
-    "studio": "Clip Studio", "caption": "Caption", "workspace": "Team Workspace", "schedule": "Schedule",
-    "dock": "Upload Dock", "system": "System",
+    "lounge": "Lounge", "control": "Control room", "research": "Media research", "brain": "Brain",
+    "intake": "Intake", "story": "Story & analysis", "editing": "Editing", "quality": "Quality & export",
+    "sound": "Sound & captions", "publishing": "Publishing",
 }
+# Room ids used before the rooms followed the workflow (kept so an old address or event still finds its room).
+OLD_ROOMS = {"boss": "control", "workspace": "research", "discover": "intake", "analyze": "story",
+             "studio": "editing", "caption": "sound", "schedule": "publishing", "dock": "publishing",
+             "system": "quality"}
 
 DEPARTMENTS = {
-    "discover": {"name": "Discover", "manager": "tracker", "accent": "lime"},
-    "analyze": {"name": "Analyze", "manager": "vector", "accent": "cobalt"},
-    "studio": {"name": "Clip Studio", "manager": "frame", "accent": "magenta"},
-    "caption": {"name": "Caption", "manager": "script", "accent": "violet"},
-    "schedule": {"name": "Schedule", "manager": "clock", "accent": "orange"},
-    "dock": {"name": "Upload Dock", "manager": "harbor", "accent": "emerald"},
-    "system": {"name": "System", "manager": "switch", "accent": "amber"},
-    "brain": {"name": "Brain Room", "manager": "curator", "accent": "lavender"},
+    "intake": {"name": "Intake", "manager": "tracker", "accent": "lime",
+               "does": "Your files and links: uploads, checks, reading and indexing."},
+    "research": {"name": "Media research", "manager": "clock", "accent": "orange",
+                 "does": "Media you search for in Find media, with source and license records and managed downloads."},
+    "story": {"name": "Story & analysis", "manager": "vector", "accent": "cobalt",
+              "does": "Transcripts, highlights, complete stories and their boundaries."},
+    "editing": {"name": "Editing", "manager": "frame", "accent": "magenta",
+                "does": "Assembly, framing, the sequence, transitions and previews."},
+    "sound": {"name": "Sound & captions", "manager": "script", "accent": "violet",
+              "does": "Captions and their timing, and the sound mix under them."},
+    "brain": {"name": "Brain", "manager": "curator", "accent": "lavender",
+              "does": "Guidance from your styles, skills and examples, and the choices it applied."},
+    "quality": {"name": "Quality & export", "manager": "switch", "accent": "amber",
+                "does": "Final renders and the checks on the finished file, sound and framing."},
+    "publishing": {"name": "Publishing", "manager": "harbor", "accent": "emerald",
+                   "does": "Review, scheduling, uploads and checking what the platform reports."},
 }
 
 
@@ -32,77 +48,87 @@ def _r(rid: str, name: str, rank: str, dept: str, title: str, job: str, **kw: ob
                                            (DEPARTMENTS[dept]["manager"] if rank == "worker" else "")), **kw}
 
 
+# Owner-started work reaches the office as these kinds (office/work.py): a Make clips project at its pipeline stage
+# ("project"), a clip or version render, the studio's durable jobs (studio/jobs.py handlers) and an editor request
+# waiting for the AI service. Autopilot's queue kinds (autopilot/queue.py) are listed next to them.
 ROLES: list[dict] = [
-    _r("command", "COMMAND", "director", "boss", "Director",
-       "Sets priorities, reads the managers' reports and records the decisions at four checkpoints: which videos to "
-       "use, which clips to keep, whether a finished file passes, and whether it may be uploaded."),
-    # ---- section managers
-    _r("tracker", "TRACKER", "manager", "discover", "Discovery Manager",
-       "Watches the searches, checks the videos they find and reports the best candidates."),
-    _r("vector", "VECTOR", "manager", "analyze", "Analysis Manager",
-       "Compares trend, source and clip-potential evidence and reports which source is worth processing."),
-    _r("frame", "FRAME", "manager", "studio", "Clip Studio Manager",
-       "Follows moment finding, story checks and rendering, and signs off the rendered clips."),
-    _r("script", "SCRIPT", "manager", "caption", "Caption Manager",
-       "Checks the captions and post text, and sends a clip back when a real problem is found."),
-    _r("clock", "CLOCK", "manager", "schedule", "Schedule Manager",
-       "Owns the schedule: plans posts into slots, moves missed ones and dispatches uploads at their time."),
-    _r("harbor", "HARBOR", "manager", "dock", "Publish Manager",
-       "Confirms that each upload goes only to the audience you chose, then signals the publisher."),
-    _r("switch", "SWITCH", "manager", "system", "System Manager",
-       "Watches the final quality check and the system's health, and reports recovery only after it is verified."),
-    _r("curator", "CURATOR", "manager", "brain", "Learning Manager",
-       "Reviews the results evidence and accepts a strategy change only when there is enough of it."),
+    _r("command", "COMMAND", "director", "control", "Director",
+       "Coordinates the departments, reads the managers' reports and records the decisions at the checkpoints: which "
+       "videos to use, which clips to keep, whether a finished file passes, and whether it may be uploaded."),
+    # ---- department managers
+    _r("tracker", "TRACKER", "manager", "intake", "Intake Manager",
+       "Receives your files and links, makes sure each one can be used and hands the project on."),
+    _r("clock", "CLOCK", "manager", "research", "Media Research Manager",
+       "Oversees the searches you ask for in Find media and keeps every file's source and license on record."),
+    _r("vector", "VECTOR", "manager", "story", "Story & Analysis Manager",
+       "Follows transcription, moment finding and story checks, and reports which moments make complete clips."),
+    _r("frame", "FRAME", "manager", "editing", "Editing Manager",
+       "Follows the rough cut, the sequence and the previews, and signs off the edit."),
+    _r("script", "SCRIPT", "manager", "sound", "Sound & Captions Manager",
+       "Reads the captions and checks the sound under them, and sends work back when something is wrong."),
+    _r("curator", "CURATOR", "manager", "brain", "Brain Manager",
+       "Looks up the guidance a project uses, settles conflicts in the order you set, and records what was applied."),
+    _r("switch", "SWITCH", "manager", "quality", "Quality & Export Manager",
+       "Watches the final renders and checks, and the system's health, and reports recovery only once verified."),
+    _r("harbor", "HARBOR", "manager", "publishing", "Publishing Manager",
+       "Owns review, the schedule and uploads: each post goes only to the account and audience you chose."),
     # ---- workers
-    _r("radar", "RADAR", "worker", "discover", "Scout",
-       "Runs the searches (YouTube, the web, the free-license library, your folders and feeds) and live checks.",
-       kinds=("source_scout", "feed_scan", "live_watch"),
-       stages={"trend_scan": ("youtube", "web", "library", "feeds")}),
-    _r("archive", "ARCHIVE", "worker", "discover", "Researcher",
-       "Gathers a source's context: reads pasted links, records live streams and transcribes the video.",
-       kinds=("identify_link", "live_capture"), stages={"hunt_source": ("transcribe",), "live_capture": ("live",)}),
-    _r("pulse", "PULSE", "worker", "analyze", "Trend Analyst",
-       "Measures trend momentum from timestamped observations.", stages={"trend_scan": ("score",)}),
-    _r("gavel", "GAVEL", "worker", "analyze", "Source Judge",
-       "Checks whether a source may be processed and posted (rights, agreements, blocks) and stamps the decision.",
-       kinds=("rights_check",)),
-    _r("boost", "BOOST", "worker", "analyze", "Viral Analyst",
-       "Scores the candidate moments' short-form potential (labeled estimates, never platform numbers).",
-       kinds=("analyze_source",), stages={"analyze_source": ("analyze",)}),
-    _r("spark", "SPARK", "worker", "studio", "Moment Finder",
-       "Finds the complete moments in the transcript and marks their timestamps.",
-       kinds=("hunt_source", "post_live"), stages={"hunt_source": ("candidates",)}),
-    _r("story", "STORY", "worker", "studio", "Story Editor",
-       "Checks each moment's hook, context and payoff and writes the clip's plan (its blueprint).",
+    _r("radar", "RADAR", "worker", "intake", "Intake Clerk",
+       "Takes in your uploads, links and live recordings, reads each file and indexes it.",
+       kinds=("project", "link_import", "video_media", "identify_link", "live_watch", "live_capture",
+              "source_scout", "feed_scan"),
+       stages={"project": ("queued", "download", "probe"), "trend_scan": ("youtube", "web", "library", "feeds"),
+               "live_capture": ("live",)}),
+    _r("gavel", "GAVEL", "worker", "intake", "Rights Checker",
+       "Checks your reuse statement and agreements for a video before it is processed or posted, and stamps the "
+       "decision.", kinds=("rights_check",)),
+    _r("pulse", "PULSE", "worker", "research", "Media Researcher",
+       "Searches the media sources you allow and downloads the files you pick, with their license records.",
+       kinds=("media_import", "media_suggest"), stages={"trend_scan": ("score",)}),
+    _r("archive", "ARCHIVE", "worker", "story", "Transcriber",
+       "Turns speech into timed words, for the moments, the stories and the captions.",
+       stages={"project": ("audio", "transcribe"), "hunt_source": ("transcribe",)}),
+    _r("spark", "SPARK", "worker", "story", "Moment Finder",
+       "Finds the complete moments and stories in the transcript and marks their boundaries.",
+       kinds=("hunt_source", "post_live"), stages={"project": ("candidates",), "hunt_source": ("candidates",)}),
+    _r("boost", "BOOST", "worker", "story", "Moment Scorer",
+       "Scores how strong each moment is (estimates, labeled as such) and measures example videos.",
+       kinds=("analyze_source", "reference_analysis"), stages={"project": ("scoring",),
+                                                              "analyze_source": ("analyze",)}),
+    _r("story", "STORY", "worker", "editing", "Story Editor",
+       "Builds the rough cut and each clip's plan: hook, context and payoff in order.",
+       kinds=("video_build", "edit_request", "short_build"),
        stages={"analyze_source": ("plan",), "regenerate_clip": ("plan",)}),
-    _r("splice", "SPLICE", "worker", "studio", "Video Editor",
-       "Reframes and renders the 9:16 clips on the GPU.",
-       kinds=("regenerate_clip",), stages={"analyze_source": ("render",), "regenerate_clip": ("render",)}),
-    _r("glyph", "GLYPH", "worker", "caption", "Caption Agent",
-       "Lays out the spoken words as timed captions.",
+    _r("splice", "SPLICE", "worker", "editing", "Video Editor",
+       "Frames and renders the clips and previews, and reports measured progress.",
+       kinds=("regenerate_clip", "video_preview", "clip_render", "version_render", "filmcraft_edit"),
+       stages={"project": ("render",), "analyze_source": ("render",), "regenerate_clip": ("render",)}),
+    _r("glyph", "GLYPH", "worker", "sound", "Caption Agent",
+       "Lays out the spoken words as timed captions and keeps them in sync with the sound.",
        stages={"analyze_source": ("captions",), "regenerate_clip": ("captions",)}),
-    _r("quill", "QUILL", "worker", "caption", "Title Agent",
-       "Drafts the titles, descriptions and hashtags from words said in the clip.", kinds=("package_clip",)),
-    _r("check", "CHECK", "worker", "system", "Quality Control",
-       "Checks the exact rendered file (picture, sound, captions, cuts, text) and records pass or fail.",
-       kinds=("quality_check",), stages={"quality_check": ("quality",)}),
-    _r("lock", "LOCK", "worker", "dock", "Audience Verification",
-       "Checks the destination account and that the upload is only for the audience you chose.",
-       stages={"publish": ("audience",)}),
-    _r("dock", "DOCK", "worker", "dock", "Publisher",
-       "Uploads eligible clips, or hands you a ready-to-post package where the platform needs your own step.",
-       kinds=("publish",), stages={"publish": ("upload",)}),
     _r("metric", "METRIC", "worker", "brain", "Analytics Agent",
-       "Collects real result snapshots (platform numbers, your imports, tester feedback) with their time.",
+       "Collects real result readings (platform numbers, your imports, tester feedback) with their time.",
        stages={"learn": ("refresh",)}),
     _r("synapse", "SYNAPSE", "worker", "brain", "Learning Agent",
-       "Compares the results and proposes a strategy change to the Learning Manager.",
+       "Compares results and proposes a strategy change to the Brain Manager.",
        kinds=("learn",), stages={"learn": ("evaluate",)}),
-    _r("patch", "PATCH", "worker", "system", "System Guardian",
+    _r("check", "CHECK", "worker", "quality", "Export & Quality Control",
+       "Renders the final file and checks it (picture, sound, captions, cuts, text) before it can pass.",
+       kinds=("quality_check", "video_render"), stages={"quality_check": ("quality",)}),
+    _r("patch", "PATCH", "worker", "quality", "System Guardian",
        "Runs the health checks and the maintenance that recovers stopped work.", kinds=("maintenance", "selftest")),
+    _r("quill", "QUILL", "worker", "publishing", "Post Writer",
+       "Drafts the title, description and hashtags from words said in the clip.", kinds=("package_clip",)),
+    _r("lock", "LOCK", "worker", "publishing", "Audience Verification",
+       "Checks the destination account and that the upload is only for the audience you chose.",
+       stages={"publish": ("audience",)}),
+    _r("dock", "DOCK", "worker", "publishing", "Publisher",
+       "Uploads eligible clips, or hands you a ready-to-post package where the platform needs your own step.",
+       kinds=("publish",), stages={"publish": ("upload",)}),
 ]
-# schedule_tick belongs to CLOCK itself: the Schedule department has no worker (none is invented to fill a chair)
-MANAGER_KINDS = {"clock": ("schedule_tick",), "tracker": ("trend_scan",)}
+# Recurring passes that belong to a manager itself (no worker is invented to fill a chair): Publishing plans the
+# schedule, and Intake owns the retired discovery pass (it runs only if discovery is turned back on).
+MANAGER_KINDS = {"harbor": ("schedule_tick",), "tracker": ("trend_scan",)}
 
 CORE = {"id": "core", "name": "CORE", "title": "Brain Core", "room": "brain",
         "job": "Memory and strategy settings. It cannot override privacy, credentials, cost limits, stop controls or "
@@ -123,11 +149,11 @@ def role_for(kind: str, stage: str = "") -> str:
     for rid, kinds in MANAGER_KINDS.items():
         if kind in kinds:
             return rid
-    return "patch"  # anything unmapped is system work
+    return "patch"  # anything unmapped is system work (Quality & export)
 
 
 def department_of(role_id: str) -> str:
-    return BY_ID[role_id]["department"] if role_id in BY_ID else "system"
+    return BY_ID[role_id]["department"] if role_id in BY_ID else "quality"
 
 
 def manager_of(role_id: str) -> str:

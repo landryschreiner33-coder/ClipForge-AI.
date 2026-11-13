@@ -42,7 +42,7 @@ test("Get started, choose Autopilot, connect accounts, Start Autopilot, and Clip
 
     // STEP 2, HOW TO WORK: Autopilot, with a suggestion for its topics already filled in
     await expect(page).toHaveURL(/#\/setup\/mode$/);
-    await page.getByRole("radio", { name: /Let Autopilot do it/ }).check();
+    await page.getByRole("radio", { name: /Process the videos I add automatically/ }).check();
     await expect(page.getByRole("textbox", { name: "Topics" })).not.toHaveValue("");
     await page.getByRole("button", { name: "Continue" }).click();
 

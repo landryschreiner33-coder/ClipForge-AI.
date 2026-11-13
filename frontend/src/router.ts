@@ -7,8 +7,11 @@ import { useEffect, useState } from "react";
 const POSTS = "(review|scheduled|published|history|problems|results)";
 const MISSIONS = "(activity|sources|system|jobs|learning)";
 const ALIASES: [RegExp, string][] = [
-  // ClipForge places (docs/clipforge/ROUTE_MAP.md): Home, Projects, Brain, Publishing, Accounts, Office, Settings.
-  [/^home$/, ""],
+  // ClipForge places (docs/clipforge/ROUTE_MAP.md): Studio, Projects, Brain, Publishing, Accounts, Settings.
+  // Studio is Home and the Office together; #/office is its expanded office and #/office/team the Team list.
+  [/^(home|studio)$/, ""],
+  [/^studio\/office$/, "office"],
+  [/^studio\/team$/, "office/team"],
   [/^office\/(?!team$).*$/, "office"],
   [/^clips\/feedback$/, "projects/feedback"],
   [/^(clips|library)(\/.*)?$/, "projects"],
@@ -25,9 +28,9 @@ const ALIASES: [RegExp, string][] = [
   [/^autopilot(\/.*)?$/, "missions"],
   [new RegExp(`^missions/(?!${MISSIONS}$).*$`), "missions"],
   [/^create$/, "create/clips"],
-  [/^create\/(?!(clips|video|link)$).*$/, "create/clips"],
+  [/^create\/(?!(clips|video|short|link|transcript)$)(?!video\/[\w-]+$).*$/, "create/clips"],
   [/^settings\/accounts$/, "accounts"],
-  [/^settings\/(?!(appearance|defaults|integrations|advanced)$).*$/, "settings"],
+  [/^settings\/(?!(appearance|media|ai|apps|makers|defaults|integrations|advanced)$).*$/, "settings"],
   [/^setup\/(?!(videos|mode|posting)$).*$/, "setup"],
   [/^dev(\/(?!robots$).*)?$/, "dev/robots"],
 ];
@@ -39,12 +42,15 @@ export type Route = {
   /** The path after "#/", without a trailing slash ("posts/review"). */
   path: string;
   parts: string[];
-  /** Set when the address did not exist, so Home is shown with a note. */
+  /** Set when the address did not exist, so the Studio is shown with a note. */
   unknown?: string;
 };
 
 function read(): Route {
-  let path = decodeURIComponent(window.location.hash.replace(/^#\/?/, "")).replace(/\/+$/, "");
+  // "?…" after an address carries values for its page (#/create/video?idea=…), never part of the address
+  const raw = window.location.hash.replace(/^#\/?/, "");
+  const q = raw.indexOf("?");
+  let path = decodeURIComponent(q >= 0 ? raw.slice(0, q) : raw).replace(/\/+$/, "");
   for (const [re, to] of ALIASES) {
     if (re.test(path)) {
       const next = path.replace(re, to);
@@ -67,10 +73,20 @@ export function navigate(path: string) {
   window.location.hash = path.startsWith("#") ? path : `#/${path.replace(/^\/+/, "")}`;
 }
 
+/** Go to `path` in place of the current history entry (a page that sends you on): Back does not return to it. */
+export function redirect(path: string) {
+  const url = path.startsWith("#") ? path : `#/${path.replace(/^\/+/, "")}`;
+  passing = url.replace(/^#?\/?/, "").replace(/\/+$/, "");  // nothing to ask: the page you were on sent you
+  history.replaceState({ ...(history.state || {}), cfPosition: position }, "", url);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
 // ------------------------------------------------------------------ unsaved changes
 export type LeaveGuard = {
   /** What would be lost, in words ("Trim, Captions"). */
   what: string;
+  /** The whole sentence to show instead of "You changed {what}…", for what is not a change (an upload). */
+  say?: string;
   /** Save, then leave. Resolves false (or throws) when saving did not work, so the page stays. */
   save?: () => Promise<boolean | void>;
   /** Forget the unsaved changes (the page's own state). */

@@ -238,10 +238,13 @@ def extract(sents: list[str], hook: str, hooks_alt: list[str], category: str,
 
 # ------------------------------------------------------------------ optional AI provider
 def _ai_package(settings: dict, sents: list[str], category: str) -> dict:
+    from ..brain import knowhow
+
     numbered = "\n".join(f"- {s}" for s in sents)
     prompt = (
         f"Short video clip transcript ({category or 'clip'}):\n{numbered}\n\n"
-        "Write a post package for TikTok and YouTube Shorts. Use ONLY information in the transcript: no names, "
+        "Write a post package for TikTok and YouTube Shorts. " + knowhow.principles("post") + " "
+        "Use ONLY information in the transcript: no names, "
         "numbers, facts, events or claims that are not in it, and no hype words the speaker does not use. "
         "Reply with JSON: {\"titles\": [3 different titles, max 70 characters], \"recommended\": index 0-2, "
         "\"captions\": [3 different captions, max 220 characters, no hashtags], \"description\": one sentence, max "

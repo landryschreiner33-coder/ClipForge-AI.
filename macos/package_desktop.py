@@ -22,7 +22,7 @@ def package(app: Path, output: Path):
     subprocess.run([str(binary), str(retina)], check=True)
     # dmgbuild combines matching 1x/@2x images into a Retina-aware TIFF.
     subprocess.run(['sips', '-z', '440', '700', str(retina), '--out', str(artwork)], check=True)
-    dmgbuild.build_dmg(str(output), 'ClipFoundry', settings={
+    dmgbuild.build_dmg(str(output), 'ClipForge', settings={
         'files': [str(app)], 'symlinks': {'Applications': '/Applications'},
         'badge_icon': str(app / 'Contents/Resources/ClipFoundry.icns'),
         'icon_locations': {'ClipFoundry.app': (190, 240), 'Applications': (510, 240)},

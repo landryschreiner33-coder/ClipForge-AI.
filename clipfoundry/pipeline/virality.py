@@ -16,8 +16,9 @@ import math
 from collections import Counter
 
 from .audio import Loudness
-from .text_utils import (BACKREF_PHRASES, CONTRAST_WORDS, INTENSIFIERS, OPEN_LOOP_PHRASES, SETUP_PHRASES,
-                         SLOW_OPEN_PHRASES, content_tokens, cosine, count_phrases, tf_vector, tokens)
+from .text_utils import (BACKREF_PHRASES, CAUSAL_PHRASES, CAUSAL_WORDS, CONTRAST_WORDS, EPISODIC_PHRASES,
+                         INTENSIFIERS, OPEN_LOOP_PHRASES, SETUP_PHRASES, SLOW_OPEN_PHRASES, content_tokens, cosine,
+                         count_phrases, tf_vector, tokens)
 
 FACTORS = ["hook", "opening", "curiosity", "emotion", "density", "payoff", "standalone", "pacing", "uniqueness",
            "clarity", "retention"]
@@ -106,8 +107,15 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     contrast = min(1.0, sum(1 for t in all_toks if t in CONTRAST_WORDS) / max(1.0, dur / 12.0))
     late = fs[max(k_early, ns - max(1, math.ceil(ns * 0.4))):] if ns > 1 else []
     closed = any(f["payoff"] for f in late) or (ns > 1 and fj["complete"] and not fj["question"])
+    # the causal engine (retention guide): beats joined by "but" / "therefore" keep the viewer guessing; a chain of
+    # "and then... and then" lets them see where it goes and leave
+    whole_low = " ".join(s["text"] for s in sents).lower()
+    pivots = sum(1 for t in all_toks if t in CAUSAL_WORDS) + sum(whole_low.count(ph) for ph in CAUSAL_PHRASES)
+    episodic = sum(whole_low.count(ph) for ph in EPISODIC_PHRASES)
+    and_then_chain = episodic >= 2 and pivots == 0
     curiosity = _clamp(0.5 * open_loop + 0.2 * contrast + 0.25 * (open_loop > 0 and closed)
-                       + 0.05 * any(f["you"] for f in fs))
+                       + 0.05 * any(f["you"] for f in fs) + 0.06 * min(1.0, pivots / max(1.0, dur / 15.0))
+                       - 0.10 * and_then_chain)
 
     # --- emotional intensity: emotional words, intensifiers, vocal energy and dynamics
     emo = sum(f["emo"] for f in fs)
@@ -141,6 +149,9 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     # "Exactly. And that's what he told me too." near the end: the clip drifts into a back-and-forth after its point
     late_reply = ns > 2 and any(f["response"] for f in fs[max(1, ns - max(2, ns // 3)):])
     payoff -= 0.2 if late_reply else 0.0
+    # "To recap..." / "Thanks for watching": the video announces its end instead of stopping on the payoff
+    outro = bool(fj["outro"] or (ns > 1 and fs[-2]["outro"]))
+    payoff -= 0.2 if outro else 0.0
     payoff = _clamp(payoff)
 
     # --- standalone context: no dependence on what came before, no topic change inside
@@ -196,7 +207,7 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     middle = fs[1:-1]
     has_context = (ns >= 3 and sum(f["content"] for f in middle) >= 4 and not internal_transition
                    and standalone >= 0.5)
-    has_payoff = ns > 1 and fj["complete"] and not fj["question"] and not fj["setup"] and (
+    has_payoff = ns > 1 and fj["complete"] and not fj["question"] and not fj["setup"] and not outro and (
         end_hits > 0 or payoff >= 0.55)
     parts = [p for p, ok in (("Hook", has_hook), ("Context", has_context), ("Payoff", has_payoff)) if ok]
     structure = {"hook": bool(has_hook), "context": bool(has_context), "payoff": bool(has_payoff),
@@ -244,10 +255,19 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
                "drifts into a back-and-forth after the point" if late_reply else
                "ends on a transition to another topic" if fj["transition"] else "ends without a clear payoff")
         flags.append(_flag("weak_ending", "Weak ending", "warn", why))
+    if outro:
+        flags.append(_flag("outro", "Ends with an outro", "warn",
+                           "announces the end (\"to recap\", \"thanks for watching\") instead of stopping on the point"))
+
+    if and_then_chain:
+        flags.append(_flag("and_then", "\"And then\" chain", "warn",
+                           "events strung together with \"and then\"; no turn (\"but\", \"which meant\") to keep "
+                           "the viewer guessing"))
 
     result = {"s0": s0, "s1": s1, "start": start, "end": end, "dur": dur, "factors": factors,
               "structure": structure, "flags": flags, "brain_priorities": list(opts.get("brain_priorities") or []),
               "signals": {"wps": round(wps, 2), "dead_air": round(dead_air, 3), "to_content_s": round(to_content, 2),
+                          "outro": outro, "causal_pivots": pivots, "episodic": episodic,
                           "repetition": round(rep, 3), "mean_confidence": round(sum(probs) / len(probs), 3)
                           if probs else None, "internal_uniqueness": round(internal_unique, 3)},
               "tf": tf_vector(low)}

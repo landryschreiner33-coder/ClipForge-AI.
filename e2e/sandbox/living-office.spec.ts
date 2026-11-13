@@ -61,7 +61,7 @@ test("a working robot appears at its own desk and returns to the lounge when fin
   await expect(robot(page, "splice")).toHaveAttribute("data-state", "working", { timeout: 8000 });
   await expect(robot(page, "splice")).toHaveAttribute("data-posture", "desk");
   await expect(robot(page, "splice")).toHaveAttribute("data-pose", "work");
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing");
   Object.assign(feed.role("splice"), { state: "idle", task: null });
   feed.emit("job_done", "splice");
   await expect(robot(page, "splice")).toHaveAttribute("data-pose", "walk", { timeout: 8000 });

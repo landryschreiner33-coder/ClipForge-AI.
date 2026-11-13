@@ -69,3 +69,159 @@ unchanged. The Sites page above is a separate site; its workspace can link to th
 
 The previous ClipFoundry downloads are listed as older versions. To make the Sites page offer the same files, its
 workspace replaces its two download links with these, or links to https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+## Studio upgrade release — November 5, 2026 (Claude Code)
+
+Landry approved the release in the project thread ("release it"). Both downloads are built from source commit
+`6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884` (branch `claude/project-thread-x72wkd`, PR #20; not merged at the time
+of release).
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-05-6ecdafc/ClipForge-Mac-Apple-Silicon.dmg
+  (192,306,837 bytes, SHA-256 `198706f383c54226375908133be527e568129e2855adc9fa4e02eca93b3e6c5d`). Unsigned personal preview (ad-hoc signature, not notarized),
+  published unchanged from [build and test run 42050818316](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42050818316)
+  by [publish run 42060598566](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42060598566).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/69a930ec49561dbbb35d886f380160d752c4366b/ClipForge-Windows-Setup.zip
+  (46,962,928 bytes, SHA-256 `89df9b2db92d0e276ca843d0026b4b81d14a50bb7b5c8b6d9f3e94c7abe5ea84`), built on
+  `claude/clipforge-downloads`. New check: [Windows setup check run 42052332032](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42052332032)
+  installed the previous release with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over
+  it; the data folder and setting were kept, the app served this commit's page and icon byte for byte, all 701 files
+  matched, and it closed and reopened cleanly. FFmpeg was not installed there, so no video was processed on Windows.
+- **Download page:** `gh-pages` commit `138c4f7` (previous: `414ef86`), merged from PR #21 at Landry's request and
+  deployed by Pages run 42062766514. It is a squash of the checked commit `89c922b` with the identical tree; direct pushes
+  to `gh-pages` were refused for this session, so it went through a review branch. Dark only, new sandbox screenshots
+  (made-up media, throwaway data), the new features, the retired discovery removed from the copy and the robot roles,
+  an FFmpeg step for Windows, a Questions section and a Support link. `build.py --check` and `--verify` passed; the
+  page was checked at 1440, 390 and 320 px (no sideways scroll, no missing images or errors, keyboard, no JavaScript).
+- **Sites page** (https://clipfoundry-studio.landryschreiner33.chatgpt.site): **unchanged**. This session has no
+  access to its Sites workspace; it still links its older downloads. Its workspace can link to the GitHub Pages page.
+
+`build.py --check` and `--verify` passed again on `138c4f7`. The github.io page itself could not be loaded from this
+session. Rollback: revert `138c4f7` on `gh-pages` with a normal commit (never force-push); the 2026-11-04 files stay
+listed under Older versions and their URLs never change. The previous Mac release and the Windows ZIP at `29c4a63`
+are untouched.
+
+## Smart editing and the Mac link fix — November 5, 2026 (Claude Code)
+
+Landry asked in the project thread to merge both fixes and "update the website with the new fixed versions". Both
+downloads are built from source commit `2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45` (PR #20's branch with PR #22, the
+Mac YouTube link fix, and PR #23, smart editing and ClipForge AI). Listed as ClipForge 2026.11.05.2.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-05-2e5238e/ClipForge-Mac-Apple-Silicon.dmg
+  (237,781,526 bytes, SHA-256 `14c78abe948634cc92a7c786aac0916534ef0f88cc52e7b5e9cc55af29c2169f`). Unsigned personal
+  preview, published unchanged from [build and test run 42106643196](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42106643196)
+  by [publish run 42114038409](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42114038409). It is
+  about 45 MB larger than 2026.11.05 because it bundles Deno for YouTube.
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/d60445fb08b4f705448bddfef6e1a36e53fa7aa2/ClipForge-Windows-Setup.zip
+  (47,042,861 bytes, SHA-256 `531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d`).
+  [Windows setup check run 42109581700](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700)
+  installed the 2026.11.05 release with a synthetic setting, then this ZIP over it: same data folder and setting,
+  this commit's page and icon, all 709 files, close and reopen. No FFmpeg on the runner, so no video was processed.
+- **Download page:** `gh-pages` commit `65f026a` (previous `138c4f7`), pushed directly and deployed by Pages run 42114472648. New: Edit it for me, the
+  optional free model for ClipForge AI (local Ollama/LM Studio or free Gemini, Groq, OpenRouter keys; Claude marked paid), the
+  YouTube link fix, updated test counts (1,768 fast, 27 slow) and "not tested" lines for real AI models and keys and
+  a real YouTube download. `build.py --check` and `--verify` passed (all eight files); checked at 1440, 390 and
+  320 px (no sideways scroll, no errors). The github.io page itself cannot be loaded from this session.
+
+Rollback: revert `65f026a` on `gh-pages` with a normal commit. The 2026.11.05 files stay under Older versions.
+
+## ClipForge AI and FilmCraft inside the app — November 6, 2026 (Claude Code)
+
+Landry chose "Merge and release" on the decision card for PR #28. Both downloads are built from source commit
+`32485bd8c36b5f889bff565d15bd15828bc6aadf` (the release line `claude/project-thread-x72wkd` with PR #25, #26, #27 and
+#28; the same tree as the tested head `ae2d5f5`). Listed as ClipForge 2026.11.06.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-06-32485bd/ClipForge-Mac-Apple-Silicon.dmg
+  (237,930,523 bytes, SHA-256 `ff6358ca836ce8a9b39f98f07c495a09d2035749bf5a823235677d97b2e91fc1`). Unsigned personal preview, published unchanged from
+  [build and test run 42311548798](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42311548798)
+  by [publish run 42316848534](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42316848534).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/9ddbd62ed93d775ea1bbb3d12060859530c07549/ClipForge-Windows-Setup.zip
+  (47,304,093 bytes, SHA-256 `2abde3f1829a0cc36ab5eede866895f42a36316a7dc9148d96bf34bc0ef36888`).
+  [Windows setup check run 42312199587](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42312199587)
+  installed the 2026.11.05.2 release with a synthetic setting, then this ZIP over it: same data folder and setting,
+  this commit's page and icon, all 748 files, close and reopen. No FFmpeg on the runner, so no video was processed.
+- **Download page:** `gh-pages` commit `eaa92df` (previous `b5afbd3`), pushed directly; Download page run
+  42317711666 and Pages run 42317710696. New: ClipForge AI (the built-in model, its memory and chat, the twelve
+  playbooks), Clean up the sound, FilmCraft and EffectCraft inside ClipForge, the editors' numbers and the BT.709
+  colour fix, with the checked / not checked lists for this version. `build.py --check` and `--verify` passed. The
+  github.io page itself cannot be loaded from this session.
+
+Rollback: revert `eaa92df` on `gh-pages` with a normal commit. The 2026.11.05.2 files stay under All versions.
+
+## ClipForge AI far smarter, long videos and the new look — November 7, 2026 (Claude Code)
+
+Landry wrote "publish the new changes" after the smarter-AI report. PR #32 was merged into the release line as
+`d1547e3`; its Mac build and test run ([42403806462](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42403806462))
+built and smoke-tested the app and passed the 1,969 fast tests but failed one slow render test (the fast-paced
+"Edit it for me" got no punch-ins on an even synthetic voice), so the release waited for PR #33 (an even voice falls
+back to the every-other-cut punch-ins). PR #33 was then merged into the release line as merge commit `95a70e0` (a direct fast-forward push of the
+release line is not allowed from this session), and that merge commit's tree is identical to the tree of its head
+`8593947e1e5bbabeec66c81527a858b71bc81102` (tree `679b1cb`), which both downloads are built from and name as their
+source commit. `claude/project-thread-x72wkd` at `95a70e0` holds PR #31 long videos, PR #30 the new look, PR #32
+ClipForge AI far smarter and PR #33. Listed as ClipForge 2026.11.07. The
+record for 2026.11.06 is in PR #29, which is not merged yet.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-07-8593947/ClipForge-Mac-Apple-Silicon.dmg
+  (248,199,864 bytes, SHA-256 `fd29c5c7a52964544ec5fd6de494b231c70a3f75bc87bcf3c4c4fc7bbfe267aa`). Unsigned personal preview, published unchanged from
+  [build and test run 42407317796](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42407317796)
+  (native build and bundled-app smoke passed; 1,969 fast tests passed, 2 skipped; 27 slow tests passed, 1 skipped) by
+  [publish run 42409176722](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42409176722),
+  dispatched on `claude/project-thread-hud5t5` at 8593947 (whose `.github/scripts/publish_personal_mac.py` carries the
+  release-notes text).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/055ede71072dfb4f6e97a578a0ea8042f6ef7bef/ClipForge-Windows-Setup.zip
+  (49,199,526 bytes, SHA-256 `3cf76b9221c697fedaf90ad61e1c39ffe967634bddd48e4bbb2961bd813a2e24`).
+  [Windows setup check run 42408340705](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42408340705)
+  installed the 2026.11.06 release with a synthetic setting on a Windows Server 2025 runner, then this ZIP over it:
+  same data folder and setting, this commit's page and icon, all 788 files, close and reopen. No FFmpeg on the
+  runner, so no video was processed. Record commit `7b3cd71` on `claude/clipforge-downloads`. (An earlier
+  build from d1547e3, `raw/7ac285e`, passed check run 42404028631 but was never listed.)
+- **Download page:** `gh-pages` commit `0a7f3f0` (previous `eaa92df`), pushed directly; Download page run
+  42409903435 and Pages run 42409902826, both green. New: the meaning model, the scout and judge, the eyes, the ears, your taste, every Clip
+  Score explained, Full stories without questions, big footage used where it is, your script, a smarter Edit it for
+  me and the new look, with the checked / not checked lists for this version. `build.py --check` and `--verify`
+  passed. The github.io page itself cannot be loaded from this session.
+
+Rollback: revert `0a7f3f0` on `gh-pages` with a normal commit. The 2026.11.06 files stay under All versions.
+
+## ClipForge AI as a real assistant, planned YouTube videos, animated shorts — November 13, 2026 (Claude Code)
+
+Landry wrote "Release the new version with all the changes and update the website". The release line held PR #40
+(story clips), #36 (animated shorts), #39 (local makers), #41, #38 (Make a YouTube video), #35, #42, #43 (deleting
+projects and its clean-up) and #37 (ClipForge AI as a real assistant) at `492d254`. A fact-check of the release notes
+found three app texts that still described old behaviour, so PR #44 fixed them and dated the privacy page; it was
+merged into the release line as merge commit `1d455f6`, whose tree is identical to the tree of its head
+`863e69ee9b69154ad189a1178d6940fd49b660a2`, which both downloads are built from and name as their source commit.
+Listed as ClipForge 2026.11.13.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-13-863e69e/ClipForge-Mac-Apple-Silicon.dmg
+  (253,930,009 bytes, SHA-256 `75fe4fc20feff91914ad72b6d03c550760409b6cdbb49c44e4f1d4ed18d851a3`). Unsigned personal
+  preview, published unchanged from
+  [build and test run 43410427464](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410427464)
+  (native build and bundled-app smoke passed; 2,623 fast tests passed, 2 skipped; 30 slow tests passed, 1 skipped) by
+  [publish run 43413905735](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43413905735),
+  dispatched on `claude/project-thread-e1uuap` at 863e69e (whose `.github/scripts/publish_personal_mac.py` carries the
+  release-notes text).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/74c4d43e3372138139013cfb7d0c0cd078831248/ClipForge-Windows-Setup.zip
+  (50,107,742 bytes, SHA-256 `a70cffebbd07f2addc3fb9535e02837ce92a82893f27f77b7ed0e6e1efe859e1`).
+  [Windows setup check run 43410898326](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410898326)
+  installed the 2026.11.07 release with a synthetic setting on a Windows Server 2025 runner, then this ZIP over it:
+  same data folder and setting, this commit's page and icon, all 865 files, close and reopen. No FFmpeg on the
+  runner, so no video was processed. Record commit `8d5a242` on `claude/clipforge-downloads`. (An earlier build from
+  492d254, `raw/240548b`, passed check run 43406275512 but was never listed; the 863e69e pins were rebuilt from the
+  2026.11.07 launcher, so 492d254 is not in the launcher's release history.)
+- **Download page:** `gh-pages` commit `e97c633` (previous `0a7f3f0`), pushed directly; Download page run
+  [43416394802](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43416394802) and Pages run
+  [43416393149](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43416393149), both green. Eleven
+  changes with the checked / not checked lists for this version. By hand: "Three ways to make something" (Make clips
+  with Highlights, Full story and Story parts; Make a YouTube video starting from your files and idea; Make an
+  animated short), the headline and lead, and the AI question (the built-in model and the makers); four new
+  screenshots (`studio.webp`, `make-clips.webp`, `make-video.webp`, `animated-short.webp`) taken at 1440×800 from the
+  release build on an empty data folder (the short is the shorts check's sample, renamed "Octopus hearts");
+  `editor.webp` is no longer used and was removed. `build.py --check` and `--verify` passed; the page was checked at
+  1440, 1024 and 390 px (no sideways scroll, no console errors). The github.io page itself cannot be loaded from this
+  session.
+- **Legal pages:** `privacy.html` at the site root is now the app's `docs/legal/privacy.html` at 863e69e (effective
+  November 13, 2026: ClipForge AI's chats, memories and helpers, deleting projects, uploads, animated shorts and the
+  makers). `terms.html` and `index.html` were left as they were: the app's copies are newer (Terms effective
+  October 19, publishing permissions), and publishing them waits for Landry.
+
+Rollback: revert `e97c633` on `gh-pages` with a normal commit. The 2026.11.07 files stay under All versions.

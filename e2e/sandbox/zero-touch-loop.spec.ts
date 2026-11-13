@@ -24,7 +24,7 @@ test("one Start continues through real clips, checked uploads, results and a sec
   const fixture = await get(request, "/sandbox/state");
   expect(fixture.uploads).toEqual([]);
   await page.goto("/#/setup/mode");
-  await page.getByRole("radio", { name: /Let Autopilot do it/ }).check();
+  await page.getByRole("radio", { name: /Process the videos I add automatically/ }).check();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page).toHaveURL(/#\/setup\/posting$/);
   const popup = page.waitForEvent("popup");

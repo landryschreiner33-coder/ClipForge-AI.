@@ -32,6 +32,13 @@ def _record(clip: dict, cid: str, state: str, text: str) -> None:
     db.update_clip(clip["id"], analysis=analysis)
 
 
+def _with_credit(description: str, credit: str) -> str:
+    """The post description with the credits the source's license requires (kept within YouTube's limit)."""
+    if not credit or credit in description:
+        return description[:4500]
+    return (description[:4500 - len(credit) - 2].rstrip() + "\n\n" + credit)[:4500]
+
+
 def after_render(clip_id: str) -> None:
     from ..autopilot import gate
     from ..publish import routes as publish_routes
@@ -52,6 +59,15 @@ def after_render(clip_id: str) -> None:
         auto = request.get("auto") or []
         if not auto:
             return
+        from . import media_sources
+
+        ws = project.get("workspace_id") or "local"
+        hold = media_sources.publishing_hold([project.get("asset_id") or ""], ws)
+        if hold:  # media added on the owner's own stated basis is never posted without their review
+            for cid in auto:
+                _record(clip, cid, "held", hold)
+            return
+        credit = "\n".join(media_sources.required_credit_lines([project.get("asset_id") or ""], ws))
         settings = db.get_settings()
         report = gate.run(clip, settings)
         for cid in auto:
@@ -77,7 +93,7 @@ def after_render(clip_id: str) -> None:
             post = clip.get("post") or {}
             body = publish_routes.PublishBody(
                 title=(post.get("title") or clip.get("title") or "")[:100],
-                description=post.get("description") or clip.get("caption_text", "")[:4500],
+                description=_with_credit(post.get("description") or clip.get("caption_text", ""), credit),
                 tags=list(post.get("tags") or [])[:15], privacy=request.get("privacy") or "private",
                 made_for_kids=request.get("made_for_kids"), confirm=True, connection_id=cid,
                 expected_account_id=acc["external_id"])

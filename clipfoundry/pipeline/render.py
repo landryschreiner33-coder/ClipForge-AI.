@@ -20,11 +20,11 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, audio_timing, captions, reframe
+from . import artifact, audio_timing, captions, cleanup, reframe
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
-from .ffmpeg_utils import (NO_WINDOW, FFmpegError, MediaWatchdog, ffmpeg_bin, filter_path, thumbnail,
-                           run_process, video_encoder_args)
+from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, FFmpegError, MediaWatchdog, delivery_args, ffmpeg_bin,
+                           filter_path, run_process, thumbnail, video_encoder_args)
 from .text_utils import ends_sentence
 
 SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
@@ -259,6 +259,17 @@ def _measure_audio(audio_in: list[str], segs: list[tuple[float, float]], start: 
             "peak_limited": math.isfinite(integrated) and -1.5 - peak < -14.0 - integrated}
 
 
+def _clean_sound(src: str, start: float, end: float, words_all: list[dict], opts: dict,
+                 ctx: JobContext) -> "cleanup.Result | None":
+    """The clip's cleaned-up sound (pipeline/cleanup.py), or None to use the source's own. A failure keeps the
+    original sound and says why in the render's notes; it never fails the render."""
+    mode = opts.get("clean_sound") or "off"
+    if mode == "off" or mode not in cleanup.MODES:
+        return None
+    return cleanup.clean_or_keep(src, start, end, words_all, mode, cancelled=ctx.cancelled,
+                                 progress=lambda _f, message: ctx.progress(0.03, message))
+
+
 def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> list[dict]:
     out = []
     for w in words:
@@ -274,7 +285,7 @@ def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> lis
 
 def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
     keys = ["caption_style", "caption_position", "highlight_words", "tracking", "layout", "silence", "auto_zoom",
-            "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis"]
+            "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis", "clean_sound"]
     opts = {k: settings.get(k) for k in keys}
     opts.update({k: v for k, v in (project_opts or {}).items() if k in keys and v is not None})
     opts.update({k: v for k, v in (edit or {}).items() if v is not None})
@@ -303,6 +314,20 @@ def snap_to_cuts(src: str, start: float, end: float, words_all: list[dict], edit
         if cs and not any(w["start"] < end and w["end"] > cs[-1] + 0.05 for w in words_all if w["end"] > start):
             end, _ = cs[-1], snapped.append("end")
     return start, end, snapped
+
+
+def thumbnail_time(clip: dict, duration: float) -> float:
+    """Where the thumbnail is taken: the frame ClipForge AI picked when it looked at the clip (pipeline/eyes.py), if
+    it falls inside the rendered clip, else a moment near the start."""
+    default = min(1.2, duration / 3)
+    seen = ((clip.get("analysis") or {}).get("deep") or {}).get("seen") or {}
+    try:
+        rel = float(seen["thumbnail_t"]) - float(clip.get("start") or 0.0)
+    except (KeyError, TypeError, ValueError):
+        return default
+    speed = float((clip.get("edit") or {}).get("speed") or 1.0) or 1.0
+    rel = rel / speed
+    return rel if 0.2 <= rel <= max(0.2, duration - 0.2) else default
 
 
 def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict, ctx: JobContext,
@@ -409,20 +434,22 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         for i in emphasis:
             words_out[i] = {**words_out[i], "em": True}
     hook_text = opts.get("hook") if opts.get("hook") is not None else clip.get("hook", "")
-    ass = captions.build_ass(words_out, opts, tl.duration, hook_text or "")
+    # where the picture sits: captions "above" it need its top edge (fit keeps the whole frame, centred)
+    dw, dh = _decode_size(src_w, src_h)
+    layout = opts.get("layout", "fill")
+    fit_scale = min(OUTPUT_W / dw, OUTPUT_H / dh)
+    picture_top = (OUTPUT_H - dh * fit_scale) / 2 if layout == "fit" else None
+    ass = captions.build_ass(words_out, {**opts, "picture_top": picture_top}, tl.duration, hook_text or "")
     (out_dir / "captions.ass").write_text(ass, encoding="utf-8")
     (out_dir / "captions.srt").write_text(captions.build_srt(words_out, opts.get("caption_style", "clean")),
                                           encoding="utf-8")
 
     # ---- geometry
-    dw, dh = _decode_size(src_w, src_h)
     cw_frac, ch_frac = reframe.crop_fraction(src_w, src_h)
     base_w, base_h = cw_frac * dw, ch_frac * dh
     base_zoom = max(1.0, min(2.5, float(opts.get("zoom", 1.0) or 1.0)))
     n_out_frames = int(round(tl.duration * fps))
     zc = zoom_curve(words_out, n_out_frames, fps, 0.07 if opts.get("auto_zoom") else 0.0, emphasis) * base_zoom
-    layout = opts.get("layout", "fill")
-    fit_scale = min(OUTPUT_W / dw, OUTPUT_H / dh)
 
     frame_bytes = dw * dh * 3
     n_src_frames = plan.n
@@ -432,21 +459,30 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
 
     enc_args, encoder = video_encoder_args(settings)
     fonts = filter_path(config.FONTS_DIR, out_dir)
-    vf = f"[0:v]ass=captions.ass:fontsdir={fonts},format=yuv420p[v]"
+    # The frames arrive as RGB. Without an explicit matrix FFmpeg converts them to YUV with BT.601 coefficients
+    # while every player treats a 1080x1920 file as BT.709, which shifts reds and greens; so the conversion and the
+    # tags both say BT.709 (delivery_args).
+    vf = f"[0:v]ass=captions.ass:fontsdir={fonts},scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]"
     audio_in: list[str]
-    if info.get("has_audio", True):
+    sound = _clean_sound(src, start, end + 0.2, words_all, opts, ctx) if info.get("has_audio", True) else None
+    if sound is not None and sound.path is not None:
+        # The cleaned sound starts exactly at `start`, so every cut below lines up as it does with the source.
+        audio_in = sound.input_args()
+    elif info.get("has_audio", True):
         audio_in = ["-ss", f"{start:.3f}", "-t", f"{end - start + 0.2:.3f}", "-i", src]
     else:
         audio_in = ["-f", "lavfi", "-t", f"{end - start + 0.2:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
     audio_processing = _measure_audio(audio_in, segs, start, opts, tl.duration, ctx)
+    if sound is not None:
+        audio_processing["clean_sound"] = sound.report
     fc = vf + ";" + _audio_filter(segs, start, opts,
                                 normalization_gain_db=audio_processing["normalization_gain_db"])
     tmp_out = out_dir / "render.tmp.mp4"
     enc_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", f"{fps}",
                "-i", "pipe:0", *audio_in, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-               *enc_args, "-r", f"{fps}", "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "192k",
-               "-ac", "2", "-ar", "48000",
+               *enc_args, *delivery_args(fps), "-r", f"{fps}", "-c:a", "aac", "-profile:a", "aac_low",
+               "-b:a", AUDIO_BITRATE, "-ac", "2", "-ar", "48000",
                # The timeline already bounds both streams. FFmpeg's -shortest can stop consuming the raw
                # video pipe early when concatenated audio is buffered, dropping frames after a silence cut.
                "-movflags", "+faststart", "-t", f"{tl.duration:.6f}", tmp_out.name]
@@ -517,7 +553,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     os.replace(tmp_out, out_path)
     thumb = out_dir / f"thumb-{stamp}.jpg"
     try:
-        thumbnail(out_path, min(1.2, tl.duration / 3), thumb, 360, cancel=ctx.cancelled)
+        thumbnail(out_path, thumbnail_time(clip, tl.duration), thumb, 360, cancel=ctx.cancelled)
     except FFmpegError as exc:
         log.warning("thumbnail failed: %s", exc)
     for old in list(out_dir.glob("clip*.mp4")) + list(out_dir.glob("thumb*.jpg")):

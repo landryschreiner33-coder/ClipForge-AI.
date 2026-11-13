@@ -1,7 +1,9 @@
 """Public webpage extraction with DNS-pinned requests and bounded, native media downloads.
 
 No browser sessions, saved cookies, credentials, external network downloader or DRM fallback is used.
-ffmpeg may merge already downloaded local files; it never receives a remote address here.
+ffmpeg may merge already downloaded local files; it never receives a remote address here. yt-dlp is always told
+where ClipForge's own ffmpeg is (`ffmpeg_location`): the Mac app keeps it inside the app, off the PATH, and without
+it a video whose picture and sound come separately (YouTube's) could not be joined.
 
 When a video's file cannot be obtained, MediaUnavailable says why with one of the ACCESS codes (from yt-dlp's error
 types, HTTP statuses and messages, `classify`), so the user gets a specific reason and a fallback instead of one
@@ -54,11 +56,16 @@ ACCESS = {
                    "Free up space on the drive of the data folder; ClipForge tries again by itself."),
     "playlist": ("Not one video", "The link leads to a playlist or channel, not to one video.",
                  "Use a link to one video."),
+    "tools_missing": ("Video tools missing", "ClipForge could not find its video tools (FFmpeg), which join a "
+                      "video's picture and sound after the download.",
+                      "Reinstall ClipForge, or set the FFmpeg folder in Settings. Autopilot goes on with other "
+                      "videos."),
     "extraction_failed": ("No video found", "No downloadable video was found on this page.", OTHER_VIDEOS),
 }
 TEMPORARY = ("rate_limited", "network", "disk_space")  # trying again later can work; the others stay as they are
 # Words in yt-dlp's (or a website's) error messages, checked in this order: the first match decides.
 MESSAGES = (
+    ("tools_missing", ("ffmpeg is not installed", "ffprobe and ffmpeg not found", "ffmpeg not found")),
     ("protected", ("drm", "encrypted")),
     ("private", ("private video", "video is private", "this account is private")),
     ("login_required", ("sign in", "log in", "login", "logged-in", "authentication", "members-only", "members only",
@@ -214,6 +221,24 @@ class _Quiet:
     info = warning = error = debug
 
 
+def ffmpeg_folder() -> str | None:
+    """The folder of the ffmpeg (and ffprobe) ClipForge itself uses: the Settings path, CLIPFOUNDRY_FFMPEG (the Mac
+    app's Helpers folder), the tools folder, then the PATH. None when there is none."""
+    from pathlib import Path
+
+    from .pipeline.ffmpeg_utils import find_binary
+
+    explicit = ""
+    try:
+        from . import db
+
+        explicit = str(db.get_settings().get("ffmpeg_path") or "")
+    except Exception:  # noqa: BLE001 - no database yet (a bare extractor): the other places still count
+        pass
+    exe = find_binary("ffmpeg", explicit)
+    return str(Path(exe).resolve().parent) if exe else None
+
+
 def public_extractor(options=None, *, max_bytes=8_000_000_000, cancelled=lambda: False):
     """Create a yt-dlp instance whose metadata, manifests and fragments all use the URL guard."""
     try:
@@ -225,6 +250,8 @@ def public_extractor(options=None, *, max_bytes=8_000_000_000, cancelled=lambda:
     except ImportError:
         raise MediaUnavailable("Video webpage import needs yt-dlp. Restart with start.bat to install it.",
                                "unsupported_site") from None
+
+    tools = ffmpeg_folder()
 
     class PublicDL(yt_dlp.YoutubeDL):
         def __init__(self):
@@ -239,7 +266,8 @@ def public_extractor(options=None, *, max_bytes=8_000_000_000, cancelled=lambda:
                               "socket_timeout": 30, "concurrent_fragment_downloads": 1,
                               "format": "bv*[height<=1080]+ba/b[height<=1080]/b",
                               "format_filter": lambda f: not f.get("has_drm") and
-                              f.get("protocol") in NATIVE_PROTOCOLS, **(options or {})})
+                              f.get("protocol") in NATIVE_PROTOCOLS,
+                              **({"ffmpeg_location": tools} if tools else {}), **(options or {})})
 
         def urlopen(self, request):
             if cancelled():

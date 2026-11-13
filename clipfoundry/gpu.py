@@ -42,6 +42,21 @@ def is_cuda_error(exc: BaseException) -> bool:
     return any(w in str(exc).lower() for w in CUDA_WORDS)
 
 
+def _make_room(kind: str) -> None:
+    try:
+        from . import builtin_ai
+
+        builtin_ai.make_room(kind)
+    except Exception:  # noqa: BLE001 - freeing memory is a courtesy, never a reason to fail the job
+        pass
+    try:
+        from . import engines
+
+        engines.make_room(kind)  # ClipForge's own ComfyUI unloads its picture and video models
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class GpuManager:
     def __init__(self) -> None:
         self._local = threading.local()
@@ -94,14 +109,16 @@ class GpuManager:
                     raise Cancelled()
                 holder = st.get("gpu:holder") or {}
                 if max_wait_s is not None and time.monotonic() - t0 > max_wait_s:
-                    raise GpuBusy(f"The GPU stayed busy with {holder.get('kind', 'another job')} for "
-                                  f"{max(1, int(max_wait_s // 60))} minute(s).")
+                    raise GpuBusy(f"The GPU stayed busy with {holder.get('kind', 'another job')} for " + (
+                        f"{int(max_wait_s // 60)} minute(s)." if max_wait_s >= 60 else
+                        f"{max(1, round(max_wait_s))} seconds."))
                 if on_wait:
                     busy = f"{holder.get('kind', 'another job')}: {holder.get('label', '')}".rstrip(": ")
                     on_wait(f"Waiting for the GPU ({busy})")
         finally:
             st.delete(wait_key)
         try:
+            _make_room(kind)  # first: the memory the wait below needs may be held by ClipForge's own engines
             if need_free_mb:
                 self._wait_for_memory(need_free_mb, t0, max_wait_s, cancelled, on_wait)
             st.put("gpu:holder", {**me, "since": time.time()})

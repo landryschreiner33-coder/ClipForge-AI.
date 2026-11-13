@@ -46,9 +46,13 @@ export default defineConfig({
       testMatch: ["beginner-flow.spec.ts", "motion.spec.ts", "robot-office.spec.ts", "brain-workspace.spec.ts",
         "pixel-office.spec.ts", "living-office.spec.ts", "lounge-life.spec.ts", "department-office.spec.ts",
         "manual-publish.spec.ts", "public-consent.spec.ts", "brain-graph.spec.ts", "tiktok-setup.spec.ts",
-        "discovery-quality.spec.ts", "phone-settings.spec.ts", "posting-readiness.spec.ts",
+        "phone-settings.spec.ts", "posting-readiness.spec.ts",
         "continuous-publishing.spec.ts", "office-handoff-flow.spec.ts", "review-queue.spec.ts", "bulk-review.spec.ts",
-        "youtube-comments.spec.ts", "search-connections.spec.ts", "submitted-videos.spec.ts"],
+        "youtube-comments.spec.ts", "submitted-videos.spec.ts", "discovery-retired.spec.ts", "video-setup.spec.ts"],
+      // Not run: discovery-quality.spec.ts and search-connections.spec.ts test the setup screens of automatic source
+      // discovery (search keys, scan limits), which the studio upgrade retired (section 2) and removed from the app.
+      // They are kept as dormant coverage, like the discovery engine's Python suites; delete them with that code.
+      // discovery-retired.spec.ts checks that those screens stay gone.
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, launchOptions: { executablePath } },
     },
     {

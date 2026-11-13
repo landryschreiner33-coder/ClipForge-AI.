@@ -1,7 +1,9 @@
 import { req } from "../api";
 
 /** What the office API returns (clipfoundry/office). Every value comes from the job system; nothing is invented. */
-export type RoleState = "idle" | "working" | "waiting" | "retrying" | "error" | "reviewing" | "paused" | "unavailable";
+/** "queued" is assigned but not started; "waiting" started and now waits (for you, a platform or a retry time). */
+export type RoleState = "idle" | "working" | "queued" | "waiting" | "retrying" | "error" | "reviewing" | "paused"
+  | "unavailable";
 
 export interface OfficeTask {
   job_id: string;
@@ -19,7 +21,13 @@ export interface OfficeTask {
   blocked_reason?: string;
   next_role?: string;
   dependencies?: string[];
-  shared?: { source_id?: string; project_id?: string; clip_id?: string };
+  shared?: { source_id?: string; project_id?: string; clip_id?: string; video_id?: string };
+  /** "owner" for work you started yourself (a project, render, download or editor request); Autopilot otherwise */
+  origin?: "owner" | "autopilot";
+  /** the project, video or file the work is for, when it has a name */
+  title?: string;
+  /** "you" when the work waits for you rather than for a robot or a platform */
+  waiting_on?: "" | "you";
   handoff?: { from_role: string; reason: string; attempt: number; max_attempts: number; report_id?: string } | null;
 }
 
@@ -29,6 +37,8 @@ export interface RoleRow {
   task: OfficeTask | null;
   tasks: number;
   queued: number;
+  /** how many of this robot's tasks are your own work */
+  owner_tasks?: number;
   error: string;
   last: { summary: string; state: string; at: number } | null;
   /** Why an actual role has no assigned work; this does not turn an idle peer into a worker. */
@@ -171,6 +181,35 @@ export interface Snapshot {
   today: { clips: number; passed_check: number; uploads: number };
   needs_you: { key: string; kind: string; level: string; title: string; detail: string; fix: string }[];
   brain: BrainSummary | Record<string, never>;
+  /** your own work item by item (office/view.py owner_work) */
+  work?: OwnerWork[];
+}
+
+export interface OwnerWork {
+  id: string;
+  kind: string;
+  stage: string;
+  /** waiting: it needs you (an editor question to answer, or proposed changes to check) */
+  status: "queued" | "running" | "waiting";
+  role: string;
+  message: string;
+  /** measured progress 0-1, null when not measured */
+  progress: number | null;
+  project_id: string;
+  video_id: string;
+  title: string;
+  /** "you" when the work waits for you rather than for a robot or a platform */
+  waiting_on: "" | "you";
+}
+
+export interface RobotLogEntry {
+  at: number;
+  type: "job_done" | "job_failed" | "job_canceled";
+  role: string;
+  kind: string;
+  ref_type: string;
+  ref_id: string;
+  message: string;
 }
 
 export interface EventsPage {
@@ -185,6 +224,8 @@ export interface EventsPage {
 export interface RoomDetails {
   id: string;
   name: string;
+  /** what the department does, in one line */
+  does?: string;
   roles: string[];
   events: OfficeEvent[];
   [k: string]: any;
@@ -213,6 +254,8 @@ export const office = {
   reports: (manager = "") => req<OfficeReport[]>("GET", `${O}/reports${manager ? `?manager=${manager}` : ""}`),
   health: () => req<Health>("GET", `${O}/health`),
   devlog: (limit = 50) => req<DevLogEntry[]>("GET", `${O}/devlog?limit=${limit}`),
+  /** one robot's log of your own work that ended in the last day (Autopilot's steps are in the event feed) */
+  robotLog: (id: string) => req<{ entries: RobotLogEntry[] }>("GET", `${O}/robots/${encodeURIComponent(id)}/log`),
   control: (action: Control) => req<Snapshot>("POST", `${O}/control`, { action }),
 };
 

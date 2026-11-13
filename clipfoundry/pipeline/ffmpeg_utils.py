@@ -349,6 +349,16 @@ def videotoolbox_available() -> bool:
         return False
 
 
+AUDIO_BITRATE = "256k"  # AAC-LC at 48 kHz; the platforms ask for 256-384 kbps on upload
+
+
+def delivery_args(fps: float) -> list[str]:
+    """What the platforms ask of an upload, whatever the encoder: a closed GOP with a keyframe every half second,
+    and BT.709 colour tags (the renderer converts with that matrix)."""
+    return ["-g", str(max(1, round(float(fps) / 2))), "-flags", "+cgop",
+            "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
+
+
 def video_encoder_args(settings: dict) -> tuple[list[str], str]:
     choice = settings.get("encoder", "auto")
     crf = int(settings.get("crf", 20))

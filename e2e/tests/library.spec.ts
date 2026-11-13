@@ -57,11 +57,31 @@ test("Delete asks first, and nothing is deleted when you cancel", async ({ page,
   await page.getByRole("menuitem", { name: /Delete video and clips/ }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText(`Delete “${idle.name}”?`);
-  await expect(dialog.getByRole("button", { name: /^Delete video/ })).toBeVisible();
-  await dialog.getByRole("button", { name: "Cancel" }).click();
+  // what goes and what stays, or why it has to wait (Autopilot or a post may be busy with it)
+  await expect(dialog.getByText(/^(Deleted for good|It can't be deleted right now)$/)).toBeVisible();
+  if (await dialog.getByText("It can't be deleted right now").count() === 0) {
+    await expect(dialog.getByRole("heading", { name: "Stays" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Delete project" })).toBeVisible();
+  }
+  await dialog.getByRole("button", { name: /^(Keep it|Close)$/ }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`#/project/${idle.id}$`));
   expect((await getJson<any[]>(request, "/api/projects")).some((p) => p.id === idle.id)).toBe(true);
+});
+
+test("the trash button on Projects asks first, and Keep it deletes nothing", async ({ page, request }) => {
+  const items = await getJson<any[]>(request, "/api/studio/projects?kind=&q=");
+  test.skip(items.length === 0, "there are no projects");
+  const first = items[0];
+
+  await page.goto("/#/projects");
+  await page.getByRole("button", { name: `Delete ${first.name}`, exact: true }).first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText(`Delete “${first.name}”?`);
+  await expect(dialog.getByText(/^(Deleted for good|It can't be deleted right now)$/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  expect((await getJson<any[]>(request, "/api/studio/projects?kind=&q=")).some((i) => i.id === first.id)).toBe(true);
 });
 
 test("a video opens from Projects", async ({ page, request }) => {

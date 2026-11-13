@@ -62,7 +62,7 @@ changed files, account/audience changes, paused publishing and platform waits ca
    <http://127.0.0.1:8765>. Keep the black `start.bat` window open; closing it closes ClipFoundry.
 2. **Check the graphics card once.** Double-click **`gpu-check.bat`** in the same folder. It should say the GPU (CUDA)
    was used. If it does not, see [INSTALL.md](INSTALL.md#nvidia-gpu-acceleration).
-3. **Connect YouTube.** The app opens on **Office**. In **Settings → Integrations**, connect the intended
+3. **Connect YouTube.** The app opens on **Studio**. In **Settings → Integrations**, connect the intended
    YouTube channel. The submitted-video workflow needs no search API key.
 4. **Say who watches.** Open **Settings → Integrations → Who watches**. Choose **Public audience** for new public uploads, tick the confirmation and press **Confirm who watches**.
    Existing posts and scheduled Private uploads keep their visibility. Selected viewers and local-only remain available:
@@ -95,8 +95,8 @@ changed files, account/audience changes, paused publishing and platform waits ca
    50. TikTok keeps individual review. Permission answers stay outside Brain knowledge.
 7. **Tell it what your viewers thought.** **Clips → Test feedback**: enter what a tester said about a clip, or copy
    the numbers from YouTube Studio or TikTok. The Brain changes its clip length only after enough results (at least
-   30 clips from 5 videos), by at most 10% at a time, and you can roll a change back (click the Brain Room on the
-   Office).
+   30 clips from 5 videos), by at most 10% at a time, and you can roll a change back (click the Brain room in the
+   Studio's office).
 
 **What keeps running.** Closing the browser does not stop anything: open <http://127.0.0.1:8765> again to look.
 Closing the `start.bat` window stops ClipFoundry and its background work; it continues where it was at the next
@@ -235,8 +235,9 @@ files; see [the discovery guide](docs/AUTOPILOT.md#hands-off-discovery-eligibili
 | Autopilot | Durable background workers (Trend Scout, Source Scout, Rights and Content Safety Gate, Live Monitor, Clip Hunter, Deep Clip Analyzer with diversity selection, Packaging AI, Final Quality Gate, Smart Scheduler, YouTube Quota Manager, Publisher, Learning Worker) on a SQLite job queue that survives restarts. One heavy GPU job at a time on the existing CUDA path. Visible Trend, Source, Clip, Diversity, Packaging, Expected Retention, Publish Opportunity and Final Opportunity scores. A simple **Overview** (**Start Autopilot** / **Pause Autopilot**, this PC and the GPU, **Needs you**, what it is working on, your videos folder, upcoming posts and how they go out), an **Activity** tab (top opportunities, and what it did with each video it found) and **Permissions & sources**, with a three-step first-time setup (add your videos, choose how to work, set up posting, then **Start Autopilot**); workers, GPU, quota, jobs and learning under **Advanced**; **Stop all jobs…** always at hand. Details: [docs/AUTOPILOT.md](docs/AUTOPILOT.md). |
 | Queue | Every planned and published post in one place (formerly Posts), with the tabs **Needs review**, **Scheduled**, **Published** (canceled and replaced posts too, as History), **Problems** and **Results**. Each post opens as its own page: **Approve for YouTube** / **Approve for TikTok** (new submitted YouTube clips can use their explicit input request; optional standing consent applies outside review mode; TikTok keeps per-post consent), edit the text, **Change the time…**, **Cancel this post…**, **Try again…**, **Publish now…**, open the clip, the source video and the post, with the reasons behind each slot and score and an audit trail. |
 | Rights | Every source has a status: Owned, Licensed, Creative Commons, Public domain, Allowlisted, Not covered or Blocked. Public accessible videos can be clipped locally; scheduling/publishing still requires recorded reuse eligibility. Discovery alone grants no rights. |
-| Places | **Office** (the robots and the controls), **Missions** (Autopilot), **Clips** (your source videos and their clips, and Test feedback), **Queue** (posts), **Brain** (knowledge, examples and decisions) and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
-| Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and an animated Brain Core. Robots sit at desks to work, rest in individual lounge seats and pass documents on confirmed job transitions. The room camera shows the details; states and tasks come from the job system. Brain standby is decorative and labeled separately from processing. Follow system / Full / Reduced is saved; Full overrides system reduced motion. A list view also shows their tasks. See [docs/OFFICE.md](docs/OFFICE.md). |
+| Places | **Studio** (make clips, make a YouTube video or start from a video link; what needs you; the current project and the team on it; the robot office, which opens larger at `#/office`; recent projects and publishing), **Projects**, **Brain** (knowledge, examples and decisions), **Publishing**, **Accounts** and **Settings**. Older addresses redirect. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
+| Customize studio | ClipForge is dark only. **Customize studio** (the sliders button in the top bar, or Settings → Appearance) previews changes live and keeps them only on **Save**: four dark palettes, six accents (each checked for readable contrast), spacing, text size, motion, a calm or low-power office, which Studio panels show and in what order, a compact or expanded office, pinned projects and robot names. **Cancel** or Escape puts everything back; **Reset to defaults** previews the defaults. Colours, spacing, text size, panels and pins are saved with your ClipForge (per workspace and device class); motion is saved per browser. |
+| Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and an animated Brain Core, in rooms that follow the workflow (Intake, Media research, Story & analysis, Editing, Sound & captions, Brain, Quality & export, Publishing, Control room, Lounge). They show your own projects as well as Autopilot's work, and any robot can be renamed. Robots sit at desks to work, rest in individual lounge seats and pass documents on confirmed job transitions. The room camera shows the details; states and tasks come from the job system. Brain standby is decorative and labeled separately from processing. Follow system / Full / Reduced is saved; Full overrides system reduced motion. A list view also shows their tasks. See [docs/OFFICE.md](docs/OFFICE.md). |
 | Who watches | Explicit Public, selected viewers, owner-only staging, or local-only. New Public YouTube automation needs fresh account/visibility-bound consent; TikTok Everyone needs an eligible audited app and per-post consent. Existing private posts keep their audience. Unlisted remains unsupported. Settings → Integrations. |
 | Brain | Memory graph and automatically used saved guidance. See [Teach the Brain](#teach-the-brain). |
 
@@ -428,8 +429,8 @@ stored or sent, update these pages in the same change.
 
 ## Robot office
 
-The app opens on the **Office**: an office of original pixel robots (layout and characters after the owner's
-reference images) whose movements follow real jobs. **Team** lists all 25 robots and the Brain Core; the developer
+The app opens on the **Studio**, which includes the office: original pixel robots (layout and characters after the
+owner's reference images) whose movements follow real jobs, yours and Autopilot's. **Team** lists all 25 robots and the Brain Core; the developer
 gallery at `#/dev/robots` shows each one in four directions and every pose. How it works, the event feed and the
 capability matrix: [docs/OFFICE.md](docs/OFFICE.md). The art and how to extend it:
 [design/robots/README.md](design/robots/README.md). Screenshots (first run, working, waiting, after a restart,

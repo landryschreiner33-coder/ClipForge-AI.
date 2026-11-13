@@ -162,7 +162,7 @@ def test_neighbor_environment_is_not_mistaken_for_this_app(tmp_path):
 
 def test_concurrent_setup_cannot_replace_or_create_environment(tmp_path):
     with bootstrap.setup_lock(tmp_path):
-        with pytest.raises(bootstrap.BootstrapError, match="Another ClipFoundry setup"):
+        with pytest.raises(bootstrap.BootstrapError, match="Another ClipForge setup"):
             bootstrap.prepare_venv(tmp_path)
     assert not (tmp_path / ".venv").exists()
 

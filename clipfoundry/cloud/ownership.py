@@ -46,10 +46,17 @@ RESOLVERS: dict[str, Callable[[str], str | None]] = {
     "asset_id": lambda v: _one("SELECT workspace_id FROM assets WHERE id = ?", v),
     "upload_id": lambda v: _one("SELECT workspace_id FROM uploads WHERE id = ?", v),
     "video_id": lambda v: _one("SELECT workspace_id FROM studio_projects WHERE id = ?", v),
+    "scene_id": lambda v: _one("SELECT workspace_id FROM short_scenes WHERE id = ?", v),
     "story_id": lambda v: _one("SELECT workspace_id FROM story_proposals WHERE id = ?", v),
     "connection_id": lambda v: _one("SELECT workspace_id FROM social_connections WHERE id = ?", v),
     "style_id": lambda v: _one("SELECT workspace_id FROM styles WHERE id = ?", v),
     "skill_id": lambda v: _one("SELECT workspace_id FROM skills WHERE id = ?", v),
+    "reference_id": lambda v: _one("SELECT workspace_id FROM reference_videos WHERE id = ?", v),
+    "import_id": lambda v: _one("SELECT workspace_id FROM media_imports WHERE id = ?", v),
+    "request_id": lambda v: _one("SELECT workspace_id FROM edit_requests WHERE id = ?", v),
+    "memory_id": lambda v: _one("SELECT workspace_id FROM brain_memories WHERE id = ?", v),
+    "chat_id": lambda v: _one("SELECT workspace_id FROM brain_chats WHERE id = ?", v),
+    "chat_message_id": lambda v: _one("SELECT workspace_id FROM brain_chat_messages WHERE id = ?", v),
 }
 NOT_FOUND = {"project_id": "Project not found", "clip_id": "Clip not found", "version_id": "Version not found",
              "pub_id": "Publication not found"}

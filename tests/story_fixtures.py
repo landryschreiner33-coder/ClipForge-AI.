@@ -114,6 +114,77 @@ def cut_off_and_ambiguous() -> tuple[dict, dict]:
     return t, {"labels": {"first": (0, 90), "second": (90, 170.4)}}
 
 
+def read_aloud(parts: list[tuple[str, list[str]]], pause: float = 0.15, pauses: dict[str, float] | None = None,
+               tail: float = 2.0) -> tuple[dict, dict]:
+    """A recording read at one steady pace, like a text-to-speech voice or a narrator reading posts: `pause`
+    seconds after every sentence and no longer silence anywhere, so wording alone has to tell the stories apart.
+    `pauses` maps a sentence's text to a longer pause after it. Returns the transcript and the labels:
+    {"parts": [(kind, first word start, last word end), ...]}."""
+    out, labels, t = [], [], 0.6
+    for kind, sentences in parts:
+        first = None
+        for text in sentences:
+            words, t_end = _sentence_words(text, t)
+            out.append({"start": words[0]["start"], "end": words[-1]["end"], "text": text, "words": words})
+            first = words[0]["start"] if first is None else first
+            t = t_end + (pauses or {}).get(text, pause)
+        labels.append((kind, first, out[-1]["end"]))
+    duration = round(t + tail, 3)
+    return {"language": "en", "duration": duration, "source": "fixture", "segments": out}, {"parts": labels}
+
+
+REDDIT_TITLES = ["AITA for refusing to let my sister bring her kids to my wedding?",
+                 "TIFU by locking myself out on the balcony in the middle of winter.",
+                 "My husband keeps inviting his mother on our date nights and I am done.",
+                 "WIBTA if I told my roommate's girlfriend about the smell in the fridge?",
+                 "Am I wrong for selling the car my dad left me?"]
+REDDIT_VOCAB = {
+    "wedding": ["venue", "bridesmaids", "invitations", "reception", "sister", "nephews", "seating", "toddlers",
+                "ceremony", "caterer", "dress", "vows", "flowers", "photographer", "cake"],
+    "balcony": ["balcony", "sliding", "door", "snow", "neighbour", "ladder", "phone", "socks", "landlord",
+                "shivering", "lighter", "gutter", "blanket", "keys", "frost"],
+    "inlaws": ["husband", "mother", "restaurant", "dinner", "reservation", "anniversary", "menu", "therapist",
+               "boundaries", "cinema", "wine", "babysitter", "weekend", "texts", "apology"],
+    "roommate": ["fridge", "roommate", "girlfriend", "lease", "kitchen", "tupperware", "smell", "chores",
+                 "rent", "bathroom", "groceries", "sponge", "trash", "landlady", "hallway"],
+    "car": ["car", "garage", "brother", "will", "mechanic", "dealership", "inheritance", "keys", "mileage",
+            "title", "lawyer", "funeral", "cousin", "paint", "engine"],
+}
+
+
+def reddit_reader() -> tuple[dict, dict]:
+    """A narrator reading five posts straight through, the way a text-to-speech channel does: no pauses, a short
+    separator before each post ("Story one.", "Next story."), the post's title, an update and read-out comments
+    inside the posts, a remark after one of them, a greeting first and a goodbye last."""
+    rng = random.Random(7)
+    stories: list[list[str]] = []
+    for topic, title in zip(REDDIT_VOCAB, REDDIT_TITLES):
+        vocab = REDDIT_VOCAB[topic]
+        cycle = itertools.cycle(TEMPLATES)
+        body = []
+        for _ in range(14):
+            a, b, c = rng.sample(vocab, 3)
+            body.append(next(cycle).format(a=a, b=b, c=c) + ".")
+        stories.append([title, *body])
+    stories[1].insert(9, "Update: the landlord finally called me back the next morning.")
+    stories[1].insert(10, "Edit: thanks for the advice everyone, the keys were in the gutter.")
+    stories[2].insert(8, "Top comment: your husband needs to pick a side, and it is not hers.")
+    stories[2].insert(9, "Someone replied that the mother is the real problem in this story.")
+    parts = [
+        ("intro", ["Hey everyone, welcome back to the channel.", "Today I have five stories for you."]),
+        ("story", ["Story one.", *stories[0]]),
+        ("remark", ["Man, that one still gets me every time."]),
+        ("story", ["Story two.", *stories[1]]),
+        ("story", ["Next story.", *stories[2]]),
+        ("story", ["This one is from r slash relationships.", *stories[3]]),
+        ("story", ["Story five.", *stories[4], "So, am I the asshole here?"]),
+        ("outro", ["Thanks for watching, everyone.", "Like and subscribe, and see you next time."]),
+    ]
+    pauses = {stories[1][5]: 3.5, stories[3][6]: 3.2}  # long breaths inside two stories: never a split
+    transcript, labels = read_aloud(parts, pauses=pauses)
+    return transcript, {**labels, "titles": REDDIT_TITLES}
+
+
 def speech_script(transcript: dict) -> list[tuple[float, str]]:
     return [(s["start"], s["text"]) for s in transcript["segments"]]
 
@@ -174,3 +245,77 @@ def speech_recording(folder, parts: list[tuple[str, list[str]]], pause: float = 
                     str(audio), "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000",
                     str(video)], check=True)
     return video, {"language": "en", "duration": t, "source": "fixture:espeak", "segments": segments}
+
+
+# ------------------------------------------------------------------ a gamer reading Reddit posts while playing
+GAMER_INTERJECTIONS = ["Oh no, wait, I almost fell off there.", "Let's go, made that jump.", "Hold on, let me grab this.",
+                       "Bro this level is so hard.", "Okay okay, back to the story.", "Wait, where was I?",
+                       "Nah, I keep dying on this part.", "Oh my god, that was close."]
+GAMER_REACTIONS = ["Bro, that is crazy.", "What? No way.", "Nah, she is wrong for that.", "Honestly that is wild."]
+GAMER_TITLES = ["AITA for not going to my sister's wedding after she uninvited my kids?",
+                "TIFU by sending my boss a meme that was meant for my best friend.",
+                "My roommate keeps eating my food and says it is my fault for buying it.",
+                "My boyfriend wants me to pay half of the car he bought without asking me."]
+# Sentences a Reddit post says in the middle of the story that look like the start or the end of one: a sentence
+# shaped like a title, "a few years ago", "to this day", "today I am", "subscribe", a question to the viewer.
+GAMER_TRAPS = [["My sister was furious about the seating chart.", "A few years ago she skipped my graduation too.",
+                "To this day she has not said sorry for that.", "Am I wrong for being hurt?",
+                "Update: we talked last night and she apologized to the kids."],
+               ["My boss called me into his office the next morning.", "When I was in college I did the same thing once.",
+                "Today I am still embarrassed about it.", "Make sure you subscribe if you are enjoying these.",
+                "Edit: a lot of you asked, and no, I did not get fired."],
+               ["My roommate was eating my yogurt again on Monday.", "Back in high school my brother did the same thing.",
+                "I learned that labels do not work on him.", "Would you have said something?",
+                "Update: he finally bought his own groceries."],
+               ["My boyfriend said it was a gift for both of us.", "A few years ago my dad warned me about this.",
+                "And that's why I keep my own savings account.", "Am I the only one who thinks this is weird?",
+                "Edit: we are going to a counsellor next week."]]
+GAMER_VOCAB = ["wedding", "balcony", "roommate", "car"]
+
+
+def gamer_reader(seed: int = 21) -> tuple[dict, dict]:
+    """A gamer reading four Reddit posts while playing (CF story parts): he stops talking for a few seconds all the
+    time, sometimes for ten, talks about the game in the middle of a story, reacts to the posts, and the posts say
+    things that look like a story starting or ending ("My sister was furious.", "A few years ago", "To this day",
+    "Today I am", "Am I wrong for being hurt?", "subscribe"). Stories 1, 3 and 4 are announced ("First story.",
+    "Next one.", "Okay, last story, this one is from r slash relationships."); story 2 starts with its title read
+    straight after a reaction. Returns the transcript and {"parts": [(kind, first start, last end)], "titles"}."""
+    rng = random.Random(seed)
+    cycle = itertools.cycle(TEMPLATES)
+    stories = []
+    for n, (topic, title) in enumerate(zip(GAMER_VOCAB, GAMER_TITLES)):
+        vocab = REDDIT_VOCAB[topic]
+        body = []
+        for _ in range(26 + 6 * (n % 2)):
+            a, b, c = rng.sample(vocab, 3)
+            body.append(next(cycle).format(a=a, b=b, c=c) + ".")
+        traps = GAMER_TRAPS[n]
+        for k, trap in enumerate(traps[:-1]):  # spread through the post; the update or edit comes last
+            body.insert(4 + k * 6, trap)
+        for k in range(3):  # talking about the game in the middle of the story
+            body.insert(7 + k * 8, rng.choice(GAMER_INTERJECTIONS))
+        body.insert(len(body) - 2, rng.choice(GAMER_REACTIONS))
+        body.append(traps[-1])
+        stories.append([title, *body])
+    parts = [
+        ("intro", ["Yo what's up guys, welcome back to the channel.",
+                   "Today we are playing some parkour and reading your Reddit stories."]),
+        ("story", ["Alright, first story.", *stories[0]]),
+        ("remark", ["Man, that one was wild.", "Let me get past this part first."]),
+        ("story", stories[1]),
+        ("story", ["Next one.", *stories[2]]),
+        ("story", ["Okay, last story, this one is from r slash relationships.", *stories[3]]),
+        ("outro", ["That's it for today guys.", "Like and subscribe, see you next time."]),
+    ]
+    out, labels, t = [], [], 0.8
+    for kind, sentences in parts:
+        first = None
+        for text in sentences:
+            words, t_end = _sentence_words(text, t)
+            out.append({"start": words[0]["start"], "end": words[-1]["end"], "text": text, "words": words})
+            first = words[0]["start"] if first is None else first
+            r = rng.random()
+            t = t_end + (rng.uniform(6.0, 11.0) if r < 0.08 else rng.uniform(0.6, 4.5))  # playing between lines
+        labels.append((kind, first, out[-1]["end"]))
+    return {"language": "en", "duration": round(t + 2.0, 3), "source": "fixture", "segments": out}, \
+        {"parts": labels, "titles": GAMER_TITLES}

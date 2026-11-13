@@ -136,7 +136,7 @@
     badge("health", health.label, health.status === "healthy" ? "good" : health.status === "error" ? "bad" : "warn");
     text("health-time", `Checked ${time(health.checked_at)}`);
     items("health-checks", Array.isArray(data.health_checks) ? data.health_checks : [], true);
-    text("desktop-note", data.desktop_note); text("version", `ClipFoundry ${data.version}`);
+    text("desktop-note", data.desktop_note); text("version", `ClipForge ${data.version}`);
   }
   async function jsonRequest(path, options) {
     controller = new AbortController();
@@ -168,7 +168,7 @@
     } catch {
       if (expected !== generation) return;
       failures++;
-      stale("Your PC is not answering. Check that ClipFoundry is open and your private connection is active.");
+      stale("Your PC is not answering. Check that ClipForge is open and your private connection is active.");
     } finally {
       if (expected === generation && token && !document.hidden) {
         timer = setTimeout(refresh, Math.min(60_000, POLL * Math.max(1, 2 ** Math.min(failures, 3))));
@@ -202,7 +202,7 @@
       await refresh();
     } catch {
       if (expected !== generation) return;
-      text("pair-error", "Could not reach your PC. Keep ClipFoundry open and check your connection.");
+      text("pair-error", "Could not reach your PC. Keep ClipForge open and check your connection.");
       show("pair-error", true);
     } finally { el("connect").disabled = false; }
   });

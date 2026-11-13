@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, Clip, ClipVersion, downloadZip, errorText, Project, versionDownloadUrl } from "../api";
 import { ap, ScheduledItem } from "../autopilot";
 import { plural, when } from "../format";
+import { DeleteProjectConfirm } from "./DeleteProject";
 import { ConfirmDialog, Icon, MenuItem, Pill, Segmented, toast } from "./ui";
 
 /** Shared by the Library, the Source video page and the clip editor. */
@@ -10,7 +11,7 @@ import { ConfirmDialog, Icon, MenuItem, Pill, Segmented, toast } from "./ui";
 export type LibProject = Project & { origin?: "manual" | "autopilot" | "live" | string; source_id?: string };
 
 /** Still copying, waiting or making clips: deleting is not possible yet. */
-export const isWorking = (p: Project) => ["created", "uploading", "queued", "processing"].includes(p.status);
+export const isWorking = (p: Project) => ["created", "uploading", "importing", "queued", "processing"].includes(p.status);
 
 /** Autopilot made it, so Autopilot (not this page) runs its processing. */
 export const byAutopilot = (p: LibProject) => p.origin === "autopilot" || p.origin === "live";
@@ -28,6 +29,8 @@ export function ProjectStatus({ p, clipCount }: { p: Project; clipCount?: number
   switch (p.status) {
     case "uploading":
       return <Pill tone="info" icon="upload">Copying into ClipForge</Pill>;
+    case "importing":
+      return <Pill tone="info" icon="download">{p.message || "Downloading the video"}</Pill>;
     case "created":
     case "queued":
       return <Pill tone="neutral" icon="clock">Waiting to start</Pill>;
@@ -90,26 +93,11 @@ export async function cancelProcessing(p: Project, after: () => void) {
   after();
 }
 
-/** Delete, with what goes and what stays. The backend refuses while the video is processing; that shows inline. */
-export function DeleteProjectDialog({ p, clipCount, onClose, onDeleted }: {
-  p: Project; clipCount: number; onClose: () => void; onDeleted: () => void;
+/** Delete, with what goes and what stays: the same confirmation as the Projects page (DeleteProject.tsx). */
+export function DeleteProjectDialog({ p, onClose, onDeleted }: {
+  p: Project; clipCount?: number; onClose: () => void; onDeleted: () => void;
 }) {
-  return (
-    <ConfirmDialog title={`Delete “${p.name}”?`} danger onClose={onClose}
-      confirmLabel={clipCount ? `Delete video and ${plural(clipCount, "clip")}` : "Delete video"}
-      onConfirm={async () => {
-        await api.deleteProject(p.id);
-        toast(`Deleted “${p.name}”`);
-        onDeleted();
-      }}>
-      <p className="muted">
-        This deletes ClipForge's copy of the video, its transcript
-        {clipCount ? ` and its ${plural(clipCount, "clip")} with their versions` : ""} from this computer. It can't
-        be undone.
-      </p>
-      <p className="small">Not affected: the original file you added, and posts already on YouTube or TikTok.</p>
-    </ConfirmDialog>
-  );
+  return <DeleteProjectConfirm kind="clips" id={p.id} name={p.name} onClose={onClose} onDeleted={() => onDeleted()} />;
 }
 
 const COUNTS = [3, 5, 10];

@@ -508,6 +508,23 @@ CREATE TABLE IF NOT EXISTS learning_metrics (
     data TEXT DEFAULT '{}',
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS taste_events (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    project_id TEXT DEFAULT '',
+    clip_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    value REAL NOT NULL,
+    features TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_taste_events_ws ON taste_events (workspace_id, created_at);
+CREATE TABLE IF NOT EXISTS taste_models (
+    workspace_id TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    n INTEGER DEFAULT 0,
+    trained_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS quota_usage (
     day TEXT NOT NULL,
     bucket TEXT NOT NULL,
@@ -678,6 +695,79 @@ CREATE TABLE IF NOT EXISTS brain_influences ( -- immutable explanations of actua
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_influence_once ON brain_influences(blueprint_id, knowledge_id);
 CREATE INDEX IF NOT EXISTS idx_brain_influence_clip ON brain_influences(clip_id, created_at);
+CREATE TABLE IF NOT EXISTS brain_memories (   -- ClipForge AI's memories (brain/memories.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    kind TEXT NOT NULL,                       -- rule | fact | episode | asset | answer
+    text TEXT NOT NULL,                       -- the memory in plain words (what a model reads)
+    norm TEXT NOT NULL DEFAULT '',            -- the words as they are compared (brain/memories._norm)
+    source TEXT NOT NULL DEFAULT 'said',      -- said | did | guessed | imported
+    confidence REAL DEFAULT 1.0,
+    scope TEXT DEFAULT 'all',                 -- all | project:<id> | platform:<name> | mode:<clips|video>
+    project_id TEXT DEFAULT '',
+    platform TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    data TEXT DEFAULT '{}',                   -- structured details; never sent to a model
+    meaning BLOB,                             -- the embedding (brain/meaning.py)
+    meaning_model TEXT DEFAULT '',            -- which embedder made it
+    enabled INTEGER DEFAULT 1,
+    expires_at REAL,                          -- a guess expires unless confirmed
+    used_count INTEGER DEFAULT 0,
+    last_used_at REAL,
+    revision INTEGER DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_memories_ws ON brain_memories(workspace_id, enabled, kind);
+CREATE INDEX IF NOT EXISTS idx_brain_memories_norm ON brain_memories(workspace_id, kind, norm);
+CREATE TABLE IF NOT EXISTS brain_memory_uses ( -- where an answer used a memory
+    id TEXT PRIMARY KEY,
+    memory_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    where_used TEXT NOT NULL,                 -- change_request | filmcraft | smart_edit | chat | guidance | agent
+    ref_id TEXT DEFAULT '',                   -- the request, project or chat message
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_memory_uses ON brain_memory_uses(memory_id, created_at);
+CREATE TABLE IF NOT EXISTS brain_chats (      -- ClipForge AI's chat: one per video, one for everything else
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    project_id TEXT DEFAULT '',               -- '' = the general chat
+    title TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_chats ON brain_chats(workspace_id, project_id);
+CREATE TABLE IF NOT EXISTS brain_chat_messages (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    role TEXT NOT NULL,                       -- owner | ai | agent
+    text TEXT DEFAULT '',
+    data TEXT DEFAULT '{}',                   -- tool, request_id, used (memories), candidates, proposal
+    status TEXT DEFAULT 'done',               -- done | thinking | failed
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_chat_messages ON brain_chat_messages(chat_id, created_at);
+CREATE TABLE IF NOT EXISTS brain_agents (     -- helper agents that work alongside ClipForge AI (brain/agents.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    template TEXT DEFAULT '',                 -- the ready-made agent it started from ('' = the owner's own)
+    name TEXT NOT NULL,
+    icon TEXT DEFAULT '',
+    role TEXT DEFAULT '',                     -- its job in one line (ClipForge AI reads it to pick a helper)
+    instructions TEXT DEFAULT '',             -- how it works, in the owner's words
+    tools TEXT DEFAULT '[]',                  -- the looking and making tools it may use
+    helps_plans INTEGER DEFAULT 0,            -- gives a note on new video plans (agents.consult)
+    enabled INTEGER DEFAULT 1,
+    position INTEGER DEFAULT 0,
+    runs INTEGER DEFAULT 0,
+    last_run_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_agents ON brain_agents(workspace_id, position);
 CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every request and its budget reservation
     id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
@@ -695,6 +785,8 @@ CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every r
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage(provider, day);
+-- allowance.used(): whether an editor's change request has its own row, without reading every earlier day
+CREATE INDEX IF NOT EXISTS idx_ai_usage_job ON ai_usage(provider, task, job_id);
 
 -- ---------------------------------------------------------------- ClipForge: identity and workspaces (cloud/)
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -861,6 +953,48 @@ CREATE TABLE IF NOT EXISTS studio_jobs (     -- durable studio work with leases 
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_studio_jobs_status ON studio_jobs(status, created_at);
+-- ---------------------------------------------------------------- Make → Animated short (makers/shorts.py)
+CREATE TABLE IF NOT EXISTS short_scenes (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    position REAL NOT NULL,                   -- order when first made; after that the plan's order wins
+    narration TEXT DEFAULT '',
+    picture_prompt TEXT DEFAULT '',
+    picture_from TEXT DEFAULT '',             -- script | ai | words | owner: who described the picture
+    picture_source TEXT DEFAULT 'auto',       -- auto (made by ClipForge) | upload (the owner's own picture)
+    picture_asset_id TEXT DEFAULT '',
+    clip_asset_id TEXT DEFAULT '',
+    move TEXT DEFAULT 'auto',
+    seed INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'waiting',            -- waiting | voice | picture | motion | ready | failed
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    duration_ms INTEGER DEFAULT 0,
+    voice_key TEXT DEFAULT '',                -- what the voice, picture and clip were made from (a build remakes
+    picture_key TEXT DEFAULT '',              -- only what changed)
+    clip_key TEXT DEFAULT '',
+    pictures TEXT DEFAULT '[]',               -- earlier pictures, newest last
+    info TEXT DEFAULT '{}',                   -- engines used, fallbacks and word timing of the made scene
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_short_scenes_project ON short_scenes(project_id, position);
+CREATE TABLE IF NOT EXISTS short_files (     -- every file an animated short's builds stored: what tidying looks at
+    project_id TEXT NOT NULL,                 -- when nothing names one any more, and what deleting the short reaches
+    asset_id TEXT NOT NULL,                   -- (also a file no scene or saved version names)
+    workspace_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (project_id, asset_id)
+);
+CREATE INDEX IF NOT EXISTS idx_short_files_asset ON short_files(asset_id);
+CREATE TABLE IF NOT EXISTS asset_hand_outs (  -- a stored file handed out again, and to whom (studio/uploads._mark),
+    asset_id TEXT NOT NULL,                     -- for the hour a hand-out counts: deleting a project keeps a file
+    at REAL NOT NULL,                           -- only for a hand-out to someone else (project_delete._handed_out)
+    project_id TEXT DEFAULT '',                 -- the project whose own work stored the same bytes again,
+    upload_id TEXT DEFAULT ''                   -- or the upload (also a file added from this computer) that got it
+);
+CREATE INDEX IF NOT EXISTS idx_asset_hand_outs_asset ON asset_hand_outs(asset_id, at);
 -- ---------------------------------------------------------------- Clips → Full stories
 CREATE TABLE IF NOT EXISTS story_proposals (
     id TEXT PRIMARY KEY,
@@ -880,6 +1014,9 @@ CREATE TABLE IF NOT EXISTS story_proposals (
     clip_id TEXT DEFAULT '',
     boundary_revision INTEGER DEFAULT 0,      -- 0 = as proposed; incremented by every manual change
     method TEXT DEFAULT '',
+    part INTEGER DEFAULT 0,                   -- Part 1, 2... of a story cut into parts (0 = the whole story)
+    parts INTEGER DEFAULT 0,                  -- how many parts that story has
+    story_key TEXT DEFAULT '',                -- the same for every part of one story
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -937,6 +1074,148 @@ CREATE TABLE IF NOT EXISTS preferences (
     updated_at REAL NOT NULL,
     PRIMARY KEY (workspace_id, user_id, pref_key)
 );
+CREATE TABLE IF NOT EXISTS link_imports (    -- Make clips from a supplied link (studio/link_import.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,                 -- the browser's request ID: asking twice returns the same project
+    url TEXT NOT NULL,                        -- the normalized link of the one recording
+    original_url TEXT DEFAULT '',
+    mode TEXT DEFAULT 'highlights',
+    project_id TEXT NOT NULL,
+    status TEXT DEFAULT 'queued',             -- queued | running | done | failed | canceled
+    round INTEGER DEFAULT 0,                  -- incremented by every Retry (one studio job per round)
+    attempts INTEGER DEFAULT 0,
+    asset_id TEXT DEFAULT '',
+    title TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    error_code TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (workspace_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_link_imports_url ON link_imports(workspace_id, url, status);
+CREATE TABLE IF NOT EXISTS reference_videos (  -- example videos the Brain measures (studio/reference.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,                   -- the private original: never placed in a project by itself
+    title TEXT NOT NULL,
+    likes TEXT DEFAULT '[]',                  -- overall | pacing | captions | framing | sound
+    note TEXT DEFAULT '',                     -- "What do you like about this example?" in the owner's words
+    ranges TEXT DEFAULT '[]',                 -- [{start_ms, end_ms}] analyzed; empty = the whole video
+    avoid INTEGER DEFAULT 0,                  -- an example to avoid: its choices are shown, never applied
+    scope TEXT DEFAULT 'chosen',              -- chosen (only when picked for a project) | all | modes
+    modes TEXT DEFAULT '[]',                  -- the project types for scope = modes
+    project_only INTEGER DEFAULT 0,           -- added while making one project and not remembered for others
+    enabled INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'queued',             -- queued | analyzing | ready | failed | canceled
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    round INTEGER DEFAULT 1,                  -- one studio job per round; Reanalyze starts the next round
+    analysis_revision INTEGER DEFAULT 0,      -- the newest finished analysis
+    style_id TEXT DEFAULT '',                 -- the Example style saved from this example
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reference_videos_ws ON reference_videos(workspace_id, updated_at);
+CREATE TABLE IF NOT EXISTS reference_analyses (  -- immutable: Reanalyze adds a revision
+    reference_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    cache_key TEXT NOT NULL,                  -- the file's content hash + the ranges + the analyzer version
+    analyzer TEXT NOT NULL,
+    method TEXT NOT NULL,                     -- what looked at the video and how, in words
+    model TEXT DEFAULT '',                    -- a model that observed the video; '' when none did
+    coverage TEXT DEFAULT '{}',
+    measured TEXT DEFAULT '{}',
+    observations TEXT DEFAULT '[]',           -- What I noticed, each measured or estimated, with evidence times
+    applicable TEXT DEFAULT '[]',             -- supported choices the measurements justify
+    unsupported TEXT DEFAULT '[]',            -- noticed but not reproduced by this editor
+    reused_from TEXT DEFAULT '',              -- "<reference>:<revision>" when an identical analysis was reused
+    created_at REAL NOT NULL,
+    PRIMARY KEY (reference_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_reference_analyses_key ON reference_analyses(cache_key);
+CREATE TABLE IF NOT EXISTS asset_sources (  -- where an imported file came from, on what terms (studio/media_sources.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,                   -- the local copy every project uses (never a hotlink)
+    provider TEXT NOT NULL,                   -- openverse | commons | pexels
+    kind TEXT NOT NULL,                       -- image | footage | music | effect
+    external_id TEXT NOT NULL,                -- the item's ID at the provider
+    title TEXT DEFAULT '',
+    creator TEXT DEFAULT '',
+    creator_url TEXT DEFAULT '',
+    page_url TEXT DEFAULT '',                 -- the item's page at its source
+    file_url TEXT DEFAULT '',                 -- the file that was downloaded
+    origin TEXT DEFAULT '',                   -- the collection Openverse indexed it from (Flickr, Freesound, ...)
+    license TEXT DEFAULT 'unknown',           -- cc0 | pdm | by | by-sa | by-nc | ... | pexels | unknown
+    license_version TEXT DEFAULT '',
+    license_name TEXT DEFAULT '',
+    license_url TEXT DEFAULT '',
+    terms TEXT DEFAULT '{}',                  -- known, commercial, modify, attribution, share_alike as retrieved
+    credit TEXT DEFAULT '',                   -- the credit line built from the retrieved terms
+    credit_required INTEGER DEFAULT 0,
+    restrictions TEXT DEFAULT '',
+    user_basis TEXT DEFAULT '',               -- the owner's own stated basis when the terms were unknown or did not fit
+    query TEXT DEFAULT '',                    -- what was searched for, when it was added automatically
+    retrieved_at REAL NOT NULL,
+    sha256 TEXT NOT NULL,                     -- of the original file as downloaded
+    size INTEGER DEFAULT 0,
+    created_at REAL NOT NULL,
+    UNIQUE (workspace_id, provider, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_sources_asset ON asset_sources(asset_id);
+CREATE TABLE IF NOT EXISTS media_imports (  -- one "Add to media" request; a durable, cancelable studio job
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    project_id TEXT DEFAULT '',               -- the project whose media bin receives it ('' = your media only)
+    provider TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    title TEXT DEFAULT '',
+    user_basis TEXT DEFAULT '',
+    status TEXT DEFAULT 'queued',             -- queued | importing | ready | failed | canceled
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    asset_id TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_imports_ws ON media_imports(workspace_id, provider, external_id);
+CREATE TABLE IF NOT EXISTS media_suggestions (  -- "Find supporting media for this project", one row per round
+    project_id TEXT NOT NULL,
+    round INTEGER NOT NULL,
+    workspace_id TEXT NOT NULL,
+    mode TEXT DEFAULT 'suggest',              -- suggest (for review) | auto (eligible items added as a new revision)
+    status TEXT DEFAULT 'queued',             -- queued | searching | ready
+    message TEXT DEFAULT '',
+    queries TEXT DEFAULT '[]',                -- [{kind, query, why}] from words said in the project (no AI)
+    items TEXT DEFAULT '[]',                  -- results per query, with whether each fits the project's rules
+    added TEXT DEFAULT '[]',                  -- what automatic mode imported and placed
+    problems TEXT DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (project_id, round)
+);
+CREATE TABLE IF NOT EXISTS edit_requests (  -- "Tell the editor what to change": one request and its checked proposal
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    base_revision INTEGER NOT NULL,           -- the revision the proposal was made for (stale once another exists)
+    text TEXT NOT NULL,                       -- what you asked, as typed
+    status TEXT DEFAULT 'thinking',           -- thinking | ready | question | unsupported | invalid | failed |
+                                              -- canceled | applied | stale
+    source TEXT DEFAULT 'rules',              -- rules (no AI) | ai
+    provider TEXT DEFAULT '',                 -- the AI service's label when source = ai
+    sent TEXT DEFAULT '',                     -- what left this computer for the AI service, in words ('' = nothing)
+    prompt_chars INTEGER DEFAULT 0,
+    proposal TEXT DEFAULT '{}',               -- clipforge.edit-proposal/v1: operations, changes, question
+    message TEXT DEFAULT '',
+    applied_revision INTEGER DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_edit_requests_project ON edit_requests(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_edit_requests_ws ON edit_requests(workspace_id, source, created_at);
 CREATE TABLE IF NOT EXISTS robot_names (
     workspace_id TEXT NOT NULL,
     role_id TEXT NOT NULL,                    -- the stable office/roles.py ID; display metadata only
@@ -948,6 +1227,8 @@ CREATE TABLE IF NOT EXISTS robot_names (
 
 JSON_FIELDS = {
     "phone_devices": set(),
+    "taste_events": set(),
+    "taste_models": set(),
     "projects": {"options", "info", "guidance", "destinations"},
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
     "accounts": {"scopes", "info"},
@@ -985,6 +1266,11 @@ JSON_FIELDS = {
     "brain_strategies": {"params", "evidence"},
     "brain_knowledge": {"tags", "features", "preferences", "media"},
     "brain_influences": {"snapshot", "decisions"},
+    "brain_memories": {"tags", "data"},
+    "brain_memory_uses": set(),
+    "brain_chats": set(),
+    "brain_chat_messages": {"data"},
+    "brain_agents": {"tools"},
     "ai_usage": set(),
     "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
     "clip_blueprints": {"blueprint", "issues"},
@@ -997,16 +1283,26 @@ JSON_FIELDS = {
     "oauth_connects": set(),
     "uploads": set(),
     "assets": {"probe"},
-    "studio_projects": {"asset_ids", "brief", "guidance", "destinations"},
-    "edit_plans": {"plan"},
+    "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script", "short", "setup"},
+    "short_scenes": {"pictures", "info"},
+    "short_files": set(),
+    "asset_hand_outs": set(),
+    "edit_plans": {"plan", "meta"},
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},
     "story_proposals": set(),
-    "styles": {"modes", "values_json"},
-    "style_revisions": {"modes", "values_json"},
+    "styles": {"modes", "values_json", "provenance"},
+    "style_revisions": {"modes", "values_json", "provenance"},
     "skills": {"modes", "topics", "supported", "unsupported", "blocked"},
     "preferences": {"value"},
     "robot_names": set(),
+    "link_imports": set(),
+    "reference_videos": {"likes", "ranges", "modes"},
+    "reference_analyses": {"coverage", "measured", "observations", "applicable", "unsupported"},
+    "asset_sources": {"terms"},
+    "media_imports": set(),
+    "media_suggestions": {"queries", "items", "added", "problems"},
+    "edit_requests": {"proposal", "memories", "knowhow"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -1024,7 +1320,22 @@ ADDED_COLUMNS = {
     "scheduled_publications": {"audience": "TEXT DEFAULT '{}'", "delivery": "TEXT DEFAULT '{}'",
                                "reuse_confirmation": "TEXT DEFAULT '{}'", "connection_id": "TEXT DEFAULT ''"},
     "action_items": {"dismissed_at": "REAL"},
+    # how a revision was made (edit, undo, redo, restore) and which revisions undo/redo lead to; a name you gave it
+    "edit_plans": {"meta": "TEXT DEFAULT '{}'", "name": "TEXT DEFAULT ''"},
+    # an Example style: the example it was learned from, that analysis revision, and how (method, ranges, the
+    # owner's corrections); a style revision keeps its own copy so older projects can still cite it
+    "styles": {"reference_id": "TEXT DEFAULT ''", "provenance": "TEXT DEFAULT '{}'"},
+    "style_revisions": {"provenance": "TEXT DEFAULT '{}'"},
+    # a full-video project's supporting-media rules (mode, commercial use, share-alike) and credit wording; the
+    # plan made with ClipForge AI before the build, and how it was made (studio/video_setup.py)
+    "studio_projects": {"media": "TEXT DEFAULT '{}'", "script": "TEXT DEFAULT '{}'",
+                        "short": "TEXT DEFAULT '{}'",  # an animated short's options (makers/shorts.py)
+                        "setup": "TEXT DEFAULT '{}'"},
+    # the memories ClipForge AI read for a proposal (brain/memories.py)
+    "edit_requests": {"memories": "TEXT DEFAULT '[]'", "knowhow": "TEXT DEFAULT '[]'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
+    # a story cut into parts (Story parts, or a Full story longer than five minutes): which part of which story
+    "story_proposals": {"part": "INTEGER DEFAULT 0", "parts": "INTEGER DEFAULT 0", "story_key": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
     "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},
     # what the provider reported about a source's license, how its file was obtained, and whether the platform
@@ -1032,6 +1343,14 @@ ADDED_COLUMNS = {
     "sources": {"rights_info": "TEXT DEFAULT '{}'", "access": "TEXT DEFAULT '{}'",
                 "channel_check": "TEXT DEFAULT '{}'", "user_added": "INTEGER DEFAULT 0",
                 "intake": "TEXT DEFAULT '{}'"},
+    # the project that took a finished upload (studio/uploads.taken): deleting a project counts only uploads no
+    # project took as files the owner added again (Add from this computer leaves such a row too)
+    "uploads": {"taken": "TEXT DEFAULT ''"},
+    # when ClipForge last handed out a stored file again (the same bytes uploaded, linked or stored once more): a
+    # short's tidying leaves it alone for a while, so the one it was handed to can record it (studio/uploads.py),
+    # and a delete that started before it keeps it when it went to someone else (table asset_hand_outs says whom:
+    # studio/project_delete._handed_out)
+    "assets": {"reused_at": "REAL DEFAULT 0"},
 }
 
 
@@ -1068,12 +1387,24 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_audience(conn)
     _migrate_continuous_volume(conn)
     _migrate_submitted_input(conn)
+    _migrate_discovery_retired(conn)
     _migrate_post_spacing(conn)
     _migrate_connections(conn)
     _migrate_cloud_secrets(conn)
+    _migrate_uploads_taken(conn)
 
 
 CONNECTIONS_MIGRATION = "social_connections_migrated_v1"
+UPLOADS_TAKEN_SINCE = "uploads_taken_since"
+
+
+def _migrate_uploads_taken(conn: sqlite3.Connection) -> None:
+    """When ClipForge started recording which project took each upload (uploads.taken), once: a project made since
+    then owns only the uploads its page sent, while one made before keeps the older rules when it is deleted
+    (studio/project_delete._added_again)."""
+    now = time.time()
+    conn.execute("INSERT OR IGNORE INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
+                 (UPLOADS_TAKEN_SINCE, json.dumps({"at": now}), now))
 
 
 def legacy_connection_id(platform: str) -> str:
@@ -1166,6 +1497,56 @@ def _migrate_submitted_input(conn: sqlite3.Connection) -> None:
                      (json.dumps(config.DEFAULT_SETTINGS["autopilot_input_mode"]),))
     conn.execute("INSERT INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
                  (SUBMITTED_INPUT_MIGRATION, json.dumps({"at": now, "version": 1}), now))
+
+
+DISCOVERY_RETIRED_MIGRATION = "discovery_retired_v1"
+
+
+def _migrate_discovery_retired(conn: sqlite3.Connection) -> None:
+    """Retire automatic source discovery once, without deleting anything (studio upgrade, CF2-16).
+
+    The saved input mode becomes "submitted". Discovery work that has not produced anything yet is canceled with an
+    explanation: periodic searches, feed and live watching, automatic source selection, and downloads/analysis of
+    videos that discovery picked (never of a video you added yourself). Sources, files, projects, clips, post
+    history and approvals stay exactly as they are, and one audit event records what changed."""
+    if not config.DISCOVERY_RETIRED:
+        return
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (DISCOVERY_RETIRED_MIGRATION,)).fetchone():
+        return
+    now = time.time()
+    saved = conn.execute("SELECT value FROM settings WHERE key = 'autopilot_input_mode'").fetchone()
+    try:
+        previous = json.loads(saved["value"]) if saved else ""
+    except ValueError:
+        previous = ""
+    if saved:
+        conn.execute("UPDATE settings SET value = ? WHERE key = 'autopilot_input_mode'", (json.dumps("submitted"),))
+    note = "Automatic video discovery was retired. ClipForge now works on the videos you add; nothing was deleted."
+    active = "('queued', 'retrying', 'waiting', 'running')"
+    kinds = ",".join("?" * len(config.DISCOVERY_JOB_KINDS))
+    parked = conn.execute(f"UPDATE worker_jobs SET status = 'canceled', cancel_requested = 1, message = ?, "
+                          f"wait_reason = '', finished_at = ?, updated_at = ? WHERE kind IN ({kinds}) AND status IN "
+                          f"{active}", (note, now, now, *config.DISCOVERY_JOB_KINDS)).rowcount
+    picked = [r["id"] for r in conn.execute(
+        "SELECT id FROM sources WHERE COALESCE(user_added, 0) = 0 AND status IN ('discovered', 'queued', "
+        "'ingesting', 'analyzing', 'waiting_stream')").fetchall()]
+    sources = 0
+    for sid in picked:
+        jobs = conn.execute(f"UPDATE worker_jobs SET status = 'canceled', cancel_requested = 1, message = ?, "
+                            f"wait_reason = '', finished_at = ?, updated_at = ? WHERE kind IN ('hunt_source', "
+                            f"'analyze_source', 'identify_link', 'live_capture') AND status IN {active} AND "
+                            f"json_extract(payload, '$.source_id') = ?", (note, now, now, sid)).rowcount
+        conn.execute("UPDATE sources SET status = 'canceled', status_note = ?, updated_at = ? WHERE id = ?",
+                     (note, now, sid))
+        parked += jobs
+        sources += 1
+    record = {"at": now, "version": 1, "previous_mode": previous or "submitted", "jobs_canceled": parked,
+              "picked_sources_parked": sources}
+    conn.execute("INSERT INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
+                 (DISCOVERY_RETIRED_MIGRATION, json.dumps(record), now))
+    if previous == "discovery" or parked or sources:
+        conn.execute("INSERT INTO autopilot_events (at, kind, level, message, ref_type, ref_id, data) VALUES "
+                     "(?, 'discovery_retired', 'info', ?, '', '', ?)", (now, note, json.dumps(record)))
 
 
 CONTINUOUS_VOLUME_MIGRATION = "continuous_volume_migrated_v1"

@@ -1,5 +1,9 @@
+import AiHelperSettings from "../components/AiHelperSettings";
 import AppearanceSettings from "../components/AppearanceSettings";
-import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import EditingAppsSettings from "../components/EditingApps";
+import LocalMakersSettings from "../components/LocalMakers";
+import MediaSourcesSettings from "../components/MediaSources";
+import { MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
 import { navigate, useLeaveGuard } from "../router";
 import { useStatus } from "../status";
@@ -34,7 +38,7 @@ const ACCOUNT_KEYS: Record<Platform, string[]> = {
     "tiktok_app_audited"],
 };
 const SECRETS = new Set(["openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-  "youtube_api_key", "tavily_api_key", "nvidia_api_key"]);
+  "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key"]);
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
@@ -45,13 +49,39 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * "•••••••• (saved)" with Replace.
  */
 export default function SettingsPage({ tab }: { tab?: string }) {
+  if (tab === "media") {
+    return (
+      <SettingsFrame current="media" sub="Where Find media looks for images, footage, music and sound effects.">
+        <MediaSourcesSettings />
+      </SettingsFrame>
+    );
+  }
+  if (tab === "ai") {
+    return (
+      <SettingsFrame current="ai" sub="An optional AI that helps edit your videos: free on your own computer, or with a free key.">
+        <AiHelperSettings />
+      </SettingsFrame>
+    );
+  }
+  if (tab === "apps") {
+    return (
+      <SettingsFrame current="apps" sub="FilmCraft and EffectCraft inside ClipForge: the AI edits with them and FilmCraft renders the final video.">
+        <EditingAppsSettings />
+      </SettingsFrame>
+    );
+  }
+  if (tab === "makers") {
+    return (
+      <SettingsFrame current="makers" sub="Pictures, short video clips and voice-overs made on this computer, for free, by open-source tools.">
+        <LocalMakersSettings />
+      </SettingsFrame>
+    );
+  }
   if (tab === "appearance") {
     return (
-      <div className="page">
-        <PageHead kind="Settings" title="Settings" sub="How ClipForge looks on your devices. Saved to your account." />
-        <LinkTabs label="Settings sections" current="appearance" tabs={SETTINGS_TABS} />
+      <SettingsFrame current="appearance" wide sub="How ClipForge looks. Customize studio changes it and says where each choice is kept.">
         <AppearanceSettings />
-      </div>
+      </SettingsFrame>
     );
   }
   return <SettingsForm tab={tab} />;
@@ -59,11 +89,33 @@ export default function SettingsPage({ tab }: { tab?: string }) {
 
 const SETTINGS_TABS = [
   { id: "appearance", href: "#/settings/appearance", label: "Appearance" },
+  { id: "media", href: "#/settings/media", label: "Media sources" },
+  { id: "ai", href: "#/settings/ai", label: "ClipForge AI" },
+  { id: "apps", href: "#/settings/apps", label: "Editing apps" },
+  { id: "makers", href: "#/settings/makers", label: "Pictures, video, voice" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
   { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
   { id: "advanced", href: "#/settings/advanced", label: "Advanced" },
 ];
+
+/** Every Settings page in one frame: the title, any banner, the section list down the side and the section itself. */
+function SettingsFrame({ current, sub, before, wide = false, onTabClick, children }: {
+  current: string; sub?: ReactNode; before?: ReactNode; wide?: boolean; onTabClick?: (e: MouseEvent) => void; children: ReactNode;
+}) {
+  return (
+    <div className="page">
+      <PageHead title="Settings" sub={sub} />
+      {before}
+      <div className="settings-layout">
+        <div className="settings-nav" onClickCapture={onTabClick}>
+          <LinkTabs label="Settings sections" current={current} tabs={SETTINGS_TABS} vertical />
+        </div>
+        <div className={`settings-body${wide ? " wide" : ""}`}>{children}</div>
+      </div>
+    </div>
+  );
+}
 
 function SettingsForm({ tab }: { tab?: string }) {
   const t: SettingsTab = tab === "defaults" || tab === "integrations" || tab === "advanced" ? tab : "accounts";
@@ -198,12 +250,12 @@ function SettingsForm({ tab }: { tab?: string }) {
   const gpuFix = st?.gpu?.fix || health?.whisper.fix || "";
   const firstError = errorKeys[0];
   return (
-    <div className="page narrow">
-      <PageHead title="Settings"
-        sub={<>
-          Stored on this computer, in ClipForge's data folder
-          {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
-        </>} />
+    <SettingsFrame current={t} onTabClick={tabClick}
+      sub={<>
+        Stored on this computer, in ClipForge's data folder
+        {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
+      </>}
+      before={<>
       {expired.length > 0 && t !== "accounts" && (
         <Banner tone="bad" icon="link"
           title={`${expired.map((p) => PLATFORM_NAME[p]).join(" and ")} ${expired.length > 1 ? "need" : "needs"} you `
@@ -218,9 +270,7 @@ function SettingsForm({ tab }: { tab?: string }) {
           {gpuProblem}{gpuFix ? <> <b>What to do:</b> {gpuFix}</> : null}
         </Banner>
       )}
-      <div onClickCapture={tabClick}>
-        <LinkTabs label="Settings sections" current={t} tabs={SETTINGS_TABS} />
-      </div>
+      </>}>
       {notes.length > 0 && (
         <Banner tone="warn" title="Some values were adjusted when saving">
           {notes.join(" ")}
@@ -273,7 +323,7 @@ function SettingsForm({ tab }: { tab?: string }) {
           {saving && <span className="inline-spinner" aria-hidden="true" />}Save settings
         </button>
       </section>
-    </div>
+    </SettingsFrame>
   );
 }
 
@@ -473,6 +523,12 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
           <Seg k="layout" c={c}
             options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" }]} />
         </SettingRow>
+        <SettingRow k="clean_sound" label="Clean up the sound"
+          hint="Background noise, hum, breaths, uneven levels and voice polish. Auto leaves music alone." group>
+          <Seg k="clean_sound" c={c}
+            options={[{ value: "off", label: "Off" }, { value: "auto", label: "Auto" },
+              { value: "gentle", label: "Gentle" }, { value: "strong", label: "Strong" }]} />
+        </SettingRow>
         <SettingRow k="silence" label="Silence cleanup" hint="Removes long pauses" group>
           <Seg k="silence" c={c}
             options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" },
@@ -512,11 +568,6 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
             <span>o'clock</span>
           </div>
           <Errors keys={["autopilot_active_start", "autopilot_active_end"]} errors={errors} />
-        </SettingRow>
-        <SettingRow k="trend_topics" label="Topics to look for online"
-          hint="Broad on purpose; a few are searched at a time (separate them with commas)">
-          <textarea id={fieldId("trend_topics")} rows={3} value={String(s.trend_topics ?? "")}
-            onChange={(e) => set({ trend_topics: e.target.value })} />
         </SettingRow>
         <p className="small muted">
           Everything else has a sensible default. It's under Advanced, but you don't need to change it.
@@ -612,7 +663,7 @@ function AdvancedTab({ c, health, st }: {
       <SettingsPanel id="adv-brain" title="Brain (learning)"
         intro={<>How carefully ClipForge learns from your viewers' results. These are lower limits: it never learns
           from fewer than 30 clips or changes a value by more than 10% at once. Pause, reset and roll back are in the
-          Office's <a className="textlink" href="#/">Brain Room</a>.</>}>
+          Brain room of the Studio's office (<a className="textlink" href="#/office">open the office</a>, then the Brain room).</>}>
         <SettingRow k="brain_min_clips" label="Clips before any change" errors={errors}
           hint="Mature clips in one comparable audience before a strategy may change (30 to 1,000)">
           <NumInput k="brain_min_clips" c={c} />
@@ -665,13 +716,18 @@ function AdvancedTab({ c, health, st }: {
           errors={errors}>
           <NumInput k="hook_seconds" c={c} step={0.5} />
         </SettingRow>
+        <p className="small muted">
+          The easiest way to choose a free AI service is{" "}
+          <a className="textlink" href="#/settings/ai">Settings → ClipForge AI</a> (download a model, or paste a free key).
+          The same service helps the smart video editor.
+        </p>
         <SettingRow k="ai_provider" label="AI scoring"
           hint={"Stage 1 always runs locally. Stage 2 re-scores only the strongest candidates. Ollama and LM Studio "
             + "are free; the Claude API is paid per use"}>
           <Select k="ai_provider" c={c} options={[
             { value: "heuristic", label: "Local heuristic (offline, free)" },
             { value: "ollama", label: "Ollama (local AI, free)" },
-            { value: "openai_compatible", label: "LM Studio or another OpenAI-compatible local server" },
+            { value: "openai_compatible", label: "LM Studio, a free online service, or another OpenAI-compatible server" },
             { value: "anthropic", label: "Claude API (optional, paid)" },
             { value: "nvidia", label: "NVIDIA AI (optional; set it up under Integrations)" },
           ]} />
@@ -695,7 +751,7 @@ function AdvancedTab({ c, health, st }: {
           <>
             <SettingRow k="openai_url" label="Server address"><TextInput k="openai_url" c={c} /></SettingRow>
             <SettingRow k="openai_model" label="Server model"><TextInput k="openai_model" c={c} /></SettingRow>
-            <SettingRow k="openai_api_key" label="Server API key" hint="Usually not needed for local servers">
+            <SettingRow k="openai_api_key" label="Server API key" hint="Not needed for local servers; online services need their key">
               <SecretField k="openai_api_key" c={c} removable />
             </SettingRow>
           </>
@@ -714,6 +770,18 @@ function AdvancedTab({ c, health, st }: {
         <SettingRow k="ai_max_candidates" label="Max candidates"
           hint="How many candidates per video stage 2 re-scores; caps paid calls (1 to 30)" errors={errors}>
           <NumInput k="ai_max_candidates" c={c} />
+        </SettingRow>
+        <SettingRow k="ai_edit_requests_per_day" label="AI requests a day"
+          hint={"Requests to an online AI service each day, counted one by one: every round of a ClipForge AI answer, "
+            + "its helper agents, and \u201cTell the editor what to change\u201d when ClipForge does not understand a "
+            + "request on its own (as text, never video or sound). 0 never sends one. A model on this computer never "
+            + "limits ClipForge AI; the editor's requests to it stop at this many a day"}
+          errors={errors}>
+          <NumInput k="ai_edit_requests_per_day" c={c} />
+        </SettingRow>
+        <SettingRow k="ai_edit_timeout_s" label="Editor request timeout"
+          hint="Seconds to wait for an answer before giving up; nothing is changed (5 to 300)" errors={errors}>
+          <NumInput k="ai_edit_timeout_s" c={c} />
         </SettingRow>
         <div className="row wrap" style={{ paddingBottom: 8 }}>
           <button type="button" className="btn" aria-disabled={aiDirty || checking || undefined}

@@ -7,7 +7,12 @@ opencv-python>=4.8         # face detection (YuNet), framing analysis
 scenedetect>=0.6.4         # frame-exact scene-cut detection
 numpy>=1.24
 httpx>=0.27                # talks to local LLM servers (Ollama / LM Studio)
+onnxruntime>=1.20          # "Clean up the sound": runs the small DeepFilterNet voice model on the CPU
 tzdata>=2024.1             # time zones for the scheduler (Windows has no built-in tz database)
+
+pypdf>=4.0                 # scripts given as PDF (Make a YouTube video → Your script)
+python-docx>=1.1           # scripts given as Word files
+pillow>=10.0               # Animated shorts: a scene's designed card when no picture engine is set up
 
 # Optional features (safe to remove if you never use them)
 yt-dlp>=2024.1.1           # "From URL" import of public videos (no DRM/login bypass)

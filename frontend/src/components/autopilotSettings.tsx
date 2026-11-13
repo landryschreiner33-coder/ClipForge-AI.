@@ -1,11 +1,11 @@
 import { Settings } from "../api";
 import {
-  Check, FieldCtx, NumInput, Seg, SecretField, Select, SettingRow, SettingsPanel, Switch, TextInput,
+  Check, FieldCtx, NumInput, Seg, SettingRow, SettingsPanel, Switch, TextInput,
 } from "./settingsFields";
 
 /**
- * Settings → Advanced, the Autopilot parts: details (time zone, limits, replacement, worker process), posting and
- * discovery and rights. The few choices most people need (daily target, posting hours, topics) are on Defaults,
+ * Settings → Advanced, the Autopilot parts: details (time zone, limits, replacement, worker process), posting,
+ * rights and YouTube data rules. The few choices most people need (daily target, posting hours) are on Defaults,
  * automatic publishing on Accounts, and on/off on the Autopilot page. Saved with the Settings page's save bar.
  */
 export function AutopilotSettings({ s, set, errors, saved }: {
@@ -13,20 +13,14 @@ export function AutopilotSettings({ s, set, errors, saved }: {
 }) {
   const c: FieldCtx = { s, set, errors, saved };
   const row = { errors };
-  const topics = String(s.trend_topics || "");
   return (
     <>
       <SettingsPanel id="adv-ap" title="Autopilot details"
         intro={<>Add videos in Missions to make Brain-guided clips. “Make & upload clips” authorizes passing clips
           from just that submitted video. Other posts keep their own review and publishing requirements.</>}>
-        <SettingRow k="autopilot_input_mode" label="Video intake"
-          hint="Only videos I add is the default. Automatic discovery also checks online searches and saved folders."
-          {...row}>
-          <Select k="autopilot_input_mode" c={c} options={[
-            { value: "submitted", label: "Only videos I add (link or file)" },
-            { value: "discovery", label: "Automatic discovery (optional)" },
-          ]} />
-          <span className="tiny muted">Changing intake never approves earlier clips or changes their audience.</span>
+        <SettingRow label="Video intake" hint="ClipForge works on the videos and links you add" group>
+          <span className="small muted">Only videos you add (a file or a link). Automatic searching for videos to
+            clip was removed; earlier clips, posts and approvals are unchanged.</span>
         </SettingRow>
         <SettingRow k="autopilot_review_before_publish" label="Prepare & schedule for review"
           hint={"On: ordinary posts wait for your review and approval; standing automatic-publishing permission "
@@ -95,7 +89,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
             options={[{ value: "separate", label: "Own process" }, { value: "in_app", label: "Inside the app" }]} />
         </SettingRow>
         <SettingRow label="Largest source"
-          hint="Limits for automatic discovery. Submitted links and files also have bounded file-size and duration checks."
+          hint="Bounded file-size and duration checks for the videos you add."
           group>
           <div className="inline-fields small">
             <NumInput k="autopilot_max_source_gb" c={c} label="Largest source in GB" step={0.5} width={100} />
@@ -140,79 +134,8 @@ export function AutopilotSettings({ s, set, errors, saved }: {
         </SettingRow>
       </SettingsPanel>
 
-      <SettingsPanel id="adv-disc" title="Discovery and rights"
-        intro={s.autopilot_input_mode === "submitted"
-          ? "Automatic discovery is off. These saved options apply only if you choose Automatic discovery under Video intake above. No search key is needed for videos you add."
-          : "Optional discovery uses your interests and available evidence. Review mode can prepare accessible videos without a recorded agreement. You check reuse before approving each ordinary post. Blocked videos are skipped."}>
-        <SettingRow k="discovery_quality_first" label="Quality before quantity"
-          hint="Prefer strong usable videos and keep the unfinished work queue small, even with no daily cap"
-          {...row}><Switch k="discovery_quality_first" c={c} /></SettingRow>
-        <SettingRow label="Focused search limits" group
-          hint={"Waiting for permission or files does not block usable videos. "
-            + "Your chosen folders, channels and links remain available."}
-          >
-          <div className="inline-fields small">
-            <span>New finds per pass</span><NumInput k="discovery_candidates_per_scan" c={c} width={90} />
-            <span>Unfinished finds</span><NumInput k="discovery_queue_limit" c={c} width={90} />
-            <span>Per creator</span><NumInput k="discovery_creator_limit" c={c} width={90} />
-          </div>
-          <Errors keys={["discovery_candidates_per_scan", "discovery_queue_limit", "discovery_creator_limit"]}
-            errors={errors} />
-          <a className="textlink small" href="#/missions/sources">Simple discovery controls and free search setup</a>
-        </SettingRow>
-        <SettingRow label="Region and language" hint="Two-letter country and language codes (US and en by default)"
-          group>
-          <div className="inline-fields small">
-            <TextInput k="trend_region" c={c} label="Region" width={90} />
-            <TextInput k="trend_language" c={c} label="Language for discovery" width={90} />
-          </div>
-          <Errors keys={["trend_region"]} errors={errors} />
-        </SettingRow>
-        <SettingRow label="Topics" hint="Edited on Settings, Defaults" group>
-          <span className="small muted">
-            {topics.slice(0, 160) || "None"}{topics.length > 160 ? "…" : ""}{" "}
-            <a className="textlink" href="#/settings/defaults">Change</a>
-          </span>
-        </SettingRow>
-        <SettingRow k="discovery_require_topic_match" label="Require a topic match"
-          hint="Broad searches must match your topics in the video's metadata; your chosen folders and channels stay available"
-          {...row}>
-          <Switch k="discovery_require_topic_match" c={c} />
-        </SettingRow>
-        <SettingRow k="discovery_excluded_topics" label="Topics to skip"
-          hint="Comma-separated words or phrases. Matches are skipped during automatic discovery" {...row}>
-          <TextInput k="discovery_excluded_topics" c={c} width={380} placeholder="spoilers, gambling" />
-        </SettingRow>
-        <SettingRow k="discovery_audience_terms" label="Audience context clues"
-          hint="Comma-separated subjects or places relevant to your audience. Clues improve ranking; viewer location stays unknown"
-          {...row}>
-          <TextInput k="discovery_audience_terms" c={c} width={380} />
-        </SettingRow>
-        <SettingRow k="discovery_min_source_score" label="Minimum discovery estimate"
-          hint="0–100. Wait for stronger videos when candidates fall below this; never lower the bar to fill a target"
-          {...row}>
-          <NumInput k="discovery_min_source_score" c={c} />
-        </SettingRow>
-        <SettingRow k="discovery_require_complete_clips" label="Require a complete story"
-          hint="After transcription, automatic clips need a clear hook, context and payoff; repetitive moments are skipped"
-          {...row}>
-          <Switch k="discovery_require_complete_clips" c={c} />
-        </SettingRow>
-        <p className="tiny muted">A US search setting is a request, not proof of a US audience. Reported language
-          is checked when available; unknown language is confirmed from transcription. Clip quality is assessed
-          after the video is read. Scores are estimates and do not predict virality.</p>
-        <SettingRow k="trend_poll_minutes" label="Check trends every"
-          hint={"Regular interval in minutes. When the work queue has room, discovery checks again within 15 "
-            + "minutes; service limits and requested waits still apply"} {...row}>
-          <NumInput k="trend_poll_minutes" c={c} />
-        </SettingRow>
-        <SettingRow k="trend_max_age_hours" label="Consider videos up to" hint="Hours old" {...row}>
-          <NumInput k="trend_max_age_hours" c={c} />
-        </SettingRow>
-        <SettingRow k="youtube_api_key" label="YouTube Data API key"
-          hint="Optional: discovery without a connected account (same project quota)" {...row}>
-          <SecretField k="youtube_api_key" c={c} removable placeholder="AIza…" />
-        </SettingRow>
+      <SettingsPanel id="adv-disc" title="Rights and YouTube data"
+        intro="How recorded permissions are used for the videos you add, and YouTube's data rules. No search key is needed for videos you add.">
         <SettingRow k="youtube_derived_metrics_approved" label="Google approved derived metrics" {...row}
           hint={"Only if Google accepted your project under YouTube's additional policies for derived metrics and "
             + "data storage"}>
@@ -224,31 +147,6 @@ export function AutopilotSettings({ s, set, errors, saved }: {
             shown exactly as reported. With it on, the statistics of your own videos are also kept longer while your
             channel stays connected; public data about other videos is still deleted after 30 days.
           </span>
-        </SettingRow>
-        <SettingRow k="tavily_api_key" label="Web search (Tavily) key" {...row}
-          hint={"Optional: finds public TikTok links for your topics and the long YouTube videos behind popular "
-            + "clips. It gives titles and links, not TikTok statistics"}>
-          <SecretField k="tavily_api_key" c={c} removable placeholder="tvly-…" />
-          <span className="small muted">Optional free plan: 1,000 basic search credits each month, no credit card.
-            {" "}<a className="textlink" href="https://app.tavily.com" target="_blank" rel="noreferrer">
-              Get a free Tavily key</a>. Leave the monthly paid-search limit at $0 for free-only app usage.</span>
-        </SettingRow>
-        <SettingRow k="tavily_free_credits" label="Web search credits included"
-          hint="Per month in your Tavily plan (the free plan: 1,000; one search = 1 credit)" {...row}>
-          <NumInput k="tavily_free_credits" c={c} />
-        </SettingRow>
-        <SettingRow k="discovery_monthly_budget_usd" label="Monthly cost limit"
-          hint="US dollars for paid searches beyond the included credits. 0 = never spend money" {...row}>
-          <div className="inline-fields small">
-            <NumInput k="discovery_monthly_budget_usd" c={c} step={1} />
-            <span>US dollars a month</span>
-          </div>
-        </SettingRow>
-        <SettingRow k="library_discovery" label="Free-license library"
-          hint={"Search Wikimedia Commons for videos their authors released under a free license (public domain, "
-            + "CC0, CC BY)"}
-          {...row}>
-          <Switch k="library_discovery" c={c} />
         </SettingRow>
         <SettingRow label="Recorded reuse coverage" group
           hint={"Which recorded permissions are accepted. Review mode still waits for your approval on every post. "
@@ -274,10 +172,6 @@ export function AutopilotSettings({ s, set, errors, saved }: {
             + "when today's plan is short"}>
           <Switch k="rights_ask_per_video" c={c} />
         </SettingRow>
-        <SettingRow k="autopilot_public_videos" label="Find public videos to clip" {...row}
-          hint="Automatically picks accessible public internet videos. Clips stay in your Library; posting still needs reuse permission.">
-          <Switch k="autopilot_public_videos" c={c} />
-        </SettingRow>
         <SettingRow k="rights_allow_remote_download" label="Download authorized platform sources" {...row}
           hint="With the address importer, for sources that pass the permission check">
           <Switch k="rights_allow_remote_download" c={c} />
@@ -295,23 +189,6 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           </div>
           <Errors keys={["youtube_quota_default", "youtube_quota_uploads", "youtube_quota_search"]} errors={errors} />
         </SettingRow>
-        <SettingRow label="Discovery may use" group
-          hint="Share of each daily allowance; the rest is kept for publishing, statistics and account checks">
-          <div className="inline-fields small">
-            <NumInput k="youtube_discovery_share" c={c} label="Discovery share of quota units in percent"
-              width={90} />
-            <span>% of units</span>
-            <NumInput k="youtube_search_discovery_share" c={c} label="Discovery share of searches in percent"
-              width={90} />
-            <span>% of searches</span>
-          </div>
-          <Errors keys={["youtube_discovery_share", "youtube_search_discovery_share"]} errors={errors} />
-        </SettingRow>
-        <p className="tiny faint">
-          Not available and never scraped: Google Trends (the official API is an application-only alpha) and a TikTok
-          trend API (TikTok has none for general developers). TikTok numbers are never guessed: without an official
-          source they are shown as unknown.
-        </p>
       </SettingsPanel>
     </>
   );

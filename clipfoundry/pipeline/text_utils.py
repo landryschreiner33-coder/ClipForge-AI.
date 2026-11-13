@@ -38,7 +38,8 @@ HOOK_PHRASES = ["here's", "here is", "the truth", "the problem", "the reason", "
                 "the biggest", "the most", "i never", "i remember", "the first time", "this is why",
                 "this is how", "stop doing", "the key", "the one thing", "number one", "most people",
                 "you won't believe", "the thing is", "let me explain", "i'll tell you", "here's why",
-                "here's how", "the moment", "turns out", "what nobody"]
+                "here's how", "the moment", "turns out", "what nobody", "i spent", "i tried", "i tested",
+                "here's what happened", "here is what happened"]
 
 EMOTION_WORDS = {"love", "hate", "scared", "afraid", "fear", "angry", "happy", "sad", "cried", "cry", "crying",
                  "hurt", "pain", "amazing", "incredible", "unbelievable", "insane", "crazy", "terrible",
@@ -59,7 +60,8 @@ PAYOFF_PHRASES = ["that's why", "that is why", "which means", "the point is", "t
 TRANSITION_PHRASES = ["anyway", "moving on", "move on", "let's move", "next week", "next time", "that's all",
                       "that is all", "on another note", "speaking of which", "by the way", "let's talk about",
                       "next up", "switching gears", "one more thing", "last thing", "before we get into",
-                      "before we start", "let's get into", "let's jump", "back to"]
+                      "before we start", "let's get into", "let's jump", "back to", "furthermore", "my next point",
+                      "the next point", "on to the next"]
 
 # Sentences that set something up (great openers, weak endings).
 SETUP_PHRASES = ["let me tell you", "here's", "here is", "what if", "i'll tell you", "let me explain", "let me show",
@@ -79,10 +81,20 @@ OPEN_LOOP_PHRASES = ["here's why", "here is why", "here's how", "here is how", "
                      "the truth", "the problem is", "the problem with", "most people", "the mistake", "the one thing",
                      "the biggest", "what happened", "wait for it", "let me tell you", "i'll tell you",
                      "here's the thing", "here's what", "what if", "did you know", "the key", "the craziest",
-                     "you need to know", "stop doing"]
+                     "you need to know", "stop doing", "i spent", "i tried", "i tested", "we tested", "for 30 days",
+                     "for a week", "for a month", "for a year", "here's what happened", "here is what happened",
+                     "on a budget", "with only"]
 
 CONTRAST_WORDS = {"but", "actually", "instead", "however", "wrong", "except", "although", "yet", "surprisingly",
                   "unexpected", "opposite", "myth", "mistake", "wasn't", "isn't", "didn't", "doesn't"}
+
+# The causal engine (the short-form retention guide): beats joined by "but" and "therefore" keep a viewer guessing
+# where the story goes; a chain of "and then... and then" lets them see it coming.
+CAUSAL_WORDS = {"but", "because", "except", "until", "instead", "however", "therefore", "unless", "although"}
+CAUSAL_PHRASES = ["which meant", "which means", "that's why", "that is why", "turns out", "it turned out", "the catch",
+                  "the problem was", "which is why", "little did", "then suddenly", "out of nowhere", "so that"]
+EPISODIC_PHRASES = ["and then", "after that", "then we", "then i", "then he", "then she", "then they", "and after",
+                    "and later", "the next day", "and also", "and next"]
 
 INTENSIFIERS = {"so", "really", "literally", "absolutely", "completely", "totally", "never", "always", "insane",
                 "crazy", "extremely", "incredibly", "seriously", "honestly", "massive", "huge", "every", "nothing",
@@ -97,6 +109,26 @@ BACKREF_PHRASES = ["as i said", "like i said", "as i mentioned", "like i mention
 # A sentence that starts as a reply to someone else.
 RESPONSE_STARTS = {"exactly", "yes", "yeah", "yep", "no", "nope", "right", "absolutely", "true", "correct",
                    "definitely", "totally", "agreed", "sure", "mhm", "precisely"}
+
+# Lines that announce the end of a video ("to recap", "follow for part two"): the retention cliff at the end. A
+# short stops on its payoff instead.
+OUTRO_PHRASES = ["to recap", "in conclusion", "to sum up", "to summarize", "to summarise", "in summary",
+                 "let me know in the comments", "comment below", "in the comments below", "follow for part",
+                 "follow for more", "thanks for watching", "thank you for watching", "see you next time",
+                 "see you in the next", "see you guys", "that's it for today", "that's all for today",
+                 "that is all for today", "don't forget to subscribe", "like and subscribe", "hit the like",
+                 "until next time", "catch you next time", "peace out", "that's a wrap", "stay tuned",
+                 "link in my bio", "link in bio"]
+
+# Loss or warning framing ("stop doing this", "the mistake that costs you") hooks better than a promise.
+LOSS_WORDS = {"stop", "never", "mistake", "mistakes", "wrong", "lose", "losing", "lost", "loses", "ruin", "ruins",
+              "ruined", "ruining", "kill", "kills", "killing", "waste", "wasting", "wasted", "danger", "dangerous",
+              "warning", "fail", "fails", "failing", "cost", "costs", "costing", "avoid", "worst", "trap", "scam",
+              "broke", "quit", "hurt", "hurts", "destroy", "destroys", "destroying", "miss", "missing", "regret"}
+LOSS_PHRASES = ["stop doing", "don't do", "do not do", "never do", "the mistake", "this mistake", "you're losing",
+                "you are losing", "costs you", "cost me", "is killing", "is ruining", "will ruin", "the worst",
+                "biggest mistake", "wasting your", "before it's too late", "you'll regret", "nobody warns",
+                "no one warns", "a warning", "stop wasting", "you're wasting", "don't make", "do not make"]
 
 # Promotional housekeeping that rarely works in a short.
 PROMO_PHRASES = ["subscribe", "sponsor", "link in the description", "in the description", "patreon",
