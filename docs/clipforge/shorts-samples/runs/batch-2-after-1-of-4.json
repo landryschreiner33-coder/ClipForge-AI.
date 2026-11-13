@@ -23,6 +23,19 @@
    ],
    "seconds": 756.2,
    "model": "flux2-klein-4b"
+  },
+  "after/scene-08": {
+   "prompt": "Medium shot: the tiny robot's eyes glowing bright blue again, a small smile, one finger raised. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "seed": 1390628380,
+   "size": [
+    448,
+    800
+   ],
+   "references": [
+    "after/character"
+   ],
+   "seconds": 796.5,
+   "model": "flux2-klein-4b"
   }
  },
  "notes": [
@@ -30,7 +43,8 @@
   "20:26:31 ComfyUI is running (14.8 GB memory and 28.3 GB swap free)",
   "20:29:48 the model is downloaded (14.9 GB memory and 28.3 GB swap free)",
   "20:37:41 made after/character in 465.5 s (4.6 GB memory and 20.3 GB swap free)",
-  "20:50:24 made after/scene-04 in 756.2 s (14.6 GB memory and 27.5 GB swap free)"
+  "20:50:24 made after/scene-04 in 756.2 s (14.6 GB memory and 27.5 GB swap free)",
+  "21:03:48 made after/scene-08 in 796.5 s (5.6 GB memory and 18.8 GB swap free)"
  ],
  "batch": "batch-2-after.json",
  "pins": {
