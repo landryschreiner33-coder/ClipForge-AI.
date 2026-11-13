@@ -707,9 +707,11 @@ def closest(ws: str, q: str, project_id: str = "") -> dict | None:
     before another video's own note when it holds a word named and at least as much of the words named as that
     note, or fits exactly as well: the chat of a video is about what holds in it, however new another video's note
     is and however close its other words are. A note of another video that holds more of the words named stays the
-    best match (the owner named it), and so does one beside a match that shares no word with the request, and a
-    rule or a fact beside what ClipForge AI only noted in this video (an episode of a change made here, an asset,
-    an answer): the request names something to hold no longer, and OK would have removed the log line instead."""
+    best match (the owner named it), and so does one beside a match that shares no word with the request. What
+    ClipForge AI only noted in this video (an episode of a change made here, an asset, an answer) comes before
+    another video's rule or fact only when it holds more of the words named ("the captions size change you
+    applied" names the change's log line): with no more of them ("the caption rule") the request is about
+    something taught, and OK would have removed the log line instead."""
     rows = db.select("brain_memories", "workspace_id = ?", (ws,), "created_at DESC") if str(q).strip() else []
     floor = meaning.min_similar()
     found = [(s, r) for r, s in zip(rows, _scores(q, rows)) if s[1] > 0 or s[2] >= floor]
@@ -719,9 +721,13 @@ def closest(ws: str, q: str, project_id: str = "") -> dict | None:
     (score, words, _), best = found[0]
     here = {r["id"] for r in meant([r for _, r in found], project_id)}
     if best["id"] not in here:  # another video's own note, while a memory that applies in this video matches too
+        taught = best["kind"] in LASTING
         for s, r in found:
-            if r["id"] in here and (r["kind"] in LASTING or best["kind"] not in LASTING) and (
-                    round(s[1], 6) >= round(words, 6) and s[1] > 0 or round(s[0], 4) == round(score, 4)):
+            if r["id"] not in here:
+                continue
+            more = round(s[1], 6) > round(words, 6)  # of the words named than that note holds: the owner named it
+            as_much = round(s[1], 6) == round(words, 6) and s[1] > 0 or round(s[0], 4) == round(score, 4)
+            if more or as_much and (r["kind"] in LASTING or not taught):
                 return view(r)
     return view(best)
 

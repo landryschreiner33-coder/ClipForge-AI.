@@ -1060,15 +1060,19 @@ def test_the_closest_memory_in_a_videos_chat_applies_there_unless_another_videos
     assert memories.closest(WS, "the intro", "hike")["id"] == mine["id"]
 
 
-def test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_taught_another(data, monkeypatch):
-    """What ClipForge AI noted itself in a video (an episode: "Asked … → applied: …", an asset, an answer) does not
-    come before a rule or a fact of another video that the search ranks first: "forget the caption rule" asks for
-    something the owner taught, and OK on a card for the log line removed that instead. What the owner taught this
-    video still comes before another video's note, and a log line here before another video's log line."""
+def test_this_videos_log_line_comes_before_what_another_video_was_taught_only_with_more_of_the_words(data, monkeypatch):
+    """What ClipForge AI noted itself in a video (an episode: "Asked … → applied: …", an asset, an answer) comes
+    before a rule or a fact of another video that the search ranks first only when it holds more of the words named.
+    "forget the caption rule" asks for something the owner taught, and OK on a card for the log line removed that
+    instead. "forget the captions size change you applied" names the log line: for one round no log line came first,
+    the card was for the other video's rule, and OK forgot a rule nobody had named. What the owner taught this video
+    still comes before another video's note that holds no more of the words, and a log line here before another
+    video's log line."""
     from clipfoundry import brain
     from clipfoundry.brain import memories
 
-    names = {"log": brain.episode(WS, 'Asked "make the captions bigger" → applied: Captions are larger',
+    names = {"every": brain.remember(WS, "keep the voice louder than the music", kind="rule"),
+             "log": brain.episode(WS, 'Asked "make the captions bigger" → applied: Captions are larger',
                                   project_id="hike"),
              "theirs": brain.remember(WS, "no captions in the outro", kind="rule", project_id="beach"),
              "their_log": brain.episode(WS, 'Asked "captions off" → applied: No captions', project_id="beach"),
@@ -1082,7 +1086,12 @@ def test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_
         return next(name for name, m in names.items() if found and m["id"] == found["id"])
 
     assert closest(theirs=(0.9, 0.2, 0.9), log=(0.4, 0.2, 0.1)) == "theirs"  # a log line is not what was taught
-    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.4, 0.9, 0.1)) == "theirs"  # however many of the words it holds
+    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.9, 0.1, 0.9)) == "theirs"  # nor when it fits exactly as well
+    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.4, 0.9, 0.1)) == "log"  # more of the words named: it was named
+    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.4, 0.21, 0.1)) == "log"
+    # ... and then it is that log line, not the next memory down the list that applies here
+    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.5, 0.35, 0.1), every=(0.4, 0.2, 0.1)) == "log"
+    assert closest(theirs=(0.9, 0.2, 0.9), log=(0.5, 0.2, 0.1), every=(0.4, 0.2, 0.1)) == "every"
     assert closest(theirs=(0.9, 0.2, 0.9), log=(0.4, 0.2, 0.1), fact=(0.3, 0.2, 0.0)) == "fact"  # a fact was taught
     assert closest(their_log=(0.9, 0.2, 0.9), log=(0.4, 0.2, 0.1)) == "log"  # among log lines: the one of this video
     assert closest(their_log=(0.9, 0.2, 0.9), fact=(0.4, 0.2, 0.1)) == "fact"
@@ -1091,6 +1100,35 @@ def test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_
     assert memories.closest(WS, "the caption rule", "hike")["id"] == names["fact"]["id"]
     brain.forget(WS, names["fact"]["id"])
     assert memories.closest(WS, "the caption rule", "hike")["id"] == names["theirs"]["id"]  # not this video's log
+
+
+def test_a_change_named_by_words_only_its_log_line_holds_is_the_closest_memory_in_its_video(data):
+    """The same with the real search and the log lines as the app writes them: Beach's rule, said by the owner,
+    ranks a touch above the log line of Hike's caption change for "the captions size change you applied", which
+    holds almost twice as much of those words. In Hike's chat that log line is the closest memory. Named by no more
+    than the rule holds ("the caption rule", "the captions change"), the rule is, as in the general chat."""
+    from clipfoundry import brain, db
+    from clipfoundry.brain import memories
+
+    rule = brain.remember(WS, "no captions in the outro", kind="rule", project_id="beach")
+    brain.remember(WS, "keep the voice louder than the music", kind="rule")
+    log = brain.episode(WS, 'Asked "make the captions bigger" → applied as version 2: Captions are larger',
+                        project_id="hike", data={"request_id": "r-2", "source": "chat"})
+    for project_id, line in (
+            ("hike", 'Asked "move the summit part before lunch" → applied as version 3: The summit part comes before '
+                     "lunch"),
+            ("beach", 'Asked "cut the first clip" → applied as version 2: The first clip is cut'),
+            ("city", 'Asked "start with the skyline" → applied as version 2: The skyline opens the video')):
+        brain.episode(WS, line, project_id=project_id)
+    rows = db.select("brain_memories", "workspace_id = ?", (WS,))
+    for named in ("the captions size change you applied", "the captions edit from version 2"):
+        score = {r["id"]: s for r, s in zip(rows, memories._scores(named, rows))}
+        assert score[rule["id"]][0] > score[log["id"]][0], named  # the search alone: Beach's rule
+        assert score[rule["id"]][1] < score[log["id"]][1], named  # the words named: Hike's log line
+        assert memories.closest(WS, named, "hike")["id"] == log["id"], named
+        assert memories.closest(WS, named)["id"] == rule["id"], named  # the general chat: the search's best match
+    for named in ("the caption rule", "the captions change", "the captions note"):
+        assert memories.closest(WS, named, "hike")["id"] == rule["id"], named
 
 
 def test_a_memory_an_older_build_moved_is_listed_for_the_video_it_is_kept_for(data):

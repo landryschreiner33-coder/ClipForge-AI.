@@ -956,7 +956,8 @@ Landry's projects, could never do anything, and without a downloaded model only 
     removed the log line: the round before lets a match that applies in this video come first. What ClipForge AI
     only noted in a video (an episode, an asset, an answer) no longer comes before another video's rule or fact.
     A rule or a fact of this video still does, and so does this video's log line before another video's log
-    line (`memories.closest`, `LASTING`).
+    line (`memories.closest`, `LASTING`). The next entry narrows this to a log line that holds no more of the
+    words named.
   - Tests that fail without a rule: 32 rules of this round were each taken out of a copy of the code and the
     brain and safety tests run against it. 28 failed a test at once. Four did not, and each got the test it
     lacked: a note the file lists without an id before the newer words of a memory this brain has (only the
@@ -964,8 +965,8 @@ Landry's projects, could never do anything, and without a downloaded model only 
     without an id beside a memory for every video that the file lists too (the last one in the commit after
     6145499, which changes tests only). The 26 of the round before were run again on this code, three of them
     with the text this round changed. Every one fails a test now.
-  - These fixes were not read by another reviewer, for the same reason there was one reviewer and not four.
-    They rest on the tests written first, on the breakages above and on the full suites.
+  - These fixes rest on the tests written first, on the breakages above and on the full suites. The review
+    they got afterwards is the next entry.
   - Docs: CLIPFORGE_AI.md (which of a brain file's memories count against each other, its ids, `enabled`, the
     extra data, the `forget` tool's search) and the handoff. No change to the privacy page: what is stored,
     sent, kept and deleted did not change.
@@ -976,6 +977,58 @@ Landry's projects, could never do anything, and without a downloaded model only 
     `test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_taught_another` (new) and
     `test_a_brain_file_changes_the_memories_it_knows_before_it_adds_the_rest` in
     `tests/test_clipforge_ai_brain.py`;
+    `test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first` in
+    `tests/test_clipforge_ai_safety.py`. No frontend change.
+- **A review of those fixes** (6145499 and 8a6cc21). Two reviewers were set on the two risky parts, reading a
+  brain file back and the Forget card's search, and a second reader was to reproduce each finding. The session's
+  usage ran out while they worked: the brain-file reviewer stopped before it reported, the Forget-card reviewer
+  finished with three findings.
+  - The Forget card's new rule went too far. Asked in a video's chat to forget a change ClipForge AI applied
+    there, by words only that change's log line holds ("forget the captions size change you applied"), the card
+    was for another video's rule ("no captions in the outro", for “Beach” only), and OK forgot that rule: a log
+    line of this video never came before another video's rule or fact, however many more of the words named it
+    held. Of 540 natural wordings of such a request 88 gave the other video's rule (none before that round),
+    and with a caption rule for every video in the brain the card could be for that one, ranked third. What
+    ClipForge AI only noted in a video now comes before another video's rule or fact when it holds more of the
+    words named, and only then: with no more of them ("forget the caption rule") the card is still for what was
+    taught (`memories.closest`). The second reader had called this documented behaviour. It forgot a rule nobody
+    had named, so it is fixed.
+  - Checked on the fixed code: none of the 540 wordings gives the other video's rule (the reviewer's own
+    probes). Over 40,000 random cases of memories and scores the choice differs from the code before that round
+    only where a log line of this video holds no more of the words named than another video's rule or fact, and
+    from that round's code only where it holds more.
+  - Left as it is (the third finding, also in the code before that round): the kind is looked at only in the
+    search. When the words named are a whole part of both memories ("forget captions"), the card is for the
+    newest memory that holds them and applies in this chat, which can be this video's log line
+    (`memories.holding`). The card names it, and nothing goes without OK.
+  - Reading a brain file back, checked by me in the reviewer's place. Its unfinished probes run to the end: a
+    fuzzed file of 753 entries through the route, 3,735 cases of ids that another workspace holds, and about
+    21,900 small brains and files in every order. They flag only what the docs describe (a memory in that very
+    place makes an entry known whatever its state; entries without an id go by their words). A probe of my own
+    compares every order of a file with a model written from the rules in the docs, not from the code: 15,212
+    random brains and files as Export writes them (124,056 orders, each read twice), and 5,766 hand-made ones
+    with ids taken off (47,590 orders) for the promises that hold for those too (a second read adds nothing,
+    nothing is removed, a memory the file does not name is unchanged, nothing is followed where neither the
+    brain nor the file had it). No difference. The same probe finds the fault the round fixed (a switched-off
+    twin that did not come back) in the code before the round within seconds.
+  - Known and left, each as released or for hand-made files only: an entry that names a memory this brain has,
+    with a higher revision, is read as the whole memory, so one that leaves out where it applies or whether it
+    is on makes it a memory for every video, switched on (a file Export writes carries every field). A memory
+    in that very place makes an entry known whatever its state, also a guess or one that ran out, until Tidy
+    removes it. Of two entries that say the same words in the same place, of which one has no id, the one
+    listed first is kept.
+  - Tests that fail without a rule: the new rule was broken 13 ways, each in a copy of the code. Every one
+    fails a test.
+  - No other reviewer read this fix: a third review would have spent the usage the checks need. It rests on
+    the tests written first, the 13 breakages, the two comparisons above and the full suites.
+  - Docs: CLIPFORGE_AI.md (the `forget` tool's search) and the handoff. No change to the privacy page: what is
+    stored, sent, kept and deleted did not change.
+  - Tests: `test_this_videos_log_line_comes_before_what_another_video_was_taught_only_with_more_of_the_words`
+    (the round's `test_the_closest_memory_is_never_this_videos_log_line_before_what_the_owner_taught_another`
+    under a new name, its "however many of the words it holds" turned around) and
+    `test_a_change_named_by_words_only_its_log_line_holds_is_the_closest_memory_in_its_video` (new) in
+    `tests/test_clipforge_ai_brain.py`; `test_a_forget_card_is_for_this_videos_log_line_when_the_words_name_it`
+    (new: the chat, the card and its OK) and
     `test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_first` in
     `tests/test_clipforge_ai_safety.py`. No frontend change.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the

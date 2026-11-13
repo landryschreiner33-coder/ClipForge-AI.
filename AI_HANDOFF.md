@@ -150,8 +150,8 @@ Without a model the old rules still answer, and the chat offers the built-in mod
   words that are a part of memories the card is for the newest that applies in this chat, before any newer notes
   of other videos (`memories.holding` with the chat's video), and for a description no memory says or holds for
   the search's best match, in a video's chat one that applies there before another video's note that holds no
-  more of the words named, but never a log line of this video before another video's rule or fact
-  (`memories.closest`, `LASTING`); `toolbox._memories_for`);
+  more of the words named; a log line of this video comes before another video's rule or fact only when it holds
+  more of the words named (`memories.closest`, `LASTING`); `toolbox._memories_for`);
   without a model "forget …" lists first the memories that say exactly the words named, then those that hold them
   as whole words (`memories.holding`: any script, a part of the words wherever it stands in a script written
   without spaces, numbers, short words), then the search's, reading the words also without "the rule about" in

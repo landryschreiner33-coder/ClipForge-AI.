@@ -481,10 +481,59 @@ def test_a_forget_card_for_a_description_is_about_a_memory_that_applies_here_fir
         memories.forget(WS, m["id"])
     memories.remember(WS, "the channel is about hiking", kind="fact")
     assert card(hike, "the caption rule") == ([theirs["id"]], for_beach)
-    # nor does what ClipForge AI noted itself in this video (the log line of a change it made here)
+    # nor does what ClipForge AI noted itself in this video (the log line of a change it made here), named by no
+    # more of the words than the rule holds
     memories.episode(WS, 'Asked "make the captions bigger" → applied: Captions are larger', project_id=hike)
     assert card(hike, "the caption rule") == ([theirs["id"]], for_beach)
     assert card(hike, "the rule about captions") == ([theirs["id"]], for_beach)
+
+
+def test_a_forget_card_is_for_this_videos_log_line_when_the_words_name_it(data, monkeypatch):
+    """Asked in a video's chat to forget a change ClipForge AI applied there, by words only that change's log line
+    holds ("the captions size change you applied"), the card is for that log line: it holds more of the words named
+    than another video's rule, which the search ranks a touch higher (what the owner said weighs a little more).
+    For one round a log line never came before another video's rule: the card was for Beach's rule, and OK forgot a
+    rule nobody had named. The memories are made as the app makes them, and the card is pressed."""
+    from clipfoundry import brain, db
+    from clipfoundry.brain import chat, memories, toolbox
+    from clipfoundry.brain.tools import Ctx
+    from clipfoundry.studio import edit_requests
+
+    hike, beach, city = (db.insert("studio_projects", {"workspace_id": WS, "name": name, "status": "ready"})["id"]
+                         for name in ("Hike", "Beach", "City"))
+
+    def applied(project_id: str, version: int, asked: str, summary: str) -> None:  # as the app notes a change
+        edit_requests._remember_outcome(
+            {"id": f"req-{project_id}-{version}", "workspace_id": WS, "project_id": project_id, "text": asked,
+             "source": "chat", "proposal": {"summary": summary}}, f"applied as version {version}")
+
+    for project_id, said in ((beach, "no captions in the outro"), ("", "keep the voice louder than the music")):
+        toolbox._remember(Ctx(ws=WS, project_id=project_id, owner_text=said),
+                          {"text": said, "kind": "rule", "scope": "this_video" if project_id else "all"})
+    applied(hike, 2, "make the captions bigger", "Captions are larger")
+    applied(hike, 3, "move the summit part before lunch", "The summit part comes before lunch")
+    applied(beach, 2, "cut the first clip", "The first clip is cut")
+    applied(city, 2, "start with the skyline", "The skyline opens the video")
+    before = {m["text"]: m for m in brain.list_(WS)}
+    assert len(before) == 6
+    rule = before["no captions in the outro"]
+    log = before['Asked "make the captions bigger" → applied as version 2: Captions are larger']
+    assert (rule["kind"], rule["scope"], log["kind"], log["scope"]) == (
+        "rule", f"project:{beach}", "episode", f"project:{hike}")
+    asked = "the captions size change you applied"
+    scores = {m["id"]: m["score"] for m in memories.list_(WS, q=asked)}
+    assert scores[rule["id"]] > scores[log["id"]]  # by the search alone it would be Beach's rule
+    shown = toolbox._forget_preview(Ctx(ws=WS, project_id=hike), {"memory": "the caption rule"})
+    assert shown["args"]["memory_ids"] == [rule["id"]]  # named by no more than the rule holds: what was taught
+    install(monkeypatch, say("Shall I forget it?", ("forget", {"memory": asked})))
+    c = chat.open_chat(WS, hike)
+    m = settled(c["id"], _say(c["id"], f"forget {asked}")["id"])
+    card = m["data"]["pending"][0]
+    assert (card["label"], card["state"]) == (f"Forget “{log['text']}”", "waiting")
+    assert card["detail"] == ["It is an episode you taught me, for “Hike” only."]
+    done = chat.decide(WS, c["id"], m["id"], card["id"], True)["data"]["pending"][0]
+    assert (done["state"], done["result"]) == ("done", f"Forgot “{log['text']}”")
+    assert {m["text"] for m in brain.list_(WS)} == set(before) - {log["text"]}  # Beach's rule is still there
 
 
 def test_a_forget_card_looks_past_any_number_of_newer_notes_of_other_videos(data):
