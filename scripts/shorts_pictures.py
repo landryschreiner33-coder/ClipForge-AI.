@@ -9,10 +9,14 @@ of the batch with the graph the app sends (clipfoundry/engines/graphs.py). Each 
 as soon as it is made, with a line in <out>/report.json (the words, the seed, the size, the seconds), so a run that
 is cut short keeps what it made. --push commits and pushes <out> after every picture (the workflow's own checkout).
 
-The batch file: {"model": "flux2-klein-4b", "width": 576, "height": 1024,
+The batch file: {"model": "flux2-klein-4b", "width": 448, "height": 800,
                  "items": [{"name": "after/scene-01", "prompt": "...", "negative": "", "seed": 7,
-                            "references": ["after/character"]}]}
-`references` are pictures made earlier in the same batch (by name) that the model is shown while it draws.
+                            "references": ["after/character"], "width": 432, "height": 576}]}
+`references` are pictures of the batch (by name) that the model is shown while it draws: made earlier in this run, or
+already in <out>. A batch can be shared between machines: --part 1/3 makes every third picture, starting at the
+second, and a machine that needs a picture another one is making waits for it to arrive on the branch (--push).
+Each machine keeps its own notes in <out>/runs/ (what it did when, how much memory was left), pushed as it goes, so
+a machine that dies still says how far it got.
 Nothing of this computer's ClipForge is touched; everything goes into --data (a temporary folder by default).
 """
 from __future__ import annotations
@@ -36,12 +40,41 @@ def log(*parts) -> None:
     print(*parts, flush=True)
 
 
+def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=check)
+
+
+def _branch() -> str:
+    return os.environ.get("GITHUB_REF_NAME") or git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+
+
+def _memory() -> str:
+    """How much memory and swap this machine has left, for the notes."""
+    try:
+        rows = dict(line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
+        gb = {k: round(int(rows[k].split()[0]) / 1e6, 1) for k in ("MemAvailable", "SwapFree") if k in rows}
+        return f"{gb.get('MemAvailable', '?')} GB memory and {gb.get('SwapFree', '?')} GB swap free"
+    except (OSError, ValueError):
+        return ""
+
+
+def _reference(ref: str, out: Path, pngs: Path, pull: bool, minutes: int = 180) -> Path:
+    """The picture `ref` of the batch: made in this run, or in <out>, or (with --push) once another machine has
+    pushed it."""
+    png, jpg = pngs / f"{ref}.png", out / f"{ref}.jpg"
+    deadline = time.time() + minutes * 60
+    while not png.is_file() and not jpg.is_file():
+        if not pull or time.time() > deadline:
+            raise RuntimeError(f"the reference picture {ref!r} is not there")
+        time.sleep(60)
+        pulled = git("pull", "--rebase", "--autostash", "origin", _branch(), check=False)
+        log(f"waiting for {ref}: pulled {pulled.returncode}")
+    return png if png.is_file() else jpg
+
+
 def _push(folder: Path, message: str) -> None:
     """Commit `folder` and push it to the branch that is checked out (other pushes may have landed meanwhile)."""
-    def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=check)
-
-    branch = os.environ.get("GITHUB_REF_NAME") or git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    branch = _branch()
     git("add", "--", str(folder))
     if not git("diff", "--cached", "--quiet", check=False).returncode:
         return
@@ -62,7 +95,9 @@ def main() -> int:
     ap.add_argument("--data", default="")
     ap.add_argument("--push", action="store_true", help="commit and push --out after every picture")
     ap.add_argument("--only", default="", help="make only the items whose name starts with this")
+    ap.add_argument("--part", default="0/1", help="i/n: make every n-th picture of the batch, starting at the i-th")
     args = ap.parse_args()
+    part, parts = (int(x) for x in args.part.split("/"))
 
     spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
     out = Path(args.out).resolve()
@@ -78,19 +113,35 @@ def main() -> int:
     from clipfoundry.engines import catalog, comfy_server, graphs, models, tasks
     from clipfoundry.engines.comfy import Comfy
 
-    report_path = out / "report.json"
+    report_path = out / "runs" / f"{Path(args.spec).stem}-{part + 1}-of-{parts}.json"   # this machine's own notes
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     report: dict = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
     report.setdefault("pictures", {})
+    report.setdefault("notes", [])
     report["batch"] = Path(args.spec).name
+
+    def note(text: str) -> None:
+        """A line in this machine's notes, pushed at once: what it did last, should it die."""
+        line = f"{time.strftime('%H:%M:%S', time.gmtime())} {text} ({_memory()})"
+        log(line)
+        report["notes"].append(line)
+        report_path.write_text(json.dumps(report, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
+        if args.push:
+            try:
+                _push(out, f"Sample pictures: {text[:60]} ({report_path.stem})")
+            except (RuntimeError, subprocess.CalledProcessError) as exc:
+                log(f"the notes could not be pushed: {exc}")
+
     model = catalog.by_id(spec.get("model") or "flux2-klein-4b")
     if model is None or model.role != "image":
         raise SystemExit(f"no picture model {spec.get('model')!r}")
     width, height = int(spec.get("width") or 576), int(spec.get("height") or 1024)
-    items = [i for i in spec["items"] if i["name"].startswith(args.only)]
+    items = [i for i in spec["items"] if i["name"].startswith(args.only)][part::parts]
     todo = [i for i in items if not (out / f"{i['name']}.jpg").is_file()]
     log(f"{len(todo)} of {len(items)} pictures to make with {model.name} at {width}x{height}")
     if not todo:
         return 0
+    note(f"started: {len(todo)} pictures to make")
 
     run = lec.Run(out)
     pngs = data / "sample-pngs"
@@ -101,26 +152,25 @@ def main() -> int:
         lec.setup_comfy(report)
         extra = ["--bf16-unet"] if comfy_server.torch_flavor() != "cuda" else []  # 16 GB machines: bf16 on the processor
         lec.start_comfy(run, report, extra)
+        note("ComfyUI is running")
         started = time.time()
         view = tasks.start(f"Downloading {model.name} (samples)", models.install_steps(model, "clipforge", None),
                            wait=True)
         if view["state"] != "done" or models.missing(model, "clipforge", None):
             raise RuntimeError(f"downloading {model.name} failed: {view.get('error')}")
         report["download_seconds"] = round(time.time() - started)
+        note("the model is downloaded")
         client = Comfy(run.base, timeout=120)
-        w, h = graphs.picture_size(model, width, height)
         for item in todo:
             name = item["name"]
+            w, h = graphs.picture_size(model, int(item.get("width") or width), int(item.get("height") or height))
             dest = out / f"{name}.jpg"
             dest.parent.mkdir(parents=True, exist_ok=True)
             started = time.time()
             try:
-                refs = []
-                for ref in item.get("references") or []:
-                    src = pngs / f"{ref}.png"
-                    if not src.is_file():
-                        raise RuntimeError(f"the reference picture {ref!r} was not made in this run")
-                    refs.append(client.upload_image(src))
+                refs = [client.upload_image(_reference(ref, out, pngs, args.push))
+                        for ref in item.get("references") or []]
+                started = time.time()
                 kwargs = {"references": refs} if refs else {}
                 graph, steps_node = graphs.picture(model, item["prompt"], item.get("negative") or "", w, h,
                                                    int(item.get("seed") or 0),
@@ -134,15 +184,18 @@ def main() -> int:
                 report["pictures"][name] = {"prompt": item["prompt"], "seed": int(item.get("seed") or 0),
                                             "size": [w, h], "references": item.get("references") or [],
                                             "seconds": round(time.time() - started, 1), "model": model.id}
-                log(f"made {name} in {report['pictures'][name]['seconds']} s")
+                note(f"made {name} in {report['pictures'][name]['seconds']} s")
             except Exception as exc:  # noqa: BLE001 - one picture never stops the batch
                 failed += 1
                 report["pictures"][name] = {"prompt": item["prompt"], "error": f"{exc.__class__.__name__}: {exc}"[:600],
                                             "seconds": round(time.time() - started, 1)}
-                log(f"!! {name} failed: {exc}\n{traceback.format_exc()[-1500:]}")
-            report_path.write_text(json.dumps(report, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
-            if args.push:
-                _push(out, f"Sample pictures: {name} ({Path(args.spec).stem})")
+                log(traceback.format_exc()[-1500:])
+                try:
+                    report["comfyui_log"] = (data / "logs" / "comfyui.log").read_text(
+                        encoding="utf-8", errors="replace").splitlines()[-25:]
+                except OSError:
+                    pass
+                note(f"!! {name} failed: {exc}"[:400])
     finally:
         lec.stop_comfy(run)
         try:

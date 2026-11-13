@@ -1,8 +1,10 @@
 name: Shorts sample pictures
-# Makes the pictures of the sample animated shorts with the real picture model on a GitHub Linux machine
+# Makes the pictures of the sample animated shorts with the real picture model on GitHub Linux machines
 # (scripts/shorts_pictures.py), because the workspace where ClipForge is developed cannot download the models. Each
 # batch in scripts/samples/ is made once: a picture that is already in docs/clipforge/shorts-samples/ is skipped.
-# The pictures are committed to the branch that asked for them, one by one, so a long run shows what it has so far.
+# A machine has no graphics card and 16 GB of memory (a picture takes many minutes), so a batch is shared between a
+# few machines, each with extra swap; every picture is committed to the branch that asked for it as soon as it is
+# made, with the machine's notes (docs/clipforge/shorts-samples/runs/), so a run that is cut short shows what it has.
 on:
   push:
     branches: ['claude/project-thread-m6xm4f']
@@ -10,14 +12,21 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
-concurrency:
-  group: shorts-samples-${{ github.ref }}
-  cancel-in-progress: false
 jobs:
   pictures:
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {spec: batch-1-before, part: 0/3}
+          - {spec: batch-1-before, part: 1/3}
+          - {spec: batch-1-before, part: 2/3}
+    concurrency:
+      group: shorts-samples-${{ matrix.spec }}-${{ matrix.part }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,10 +34,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Room for the picture model (the second disk)
+      - name: Room for the picture model (the second disk, and swap for what 16 GB of memory cannot hold)
         run: |
           sudo mkdir -p /mnt/clipforge && sudo chown "$USER" /mnt/clipforge
           df -h / /mnt
+          free_gb=$(df --output=avail -BG /mnt | tail -1 | tr -dc 0-9)
+          swap_gb=$(( free_gb > 60 ? 24 : (free_gb > 44 ? 16 : 8) ))
+          sudo fallocate -l "${swap_gb}G" /mnt/clipforge-swap && sudo chmod 600 /mnt/clipforge-swap
+          sudo mkswap /mnt/clipforge-swap && sudo swapon /mnt/clipforge-swap
           nproc && free -g
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           python -m pip install httpx numpy onnxruntime pillow websockets
@@ -36,10 +49,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Make the pictures
         run: |
-          status=0
-          for spec in scripts/samples/batch-*.json; do
-            echo "== $spec"
-            python scripts/shorts_pictures.py --spec "$spec" --out docs/clipforge/shorts-samples \
-              --data /mnt/clipforge/data --push || status=1
-          done
-          exit $status
+          python scripts/shorts_pictures.py --spec "scripts/samples/${{ matrix.spec }}.json" \
+            --part "${{ matrix.part }}" --out docs/clipforge/shorts-samples --data /mnt/clipforge/data --push
