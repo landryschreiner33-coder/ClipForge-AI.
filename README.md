@@ -14,9 +14,14 @@ engine and file-address safety fixes (PR #41), Make a YouTube video planned with
 projects (PR #35, with the clean-up follow-ups of PR #42 and PR #43), ClipForge AI as a real assistant with helper
 agents (PR #37) and PR #44 (three app texts that still described old behaviour, and the privacy page's date). The 77
 setup tests passed, and all 865 app files were compared with that commit (six `.bat` files differ only by the
-declared CRLF export). The Windows install check for this ZIP is recorded here once it has run. FFmpeg is not
-installed on the check machine, so no video is processed on Windows there; Windows 10/11 desktops, Windows security
-acceptance, GPUs, the built-in model, ComfyUI and its models, real AI keys on a PC and real uploads are not tested.
+declared CRLF export).
+[Windows setup check run 43410898326](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410898326)
+installed the previous release (8593947) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
+ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 865
+installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
+was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
+GPUs, the built-in model, ComfyUI and its models, the built-in voice, real AI keys on a PC and real uploads are not
+tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
