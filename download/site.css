@@ -87,9 +87,11 @@ h1 { font-size: clamp(2.1rem, 1.3rem + 2.6vw, 3.4rem); line-height: 1.08; letter
 .block { padding-top: 88px; }
 h2 { font-size: clamp(1.6rem, 1.2rem + 1.3vw, 2.2rem); line-height: 1.15; letter-spacing: -0.01em; margin: 0 0 24px; }
 h3 { font-size: 1.22rem; line-height: 1.3; margin: 0 0 10px; }
-.ways { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.ways { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
 .ways p { color: var(--muted); max-width: 58ch; margin: 0 0 20px; }
 .ways b { color: var(--text); font-weight: 600; }
+.ways article { display: flex; flex-direction: column; }
+.ways article .screen { margin-top: auto; }
 .more dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 40px; }
 .more dt { font: 600 1.08rem/1.3 var(--display); margin-bottom: 4px; }
 .more dd { margin: 0; color: var(--muted); }
@@ -155,6 +157,7 @@ h3 { font-size: 1.22rem; line-height: 1.3; margin: 0 0 10px; }
 @media (max-width: 960px) {
   .hero { grid-template-columns: 1fr; gap: 32px; }
   .more dl { grid-template-columns: 1fr 1fr; gap: 24px; }
+  .ways { grid-template-columns: 1fr; max-width: 720px; }
   .split { grid-template-columns: 1fr; gap: 32px; }
   .hero { padding-top: 40px; }
   .crew-leads { flex-wrap: wrap; justify-content: center; gap: 18px 10px; }
