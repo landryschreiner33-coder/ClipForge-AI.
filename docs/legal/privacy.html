@@ -292,23 +292,28 @@
   each upload, and each time you add a file from this computer, it keeps a record: the file's name, kind and size, how
   much of it arrived, whether it finished (or why not), the fingerprint your browser made of it (when it made one) and
   the name, size and change time your browser gave (so the same file can resume), when it started and finished, which
-  stored file it became, and which project or example video took it. A file added from this computer is used where
-  it is: ClipForge records where it is and a fingerprint of its contents, keeps its thumbnail and details in the data
-  folder, and never changes or deletes your file. An unfinished upload's partly received file is kept so the upload
-  can resume; once it has had no progress for 3 days, it is deleted the next time you start an upload, and its record
-  stays, marked as expired. Canceling an upload deletes its partly received file at once. When you upload or add a
-  file ClipForge already has, or its own work (an animated short's build, its music and sound effects, a link's
-  download, an import for a video) stores the same bytes again, it hands out the copy it has: it keeps the time of
-  the last hand-out on that file's record, and notes whom each one went to (the project, or the upload or added
-  file). Deleting a project keeps a copy handed out after its list was shown and within the hour before deleting
-  when it went to an upload or added file no project took yet, to another project that still exists, or to someone
-  the note does not name; one handed out to the project itself, or to a project deleted since (also as an upload that
-  project took), does not keep it (section 7). A note counts for an hour; it is removed at the next hand-out once it
-  is older than that, or with its file. Upload records stay until their file is deleted (with the last project or
-  example video that used it). A file no project or example video uses, for example one you uploaded or added but
-  never used, has no delete button: ClipForge's copy of it (for a file added from this computer, its thumbnail and
-  details) stays with its records until you delete the data folder, and so do the records of uploads that were
-  canceled, failed or expired.
+  stored file it became, and which project or example video took it. The page also keeps the file's name, size and
+  change time, with the upload's ID, in this browser's local storage until the upload finishes there; for an upload
+  that is stopped, fails or never finishes there, they stay until you clear browser storage. A file added from this
+  computer is used where it is: ClipForge records where it is and a fingerprint of its contents, keeps its thumbnail
+  and details in the data folder, and never changes or deletes your file. Stopping an upload on a page (Stop, or
+  removing the file from the page) only pauses it: its partly received file is kept so the upload can resume; once it
+  has had no progress for 3 days, it is deleted the next time you start an upload, and its record stays, marked as
+  expired. When you upload or add a file ClipForge already has, or its own work stores the same bytes again (an
+  animated short's pictures and clips, the music and sound effects it adds to a short or to a video's edit, a link's
+  download, or media added from a search, for a video or to your media only), it hands out the copy it has: it keeps
+  the time of the last hand-out on that file's record, and notes whom each one went to (the project, or the upload
+  or added file; for media added to your media only, the note names no one). Deleting a project keeps a copy handed
+  out after its list was shown and within the hour before deleting when it went to an upload or added file no
+  project took yet, to another project that still exists, or to someone the note does not name; one handed out to the
+  project itself, or to a project deleted since (also as an upload that project took), does not keep it (section 7).
+  A note counts for an hour; it is removed at the next hand-out once it is older than that, or with its file. Upload
+  records stay until their file is deleted (with the last project that used it, or with an example video when you
+  also tick Also delete the video file). A file no project or example video uses, for example one you uploaded or
+  added but never used, or an example's file you kept when deleting the example, has no delete button: ClipForge's
+  copy of it (for a file added from this computer, its thumbnail and details), with the sound, transcript and preview
+  copy it made from it, stays with its records until you delete the data folder, and so do the records of uploads
+  that failed or expired.
 </p>
 <p>
   If you run ClipForge in <b>cloud mode</b> on your own server, that data is stored on that server instead of your
@@ -326,11 +331,15 @@
   saved version of its plan; each scene's picture and moving clip, with the scene's words and their times; its
   recorded voices with each word's time (once there are more than 120, the oldest that no scene uses are removed after
   a build); and a list of every picture and clip its builds stored, so a file nothing uses any more is removed at the
-  start and end of each build. If ClipForge AI wrote the script, a note saying so (with the title or topic and how
-  many scenes and words) is kept for that short. All of this goes when you delete the short (section 7). Voice
-  samples you play with Hear are kept in <code>shorts/samples</code> until you delete the data folder. The Make page
-  remembers your last look, voice, speed, music, captions and motion (not the script or topic) in this browser's local
-  storage.
+  start and end of each build. When ClipForge AI writes the script, or the picture ideas for a pasted script, the
+  short also keeps which AI service and model did it, whether that runs on this computer, how many of your memories
+  it was given and the titles of the know-how it used, with up to 6 notes about the writing (for example that the
+  script came out shorter than asked, or that the pictures could not be described, with the start of the error
+  message, which can quote the AI service's own error text). If ClipForge AI wrote the script, a note saying so (with
+  the title or topic and how many scenes and words) is kept for that short. All of this goes when you delete the
+  short (section 7). Voice samples you play with Hear are kept in <code>shorts/samples</code> until you delete the
+  data folder. The Make page remembers your last look, voice, speed, music, captions and motion (not the script or
+  topic) in this browser's local storage.
 </p>
 <p>
   The picture, video and voice makers (Settings → Pictures, video, voice) run on this computer. Setting up ComfyUI
@@ -502,9 +511,10 @@
       version), processor and Python version, and whether a build-server (CI) setting is present</td></tr>
     <tr><td>ComfyUI</td><td>Each time an animated short or a try in Settings makes a picture or a clip</td>
       <td>The picture's or clip's words (for a short: the scene's picture idea, the main character and the look's style
-      words; for a try: the words you typed or the example words); for a clip, the video model's own built-in words to
-      avoid; the seed, size and model names; and to animate a picture, the picture itself (in a short, the scene's
-      picture, which may be one you chose yourself). ClipForge's own ComfyUI
+      words; for a try in Settings: ClipForge's example words); for a clip, the video model's own built-in words to
+      avoid; the seed, size and model names; and to animate a picture, the picture file itself, unchanged (in a short,
+      the scene's picture, which may be one you chose yourself), with any details written into it, such as where and
+      when a photo was taken. ClipForge's own ComfyUI
       runs on this computer only and offline, so this does not leave your computer, and the voice runs inside
       ClipForge. If you choose the ComfyUI app on this computer, that app receives them, along with checks of its
       status and models; it is a separate program, and what it keeps or sends is up to it. If you type a ComfyUI
@@ -662,7 +672,8 @@
     clip that stays (another project uses it, or it was added, uploaded or stored again for another page or project)
     and an original it could not take in, which stays in <code>engines/made</code> with its note. Each picture
     copied into ComfyUI's <code>input</code> folder to animate its scenes (a picture you chose included) stays there,
-    and with the ComfyUI app, so do the copies that app saved of what it made (section 2). Your own original is not
+    and with the ComfyUI app or a ComfyUI at an address you typed, so do the copies that ComfyUI saved of what it made
+    (section 2). Your own original is not
     touched, and a copy of a file you added again on another page since the day before the list was shown and have
     not used there yet, or one that was uploaded, added or stored again for another page or project after the list
     was shown and within the hour before deleting, stays (it may be about to be used there), unless it went to a
