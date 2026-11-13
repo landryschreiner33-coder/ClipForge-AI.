@@ -71,16 +71,45 @@ def check_video(width: int = 256, height: int = 256, frames: int = 25, fps: int 
 
 
 # ------------------------------------------------------------------ pictures
+def reference_room(model: Model) -> int:
+    """How many reference pictures `model` can be shown while it draws (0: it only reads words)."""
+    return max(0, int(model.defaults.get("references", 0))) if model.graph == "flux2" else 0
+
+
 def picture(model: Model, prompt: str, negative: str, width: int, height: int, seed: int, *,
-            names: dict[str, str] | None = None, prefix: str = f"{PREFIX}/picture") -> tuple[dict, str]:
+            names: dict[str, str] | None = None, prefix: str = f"{PREFIX}/picture",
+            references: list[str] | tuple[str, ...] = ()) -> tuple[dict, str]:
     """(graph, the node whose steps are the progress) for one picture. `names` maps a model file's name to the name
     the ComfyUI in use lists it by (a ComfyUI app may keep it in a subfolder: "flux2/<name>", "flux2\\<name>" on
     Windows); `prefix` is where ComfyUI saves it (a new one for each job: ComfyUI answers an identical graph from its
-    cache without saving the file again)."""
+    cache without saving the file again). `references`: pictures ComfyUI already has (upload_image) that the model
+    is shown while it draws (the prompt calls them "image 1", "image 2" in this order); a model that cannot be shown
+    pictures, and any more than it takes, are left out."""
     builder = {"zimage": _zimage, "flux2": _flux2}.get(model.graph)
     if builder is None:
         raise ValueError(f"no picture graph for {model.graph!r}")
-    return builder(model, prompt, negative, width, height, seed, _files(model, names), prefix)
+    graph, node = builder(model, prompt, negative, width, height, seed, _files(model, names), prefix)
+    shown = list(references or ())[:reference_room(model)]
+    if shown:
+        _show(graph, shown)
+    return graph, node
+
+
+def _show(g: dict, shown: list[str]) -> None:
+    """Add reference pictures to a FLUX.2 graph, as ComfyUI's official klein editing example does: each picture is
+    read, encoded by the model's own autoencoder and attached to the words (and to the empty "avoid" side) as a
+    reference latent, one after the other. The pictures arrive already sized (makers.make_image), so the size of
+    the picture being drawn stays the one asked for."""
+    positive, negative = ["4", 0], g["9"]["inputs"]["negative"]
+    for k, name in enumerate(shown):
+        load, enc, pos, neg = f"r{k}a", f"r{k}b", f"r{k}c", f"r{k}d"
+        g[load] = _n("LoadImage", image=name)
+        g[enc] = _n("VAEEncode", pixels=[load, 0], vae=["3", 0])
+        g[pos] = _n("ReferenceLatent", conditioning=positive, latent=[enc, 0])
+        g[neg] = _n("ReferenceLatent", conditioning=negative, latent=[enc, 0])
+        positive, negative = [pos, 0], [neg, 0]
+    g["9"]["inputs"]["positive"] = positive
+    g["9"]["inputs"]["negative"] = negative
 
 
 def _files(model: Model, names: dict[str, str] | None = None) -> dict[str, str]:
@@ -180,7 +209,8 @@ def _wan22_5b(model: Model, prompt: str, negative: str, width: int, height: int,
 LABELS = {"UNETLoader": "Loading the model", "CLIPLoader": "Loading the model", "VAELoader": "Loading the model",
           "CLIPTextEncode": "Reading the words", "KSampler": "Drawing", "SamplerCustomAdvanced": "Drawing",
           "VAEDecode": "Finishing", "SaveImage": "Saving", "CreateVideo": "Putting the frames together",
-          "SaveVideo": "Saving", "LoadImage": "Reading the picture", "Wan22ImageToVideoLatent": "Preparing"}
+          "SaveVideo": "Saving", "LoadImage": "Reading the picture", "Wan22ImageToVideoLatent": "Preparing",
+          "VAEEncode": "Reading the picture", "ReferenceLatent": "Reading the picture"}
 
 
 def labels(graph: dict) -> dict[str, str]:

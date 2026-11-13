@@ -659,6 +659,8 @@ def flatten_words(transcript: dict) -> list[dict]:
                 word = {"start": float(w["start"]), "end": float(w["end"]), "w": str(w["w"])}
                 if w.get("p") is not None:
                     word["p"] = float(w["p"])  # Whisper word confidence, used for the speaker clarity estimate
+                if w.get("em"):
+                    word["em"] = True  # a word the captions lift in colour (animated shorts mark their own)
                 words.append(word)
     words.sort(key=lambda w: w["start"])
     # enforce monotonic, non-overlapping timings

@@ -54,6 +54,7 @@ from ..pipeline import audio_timing, cleanup
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
 from ..pipeline.common import Cancelled
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
+from . import caption_looks
 
 ENGINE = "ffmpeg-v2"
 SCHEMA = 2
@@ -68,7 +69,9 @@ TRACKS = {"source": "Sound from your videos", "voiceover": "Voiceover", "music":
 ROLE_TRACK = {"voiceover": "voiceover", "music": "music", "effect": "effects"}
 CAPTION_SIZES = {"small": 0.8, "medium": 1.0, "large": 1.25}
 # (ASS alignment, bottom/top margin as a share of the height); "raised" clears a player's bottom controls
-CAPTION_POSITIONS = {"bottom": (2, 0.08), "raised": (2, 0.2), "middle": (5, 0.0), "top": (8, 0.08)}
+# "lower": low in the middle of a phone frame, above where the apps put their buttons and the description
+CAPTION_POSITIONS = {"bottom": (2, 0.08), "raised": (2, 0.2), "lower": (2, 0.33), "middle": (5, 0.0),
+                     "top": (8, 0.08)}
 GAIN_RANGE = (-36.0, 12.0)
 DUCK_DEPTH_DB = 12.0          # how far ducking music/effects dip under speech
 DUCK_RANGE = (0.0, 30.0)
@@ -270,6 +273,8 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
         out.append("Unknown caption position.")
     if captions.get("highlight", False) not in (True, False):
         out.append("Highlighting the spoken word is either on or off.")
+    if captions.get("look") not in (None, "", *caption_looks.LOOKS):
+        out.append("Unknown caption look.")
     return out + _validate_audio(plan, assets) + _validate_overlays(plan, assets)
 
 
@@ -507,7 +512,8 @@ def output_words(plan: dict, words_by_asset: dict[str, list[dict]], segs: list[d
             if not text.strip():
                 continue  # a word you deleted from the captions
             out.append({"w": text, "start": round(w["start"] + shift, 3), "end": round(end + shift, 3),
-                        "clip_id": seg["clip_id"], "src_start": w["start"], "src_end": w["end"]})
+                        "clip_id": seg["clip_id"], "src_start": w["start"], "src_end": w["end"],
+                        **({"em": True} if w.get("em") else {})})   # a word the captions lift (animated shorts)
     return out
 
 
@@ -518,23 +524,29 @@ def _ass_time(t: float) -> str:
     return f"{int(h)}:{int(m):02d}:{s:05.2f}"
 
 
-def _ass_header(captions: dict, width: int, height: int) -> str:
-    style = captions.get("style") or "clean"
-    p = STYLE_PRESETS.get(style, STYLE_PRESETS["clean"])
-    scale = min(width, height) / 1080
-    size = max(14, int(p["size"] * scale * (0.72 if width > height else 1.0)
-                       * CAPTION_SIZES.get(captions.get("size") or "medium", 1.0)))
-    align, share = CAPTION_POSITIONS.get(captions.get("position") or "bottom", CAPTION_POSITIONS["bottom"])
-    margin = int(height * share)
-    bold = -1 if style in ("bold", "high_energy") else 0
+def _ass_header(captions: dict, width: int, height: int, hook: dict | None = None) -> str:
+    """The styles of a piece's captions: the plan's caption style, or its caption look (caption_looks.py), and the
+    headline's style when the piece shows the plan's `hook`."""
+    if caption_looks.get(captions):
+        cap = caption_looks.cap_style(captions, width, height, CAPTION_SIZES, CAPTION_POSITIONS)
+    else:
+        style = captions.get("style") or "clean"
+        p = STYLE_PRESETS.get(style, STYLE_PRESETS["clean"])
+        scale = min(width, height) / 1080
+        size = max(14, int(p["size"] * scale * (0.72 if width > height else 1.0)
+                           * CAPTION_SIZES.get(captions.get("size") or "medium", 1.0)))
+        align, share = CAPTION_POSITIONS.get(captions.get("position") or "bottom", CAPTION_POSITIONS["bottom"])
+        margin = int(height * share)
+        bold = -1 if style in ("bold", "high_energy") else 0
+        cap = (f"Style: Cap,{p['font']},{size},{hex_to_ass('#FFFFFF')},{hex_to_ass('#FFFFFF')},&H00000000,"
+               f"&H64000000,{bold},0,0,0,100,100,0,0,1,{max(2, int(4 * scale))},1,{align},60,60,{margin},1")
     return "\n".join([
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}", "WrapStyle: 0",
         "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "
         "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
         "MarginL, MarginR, MarginV, Encoding",
-        f"Style: Cap,{p['font']},{size},{hex_to_ass('#FFFFFF')},{hex_to_ass('#FFFFFF')},&H00000000,&H64000000,"
-        f"{bold},0,0,0,100,100,0,0,1,{max(2, int(4 * scale))},1,{align},60,60,{margin},1", "", "[Events]",
+        cap, *((caption_looks.hook_style({"hook": hook}, width, height),) if hook else ()), "", "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]) + "\n"
 
 
@@ -582,16 +594,25 @@ def highlight_events(words: list[dict], captions: dict) -> list[tuple[float, flo
 
 
 def captions_ass(words: list[dict], captions: dict, width: int, height: int,
-                 window: tuple[float, float] | None = None, events: list | None = None) -> str:
+                 window: tuple[float, float] | None = None, events: list | None = None,
+                 hook: dict | None = None) -> str:
     """Captions sized and placed for this output frame (the clip captions assume 1080x1920). With `window`
-    (start, end in seconds), only that stretch, shifted to start at 0 (one render piece)."""
-    lines = [_ass_header(captions, width, height)]
-    for a, b, text in caption_events(words, captions) if events is None else events:
+    (start, end in seconds), only that stretch, shifted to start at 0 (one render piece). An event may name its
+    style as a fourth item (the headline's "Hook", with `hook` the plan's headline); an animated event that began
+    before the window goes on from where it was."""
+    events = caption_events(words, captions) if events is None else events
+    lines = [_ass_header(captions, width, height, hook if any(len(e) > 3 and e[3] == "Hook" for e in events)
+                         else None)]
+    for event in events:
+        a, b, text = event[:3]
+        style = event[3] if len(event) > 3 else "Cap"
         if window:
             if b <= window[0] or a >= window[1]:
                 continue
+            if a < window[0]:
+                text = caption_looks.shift(text, int(round((window[0] - a) * 1000)))
             a, b = a - window[0], b - window[0]
-        lines.append(f"Dialogue: 0,{_ass_time(a)},{_ass_time(b)},Cap,,0,0,0,,{text}\n")
+        lines.append(f"Dialogue: {1 if style == 'Hook' else 0},{_ass_time(a)},{_ass_time(b)},{style},,0,0,0,,{text}\n")
     return "".join(lines)
 
 
@@ -971,8 +992,15 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
     segs = render_timeline(plan, fps)
     words = output_words(plan, words_by_asset, segs)
     captions = plan.get("captions") or {}
-    events = ((highlight_events if captions.get("highlight") else caption_events)(words, captions)
-              if captions.get("enabled") and words else [])
+    if not (captions.get("enabled") and words):
+        events = []
+    elif caption_looks.get(captions):
+        events = caption_looks.events(words, captions)
+    else:
+        events = (highlight_events if captions.get("highlight") else caption_events)(words, captions)
+    captioned = bool(events)
+    hook = caption_looks.hook_of(plan)
+    events = events + caption_looks.hook_events(plan, total_s)   # the headline shows with or without captions
     trans = TRANSITIONS.get((plan.get("transition") or {}).get("type", "cut"))
     layout = plan.get("layout") or "fit"
     encode = _encode_args(preview, settings, fps)
@@ -997,7 +1025,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             _check(cancelled)
             window = (spec["at"] / fps, (spec["at"] + spec["frames"]) / fps)
             mine = [ev for ev in events if ev[1] > window[0] and ev[0] < window[1]]
-            ass = captions_ass([], captions, width, height, window, mine) if mine else ""
+            ass = captions_ass([], captions, width, height, window, mine, hook) if mine else ""
             used.append(_piece(spec, els, fps, width, height, layout, trans, encode, ass, cache, tmp, cancelled))
             done += spec["frames"]
             report(0.75 * done / total_f)
@@ -1111,5 +1139,5 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             "timeline": segs, "audio_timeline": placed, "ducking": ducking, "words": words,
             "overlays": [{"overlay_id": o["id"], "start_f": o["start_f"], "end_f": o["end_f"]}
                          for k in sorted(overlays) for o in overlays[k]],
-            "captions": bool(events), "clean_sound": {aid: r.report for aid, r in cleaned.items()},
+            "captions": captioned, "clean_sound": {aid: r.report for aid, r in cleaned.items()},
             "pieces": len(used), "frames": total_f, "proxied": proxied}

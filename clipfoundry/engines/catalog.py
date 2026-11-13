@@ -244,8 +244,9 @@ FLUX2_KLEIN_4B = Model(
     graph="flux2", memory_gb=16, vram_gb=8,
     seconds={"mac": 60, "nvidia": 6},
     # ComfyUI's official example for the distilled 4B: 4 steps, no guidance, euler, the FLUX.2 schedule
+    # "references": how many pictures it can be shown while it draws (its own editing: the same character again)
     defaults={"clip_type": "flux2", "steps": 4, "cfg": 1.0, "sampler": "euler", "step": 16,
-              "max_pixels": 2_100_000},
+              "max_pixels": 2_100_000, "references": 4},
 )
 
 # Wan's own default negative words (Chinese, as the model was trained with them): over-saturated, over-exposed,

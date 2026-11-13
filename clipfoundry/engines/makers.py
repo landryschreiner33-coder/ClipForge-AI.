@@ -16,6 +16,7 @@ import logging
 import secrets
 import struct
 import threading
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -272,18 +273,55 @@ def png_size(path: Path) -> tuple[int, int]:
     return struct.unpack(">II", head[16:24])
 
 
+REFERENCE_PIXELS = 1_000_000   # a reference picture is shown to the model at about this many pixels at most
+
+
+def _reference(path: Path, folder: Path, step: int = 16) -> Path:
+    """A reference picture sized for the model: at most REFERENCE_PIXELS, both sides a multiple of `step`, PNG (the
+    model's autoencoder reads whole blocks; a huge reference only makes the drawing slower)."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            w, h = im.size
+            k = min(1.0, (REFERENCE_PIXELS / max(1, w * h)) ** 0.5)
+            size = (max(step * 4, int(w * k) // step * step), max(step * 4, int(h * k) // step * step))
+            if size != (w, h):
+                im = im.resize(size, Image.LANCZOS)
+            out = folder / f"reference-{uuid.uuid4().hex[:10]}.png"
+            im.save(out, "PNG")
+            return out
+    except (OSError, ValueError) as exc:
+        raise EngineError(f"A reference picture could not be read ({exc.__class__.__name__}).") from exc
+
+
 def make_image(prompt: str, *, negative: str = "", style: str = "", width: int = 1080, height: int = 1920,
-               seed: int | None = None, progress: Progress | None = None, cancel: Cancel | None = None) -> Path:
+               seed: int | None = None, progress: Progress | None = None, cancel: Cancel | None = None,
+               references: list | tuple = ()) -> Path:
     prompt = " ".join(str(prompt or "").split())
     if not prompt:
         raise EngineError("Say what the picture should show.")
     words = f"{prompt}. {style.strip()}" if style and style.strip() else prompt
     s = _seed(seed)
+    shown = [Path(r) for r in references or ()]
+    for r in shown:
+        if not r.is_file():
+            raise EngineError("A reference picture is missing.")
+    used: list[str] = []
 
     def graph_for(model: catalog.Model, client: Comfy, names: dict[str, str], prefix: str):
         w, h = graphs.picture_size(model, width, height)
-        g, node = graphs.picture(model, words[:4000], negative[:2000], w, h, s, names=names, prefix=prefix)
-        return g, node, {"width": w, "height": h}
+        uploaded: list[str] = []
+        room = graphs.reference_room(model)
+        if shown and room:
+            with tempfile.TemporaryDirectory(prefix="clipforge-ref-") as tmp:
+                for r in shown[:room]:
+                    uploaded.append(client.upload_image(_reference(r, Path(tmp), int(model.defaults.get("step", 16)))))
+        used[:] = uploaded
+        g, node = graphs.picture(model, words[:4000], negative[:2000], w, h, s, names=names, prefix=prefix,
+                                 references=uploaded)
+        return g, node, {"width": w, "height": h, "references": len(uploaded)}
 
     path, info = _run("picture", "image", graph_for, {"prompt": words[:4000], "negative": negative[:2000], "seed": s,
                                                      "asked_width": width, "asked_height": height},
@@ -296,6 +334,17 @@ def make_image(prompt: str, *, negative: str = "", style: str = "", width: int =
     if (w, h) != (info["width"], info["height"]):
         log.info("picture came back %sx%s (asked %sx%s)", w, h, info["width"], info["height"])
     return path
+
+
+def picture_references(settings: dict | None = None) -> int:
+    """How many reference pictures the picture model in use can be shown (0: none, or no model is ready)."""
+    try:
+        got = status("image", settings if settings is not None else _settings())
+        model = catalog.by_id(str(got.get("model") or "")) if got.get("ready") else None
+        return graphs.reference_room(model) if model is not None else 0
+    except Exception:  # noqa: BLE001 - not being able to tell means none
+        log.exception("checking the picture model's references failed")
+        return 0
 
 
 def make_video(prompt: str, *, image: Path | str | None = None, seconds: float = 4.0, width: int = 720,

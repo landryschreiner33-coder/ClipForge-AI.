@@ -1,0 +1,94 @@
+{
+ "about": "What ClipForge asks the picture maker for the sample script (The robot who counted stars), in the words of the short itself.",
+ "model": "flux2-klein-4b",
+ "width": 448,
+ "height": 800,
+ "items": [
+  {
+   "name": "after/character",
+   "prompt": "Full-body character design of a tiny round white robot with big blue eyes, standing in a relaxed neutral pose facing the viewer, the whole figure visible and centred on a plain flat light-grey background, even soft front lighting. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390572946,
+   "width": 432,
+   "height": 576
+  },
+  {
+   "name": "after/scene-01",
+   "prompt": "Close-up shot: a tiny round white robot with big blue eyes standing alone on a dark rooftop, looking up at a sky full of stars. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390572947,
+   "references": [
+    "after/character"
+   ]
+  },
+  {
+   "name": "after/scene-02",
+   "prompt": "Medium shot: a tiny round white robot with big blue eyes standing alone on a dark rooftop, looking up at a sky full of stars. The moment it shows: Counting every star in the sky. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390580866,
+   "references": [
+    "after/character"
+   ]
+  },
+  {
+   "name": "after/scene-03",
+   "prompt": "Close-up shot from a low angle: the tiny robot pointing one small finger at the stars, glowing numbers reflected in its eyes. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390588785,
+   "references": [
+    "after/character"
+   ]
+  },
+  {
+   "name": "after/scene-04",
+   "prompt": "Wide establishing shot: the tiny robot looking worried as dark storm clouds roll over the stars. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390596704,
+   "references": [
+    "after/character"
+   ]
+  },
+  {
+   "name": "after/scene-05",
+   "prompt": "Close-up shot: the tiny robot sitting slumped on the rooftop edge in the rain, its eyes dim. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390604623,
+   "references": [
+    "after/character"
+   ]
+  },
+  {
+   "name": "after/scene-06",
+   "prompt": "Medium shot from slightly above: a small girl in a yellow raincoat holding an umbrella over the tiny robot, smiling. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390612542,
+   "references": [
+    "after/character"
+   ]
+  },
+  {
+   "name": "after/scene-07",
+   "prompt": "Close-up of the girl's hopeful face lit by a warm street lamp in the rain. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390620461
+  },
+  {
+   "name": "after/scene-08",
+   "prompt": "Medium shot: the tiny robot's eyes glowing bright blue again, a small smile, one finger raised. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390628380,
+   "references": [
+    "after/character"
+   ]
+  },
+  {
+   "name": "after/scene-09",
+   "prompt": "Close-up shot: the tiny robot and the girl sitting side by side under the umbrella as the clouds part and the stars return. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "negative": "text, letters, words, captions, subtitles, watermark, logo, signature, frame, border, blurry, low quality, deformed, extra fingers, extra limbs, photo, realistic skin, grainy, dark",
+   "seed": 1390636299,
+   "references": [
+    "after/character"
+   ]
+  }
+ ]
+}

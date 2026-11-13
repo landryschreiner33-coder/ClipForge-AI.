@@ -10,7 +10,12 @@ final.mp4, still-<seconds>.jpg for each time asked, sheet.jpg (the stills side b
 --pictures <folder> stands in for the picture maker: scene N's picture is <folder>/scene-NN.(png|jpg|webp) when it
 exists, and the short treats it as the picture maker's own (so prompts, looks and motion go the usual way). That is
 how a picture made on another computer (a GitHub machine with the real model) is shown with this computer's motion,
-captions and sound. Nothing is downloaded and nothing leaves the computer; the data folder is <out>/data.
+captions and sound. <folder>/character.(png|jpg|webp) is the picture of the short's main character: with it the
+stand-in says it can be shown a picture, as FLUX.2 klein can, so the scenes are asked for from that picture.
+
+--batch <file> asks for no pictures: it writes what the short would ask the picture maker for (the main character,
+then each scene, in the short's own words) as a batch for scripts/shorts_pictures.py, and stops there.
+Nothing is downloaded and nothing leaves the computer; the data folder is <out>/data.
 """
 from __future__ import annotations
 
@@ -38,31 +43,49 @@ def _value(text: str):
 
 
 class _Replay:
-    """A stand-in picture maker that hands out ready pictures, scene after scene (see --pictures)."""
+    """A stand-in picture maker that hands out ready pictures, scene after scene (see --pictures); with `record` it
+    hands out blank pictures and only keeps what it was asked for (see --batch)."""
 
     EngineError = RuntimeError
 
-    def __init__(self, folder: Path, made: Path, real):
-        self.folder, self.made, self.real, self.calls = folder, made, real, []
+    def __init__(self, folder: Path | None, made: Path, real, record: bool = False):
+        self.folder, self.made, self.real, self.calls, self.record = folder, made, real, [], record
+
+    def _ready(self, name: str) -> Path | None:
+        if self.folder is None:
+            return None
+        return next((self.folder / f"{name}{s}" for s in SUFFIXES if (self.folder / f"{name}{s}").is_file()), None)
 
     def status(self, role: str) -> dict:
         if role == "image":
             return {"ready": True, "engine": "Ready pictures (sample)", "why": ""}
         return self.real.status(role) if self.real is not None else {"ready": False, "engine": "", "why": "Not set up."}
 
+    def picture_references(self) -> int:
+        return 4 if self.record or self._ready("character") else 0
+
     def make_image(self, prompt: str, **kw):
-        n = len(self.calls) + 1
-        self.calls.append({"scene": n, "prompt": prompt, **{k: v for k, v in kw.items()
-                                                            if k in ("negative", "style", "seed", "width", "height")}})
-        for suffix in SUFFIXES:
-            src = self.folder / f"scene-{n:02d}{suffix}"
-            if src.is_file():
-                self.made.mkdir(parents=True, exist_ok=True)
-                out = self.made / f"sample-{n:02d}-{int(time.time() * 1000)}{suffix}"
-                shutil.copyfile(src, out)
-                out.with_suffix(".json").write_text(json.dumps({"sample": True, "prompt": prompt}), encoding="utf-8")
-                return out
-        raise RuntimeError(f"no ready picture for scene {n}")
+        from clipfoundry.makers import pictures
+
+        cast = (kw.get("width"), kw.get("height")) == pictures.CAST_SIZE
+        n = sum(1 for c in self.calls if c["name"] != "character") + 1
+        name = "character" if cast else f"scene-{n:02d}"
+        self.calls.append({"name": name, "prompt": prompt, "references": len(kw.get("references") or ()),
+                           **{k: v for k, v in kw.items() if k in ("negative", "style", "seed", "width", "height")}})
+        self.made.mkdir(parents=True, exist_ok=True)
+        src = self._ready(name)
+        if src is not None:
+            out = self.made / f"sample-{name}-{int(time.time() * 1000)}{src.suffix}"
+            shutil.copyfile(src, out)
+        elif self.record:
+            from PIL import Image
+
+            out = self.made / f"sample-{name}-{int(time.time() * 1000)}.png"
+            Image.new("RGB", (108, 192), (90, 90, 96)).save(out)
+        else:
+            raise RuntimeError(f"no ready picture for {name}")
+        out.with_suffix(".json").write_text(json.dumps({"sample": True, "prompt": prompt}), encoding="utf-8")
+        return out
 
     def __getattr__(self, name: str):  # the voice and anything else: the real makers
         if self.real is None:
@@ -84,6 +107,9 @@ def main() -> int:
     ap.add_argument("--stills", default="0.5,2.5,6,10,15,20", help="seconds to keep a still at")
     ap.add_argument("--option", action="append", default=[], help="another option of the short, as key=value")
     ap.add_argument("--preview", action="store_true", help="the fast small preview instead of the final video")
+    ap.add_argument("--batch", default="", help="write the picture requests as a batch file and stop (no video)")
+    ap.add_argument("--batch-name", default="after", help="the folder name of the batch's pictures")
+    ap.add_argument("--batch-size", default="448x800", help="the size of the batch's scene pictures")
     args = ap.parse_args()
 
     out = Path(args.out).resolve()
@@ -102,8 +128,9 @@ def main() -> int:
 
     db.init()
     replay = None
-    if args.pictures:
-        replay = _Replay(Path(args.pictures).resolve(), config.data_dir() / "engines" / "made", local_engines.module())
+    if args.pictures or args.batch:
+        replay = _Replay(Path(args.pictures).resolve() if args.pictures else None,
+                         config.data_dir() / "engines" / "made", local_engines.module(), record=bool(args.batch))
         local_engines.module = lambda: replay  # type: ignore[assignment]
 
     queued: list[str] = []
@@ -143,6 +170,21 @@ def main() -> int:
                          "info": r["info"]} for n, r in enumerate(rows, 1)]
     if replay is not None:
         report["picture_requests"] = replay.calls
+    if args.batch:
+        w, h = (int(x) for x in args.batch_size.lower().split("x"))
+        items = []
+        for c in replay.calls:
+            # the character's picture keeps its own shape (3:4), at about the scenes' size
+            cast = {"width": round(h * 0.72 * 0.75 / 16) * 16, "height": round(h * 0.72 / 16) * 16} \
+                if c["name"] == "character" else {}
+            items.append({"name": f"{args.batch_name}/{c['name']}", "prompt": c["prompt"],
+                          "negative": c.get("negative") or "", "seed": int(c.get("seed") or 0), **cast,
+                          **({"references": [f"{args.batch_name}/character"]} if c.get("references") else {})})
+        batch = {"about": f"What ClipForge asks the picture maker for the sample script ({args.name}), in the words "
+                          "of the short itself.", "model": "flux2-klein-4b", "width": w, "height": h, "items": items}
+        Path(args.batch).write_text(json.dumps(batch, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"wrote {len(items)} picture requests to {args.batch}")
+        return 0
     if not plan:
         report["ok"] = False
         (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str), encoding="utf-8")

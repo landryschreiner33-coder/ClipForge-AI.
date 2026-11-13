@@ -75,3 +75,17 @@ def errors() -> tuple[type[BaseException], ...]:
     mod = module()
     err = getattr(mod, "EngineError", None) if mod is not None else None
     return ((err,) if isinstance(err, type) and issubclass(err, BaseException) else ()) + (OSError,)
+
+
+def picture_references() -> int:
+    """How many reference pictures the picture maker can be shown while it draws (the short's main character, so
+    every scene shows the same one): 0 when it cannot, or when there is no picture maker. Never raises."""
+    mod = module()
+    ask = getattr(mod, "picture_references", None) if mod is not None else None
+    if not callable(ask):
+        return 0
+    try:
+        return max(0, int(ask() or 0))
+    except Exception:  # noqa: BLE001 - not being able to tell means none
+        log.exception("asking the picture maker about references failed")
+        return 0

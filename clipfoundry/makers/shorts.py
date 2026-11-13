@@ -9,10 +9,18 @@ asset whose transcript is the script's own words with their times, so the editor
 and FilmCraft treat it like any other footage. A scene keeps keys of what its voice, picture and clip were made from;
 a build makes again only what changed, and a scene that fails never stops the others.
 
-The plan (`assemble`) has one clip per ready scene (clip id = scene id), centred captions with the spoken word
-highlighted, a music bed under the voice and a whoosh on every other cut. A later build keeps what the owner changed
+The plan (`assemble`) has one clip per ready scene (clip id = scene id), captions with the spoken word
+highlighted, a music bed under the voice and sounds on the cuts. A later build keeps what the owner changed
 in the editor: the order, trims and splits of unchanged scenes, removed and replaced clips, inserted files, captions,
 levels, tracks, pictures over the video and the word fixes of unchanged scenes.
+
+A short has an editing style (`edit`: "punchy", "lively", "gentle"; director.py): each scene is filmed by a
+direction (eased camera, punch-ins on phrase starts, an entry on the cut, air and a grade over the picture), its
+pictures are asked for as a phone frame in the look's one style, with the short's main character drawn from one
+picture of them (the cast picture) so every scene shows the same one, its captions use a caption look
+(studio/caption_looks.py) low in the frame with the leaned-on words lifted, a headline may sit over the first
+seconds, and the sounds follow the cuts and the punch-ins. A short made before this (no `edit`), or set to
+"classic", is made exactly as it was: its scenes are not filmed again until the owner chooses a style.
 """
 from __future__ import annotations
 
@@ -34,21 +42,26 @@ from .. import config, db
 from ..pipeline.common import Cancelled, write_json
 from ..studio import engine, guidance, library, uploads, video_flow
 from ..studio.jobs import Canceled, Lease, enqueue, handler, on_stop
-from . import local_engines, looks
+from ..studio import caption_looks
+from . import director, local_engines, looks
 
 log = logging.getLogger(__name__)
 
 WORKFLOW = "animated_short"
 MODES = ("paste", "write")
-MOTIONS = ("camera", "animate")
-CAPTIONS = {"bold": "Bold", "high_energy": "High energy", "clean": "Clean", "off": "No captions"}
+MOTIONS = ("camera", "animate", "opening")   # "opening": the video maker animates the first scene only
+CAPTIONS = {**{k: v["name"] for k, v in caption_looks.LOOKS.items()},
+            "bold": "Bold", "high_energy": "High energy", "clean": "Clean", "off": "No captions"}
+EDITS = {**director.STYLES, "classic": "Classic"}   # how a short is cut; "classic": the slow moves of earlier shorts
 MUSIC = {"calm": "Calm", "balanced": "Balanced", "energetic": "Energetic", "none": "No music"}
 SPEEDS = ((0.95, "Calm"), (1.05, "Lively"), (1.15, "Fast"))
 SPEED_RANGE = (0.7, 1.4)
 OPTION_FIELDS = ("mode", "tone", "length", "audience", "look", "voice", "speed", "music", "captions", "motion",
-                 "review")
+                 "review", "edit", "effects", "sfx", "character", "headline", "same_character")
 DEFAULTS = {"mode": "paste", "tone": "curious", "length": "standard", "audience": "", "look": looks.DEFAULT,
-            "voice": "auto", "speed": 1.05, "music": "balanced", "captions": "", "motion": "camera", "review": False}
+            "voice": "auto", "speed": 1.05, "music": "balanced", "captions": "", "motion": "camera", "review": False,
+            "edit": director.DEFAULT, "effects": True, "sfx": True, "character": "", "headline": "",
+            "same_character": True}
 FPS = 30
 SIZE = (1080, 1920)
 TAIL_MS = 250          # the pause after a scene's words before the cut
@@ -56,6 +69,17 @@ END_MS = 700           # every scene clip runs on this long after its words; the
 MUSIC_DB = -20.0
 WHOOSH_DB = -14.0
 WHOOSH_LEAD_MS = 540   # the library whoosh swells for about this long, so it lands on the cut
+# The sounds of a short with an editing style (the library's own effects): name -> (level, where it starts against
+# the moment it marks, in ms). A whoosh and a riser swell into their moment; a hit and a pop start on it.
+# The sounds of a short with an editing style: (level in dB, where it starts against what it marks, in ms: a
+# whoosh, a swish and a riser swell first, so they start early and land on the cut).
+CUE_SOUNDS = {"whoosh": (-14.0, -WHOOSH_LEAD_MS), "swish": (-15.0, -270), "hit": (-10.0, -20), "pop": (-16.0, 0),
+              "riser": (-17.0, -1600)}
+ENTRY_SOUND = {"whip_left": "whoosh", "whip_right": "whoosh", "zoom": "swish", "flash": "hit"}
+BEAT_EVERY = 2         # a pop on the first punch-in of every this-many scenes (sound on every one tires the ear)
+HOOK_MS = 3000         # how long the headline shows
+MAX_CHARACTER = 300
+MAX_HEADLINE = 60
 MAX_EARLIER = 8        # earlier pictures kept per scene
 MAX_NARRATION = 400    # characters of one scene's words
 MAX_PICTURE = 400
@@ -74,6 +98,8 @@ ROW_STATE = ("position", "narration", "picture_prompt", "picture_from", "picture
              "picture_key", "clip_asset_id", "clip_key", "duration_ms", "move", "seed", "voice_key")
 OWNER_FIELDS = ("narration", "picture_prompt", "picture_from", "picture_source", "picture_asset_id", "move", "seed")
 OPTION_STATE = ("voice", "voice_used", "speed", "look", "music", "captions", "motion")
+# ...and, for a short that has an editing style (versions saved before it existed keep none of these)
+STYLE_STATE = ("edit", "effects", "sfx", "character", "headline", "same_character")
 OWNER_ERRORS = ("VoiceError", "MotionError", "CardError")  # their messages are written for the owner
 SAMPLE_TEXT = "Here is how this voice sounds in your short. Did you know octopuses have three hearts?"
 _status_cache: dict[str, tuple[float, dict]] = {}
@@ -236,9 +262,17 @@ def clean_options(raw: dict, base: dict | None = None) -> dict:
         if key == "captions" and value not in ("", *CAPTIONS):
             raise ShortError("Choose a caption style, or no captions.")
         if key == "motion" and value not in MOTIONS:
-            raise ShortError("Choose gentle camera moves or animated pictures.")
+            raise ShortError("Choose camera moves, animated pictures or an animated opening.")
         if key == "review" and type(value) is not bool:
             raise ShortError("Checking the script first is either on or off.")
+        if key == "edit" and value not in EDITS:
+            raise ShortError("Choose one of the editing styles on the page.")
+        if key in ("effects", "sfx", "same_character") and type(value) is not bool:
+            raise ShortError("That choice is either on or off.")
+        if key in ("character", "headline"):
+            if not isinstance(value, str):
+                raise ShortError("Write that in words.")
+            value = _norm(value)[:MAX_CHARACTER if key == "character" else MAX_HEADLINE]
         if key == "speed":
             if isinstance(value, bool) or not isinstance(value, (int, float)) or \
                     not SPEED_RANGE[0] <= float(value) <= SPEED_RANGE[1]:
@@ -248,7 +282,7 @@ def clean_options(raw: dict, base: dict | None = None) -> dict:
             value = _norm(value)[:200] or "auto"
             if value != "auto" and not re.fullmatch(r"(engine|system|espeak):.{1,190}", value):
                 raise ShortError("Choose one of the voices on the page.")
-        if key in ("audience", "tone", "length", "look", "music", "captions", "mode", "motion") and \
+        if key in ("audience", "tone", "length", "look", "music", "captions", "mode", "motion", "edit") and \
                 not isinstance(value, str):
             raise ShortError("Choose one of the options on the page.")
         if key == "audience":
@@ -300,12 +334,30 @@ def options() -> dict:
             "lengths": [{"id": k, "label": f"{lo}–{hi} s", "min": lo, "max": hi, "target": target}
                         for k, (lo, hi, target) in scenes.LENGTHS.items()],
             "captions": [{"id": "", "label": "Fits the look"}, *({"id": k, "label": v} for k, v in CAPTIONS.items())],
+            "edits": [{"id": k, "label": v, "about": EDIT_ABOUT[k]} for k, v in EDITS.items()],
+            "default_edit": director.DEFAULT, "picture_references": local_engines.picture_references(),
             "music": [{"id": k, "label": v} for k, v in MUSIC.items()],
             "speeds": [{"value": v, "label": label} for v, label in SPEEDS],
             "engines": _engines(), "writer": _writer_state(settings),
             "timing": "listened" if can_listen(settings) else "estimated",
             "limits": {"max_words": scenes.MAX_WORDS, "max_scenes": scenes.MAX_SCENES, "wpm": scenes.WPM},
             "links": {"makers": "#/settings/makers", "ai": "#/settings/ai"}}
+
+
+EDIT_ABOUT = {
+    "punchy": "Fast, like the shorts that go viral: a snap at the start of every scene, a punch-in on a phrase about "
+              "every two seconds, whips and quick zooms between scenes.",
+    "lively": "Every cut lands with a small pop and long scenes punch in once.",
+    "gentle": "Slow, smooth camera moves and no punch-ins. Good for calm stories.",
+    "classic": "The slow camera moves and plain captions of earlier ClipForge shorts.",
+}
+
+
+def _style(short: dict) -> str:
+    """The short's editing style ("" for a short made before styles existed, or one set to classic: its scenes are
+    made as they always were)."""
+    edit = (short or {}).get("edit")
+    return edit if edit in director.STYLES else ""
 
 
 # ------------------------------------------------------------------ making a short
@@ -343,7 +395,7 @@ def create(workspace_id: str, user_id: str, *, name: str, options: dict) -> dict
     writing = opts["mode"] == "write"
     message = "ClipForge AI is writing the script" if writing else "Making the scenes"
     short = {**opts, "topic": topic, "script": script, "build": 1, "stage": "writing" if writing else "making",
-             "message": message, "seed": _seed(), "title": named, "character": "", "subject": "",
+             "message": message, "seed": _seed(), "title": named, "subject": "",
              "named": bool(named), "writer": None, "notes": [], "reviewed": False, "pictured": writing, "apply": {},
              "next_seq": len(rows), "voice_used": ""}
     project_id = "vid-" + os.urandom(6).hex()
@@ -363,12 +415,13 @@ def _guidance(short: dict) -> dict:
     look = looks.get(short.get("look"))
     here = {"level": "project", "id": "", "revision": 0, "name": "This short's choices"}
     voice_id = short.get("voice") or "auto"
-    style = short.get("captions") or look.caption_style
+    style = short.get("captions") or (look.captions if _style(short) else "") or look.caption_style
     rows = [("look", look.id, f"Look: {look.name}"),
             ("voice", voice_id, "Voice: " + ("the best voice on this computer" if voice_id == "auto"
                                              else voice_id.split(":", 1)[-1])),
             ("music", short.get("music"), f"Music: {MUSIC.get(short.get('music') or '', 'none').lower()}"),
-            ("captions", style, f"Captions: {CAPTIONS.get(style, 'bold').lower()}")]
+            ("captions", style, f"Captions: {CAPTIONS.get(style, 'bold').lower()}"),
+            *((("edit", _style(short), f"Editing: {EDITS[_style(short)].lower()}"),) if _style(short) else ())]
     return {"schema": guidance.SCHEMA, "mode": WORKFLOW, "created_at": time.time(),
             "values": {k: v for k, v, _ in rows}, "conflicts": [], "problems": [], "used": [], "entries": [here],
             "decisions": [{"field": k, "value": v, "text": text, "from": here, "also": [], "overridden": []}
@@ -508,13 +561,65 @@ def voice_key(scene: dict, short: dict, voice_id: str) -> str:
                  *((take,) if take else ()))
 
 
+def _cast_key(short: dict) -> str:
+    """The key of the main character's picture this short's scenes are drawn from ("" when it has none: no editing
+    style, no main character, or the owner turned it off). It follows from the short's choices alone, so going back
+    to an earlier look finds the pictures made with it still fine."""
+    who = _norm(short.get("character"))
+    if not (_style(short) and who and short.get("same_character", True)):
+        return ""
+    return _hash("cast", who, looks.get(short.get("look")).id, int(short.get("seed") or 0), looks.PROMPT_RECIPE)
+
+
+def _idea(scene: dict) -> str:
+    """What a scene's picture shows, for a short with an editing style: its own picture idea, or for a scene without
+    one (its idea is only its key words) the idea of the described scene before it, which the build notes on the
+    scene as its setting ("" when there is none: the picture follows the scene's words alone)."""
+    if scene["picture_from"] == "words":
+        return _norm(_info(scene).get("setting"))
+    return _norm(scene["picture_prompt"])
+
+
+def _shows(scene: dict, short: dict) -> bool:
+    """Whether this scene's picture shows the short's main character (looks.shows_character)."""
+    return looks.shows_character(_idea(scene), short.get("character") or "",
+                                 scene["narration"] if scene["picture_from"] == "words" else "")
+
+
+def _referenced(scene: dict, short: dict) -> bool:
+    """Whether this scene's picture is drawn from the main character's picture: it shows them."""
+    return bool(_cast_key(short)) and _shows(scene, short)
+
+
+def _asks(scene: dict, short: dict, cast: Path | None) -> list[tuple]:
+    """What the picture engine is asked for this scene of a short with an editing style (pictures.make): drawn from
+    the main character's picture when there is one and the scene shows them, then in words alone."""
+    words = scene["picture_from"] == "words"
+    said = {"idea": _idea(scene), "narration": scene["narration"], "source": "words" if words else "",
+            "character": short.get("character") or "", "seq": int(_info(scene).get("seq") or 0),
+            "shown": _shows(scene, short)}
+    look = looks.get(short.get("look"))
+    plain = (*looks.scene_prompt(look, **said), ())
+    if cast is None or not _referenced(scene, short):
+        return [plain]
+    return [(*looks.scene_prompt(look, **said, referenced=True), (cast,)), plain]
+
+
 def picture_keys(scene: dict, short: dict) -> tuple[str, str]:
     """(the key of a picture the picture engine makes, the key of a designed card) for this scene as it is now."""
     from . import cards
 
     base = ("picture", _norm(scene["picture_prompt"]), looks.get(short.get("look")).id, int(scene["seed"]),
             _norm(short.get("character")))
-    return _hash(*base, "engine"), _hash(*base, "card", cards.key_words(scene["narration"]), _info(scene).get("seq", 0))
+    card = _hash(*base, "card", cards.key_words(scene["narration"]), _info(scene).get("seq", 0))
+    if not _style(short):
+        return _hash(*base, "engine"), card
+    # with an editing style the engine is asked in other words (looks.scene_prompt): the shot of the scene's place,
+    # its own words when it has no picture idea of its own, and the main character's picture
+    return _hash(*base, "engine", looks.PROMPT_RECIPE, int(_info(scene).get("seq") or 0),
+                 _norm(scene["narration"]) if scene["picture_from"] == "words" else "",
+                 _idea(scene) if scene["picture_from"] == "words" else "",
+                 _cast_key(short) if _referenced(scene, short) else ""), card
 
 
 def _fine_pictures(scene: dict, short: dict) -> tuple[str, ...]:
@@ -532,13 +637,28 @@ def _move(scene: dict) -> str:
     return motion.pick_move(int(_info(scene).get("seq") or 0)) if move == "auto" else move
 
 
-def _motion_mode(short: dict) -> str:
-    return "animate" if short.get("motion") == "animate" and engine_status("video")["ready"] else "camera"
+def _motion_mode(short: dict, scene: dict | None = None) -> str:
+    """How this scene moves: "animate" when the video maker is asked for it (every scene, or with "opening" the
+    first one) and is ready, else "camera"."""
+    motion = short.get("motion")
+    asked = motion == "animate" or (motion == "opening" and scene is not None and
+                                    int(_info(scene).get("seq") or 0) == 0)
+    return "animate" if asked and engine_status("video")["ready"] else "camera"
+
+
+def _is_card(scene: dict) -> bool:
+    return scene["picture_source"] != "upload" and (_info(scene).get("picture") or {}).get("source") == "card"
 
 
 def clip_key(scene: dict, short: dict, vkey: str) -> str:
-    return _hash("clip", CLIP_RECIPE, vkey, scene["picture_asset_id"], _move(scene), _motion_mode(short), FPS,
-                 list(SIZE), END_MS)
+    base = ("clip", CLIP_RECIPE, vkey, scene["picture_asset_id"], _move(scene), _motion_mode(short, scene), FPS,
+            list(SIZE), END_MS)
+    style = _style(short)
+    if not style:
+        return _hash(*base)
+    # with an editing style the scene is filmed by its direction (director.direct): whatever decides that
+    return _hash(*base, "directed", director.RECIPE, style, bool(short.get("effects", True)),
+                 looks.get(short.get("look")).id, _idea(scene), _is_card(scene))
 
 
 def _voice_files(project_id: str, vkey: str) -> tuple[Path, Path]:
@@ -795,6 +915,7 @@ def _write_script(project: dict, settings: dict, lease: Lease) -> None:
         got = writer.write(short.get("topic") or "", tone=short.get("tone") or "curious",
                            length=short.get("length") or "standard", audience=short.get("audience") or "",
                            look=looks.get(short.get("look")), settings=settings,
+                           character=short.get("character") or "",
                            workspace_id=project["workspace_id"], project_id=pid, cancel=lease.canceled,
                            beat=lambda m="", *_: lease.progress(0.05, str(m or message)))
     except writer.WriterError as exc:
@@ -816,11 +937,21 @@ def _write_script(project: dict, settings: dict, lease: Lease) -> None:
             "memories": len(got.get("memories") or []),
             "knowhow": [knowhow.BY_ID[k].title for k in got.get("knowhow") or [] if k in knowhow.BY_ID]}
     title = _norm(got.get("title"))[:120]
-    _patch_short(pid, {"title": title, "character": _norm(got.get("character"))[:300], "writer": used,
+    _patch_short(pid, {"title": title, "writer": used,
+                       # the owner's own words for the main character and the headline stay
+                       "character": _norm(short.get("character")) or _norm(got.get("character"))[:MAX_CHARACTER],
+                       **_headline(short, got),
                        "notes": [str(n) for n in got.get("notes") or []][:6], "next_seq": len(rows), "pictured": True,
                        "subject": scenes.subject_of([r["narration"] for r in rows], title=title)})
     if not short.get("named") and title:
         db.update("studio_projects", pid, name=title)
+
+
+def _headline(short: dict, got: dict) -> dict:
+    """ClipForge AI's headline for a short with an editing style whose owner wrote none."""
+    if not _style(short) or _norm(short.get("headline")):
+        return {}
+    return {"headline": _norm(got.get("headline")).strip(" \"'“”.")[:MAX_HEADLINE]}
 
 
 def _plan_pictures(project: dict, settings: dict, lease: Lease) -> None:
@@ -835,15 +966,19 @@ def _plan_pictures(project: dict, settings: dict, lease: Lease) -> None:
     lacking = {s["id"] for s in rows if s["picture_from"] not in ("script", "owner", "ai") or not s["picture_prompt"]}
     notes = list(short.get("notes") or [])
     writer_used = short.get("writer")
+    headline: dict = {}
     if lacking and _writer_state(settings)["configured"]:
         message = "ClipForge AI is picturing the scenes"
         lease.progress(0.04, message)
         try:
             got = writer.picture_ideas([s["narration"] for s in rows], title=project["name"],
                                        look=looks.get(short.get("look")), settings=settings,
+                                       character=character,
                                        workspace_id=project["workspace_id"], project_id=pid, cancel=lease.canceled,
                                        beat=lambda m="", *_: lease.progress(0.05, str(m or message)))
-            character = _norm(got.get("character"))[:300] or character
+            character = character if _style(short) and character else \
+                _norm(got.get("character"))[:300] or character   # with a style the owner's own words stay
+            headline = _headline(short, got)
             for s, idea in zip(rows, got.get("pictures") or []):
                 text = _norm(idea)[:MAX_PICTURE]
                 if s["id"] not in lacking or not text:
@@ -876,7 +1011,67 @@ def _plan_pictures(project: dict, settings: dict, lease: Lease) -> None:
         if s["id"] in lacking:
             _change_scene(s["id"], by_words)  # from the words it says now
     _patch_short(pid, {"pictured": True, "character": character, "subject": subject, "notes": notes[-6:],
-                       "writer": writer_used})
+                       "writer": writer_used, **headline})
+
+
+def _note_settings(rows: list[dict]) -> list[dict]:
+    """Note on every scene without a picture idea of its own the idea of the described scene before it (its
+    setting, `_idea`), so its picture shows the same place and people; returns the scenes as they are now."""
+    out, near = [], ""
+    for s in rows:
+        if s["picture_from"] != "words":
+            near = _norm(s["picture_prompt"]) or near
+        elif _norm(_info(s).get("setting")) != near:
+            s = _change_scene(s["id"], lambda r, near=near: {"info": {**_info(r), "setting": near}}
+                              if r["picture_from"] == "words" else None) or s
+        out.append(s)
+    return out
+
+
+def _cast_picture(project: dict, short: dict, lease: Lease, state: dict, say: Callable[[float, str], None]
+                  ) -> Path | None:
+    """The picture of the short's main character that its scenes are drawn from: made once for a character, look and
+    seed (the short keeps it as its `cast`), None when the short has none, when the picture maker cannot draw from a
+    picture, or when it could not make this one (the scenes then describe the character in words, and the short's
+    notes say so)."""
+    from . import pictures
+
+    key = _cast_key(short)
+    if not key:
+        return None
+    if (state.get("cast") or ("",))[0] == key:
+        return state["cast"][1]
+    pid, ws = project["id"], project["workspace_id"]
+    path: Path | None = None
+    if engine_status("image")["ready"] and local_engines.picture_references() >= 1:
+        kept = _project(pid)["short"].get("cast") or {}
+        kept = kept if kept.get("key") == key else {}
+        asset = _asset_ok(kept.get("asset_id") or "", ws, "image")
+        if asset is not None:
+            path = Path(asset["path"])
+        elif not kept.get("failed"):
+            say(0.0, "Drawing the main character")
+            with tempfile.TemporaryDirectory(dir=short_dir(pid)) as tmpdir:
+                got = pictures.make_cast(looks.get(short.get("look")), short.get("character") or "", Path(tmpdir),
+                                         seed=int(short.get("seed") or 0), cancel=lease.canceled,
+                                         progress=lambda f=0.0, m="", *_: say(float(f or 0),
+                                                                              "Drawing the main character"))
+                if got["path"] is None:
+                    _patch_short(pid, {"cast": {"key": key, "failed": True, "why": got["why"][:300]}})
+                else:
+                    made_path = Path(got["path"])
+                    try:
+                        stored = uploads.store_file(ws, made_path, f"Main character{made_path.suffix}",
+                                                    project_id=pid)
+                    except BaseException:
+                        local_engines.discard_made(got.get("note"))
+                        raise
+                    _list_file(pid, ws, stored["id"])
+                    _take_original(got.get("note"), uploads.work_dir(stored))  # the picture maker's note
+                    _patch_short(pid, {"cast": {"key": key, "asset_id": stored["id"]}})
+                    path = Path(stored["path"])
+    state["cast"] = (key, path)
+    return path
 
 
 def _make_scenes(project: dict, settings: dict, lease: Lease, state: dict) -> int:
@@ -885,6 +1080,8 @@ def _make_scenes(project: dict, settings: dict, lease: Lease, state: dict) -> in
     voice_id = voice_for(pid, short)
     base = video_flow.plan_at(pid, project["plan_revision"]) if project["plan_revision"] else None
     rows = ordered(scene_rows(pid), base)
+    if _style(short):
+        rows = _note_settings(rows)
     todo = [s for s in rows if needs(s, short, project, voice_id)]
     for s in rows:
         if s not in todo and s["status"] != "ready":
@@ -941,6 +1138,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
 
     look = looks.get(short.get("look"))
     seq = int(_info(scene).get("seq") or 0)
+    style = _style(short)
     # ---- the voice
     vkey = voice_key(scene, short, voice_id)
     wav, meta_path = _voice_files(pid, vkey)
@@ -979,10 +1177,16 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
         if picture is None:
             db.update("short_scenes", sid, status="picture", message="Making the picture")
             step(0.2, f"Making the picture of scene {n}")
+            asks = None
+            if style:  # asked in the style's own words, drawn from the main character's picture when it shows them
+                cast = _cast_picture(project, short, lease, state,
+                                     lambda f=0.0, m="": step(0.16 + 0.04 * float(f or 0), m)) \
+                    if _referenced(scene, short) and engine_status("image")["ready"] else None
+                asks = _asks(scene, short, cast)
             with tempfile.TemporaryDirectory(dir=short_dir(pid)) as tmpdir:
                 got = pictures.make(scene["narration"], scene["picture_prompt"], look, Path(tmpdir),
                                     character=short.get("character") or "", seed=int(scene["seed"]), index=seq,
-                                    cancel=lease.canceled,
+                                    cancel=lease.canceled, **({"asks": asks} if asks else {}),
                                     progress=lambda f=0.0, m="", *_: step(0.2 + 0.45 * float(f or 0),
                                                                           str(m or f"Making the picture of scene {n}")))
                 made_path = Path(got["path"])
@@ -998,6 +1202,8 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
             made_key = engine_key if got["source"] == "engine" else card_key
             pic_info = {"source": got["source"], "engine": got.get("engine") or "", "why": got.get("why") or "",
                         "failed": engine_key if got["source"] != "engine" and got.get("tried") else ""}
+            if asks and len(asks) > 1 and got["source"] == "engine" and not got.get("referenced"):
+                pic_info["unreferenced"] = True  # asked for from the main character's picture, drawn from words
             entry = {"asset_id": stored["id"], "prompt": scene["picture_prompt"], "seed": int(scene["seed"]),
                      "key": made_key, "at": time.time(), **{k: pic_info[k] for k in ("source", "engine", "why")}}
 
@@ -1026,17 +1232,25 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
     duration_s = float(meta["duration_s"]) + END_MS / 1000
     how, why = "camera", ""
     since = time.time()
+    direction: dict | None = None
     with tempfile.TemporaryDirectory(dir=short_dir(pid)) as tmpdir:
         out = Path(tmpdir) / f"scene-{n}.mp4"
         result, original = None, None
-        if _motion_mode(short) == "animate":
+        if _motion_mode(short, scene) == "animate":
             result, why, original = _animate(scene, short, look, picture, wav, out, duration_s, step, lease, n)
             how = "engine" if result else "camera"
         if result is None:
+            if style:  # filmed by its direction: eased camera, punch-ins on phrase starts, an entry on the cut, air
+                direction = director.direct(
+                    seq=seq, narration=scene["narration"], picture=_idea(scene), words=meta["words"],
+                    voiced_s=float(meta["duration_s"]), move=_move(scene), look=look, style=style,
+                    effects=bool(short.get("effects", True)), seed=int(scene["seed"]),
+                    card=_is_card({**scene, "picture_asset_id": picture["id"]}))
             result = motion.still_clip(Path(picture["path"]), wav, out, duration_s=duration_s, move=_move(scene),
                                        fps=FPS, size=SIZE, cancel=lease.canceled, background=look.bottom,
                                        progress=lambda f=0.0, *_: step(0.7 + 0.25 * float(f or 0),
-                                                                       f"Moving the picture of scene {n}"))
+                                                                       f"Moving the picture of scene {n}"),
+                                       **({"direction": direction} if direction else {}))
         try:
             clip = uploads.store_file(ws, Path(result["path"]), f"Scene {n}.mp4", project_id=pid)
         except BaseException:
@@ -1045,7 +1259,8 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
         _list_file(pid, ws, clip["id"])
         _take_original(original, uploads.work_dir(clip))  # the video maker's clip and note, kept with this one
     duration_ms = int(round(float(result["duration_s"]) * 1000))
-    _write_transcript(clip, scene["narration"], meta["words"], duration_ms / 1000)
+    _write_transcript(clip, scene["narration"], meta["words"], duration_ms / 1000,
+                      lifted=director.emphasis(meta["words"]) if style else ())
     voice_info = {"engine": meta.get("engine", ""), "voice": meta.get("voice", ""), "timing": meta.get("timing", ""),
                   "fallback": meta.get("fallback", ""), "rule": meta.get("rule", ""),
                   "duration_ms": int(round(float(meta["duration_s"]) * 1000))}
@@ -1055,7 +1270,9 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
             return None
         return {"clip_asset_id": clip["id"], "clip_key": ckey, "voice_key": vkey, "duration_ms": duration_ms,
                 "status": "ready", "message": "", "error": "",
-                "info": {**_info(row), "voice": voice_info, "motion": {"how": how, "why": why}}}
+                "info": {**_info(row), "voice": voice_info,
+                         "motion": {"how": how, "why": why,
+                                    **({"cues": director.cues(direction)} if direction else {})}}}
 
     row = _change_scene(sid, put_clip)
     if row is None or row["clip_asset_id"] != clip["id"]:
@@ -1079,7 +1296,11 @@ def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path
     eng = local_engines.module()
     if eng is None:
         return None, "This version of ClipForge does not have the local makers yet, so the camera moves instead.", None
-    prompt, _negative = looks.prompt_for(look, scene["picture_prompt"], short.get("character") or "")
+    if _style(short):  # one small slow movement and a still camera: ClipForge's own camera does the moving
+        prompt, _negative = looks.motion_prompt(look, _idea(scene) or scene["narration"],
+                                                short.get("character") or "", int(_info(scene).get("seq") or 0))
+    else:
+        prompt, _negative = looks.prompt_for(look, scene["picture_prompt"], short.get("character") or "")
     video = None
     try:
         video = eng.make_video(prompt, image=Path(picture["path"]), seconds=min(VIDEO_MAX_S, duration_s), width=720,
@@ -1110,12 +1331,15 @@ def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path
         return None, "The video maker stopped with an error, so the camera moves instead.", None
 
 
-def _write_transcript(clip: dict, narration: str, words: list[dict], duration_s: float) -> None:
+def _write_transcript(clip: dict, narration: str, words: list[dict], duration_s: float, lifted=()) -> None:
     """The scene clip's transcript is the script's own words with their times: the editor's captions, word fixes
-    and exports read it like the transcript of any video (video_flow.transcript_words)."""
+    and exports read it like the transcript of any video (video_flow.transcript_words). `lifted`: which of `words`
+    (by index) the captions lift in colour (director.emphasis), marked `em`."""
+    lifted = set(lifted)
     ws = [{"w": str(w["w"]), "start": round(max(0.0, float(w["start"])), 3),
-           "end": round(min(duration_s, max(float(w["start"]), float(w["end"]))), 3)}
-          for w in words if str(w.get("w") or "").strip()]
+           "end": round(min(duration_s, max(float(w["start"]), float(w["end"]))), 3),
+           **({"em": True} if k in lifted else {})}
+          for k, w in enumerate(words) if str(w.get("w") or "").strip()]
     data = {"language": "en", "duration": duration_s, "source": "animated_short",
             "segments": [{"start": ws[0]["start"] if ws else 0.0, "end": ws[-1]["end"] if ws else 0.0,
                           "text": narration, "words": ws}]}
@@ -1144,8 +1368,19 @@ def _label(scene: dict) -> str:
 
 
 def _captions(short: dict, look, old: dict | None) -> dict:
-    style = short.get("captions") or look.caption_style
+    """The plan's captions from the short's choice: one of the editor's three styles, or a caption look
+    (studio/caption_looks.py: big words low in the frame), which a short with an editing style takes from its look
+    unless the owner chose."""
+    style = short.get("captions") or (look.captions if _style(short) else "") or look.caption_style
     out = {"position": "middle", "size": "medium", "highlight": True, **(old or {})}
+    if style in caption_looks.LOOKS:
+        if not out.get("look"):
+            out["position"] = "lower"  # where the looks are made to sit: under the subject, over the apps' buttons
+        out.update(enabled=True, style=out.get("style") if out.get("style") in ("bold", "high_energy", "clean")
+                   else look.caption_style, look=style)
+        return out
+    if out.pop("look", None) and out.get("position") == "lower":
+        out["position"] = "middle"
     out.update(enabled=style != "off", style=style if style in ("bold", "high_energy", "clean") else
                (out.get("style") or look.caption_style))
     return out
@@ -1282,6 +1517,12 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
     want = short.get("apply") or {}
     if base is not None and int(want.get("captions") or 0) > int(applied.get("captions") or 0):
         plan["captions"] = _captions(short, look, plan.get("captions"))
+    style = _style(short)
+    headline = _norm(short.get("headline"))[:MAX_HEADLINE] if style else ""
+    if headline:  # over the first seconds, with or without captions (studio/caption_looks.py)
+        plan["hook"] = {"text": headline, "ms": HOOK_MS}
+    else:
+        plan.pop("hook", None)
 
     def follow(anchor_id: str) -> str | None:
         while anchor_id in moved and anchor_id not in ids:
@@ -1291,17 +1532,24 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
         return anchor_id if anchor_id in ids else None
 
     dropped: list[str] = []
-    whooshed = {a["anchor"]["clip_id"] for a in plan.get("audio") or []
-                if a.get("auto") and a.get("role") == "effect" and (a.get("anchor") or {}).get("clip_id")}
-    # a whoosh the owner removed or changed in the editor: no new one on that clip (a changed one is theirs now)
-    no_whoosh = set(before.get("no_whoosh") or []) | (set(before.get("whooshes") or []) - whooshed)
+
+    def place(a: dict) -> str:
+        """Where one of ClipForge's own sounds sits: the clip it is on and what it marks there (a whoosh: the cut)."""
+        return f"{(a.get('anchor') or {}).get('clip_id')}|{a.get('cue') or 'cut'}"
+
+    own = {place(a) for a in plan.get("audio") or []
+           if a.get("auto") and a.get("role") == "effect" and (a.get("anchor") or {}).get("clip_id")}
+    # a sound of ClipForge's the owner removed or changed in the editor: no new one in that place (a changed one is
+    # theirs now)
+    blocked = {f"{c}|cut" for c in before.get("no_whoosh") or []} | set(before.get("no_cues") or []) | \
+        (({f"{c}|cut" for c in before.get("whooshes") or []} | set(before.get("cues") or [])) - own)
     audio = []
     for a in plan.get("audio") or []:
         if a.get("auto") and a.get("role") == "effect":
-            if not _whoosh_changed(project, a):
-                continue  # ClipForge's own whooshes are placed again below
-            a = {k: v for k, v in a.items() if k != "auto"}
-            no_whoosh.add((a.get("anchor") or {}).get("clip_id"))
+            if not _sound_changed(project, a):
+                continue  # ClipForge's own sounds are placed again below
+            blocked.add(place(a))
+            a = {k: v for k, v in a.items() if k not in ("auto", *CUE_KEYS)}
         anchor = a.get("anchor")
         if anchor:
             to = follow(anchor.get("clip_id"))
@@ -1326,9 +1574,21 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
         music = _music_item(project, short, audio_ids)
         if music:
             audio.insert(0, music)
-    no_whoosh = {to for to in (follow(cid) for cid in no_whoosh if cid) if to}  # the clips they are on now
-    whooshes = _whooshes(project, clips, audio_ids | {a["id"] for a in audio}, no_whoosh)
-    plan["audio"] = audio + whooshes
+    # the places as they are now: on the clips those clips became
+    blocked = {f"{to}|{cue}" for to, cue in ((follow(k.rpartition("|")[0]), k.rpartition("|")[2]) for k in blocked)
+               if to}
+    no_whoosh = {k.rpartition("|")[0] for k in blocked if k.endswith("|cut")}
+    ids_taken = audio_ids | {a["id"] for a in audio}
+    if not style:
+        sounds = _whooshes(project, clips, ids_taken, no_whoosh)
+        marks = {"whooshes": sorted(a["anchor"]["clip_id"] for a in sounds), "no_whoosh": sorted(no_whoosh)}
+        if blocked - {f"{c}|cut" for c in no_whoosh}:  # kept for when the short has an editing style again
+            marks["no_cues"] = sorted(blocked - {f"{c}|cut" for c in no_whoosh})
+    else:
+        sounds = _cues(project, short, clips, by_id, ids_taken, blocked) if short.get("sfx", True) else []
+        marks = {"whooshes": [], "no_whoosh": [], "cues": sorted(place(a) for a in sounds),
+                 "no_cues": sorted(blocked)}
+    plan["audio"] = audio + sounds
     plan["maker"] = WORKFLOW
     placed = (placed_before & set(by_id)) | present
     prior = before.get("rows") or {}
@@ -1339,11 +1599,12 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
     # with the version). Nothing that changes from build to build, so an unchanged short saves no new version.
     plan["short"] = {"scenes": sorted(placed),
                      "applied": {k: max(int(want.get(k) or 0), int(applied.get(k) or 0)) for k in ("captions", "music")},
-                     "whooshes": sorted(a["anchor"]["clip_id"] for a in whooshes), "no_whoosh": sorted(no_whoosh),
+                     **marks,
                      "rows": {s["id"]: prior[s["id"]] if s["id"] in placed and s["id"] in prior and
                               not (s["id"] in ready and s["id"] in in_video) else _row_state(s, s["id"] in placed)
                               for s in rows},
-                     "options": {k: short.get(k) for k in OPTION_STATE}}
+                     # a short made before editing styles keeps no style choices: its versions read as they did
+                     "options": {k: short.get(k) for k in (*OPTION_STATE, *(STYLE_STATE if "edit" in short else ()))}}
     old_outline = {o.get("clip_id"): o for o in plan.get("outline") or []}
     outline = []
     for c in clips:
@@ -1369,6 +1630,25 @@ def _whoosh_changed(project: dict, item: dict) -> bool:
     keys = ("asset_id", "gain_db", "mute", "in_ms", "out_ms", "length_ms", "fade_in_ms", "fade_out_ms", "loop")
     return any(item.get(k) != ref.get(k) for k in keys) or \
         int((item.get("anchor") or {}).get("offset_ms") or 0) != -WHOOSH_LEAD_MS
+
+
+CUE_KEYS = ("cue", "sound", "cue_gain_db", "cue_offset_ms")   # what a sound of an editing style says about itself
+
+
+def _sound_changed(project: dict, item: dict) -> bool:
+    """Whether the owner changed one of ClipForge's own sounds in the editor (its level, sound, trim, fades or
+    place): a classic whoosh, or a sound of an editing style (which says what it was made as)."""
+    if not item.get("cue"):
+        return _whoosh_changed(project, item)
+    sound = item.get("sound")
+    if sound not in CUE_SOUNDS:
+        return True
+    ref = video_flow._audio_item("x", library.asset(project["workspace_id"], sound,  # noqa: SLF001
+                                                    project_id=project["id"]), "effect",
+                                 gain_db=item.get("cue_gain_db"))
+    keys = ("asset_id", "gain_db", "mute", "in_ms", "out_ms", "length_ms", "fade_in_ms", "fade_out_ms", "loop")
+    return any(item.get(k) != ref.get(k) for k in keys) or \
+        int((item.get("anchor") or {}).get("offset_ms") or 0) != int(item.get("cue_offset_ms") or 0)
 
 
 def _new_audio_id(taken: set[str]) -> str:
@@ -1408,6 +1688,54 @@ def _whooshes(project: dict, clips: list[dict], taken: set[str], skip: set = fro
     return out
 
 
+def _cues(project: dict, short: dict, clips: list[dict], by_id: dict, taken: set[str],
+          skip: set = frozenset()) -> list[dict]:
+    """The sounds of a short with an editing style, each attached to the clip it lands on so it moves with it: on a
+    cut the sound of how the next scene arrives (a whoosh under a whip, a swish under a fast zoom, a soft hit under a
+    flash; a plain cut has none, or with a calmer style a soft whoosh on every other one), a soft hit on the very
+    first frame of the fastest style, a pop on the first punch-in of every other scene, and a riser into the last
+    scene, which lands with a hit. Not in the places in `skip` ("clip|what it marks"), where the owner removed or
+    changed one."""
+    style = _style(short)
+    shown = [c for c in clips if c.get("include", True)]
+    out: list[dict] = []
+
+    def add(clip: dict, cue: str, sound: str, offset_ms: int | None = None) -> None:
+        if f"{clip['id']}|{cue}" in skip:
+            return
+        gain, lead = CUE_SOUNDS[sound]
+        offset = lead if offset_ms is None else int(offset_ms)
+        asset = library.asset(project["workspace_id"], sound, project_id=project["id"])
+        item = video_flow._audio_item(_new_audio_id(taken), asset, "effect", gain_db=gain)  # noqa: SLF001
+        item.update(anchor={"clip_id": clip["id"], "offset_ms": offset}, auto=True, cue=cue, sound=sound,
+                    cue_gain_db=gain, cue_offset_ms=offset, label=f"{library.EFFECTS[sound]['title']} (ClipForge)")
+        out.append(item)
+
+    with_beats = 0
+    for k, c in enumerate(shown):
+        s = by_id.get(c.get("scene_id") or "")
+        cues = (_info(s).get("motion") or {}).get("cues") if s is not None and c["asset_id"] == s["clip_asset_id"] \
+            else None
+        if k == 0:
+            if style == "punchy":
+                add(c, "hook", "hit", 0)
+        elif k == len(shown) - 1 and len(shown) >= 4 and style != "gentle":
+            add(c, "riser", "riser")
+            add(c, "cut", "hit")
+        else:
+            sound = ENTRY_SOUND.get((cues or {}).get("entry") or "") or \
+                ("whoosh" if k % 2 == 1 and (style != "punchy" or not cues) else None)
+            if sound:
+                add(c, "cut", sound)
+        beats = (cues or {}).get("beats") or []
+        if beats:
+            at = int(round(float(beats[0]) * 1000)) + CUE_SOUNDS["pop"][1] - int(c["in_ms"])
+            if with_beats % BEAT_EVERY == 0 and 300 <= at <= int(c["out_ms"]) - int(c["in_ms"]) - 300:
+                add(c, "beat", "pop", at)
+            with_beats += 1
+    return out
+
+
 def _notes(rows: list[dict], short: dict, plan: dict | None) -> list[str]:
     """What the owner should know about how the short was made, in plain words."""
     notes = []
@@ -1428,6 +1756,19 @@ def _notes(rows: list[dict], short: dict, plan: dict | None) -> list[str]:
                          "then press Draw real pictures to swap them.")
         else:
             notes.append(f"{some}, because this ClipForge has no picture maker yet.")
+    cast = short.get("cast") or {}
+    if _cast_key(short) and cast.get("key") == _cast_key(short) and cast.get("failed"):
+        notes.append("The picture maker could not draw the main character on their own, so each picture describes them "
+                     "in words and they may look a little different from scene to scene. Press Make the short to try "
+                     "again.")
+    elif any((_info(s).get("picture") or {}).get("unreferenced") for s in auto):
+        notes.append("Some pictures could not be drawn from the main character's picture, so the character may look a "
+                     "little different in them. Press New picture on a scene to try again.")
+    elif _cast_key(short) and engine_status("image")["ready"] and not local_engines.picture_references() and \
+            any(_referenced(s, short) for s in auto):
+        notes.append("This picture maker cannot be shown the main character's picture, so each picture describes them "
+                     "in words. FLUX.2 klein keeps the same character in every scene (Settings → Pictures, video, "
+                     "voice).")
     for n, s in enumerate(rows, 1):
         if s["status"] == "failed":
             notes.append(f"Scene {n} {'still shows its earlier version' if s['id'] in in_plan else 'is not in the video yet'}"
@@ -1603,6 +1944,13 @@ def _put_back_options(data: dict, current: dict, target: dict) -> None:
     for k in OPTION_STATE:
         if k in want and data.get(k) == was.get(k, data.get(k)):
             data[k] = want[k]
+    if "edit" in was or "edit" in want:  # the editing style and what goes with it
+        # a version saved before editing styles was made the classic way: going back to it keeps its scenes as they
+        # are (nothing is filmed again)
+        want = want if "edit" in want else {**want, "edit": "classic"}
+        for k in STYLE_STATE:
+            if k in want and data.get(k) == was.get(k, data.get(k)):
+                data[k] = want[k]
     applied_was, applied_now = current.get("applied") or {}, target.get("applied") or {}
     apply = dict(data.get("apply") or {})
     for k in ("captions", "music"):
@@ -1750,9 +2098,14 @@ def make(project: dict) -> None:
     for s in scene_rows(project["id"]):
         if (_info(s).get("voice") or {}).get("fallback"):
             _change_scene(s["id"], _retake)
+    changes: dict = {}
+    if (short.get("cast") or {}).get("failed"):
+        changes["cast"] = {}  # the main character's picture gets another try
     # the script counts as checked only once the owner saw it: after a writer that failed or was stopped, the build
     # writes the script and stops there again
-    _rebuild(project, {"reviewed": True} if short.get("stage") == "review" else None, waiting="Waiting to start")
+    if short.get("stage") == "review":
+        changes["reviewed"] = True
+    _rebuild(project, changes or None, waiting="Waiting to start")
 
 
 def _retake(row: dict) -> dict | None:
@@ -1764,19 +2117,22 @@ def _retake(row: dict) -> dict | None:
 
 
 def set_options(project: dict, body: dict) -> None:
-    """Change the voice, speed, look, music, captions or motion of the whole short; the scenes that change are made
-    again (the owner's own pictures stay)."""
-    allowed = {"voice", "speed", "look", "music", "captions", "motion"}
+    """Change the voice, speed, look, music, captions, motion, editing style (with its effects, sounds, headline and
+    main character) of the whole short; the scenes that change are made again (the owner's own pictures stay)."""
+    allowed = {"voice", "speed", "look", "music", "captions", "motion", *STYLE_STATE}
     unknown = set(body) - allowed
     if unknown:
         raise ShortError("Unknown option: " + ", ".join(sorted(unknown)))
     short = project["short"]
     new = clean_options({k: v for k, v in body.items() if v is not None}, short)
-    changes = {k: new[k] for k in allowed if new.get(k) != short.get(k)}
+    # a short made before editing styles has no style choices: only the ones the owner sets now are kept
+    changes = {k: new[k] for k in allowed if new.get(k) != short.get(k) and (k in body or k not in STYLE_STATE)}
     if not changes:
         return
+    restyled = "edit" in changes and bool(_style({**short, **changes})) != bool(_style(short))
     apply = (("music",) if "music" in changes else ()) + \
-        (("captions",) if "captions" in changes or ("look" in changes and not new.get("captions")) else ())
+        (("captions",) if "captions" in changes or (("look" in changes or restyled) and not new.get("captions"))
+         else ())
     if "voice" in changes:
         changes["voice_used"] = ""
     _rebuild(project, changes, apply)
@@ -1869,6 +2225,7 @@ def view(project: dict, plan: dict | None = None) -> dict:
         for x in shown if x["id"] not in in_video and not x["replaced"])
     state = _writer_state(db.get_settings())
     return {**{k: short.get(k, DEFAULTS.get(k, "")) for k in OPTION_FIELDS},
+            "edit": short.get("edit") or "classic",  # a short made before editing styles is cut the classic way
             "topic": short.get("topic") or "", "title": short.get("title") or "",
             "character": short.get("character") or "", "stage": short.get("stage") or "making",
             "message": short.get("message") or "", "scenes": shown,
