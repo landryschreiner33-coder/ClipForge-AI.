@@ -290,19 +290,25 @@
 <p id="uploads">
   <b>Uploads and files added from this computer (added 2026-11-13).</b> ClipForge keeps one copy of each file. For
   each upload, and each time you add a file from this computer, it keeps a record: the file's name, kind and size, how
-  much of it arrived and whether it finished, the fingerprint your browser made of it (when it made one) and the
-  name, size and change time your browser gave (so the same file can resume), when it started and finished, which
+  much of it arrived, whether it finished (or why not), the fingerprint your browser made of it (when it made one) and
+  the name, size and change time your browser gave (so the same file can resume), when it started and finished, which
   stored file it became, and which project or example video took it. A file added from this computer is used where
   it is: ClipForge records where it is and a fingerprint of its contents, keeps its thumbnail and details in the data
-  folder, and never changes or deletes your file. An unfinished upload's partly received file is deleted after 3 days
-  without progress; its record stays, marked as expired. When you upload or add a file ClipForge already has, or its
-  own work (an animated short's build, a link's download, an import for a video) stores the same bytes again, it
-  hands out the copy it has: it keeps the time of the last hand-out on that file's record, and notes whom each one
-  went to (the project, or the upload or added file). Deleting a project keeps a copy handed out to someone else in
-  the hour before, and lets go of one handed out to the project itself (section 7). A note counts for an hour; it is
-  removed at the next hand-out once it is older than that, or with its file. Upload records stay until their file is
-  deleted (with the last project or example video that used it); records of uploads that failed or expired stay until
-  you delete the data folder.
+  folder, and never changes or deletes your file. An unfinished upload's partly received file is kept so the upload
+  can resume; once it has had no progress for 3 days, it is deleted the next time you start an upload, and its record
+  stays, marked as expired. Canceling an upload deletes its partly received file at once. When you upload or add a
+  file ClipForge already has, or its own work (an animated short's build, its music and sound effects, a link's
+  download, an import for a video) stores the same bytes again, it hands out the copy it has: it keeps the time of
+  the last hand-out on that file's record, and notes whom each one went to (the project, or the upload or added
+  file). Deleting a project keeps a copy handed out after its list was shown and within the hour before deleting
+  when it went to an upload or added file no project took yet, to another project that still exists, or to someone
+  the note does not name; one handed out to the project itself, or to a project deleted since (also as an upload that
+  project took), does not keep it (section 7). A note counts for an hour; it is removed at the next hand-out once it
+  is older than that, or with its file. Upload records stay until their file is deleted (with the last project or
+  example video that used it). A file no project or example video uses, for example one you uploaded or added but
+  never used, has no delete button: ClipForge's copy of it (for a file added from this computer, its thumbnail and
+  details) stays with its records until you delete the data folder, and so do the records of uploads that were
+  canceled, failed or expired.
 </p>
 <p>
   If you run ClipForge in <b>cloud mode</b> on your own server, that data is stored on that server instead of your
@@ -334,15 +340,20 @@
   <code>models/voice</code> (about 400 MB), with a list of the files ClipForge downloaded and checked (where each is
   on this computer, its checksum, size and time). If you choose the ComfyUI app instead, the models go into that app's
   own model folders, outside ClipForge's data folder. Each picture, clip and voice-over a maker makes is saved in
-  <code>engines/made</code> with a note of how it was made: its words (for a picture or clip, also the words to
-  avoid, the seed, sizes and which ComfyUI made it; for a voice, the whole text read, the voice, speed and each word's
-  estimated time), the model, its licence and use rule, and when it was made. An animated short takes the
-  files it uses, with their notes, into its own folders, so they go when the short is deleted; one it cannot use (a
+  <code>engines/made</code> with a note of how it was made: its words (for a picture, also the words to avoid; for a
+  picture or clip, the seed, sizes and which ComfyUI made it; for a voice, the whole text read, the voice, speed and
+  each word's estimated time), the model, its licence and use rule, and when it was made. An animated short takes the
+  files it uses, with their notes, into its own folders, so they go when the short is deleted (unless the picture or
+  clip they are kept with stays, section 7); one it cannot use (a
   picture that does not open, a silent voice, work stopped half-way) is deleted at once. Everything else in
   <code>engines/made</code> (the tries in Settings, the voice's recordings of Hear samples, and a file a short could
   not take in, for example while another program had it open) stays until you delete the data folder. Each picture
   copied into ComfyUI's <code>input</code> folder to be animated stays there too (with the ComfyUI app, in that
-  app's folder). While a picture or clip is made, the
+  app's folder). With the ComfyUI app, or a ComfyUI at an address you typed, that ComfyUI also saves each picture and
+  clip it makes in its own <code>output</code> folder (under <code>clipforge</code>), normally with the request it
+  was made from, its words included, written into the file. ClipForge deletes that copy only from its own ComfyUI, so
+  with the app these copies stay until you remove them there, also after the short or the data folder is
+  deleted. While a picture or clip is made, the
   first 120 characters of its words name the work holding the graphics card; after a graphics-card error they stay
   with that error until the next one. The set-up log (<code>logs/comfy-setup.log</code>) and everything ClipForge's
   ComfyUI prints (<code>logs/comfyui.log</code>) are kept with no size limit until you delete them. Agreeing to a
@@ -440,12 +451,14 @@
       your idea, built-in know-how and your helper agents' notes, never where your files are (a helper agent that
       helps with plans writes its note from your idea and your files' names, lengths and what is said in them, with
       its own name, job and instructions). For an animated short: with Write it for me, your topic, tone, length,
-      audience and look, up to 6 of your rules and facts and the know-how that fits (asked once more when the first
-      answer cannot be used or is far from the length); with Paste my script, when a scene has no picture line, your
+      audience and look, your standing rules (up to 8) and up to 6 of your facts that fit it (about 900 characters of
+      them in all), and the know-how that fits (asked once more when the first answer cannot be used or is far from
+      the length); with Paste my script, when a scene has no picture line, your
       whole script with its title and look and the memories and know-how that fit, for picture ideas. Each request
       ClipForge AI, a helper agent, the video planner or the editor (a change request) sends to an online service
       counts once against "AI requests a day" in Settings → Advanced (0 sends none); a short's script and picture
-      ideas do not count against it.
+      ideas are neither counted nor limited by it, so they are sent to the online service you chose even when it is
+      0.
       If you choose an AI program on your own computer (such as Ollama or LM Studio),
       ClipFoundry sends this text only to the address you set for that program; an Ollama cloud model (a model name
       ending in "cloud") answers online even through the Ollama on your computer. If you choose a cloud AI service (for
@@ -477,17 +490,21 @@
       there)</td></tr>
     <tr><td>GitHub</td><td>When you download ClipForge AI's built-in model, if the program that runs it (llama.cpp)
       is not on this computer yet; and when you set up ComfyUI in Settings → Pictures, video, voice</td><td>A request
-      to download that program from its public release page, or ComfyUI 0.43.0's source archive</td></tr>
+      to download that program from its public release page, or ComfyUI 0.43.0's source archive (and the private
+      Python 3.12, if Astral's download server does not answer)</td></tr>
     <tr><td>ComfyUI set-up downloads</td><td>When you press Set up ComfyUI in Settings → Pictures, video,
       voice</td><td>Requests to download the uv installer from the Python Package Index's file server; a private
-      Python 3.12, from where uv gets it; the Python packages ComfyUI needs from the Python Package Index; and on
-      Windows and Linux, PyTorch from PyTorch's download site (download.pytorch.org). Your own pip and uv settings are
-      not used. Like other Python installers, uv names its own version and this computer's system, processor and
-      Python version in these requests</td></tr>
-    <tr><td>ComfyUI</td><td>Each time an animated short or a try in Settings makes a picture or animates one</td>
-      <td>The picture's words (for a short: the scene's picture idea, the main character, the look's style words and
-      words to avoid; for a try: the words you typed or the example words), the seed, size and model names, and to
-      animate a picture, the picture itself. ClipForge's own ComfyUI
+      Python 3.12 (python-build-standalone) from Astral's download server (releases.astral.sh), or from its GitHub
+      release page if that server does not answer; the Python packages ComfyUI needs from the Python Package Index;
+      and on Windows and Linux, PyTorch from PyTorch's download site (download.pytorch.org). Your own pip and uv
+      settings are not used. Like other Python installers, uv names in these requests its own version and this
+      computer's operating system and its version (on Linux, also the distribution, its version and the C library's
+      version), processor and Python version, and whether a build-server (CI) setting is present</td></tr>
+    <tr><td>ComfyUI</td><td>Each time an animated short or a try in Settings makes a picture or a clip</td>
+      <td>The picture's or clip's words (for a short: the scene's picture idea, the main character and the look's style
+      words; for a try: the words you typed or the example words); for a clip, the video model's own built-in words to
+      avoid; the seed, size and model names; and to animate a picture, the picture itself (in a short, the scene's
+      picture, which may be one you chose yourself). ClipForge's own ComfyUI
       runs on this computer only and offline, so this does not leave your computer, and the voice runs inside
       ClipForge. If you choose the ComfyUI app on this computer, that app receives them, along with checks of its
       status and models; it is a separate program, and what it keeps or sends is up to it. If you type a ComfyUI
@@ -641,12 +658,16 @@
     short's scenes, also after the list was shown). This deletes the project's clips or a video's versions,
     transcript and analysis, its ClipForge AI chat and the notes kept only for it, and ClipFoundry's copy of the video when nothing
     else uses it; planned posts that have not started uploading are canceled. An animated short's recorded voices,
-    and the originals the makers made for it with their notes, go with it; an original it could not take in stays in
-    <code>engines/made</code> with its note (section 2). Your own original is not touched,
-    and a copy of a file you added again on another page since the day before the list was shown and have not used
-    there yet, or one that was uploaded, added or stored again for another page or project after the list was shown
-    and within the hour before deleting, stays (it may be about to be used there); one that the project's own work
-    stored again goes with it. Notes for all
+    and the originals the makers made for it with their notes, go with it, except an original kept with a picture or
+    clip that stays (another project uses it, or it was added, uploaded or stored again for another page or project)
+    and an original it could not take in, which stays in <code>engines/made</code> with its note. Each picture
+    copied into ComfyUI's <code>input</code> folder to animate its scenes (a picture you chose included) stays there,
+    and with the ComfyUI app, so do the copies that app saved of what it made (section 2). Your own original is not
+    touched, and a copy of a file you added again on another page since the day before the list was shown and have
+    not used there yet, or one that was uploaded, added or stored again for another page or project after the list
+    was shown and within the hour before deleting, stays (it may be about to be used there), unless it went to a
+    project deleted since (also as an upload that project took); one that the project's own work stored again goes
+    with it. Notes for all
     your videos stay. A separate uploaded source copy under
     <code>submitted/</code>, its request and source history remain until you delete the data folder. Some records stay until you delete
     the data folder: the history of posts that were planned or published; for each clip Autopilot made, a short
@@ -665,7 +686,9 @@
     the ComfyUI in use (a part another downloaded model still needs stays), and the voice's Remove deletes its
     folder. An unfinished ComfyUI set-up or voice download has no Remove; its partly downloaded files stay until it
     finishes or you delete the data folder. Files in <code>engines/made</code>, voice samples and pictures in
-    ComfyUI's <code>input</code> folder have no delete button; they go with the data folder.</li>
+    ClipForge's own ComfyUI's <code>input</code> folder have no delete button; they go with the data folder. With
+    the ComfyUI app (or a ComfyUI address you typed), the pictures it was given to animate and the pictures and clips
+    it saved stay in that ComfyUI's folders until you delete them there.</li>
   <li><b>Stop watching a YouTube channel:</b> remove it from the places Autopilot watches, and also remove its
     permission (Autopilot → Permissions &amp; sources). While optional discovery is selected and the permission
     stays, Autopilot can still look for that channel's new videos. Submitted mode admits no new channel videos.</li>

@@ -220,6 +220,20 @@ def test_a_file_tidied_away_takes_the_notes_of_whom_it_was_handed_out_to_with_it
     assert shorts._tidy_files(pid, "local") == 1 and _gone(stray)
     assert not db.select("asset_hand_outs", "asset_id = ?", (stray["id"],))
 
+def test_a_shorts_music_and_whoosh_are_handed_to_that_short(env):
+    """ClipForge's own music bed and whoosh are stored once; each later build of the short gets the stored copy,
+    noted as handed to that short, so deleting the short lets them go when nothing else uses them."""
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+
+    project = _make(env)
+    music = [shorts._music_item(project, {"music": "balanced"}, set()) for _ in range(2)]  # noqa: SLF001
+    whoosh = [shorts._whooshes(project, [{"id": "c1"}, {"id": "c2"}], set()) for _ in range(2)]  # noqa: SLF001
+    assert music[0]["asset_id"] == music[1]["asset_id"] and whoosh[0][0]["asset_id"] == whoosh[1][0]["asset_id"]
+    notes = db.select("asset_hand_outs", "1 = 1", ())
+    assert {n["asset_id"] for n in notes} == {music[0]["asset_id"], whoosh[0][0]["asset_id"]}
+    assert {n["project_id"] for n in notes} == {project["id"]}, notes
+
 def test_tidying_leaves_a_file_an_upload_of_the_same_bytes_was_just_given(env, monkeypatch):
     """The owner uploads bytes ClipForge already has as a short's stray file: the upload is given the stored copy
     and records it a moment later. A tidy that runs in between does not delete that copy from under the upload."""
@@ -555,10 +569,17 @@ def test_a_shorts_own_build_storing_its_files_again_while_it_is_deleted_lets_the
     scene = _scenes(pid, _plan(pid))[0]
     shown = project_delete.plan("local", pid, "full_video")
     time.sleep(0.01)
-    shorts.update_scene(_fresh(pid), scene["id"], {"again": True})
+    # a new picture idea and Make again: the stand-in maker draws the same picture, so the same clip is made too
+    shorts.update_scene(_fresh(pid), scene["id"], {"picture_prompt": scene["picture_prompt"] + " at night",
+                                                   "again": True})
     _run(env)
-    clip = db.fetch("assets", _scenes(pid, _plan(pid))[0]["clip_asset_id"])
+    now = _scenes(pid, _plan(pid))[0]
+    clip, picture = db.fetch("assets", now["clip_asset_id"]), db.fetch("assets", now["picture_asset_id"])
     assert clip["id"] == scene["clip_asset_id"] and clip["reused_at"] > shown["as_of"]  # the same copy, again
+    assert picture["id"] == scene["picture_asset_id"] and picture["reused_at"] > shown["as_of"]
+    notes = db.select("asset_hand_outs", "at > ?", (shown["as_of"],))
+    assert {clip["id"], picture["id"]} <= {n["asset_id"] for n in notes}
+    assert {n["project_id"] for n in notes} == {pid} and not any(n["upload_id"] for n in notes)  # all its own
     as_of = shown["as_of"] - 3 * 86400 if card else shown["as_of"]
     out = project_delete.delete("local", pid, "full_video", as_of=as_of, removes=shown["removes"] if card else None)
     assert out["deleted"] and out["counts"]["files_kept"] == 0, out["stays"]

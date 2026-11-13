@@ -241,9 +241,15 @@ def test_clips_kept_as_they_are_get_music_only_when_asked(env, monkeypatch):
     from clipfoundry.studio import library, video_flow
 
     v = _asset(env, "talk.mp4", "video", 20)
-    made, given = [], []
-    monkeypatch.setattr(library, "asset", lambda ws, key, project_id="": given.append(project_id) or made.append(key)
-                        or _asset(env, library.filename(key), "audio", 50))
+    made, given, kept = [], [], {}
+
+    def asset(_ws, key, project_id=""):  # ClipForge's own music and sounds, each made once, and whom each went to
+        made.append(key), given.append(project_id)
+        if key not in kept:
+            kept[key] = _asset(env, library.filename(key), "audio", 50)
+        return kept[key]
+
+    monkeypatch.setattr(library, "asset", asset)
     plain = _project([v], {})  # no choice at all: the old rough cut, nothing added
     assert video_flow.prepare_smart(plain, video_flow._assets(plain), {}, {}) == {} and made == []
     asked = _project([v], {"smart_edit": "off", "music": "library"}, "Asked")
@@ -255,6 +261,11 @@ def test_clips_kept_as_they_are_get_music_only_when_asked(env, monkeypatch):
     music = [i for i in plan["audio"] if i["role"] == "music"]
     assert len(music) == 1 and music[0]["auto"] and any("free background music" in n for n in plan["notes"])
     assert len(plan["clips"]) == 1 and "smart" not in plan  # the clips themselves are kept as they are
+    effects = _project([v], {"smart_edit": "smart", "music": "library", "sound_effects": True}, "Effects")
+    made.clear(), given.clear()
+    ctx = video_flow.prepare_smart(effects, video_flow._assets(effects), {}, {})
+    assert sorted(ctx["library"]) == ["swish", "whoosh"] and len(made) == 3  # music and both sound effects
+    assert given == [effects["id"]] * 3  # each handed to this video
 
 
 def test_ai_advice_is_checked_bounded_and_used(env):

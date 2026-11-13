@@ -1217,6 +1217,9 @@ def _handed_out_again(asset: dict, *, project_id: str = "", upload_id: str = "")
     (("an upload still arriving",), True),
     (("its own work", "another project"), True),
     (("its own work", "an upload no project took"), True),
+    (("another project", "its own work"), True),
+    (("an upload still arriving", "its own work"), True),
+    (("a note that names nobody", "its own work"), True),
 ])
 def test_a_copy_handed_out_again_keeps_a_file_only_for_someone_who_may_still_need_it(env, given, stays):
     """Deleting a video looks once more, in its own step, at the copies ClipForge handed out again since its window
@@ -1264,6 +1267,27 @@ def test_a_copy_handed_out_again_keeps_a_file_only_for_someone_who_may_still_nee
         assert not any("used again just now" in line for line in out["stays"])
         assert not db.scalar("SELECT COUNT(*) FROM asset_hand_outs WHERE asset_id = ?", (trip["id"],))
 
+
+def test_a_hand_out_before_the_window_does_not_keep_a_file_its_own_work_stored_again(env):
+    """A copy handed out to another project before the delete window was shown is recorded by then (or never will
+    be), and the window's own look said whether the file stays. Only notes since the window count, so when the
+    video's own work then stores the same bytes again, the file goes, as the window said."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    trip = _stored(74, filename="trip.mp4")
+    hike, beach = _video("Hike", [trip["id"]])["id"], _video("Beach", [])["id"]
+    _handed_out_again(trip, project_id=beach)  # the beach video's link stored the same bytes, then failed
+    with db.connect() as conn:  # 20 minutes ago: inside the hour, before the window
+        conn.execute("UPDATE asset_hand_outs SET at = at - 1200 WHERE asset_id = ?", (trip["id"],))
+        conn.execute("UPDATE assets SET reused_at = reused_at - 1200 WHERE id = ?", (trip["id"],))
+    shown = project_delete.plan("local", hike, "full_video")
+    assert shown["counts"]["files"] == 1
+    time.sleep(0.01)
+    _handed_out_again(trip, project_id=hike)  # the hike video's own rebuild stores the same bytes again
+    out = project_delete.delete("local", hike, "full_video", as_of=shown["as_of"])
+    assert out["deleted"] and out["counts"]["files"] == 1 and out["counts"]["files_kept"] == 0, out["stays"]
+    assert db.fetch("assets", trip["id"]) is None and not os.path.exists(trip["path"])
 
 def test_whom_a_copy_went_to_is_noted_only_for_the_hour_it_counts(env):
     """Each hand-out notes whom it went to in the same step as the mark (assets.reused_at). Notes older than the hour

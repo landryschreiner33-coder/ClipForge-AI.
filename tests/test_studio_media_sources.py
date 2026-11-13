@@ -649,3 +649,23 @@ def test_an_import_for_a_video_of_bytes_clipforge_has_is_noted_as_that_videos_ow
                         "local")
     assert row["status"] == "ready" and row["asset_id"] == had["id"], row
     assert db.scalar("SELECT project_id FROM asset_hand_outs WHERE asset_id = ?", (had["id"],)) == project["id"]
+
+
+def test_an_automatic_pick_of_bytes_clipforge_has_is_noted_as_that_videos_own(env, media):
+    """Find media's automatic round for a video can import bytes ClipForge already has: the stored copy is handed to
+    that video, noted as its own, so deleting the video later lets it go like any other file only it uses."""
+    from clipfoundry import db
+    from clipfoundry.studio import media_sources as ms
+    from clipfoundry.studio import uploads
+
+    _key()
+    project = _project(env, brief={"music": "find", "find_media": "auto"})
+    had = []
+    for kind, name in (("jpg", "valley.jpg"), ("png", "peak.png"), ("music", "music.wav"), ("wav", "rain.wav")):
+        mine = env["tmp"] / name
+        mine.write_bytes(media[kind])
+        had.append(uploads.store_file("local", mine, name)["id"])
+    ms.find_for_project(project["id"], "local")
+    assert ms.suggestions_view(project["id"])["latest"]["status"] == "ready"
+    notes = db.select("asset_hand_outs", f"asset_id IN ({', '.join('?' * len(had))})", tuple(had))
+    assert notes and {n["project_id"] for n in notes} == {project["id"]}, notes
