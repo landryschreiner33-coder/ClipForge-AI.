@@ -221,7 +221,14 @@ Listed as ClipForge 2026.11.13.
   session.
 - **Legal pages:** `privacy.html` at the site root is now the app's `docs/legal/privacy.html` at 863e69e (effective
   November 13, 2026: ClipForge AI's chats, memories and helpers, deleting projects, uploads, animated shorts and the
-  makers). `terms.html` and `index.html` were left as they were: the app's copies are newer (Terms effective
-  October 19, publishing permissions), and publishing them waits for Landry.
+  makers). `terms.html` and `index.html` were left as they were at first, because publishing them waited for
+  Landry.
+- **Legal pages, later the same day:** Landry chose to publish all three. A fact-check found the app's Terms
+  (October 19) and legal home page still described automatic video searching, Windows-only installs and per-post
+  approval as the default, and the privacy page still described discovery. PR #47 (merged as 5d862c8) corrected
+  `docs/legal` against the code; the Terms are now effective November 13, 2026, the privacy page lists Find media's
+  services (Openverse, Wikimedia Commons, Pexels), and the home page's download button and setup line point to the
+  download page. `gh-pages` commit 5e369f8 publishes the three pages from fe0ac49 (site.css, icons and the TikTok
+  verification file unchanged). Rollback: revert 5e369f8.
 
 Rollback: revert `e97c633` on `gh-pages` with a normal commit. The 2026.11.07 files stay under All versions.
