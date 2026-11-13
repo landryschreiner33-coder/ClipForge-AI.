@@ -27,8 +27,9 @@ and the November 13 privacy page.
   real recordings; deleting on a real Windows PC; YouTube; Windows security; notarization.
 - **Known and open:** the Basic model is weak in conversation (did not list the projects, said it would ask a helper
   without doing it); unfinished uploads are cleaned only when the next upload starts; an animated short's script is
-  not counted in "AI requests a day"; the FFmpeg DASH-manifest follow-up from PR #41. The public Terms and legal home
-  page are older than the app's copies (`docs/legal`): publishing them is Landry's call. PR #20 (release line to the
+  not counted in "AI requests a day"; the FFmpeg DASH-manifest follow-up from PR #41. Landry chose to publish all three legal
+  pages: PR #47 (5d862c8) corrected `docs/legal` (discovery retired, Mac app, Make & upload, Find media) and gh-pages
+  5e369f8 publishes them. In-app text in `frontend/src/components/apSources.tsx` still describes discovery. PR #20 (release line to the
   default branch) is still unmerged.
 - **Next release:** a second one today would be `2026.11.13.2`; new work starts from `claude/project-thread-x72wkd` at
   1d455f6. Standing rule (Landry, Nov 9): merge finished PRs into the release line once checks pass; a release needs
