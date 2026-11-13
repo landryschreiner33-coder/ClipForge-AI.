@@ -25,6 +25,19 @@
    ],
    "seconds": 680.4,
    "model": "flux2-klein-4b"
+  },
+  "after/scene-09": {
+   "prompt": "Close-up shot: the tiny robot and the girl sitting side by side under the umbrella as the clouds part and the stars return. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "seed": 1390636299,
+   "size": [
+    448,
+    800
+   ],
+   "references": [
+    "after/character"
+   ],
+   "seconds": 718.8,
+   "model": "flux2-klein-4b"
   }
  },
  "notes": [
@@ -32,7 +45,8 @@
   "20:27:14 ComfyUI is running (14.9 GB memory and 28.3 GB swap free)",
   "20:30:54 the model is downloaded (14.9 GB memory and 28.3 GB swap free)",
   "20:49:48 made after/scene-01 in 706.1 s (5.1 GB memory and 19.5 GB swap free)",
-  "21:01:10 made after/scene-05 in 680.4 s (12.8 GB memory and 25.9 GB swap free)"
+  "21:01:10 made after/scene-05 in 680.4 s (12.8 GB memory and 25.9 GB swap free)",
+  "21:13:16 made after/scene-09 in 718.8 s (5.2 GB memory and 19.5 GB swap free)"
  ],
  "batch": "batch-2-after.json",
  "pins": {
