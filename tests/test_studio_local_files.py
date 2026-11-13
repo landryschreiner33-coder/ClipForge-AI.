@@ -430,3 +430,32 @@ def test_a_linked_file_deleted_while_it_is_handed_out_is_refused(env, monkeypatc
         uploads.link_local("local", str(file))
     assert refused.value.status == 409 and "Add it again" in str(refused.value)
     assert db.fetch("assets", linked["id"]) is None and db.scalar("SELECT COUNT(*) FROM uploads") == 0
+
+
+def test_adding_a_videos_own_file_again_from_this_computer_while_it_is_deleted_lets_it_go(env, monkeypatch):
+    """While a video's delete window is open, the owner adds one of its files again from this computer on the video's
+    own page: ClipForge gives the page the file it has (a hand-out of it again) with a record the page sends, so the
+    video takes it. That was the video's own, so what ClipForge made from the file goes with the video, instead of
+    staying with nothing naming it; the owner's file stays where it is."""
+    from clipfoundry import db
+    from clipfoundry.jobs import worker
+    from clipfoundry.studio import project_delete, uploads, video_flow
+
+    monkeypatch.setattr(worker, "submit_studio", lambda job_id: None)
+    file = make_video(env / "clip.mp4", seconds=1.0)
+    linked = uploads.link_local("local", str(file))
+    vid = video_flow.create("local", "local", name="Clip", asset_ids=[linked["id"]], brief={}, style_id="settings",
+                            remember={"enabled": False}, upload_ids=[linked["upload_id"]])["id"]
+    plan = project_delete.plan("local", vid, "full_video")
+    assert plan["counts"]["files"] == 1 and plan["counts"]["files_kept"] == 0
+    time.sleep(0.01)
+    again = uploads.link_local("local", str(file))
+    assert again["id"] == linked["id"]
+    marked = db.fetch("assets", linked["id"])["reused_at"]  # the mark and its note are one step: the note names it
+    assert db.scalar("SELECT upload_id FROM asset_hand_outs WHERE asset_id = ? AND at = ?",
+                     (linked["id"], marked)) == again["upload_id"]
+    video_flow.add_media(vid, [again["id"]], upload_ids=[again["upload_id"]])
+    out = project_delete.delete("local", vid, "full_video", as_of=plan["as_of"])
+    assert out["counts"]["files"] == 1 and out["counts"]["files_kept"] == 0, out["stays"]
+    assert db.fetch("assets", linked["id"]) is None and file.is_file()
+    assert db.scalar("SELECT COUNT(*) FROM uploads") == 0

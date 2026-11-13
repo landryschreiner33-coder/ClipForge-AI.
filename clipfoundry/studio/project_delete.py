@@ -389,12 +389,36 @@ def _marked_since() -> float:
         return 0.0
 
 
-def _handed_out(conn, asset_id: str, since: float) -> bool:
+def _handed_out(conn, asset_id: str, since: float, project_id: str) -> bool:
     """ClipForge handed this copy out again after `since` (an upload of the same bytes, Add from this computer, a
-    build storing the same bytes): whoever got it may not have recorded it yet, so it stays. Asked inside the
-    delete's transaction, which such a hand-out waits for (it marks the copy, assets.reused_at, first)."""
+    build storing the same bytes) to someone other than this project: whoever got it may not have recorded it yet,
+    so it stays. Each hand-out notes whom it went to (uploads._mark). One to this project's own work (its build,
+    download or import stored the same bytes again) or to a project deleted since is named by nothing once the
+    project is gone, and an upload a project took is named by that project already (taking comes after its page put
+    the file in it), so the last look at what names the file decides: none of those keeps it. A mark without a note
+    (an older version's) keeps it. Asked inside the delete's transaction, which such a hand-out waits for (it marks
+    the copy, assets.reused_at, and notes whom it went to in one step first)."""
     row = conn.execute("SELECT reused_at FROM assets WHERE id = ?", (asset_id,)).fetchone()
-    return row is not None and float(row[0] or 0) > since
+    if row is None or float(row[0] or 0) <= since:
+        return False
+    notes = conn.execute("SELECT project_id, upload_id FROM asset_hand_outs WHERE asset_id = ? AND at > ?",
+                         (asset_id, since)).fetchall()
+    return not notes or any(_for_someone_else(conn, given or "", upload or "", project_id)
+                            for given, upload in notes)
+
+
+def _for_someone_else(conn, given: str, upload: str, project_id: str) -> bool:
+    """Whether a hand-out noted as going to project `given` or to upload `upload` may still be recorded by someone
+    other than `project_id`: an upload no project took yet (also one still arriving: only a finished upload is
+    ever taken), another project that is still there, or someone the note does not name."""
+    if upload:
+        row = conn.execute("SELECT taken FROM uploads WHERE id = ?", (upload,)).fetchone()
+        return row is None or not row[0]
+    if not given:
+        return True
+    return given != project_id and bool(conn.execute(
+        "SELECT 1 FROM projects WHERE id = ? UNION ALL SELECT 1 FROM studio_projects WHERE id = ? LIMIT 1",
+        (given, given)).fetchone())
 
 
 def _hand_out_since(as_of: float) -> float:
@@ -403,7 +427,7 @@ def _hand_out_since(as_of: float) -> float:
     (an upload, a link, a short's scene, a Find media pick in the video's media), so one handed out before that is
     recorded by now, and the last look's `_used_elsewhere` (or the survey's `_added_again`) says whether it stays.
     ClipForge AI's delete card can wait for days: a copy handed out meanwhile to a project deleted since is named by
-    nothing, and must not keep the file for good."""
+    nothing, and must not keep the file for good (within the hour, `_handed_out` reads whom it went to)."""
     return max(as_of, time.time() - uploads.REUSE_HOLD_S)
 
 
@@ -903,7 +927,7 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
         named = _used_elsewhere(ws, kind, project_id) if s.drop else ""
         now_used = [a for a in s.drop if a["id"] in named]
         since = _hand_out_since(s.as_of)
-        handed = [a for a in s.drop if a not in now_used and _handed_out(conn, a["id"], since)]
+        handed = [a for a in s.drop if a not in now_used and _handed_out(conn, a["id"], since, project_id)]
         have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         if kind == "clips":
             for table in db.CLIP_CHILDREN:
@@ -933,7 +957,8 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: flo
         conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND scope = ?", (ws, scope))
         s.drop = [a for a in s.drop if a not in now_used and a not in handed]
         for asset in s.drop:
-            for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"), ("assets", "id")):
+            for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"),
+                                  ("asset_hand_outs", "asset_id"), ("assets", "id")):
                 conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset["id"],))
     if now_used or handed:  # the answer says what happened
         s.keep += now_used

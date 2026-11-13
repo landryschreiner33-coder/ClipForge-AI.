@@ -14,6 +14,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from test_studio_shorts_flow import SCRIPT, _fresh, _make, _plan, _run, _scenes, env  # noqa: F401
 
 
@@ -517,3 +519,30 @@ def test_the_answer_after_a_picture_was_used_again_during_the_delete_keeps_its_o
     assert any(line.endswith("stay in ClipForge because they were used again just now.") for line in out["stays"])
     for p in pictures:
         assert _kept(p["id"]) and (uploads.work_dir(p) / "maker.json").is_file()
+
+
+@pytest.mark.parametrize("card", [False, True])
+def test_a_shorts_own_build_storing_its_files_again_while_it_is_deleted_lets_them_go(env, card):
+    """The owner presses Make again on a scene and deletes the short while it is being made, from the Projects window
+    or with a ClipForge AI card shown days ago. The build stored the scene's clip again: the same bytes, so the same
+    copy, handed out again to the short itself. It is the short's own, so it goes with the short; before, it stayed
+    "used again just now" with nothing naming it, for good."""
+    import time
+
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import project_delete
+
+    pid = _make(env)["id"]
+    scene = _scenes(pid, _plan(pid))[0]
+    shown = project_delete.plan("local", pid, "full_video")
+    time.sleep(0.01)
+    shorts.update_scene(_fresh(pid), scene["id"], {"again": True})
+    _run(env)
+    clip = db.fetch("assets", _scenes(pid, _plan(pid))[0]["clip_asset_id"])
+    assert clip["id"] == scene["clip_asset_id"] and clip["reused_at"] > shown["as_of"]  # the same copy, again
+    as_of = shown["as_of"] - 3 * 86400 if card else shown["as_of"]
+    out = project_delete.delete("local", pid, "full_video", as_of=as_of, removes=shown["removes"] if card else None)
+    assert out["deleted"] and out["counts"]["files_kept"] == 0, out["stays"]
+    assert not any("used again just now" in line for line in out["stays"])
+    assert _gone(clip) and not db.scalar("SELECT COUNT(*) FROM assets")  # nothing of the short's is left

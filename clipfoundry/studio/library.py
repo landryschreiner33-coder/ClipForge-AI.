@@ -295,15 +295,16 @@ def make(key: str) -> Path:
     return out
 
 
-def asset(workspace_id: str, key: str) -> dict:
-    """The library sound as an ordinary private asset of this workspace (stored once per content)."""
+def asset(workspace_id: str, key: str, project_id: str = "") -> dict:
+    """The library sound as an ordinary private asset of this workspace (stored once per content), for the project
+    `project_id` (a sound stored already is handed out again to it: uploads.store_file)."""
     from . import uploads
 
     src = make(key)
     with tempfile.TemporaryDirectory(dir=cache_dir()) as tmp:
         copy = Path(tmp) / filename(key)
         shutil.copyfile(src, copy)
-        return uploads.store_file(workspace_id, copy, filename(key))
+        return uploads.store_file(workspace_id, copy, filename(key), project_id=project_id)
 
 
 def music_key(mood: str, seed: str = "") -> str:

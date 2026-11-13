@@ -311,11 +311,11 @@ def test_a_file_another_clipforge_stored_and_deleted_again_meanwhile_refuses_the
 
     def deleted_before_reuse(workspace_id, d, *a, **k):
         db.execute("DELETE FROM assets WHERE id = 'as-other0000000001'")
-        return real_reuse(workspace_id, d)
+        return real_reuse(workspace_id, d, *a, **k)
 
     monkeypatch.setattr(uploads, "_inspect", stored_and_deleted_meanwhile)
-    monkeypatch.setattr(uploads, "_stored_already", lambda ws, d, folder, real=uploads._stored_already: (
-        monkeypatch.setattr(uploads, "_reuse", deleted_before_reuse), real(ws, d, folder))[1])
+    monkeypatch.setattr(uploads, "_stored_already", lambda ws, d, folder, real=uploads._stored_already, **k: (
+        monkeypatch.setattr(uploads, "_reuse", deleted_before_reuse), real(ws, d, folder, **k))[1])
     r = api.post(f"/api/uploads/{upload_id}/complete")
     assert r.status_code == 409 and "Try again" in r.text
     got = api.get(f"/api/uploads/{upload_id}").json()

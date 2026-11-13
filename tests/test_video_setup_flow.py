@@ -1079,7 +1079,7 @@ def _built(env, monkeypatch, idea: str, *files: dict, jobs: bool = False) -> str
 
     made: dict = {}
 
-    def library_asset(_ws, key):  # ClipForge's own music and sound effects, without making them
+    def library_asset(_ws, key, project_id=""):  # ClipForge's own music and sound effects, without making them
         if key not in made:
             made[key] = _asset(env, library.filename(key), "audio", 0.9 if key in library.EFFECTS else 50)
         return made[key]

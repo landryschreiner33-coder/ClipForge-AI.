@@ -241,15 +241,16 @@ def test_clips_kept_as_they_are_get_music_only_when_asked(env, monkeypatch):
     from clipfoundry.studio import library, video_flow
 
     v = _asset(env, "talk.mp4", "video", 20)
-    made = []
-    monkeypatch.setattr(library, "asset", lambda ws, key: made.append(key) or _asset(env, library.filename(key),
-                                                                                     "audio", 50))
+    made, given = [], []
+    monkeypatch.setattr(library, "asset", lambda ws, key, project_id="": given.append(project_id) or made.append(key)
+                        or _asset(env, library.filename(key), "audio", 50))
     plain = _project([v], {})  # no choice at all: the old rough cut, nothing added
     assert video_flow.prepare_smart(plain, video_flow._assets(plain), {}, {}) == {} and made == []
     asked = _project([v], {"smart_edit": "off", "music": "library"}, "Asked")
     assets = video_flow._assets(asked)
     ctx = video_flow.prepare_smart(asked, assets, {}, {})
     assert len(made) == 1 and made[0].startswith("balanced-") and ctx["library"] == {}  # music, no effects
+    assert given == [asked["id"]]  # handed to this video (a delete of it lets the copy go: project_delete)
     plan = video_flow.rough_cut(asked, assets, {}, ctx)
     music = [i for i in plan["audio"] if i["role"] == "music"]
     assert len(music) == 1 and music[0]["auto"] and any("free background music" in n for n in plan["notes"])
@@ -355,8 +356,9 @@ def test_edit_it_for_me_again_is_an_undoable_version_that_keeps_your_choices(env
     assert len(plan["clips"]) == 1
     video_flow.edit(project["id"], 1, {"op": "set", "field": "caption_size", "value": "large"})
     video_flow.edit(project["id"], 2, {"op": "add_audio", "asset_id": fx["id"], "role": "effect", "start_ms": 500})
-    monkeypatch.setattr(library, "asset", lambda ws, key: _asset(env, library.filename(key), "audio",
-                                                                 50 if key not in library.EFFECTS else 0.9))
+    monkeypatch.setattr(library, "asset", lambda ws, key, project_id="": _asset(env, library.filename(key), "audio",
+                                                                                50 if key not in library.EFFECTS
+                                                                                else 0.9))
     queued = []
     monkeypatch.setattr(video_flow, "enqueue", lambda ws, kind, target, rev=0: queued.append((kind, rev)) or
                         {"id": f"job-{kind}-{rev}"})

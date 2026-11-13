@@ -630,3 +630,22 @@ def test_routes_isolate_workspaces_and_validate_rules(env):
     # secondary workspaces in the cloud cannot reach Find media or provider settings
     for path in ("/api/studio/media/search", "/api/studio/media/providers/pexels", "/api/assets/as-1/source"):
         assert middleware.SECONDARY_BLOCKED.search(path)
+
+
+def test_an_import_for_a_video_of_bytes_clipforge_has_is_noted_as_that_videos_own(env, media):
+    """An item imported for a video whose file ClipForge already has (the same bytes uploaded before) gives the video
+    the stored copy, a hand-out noted as that video's own: deleting the video later lets it go like any other file
+    only it uses, instead of keeping it as handed out to someone else."""
+    from clipfoundry import db
+    from clipfoundry.studio import media_sources as ms
+    from clipfoundry.studio import uploads
+
+    _key()
+    project = _project(env, n0=31)
+    mine = env["tmp"] / "valley.jpg"
+    mine.write_bytes(media["jpg"])
+    had = uploads.store_file("local", mine, "valley.jpg")
+    row = ms.get_import(ms.start_import("local", f"openverse:image:{OV_IMG}", project_id=project["id"])["id"],
+                        "local")
+    assert row["status"] == "ready" and row["asset_id"] == had["id"], row
+    assert db.scalar("SELECT project_id FROM asset_hand_outs WHERE asset_id = ?", (had["id"],)) == project["id"]

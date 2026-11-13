@@ -986,7 +986,8 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
                                                                           str(m or f"Making the picture of scene {n}")))
                 made_path = Path(got["path"])
                 try:
-                    stored = uploads.store_file(ws, made_path, f"Scene {n} picture{made_path.suffix}")
+                    stored = uploads.store_file(ws, made_path, f"Scene {n} picture{made_path.suffix}",
+                                                project_id=pid)
                 except BaseException:
                     local_engines.discard_made(got.get("note"))
                     raise
@@ -1036,7 +1037,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
                                        progress=lambda f=0.0, *_: step(0.7 + 0.25 * float(f or 0),
                                                                        f"Moving the picture of scene {n}"))
         try:
-            clip = uploads.store_file(ws, Path(result["path"]), f"Scene {n}.mp4")
+            clip = uploads.store_file(ws, Path(result["path"]), f"Scene {n}.mp4", project_id=pid)
         except BaseException:
             local_engines.discard_made(original)
             raise
@@ -1362,8 +1363,8 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
 
 def _whoosh_changed(project: dict, item: dict) -> bool:
     """Whether the owner changed one of ClipForge's whooshes in the editor (its level, sound, trim or fades)."""
-    ref = video_flow._audio_item("x", library.asset(project["workspace_id"], "whoosh"), "effect",  # noqa: SLF001
-                                 gain_db=WHOOSH_DB)
+    ref = video_flow._audio_item("x", library.asset(project["workspace_id"], "whoosh",  # noqa: SLF001
+                                                    project_id=project["id"]), "effect", gain_db=WHOOSH_DB)
     keys = ("asset_id", "gain_db", "mute", "in_ms", "out_ms", "length_ms", "fade_in_ms", "fade_out_ms", "loop")
     return any(item.get(k) != ref.get(k) for k in keys) or \
         int((item.get("anchor") or {}).get("offset_ms") or 0) != -WHOOSH_LEAD_MS
@@ -1382,7 +1383,7 @@ def _music_item(project: dict, short: dict, taken: set[str]) -> dict | None:
     if mood == "none":
         return None
     key = library.music_key(mood, project["id"])
-    asset = library.asset(project["workspace_id"], key)
+    asset = library.asset(project["workspace_id"], key, project_id=project["id"])
     item = video_flow._audio_item(_new_audio_id(taken), asset, "music", gain_db=MUSIC_DB,  # noqa: SLF001
                                   duck=True, fade_in_ms=800, fade_out_ms=1500)
     item.update(auto=True, label=f"{library.MUSIC[key]['title']} (ClipForge)")
@@ -1395,7 +1396,7 @@ def _whooshes(project: dict, clips: list[dict], taken: set[str], skip: set = fro
     shown = [c for c in clips if c.get("include", True)]
     if len(shown) < 2:
         return []
-    asset = library.asset(project["workspace_id"], "whoosh")
+    asset = library.asset(project["workspace_id"], "whoosh", project_id=project["id"])
     out = []
     for k, c in enumerate(shown):
         if k % 2 == 1 and c["id"] not in skip:

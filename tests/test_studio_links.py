@@ -308,3 +308,36 @@ def test_interrupted_import_continues_after_restart_without_a_second_project(mon
     assert studio_jobs.recover() == 1
     assert ran == [job["id"]] and handed_off == [pid]
     assert db.get_project(pid)["status"] != "importing" and len(db.select("projects")) == 1
+
+
+def test_a_link_downloaded_again_for_a_project_is_that_projects_own_when_it_is_deleted(site):
+    """Two clips projects made from one link: the second download has the same bytes, so ClipForge gives the second
+    project the copy it has, noting that it went to that project. The first project is deleted (the second still has
+    the copy); the second is deleted from a window opened while its video was still downloading. That hand-out was the
+    project's own, so the copy goes with it instead of staying with nothing naming it."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    client, routes = site["client"], site["routes"]
+    page(routes, synthetic_video(site["tmp"] / "fixture.mp4").read_bytes())
+
+    def made(request_id: str) -> str:
+        pid = client.post("/api/studio/clips", headers=H, json={"url": "https://public.example/watch",
+                                                                "mode": "highlights", "request_id": request_id}
+                          ).json()["id"]
+        wait_for(lambda: (pid, None) in site["handed_off"])
+        wait_for(lambda: all(j["status"] == "done" for j in db.select("studio_jobs", "kind = 'link_import'")))
+        return pid
+
+    first = made("req-first")
+    window = time.time()  # the second project's window, opened while its video downloads
+    time.sleep(0.01)
+    second = made("req-second")
+    asset_id = db.get_project(second)["asset_id"]
+    assert asset_id == db.get_project(first)["asset_id"]
+    assert db.scalar("SELECT project_id FROM asset_hand_outs WHERE asset_id = ?", (asset_id,)) == second
+    project_delete.delete("local", first, "clips")
+    assert db.fetch("assets", asset_id)  # the second project has it
+    out = project_delete.delete("local", second, "clips", as_of=window)
+    assert out["counts"]["files_kept"] == 0, out["stays"]
+    assert db.fetch("assets", asset_id) is None

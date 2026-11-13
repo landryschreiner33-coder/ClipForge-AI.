@@ -329,7 +329,8 @@ def run(job: dict, lease: Lease) -> dict:
     title = " ".join(str((meta or {}).get("title") or project["name"]).split())[:120]  # a caption's lines: one line
     safe = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", title).strip(" .") or "video"
     try:
-        asset = uploads.store_file(project["workspace_id"], path, f"{safe[:100]}{path.suffix.lower()}")
+        asset = uploads.store_file(project["workspace_id"], path, f"{safe[:100]}{path.suffix.lower()}",
+                                   project_id=project["id"])
     except uploads.UploadError as exc:
         _fail(row, project["id"], LinkError("extraction_failed", f"The downloaded file is not usable: {exc}"))
         return {"failed": True}
