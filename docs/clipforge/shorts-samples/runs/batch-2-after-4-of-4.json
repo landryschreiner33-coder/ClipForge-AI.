@@ -2,7 +2,8 @@
  "pictures": {},
  "notes": [
   "20:25:53 started: 2 pictures to make (15.3 GB memory and 28.3 GB swap free)",
-  "20:26:42 ComfyUI is running (14.9 GB memory and 28.3 GB swap free)"
+  "20:26:42 ComfyUI is running (14.9 GB memory and 28.3 GB swap free)",
+  "20:30:06 the model is downloaded (14.9 GB memory and 28.3 GB swap free)"
  ],
  "batch": "batch-2-after.json",
  "pins": {
@@ -138,5 +139,6 @@
     }
    ]
   }
- }
+ },
+ "download_seconds": 197
 }
