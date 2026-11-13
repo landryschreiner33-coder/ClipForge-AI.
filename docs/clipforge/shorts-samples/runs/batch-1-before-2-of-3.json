@@ -21,6 +21,17 @@
    "references": [],
    "seconds": 519.9,
    "model": "flux2-klein-4b"
+  },
+  "before/scene-08": {
+   "prompt": "the tiny robot's eyes glowing bright blue again, a small smile, one finger raised. 3D animated film still, cute expressive characters, soft studio lighting, vibrant colors, smooth shapes, shallow depth of field. cartoon3d",
+   "seed": 4108,
+   "size": [
+    448,
+    800
+   ],
+   "references": [],
+   "seconds": 509.6,
+   "model": "flux2-klein-4b"
   }
  },
  "notes": [
@@ -28,7 +39,8 @@
   "20:03:45 ComfyUI is running (14.9 GB memory and 28.3 GB swap free)",
   "20:10:04 the model is downloaded (14.9 GB memory and 28.3 GB swap free)",
   "20:18:39 made before/scene-02 in 508.3 s (5.5 GB memory and 19.5 GB swap free)",
-  "20:27:26 made before/scene-05 in 519.9 s (14.8 GB memory and 27.5 GB swap free)"
+  "20:27:26 made before/scene-05 in 519.9 s (14.8 GB memory and 27.5 GB swap free)",
+  "20:36:14 made before/scene-08 in 509.6 s (5.9 GB memory and 18.9 GB swap free)"
  ],
  "batch": "batch-1-before.json",
  "pins": {
