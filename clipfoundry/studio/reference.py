@@ -210,7 +210,8 @@ def _drop_file(asset_id: str, workspace_id: str, made: float = 0.0) -> str:
                 "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ? "
                 "LIMIT 1", (asset_id, clock - project_delete.AGAIN_S)).fetchone():
             return "The video file stays because you added it again in the last day, and a page may be about to use it."
-        for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"), ("assets", "id")):
+        for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"),
+                              ("asset_hand_outs", "asset_id"), ("assets", "id")):
             conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset_id,))
         conn.commit()
     project_delete.remove_asset_files(asset)

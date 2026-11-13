@@ -701,6 +701,7 @@ def _drop(asset_id: str, workspace_id: str, project_id: str) -> bool:
             return False
         conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
         conn.execute("DELETE FROM short_files WHERE asset_id = ?", (asset_id,))
+        conn.execute("DELETE FROM asset_hand_outs WHERE asset_id = ?", (asset_id,))  # whom it went to: gone too
         conn.commit()
         project_delete.remove_asset_files(asset)
     return True

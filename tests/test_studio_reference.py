@@ -417,6 +417,24 @@ def test_delete_keeps_or_removes_the_style_and_explains_the_effect(env, monkeypa
     assert "file was deleted" in " ".join(out["notes"])
 
 
+def test_deleting_an_examples_file_deletes_the_notes_of_whom_it_was_handed_out_to(env, monkeypatch):
+    """A stored file handed out again carries notes of whom it went to (uploads._mark); the file going takes them
+    with it, so nothing about a deleted file is kept."""
+    from clipfoundry import db
+    from clipfoundry.studio import reference, uploads
+
+    _fake_analysis(monkeypatch)
+    a = _video(env, 1)
+    ref = reference.create("local", a["id"], {})
+    assert uploads._reuse("local", a["sha256"], upload_id="up-somebody")  # noqa: SLF001
+    with db.connect() as conn:  # handed out more than the hour a hand-out counts ago
+        conn.execute("UPDATE assets SET reused_at = reused_at - 7200 WHERE id = ?", (a["id"],))
+        conn.execute("UPDATE asset_hand_outs SET at = at - 7200 WHERE asset_id = ?", (a["id"],))
+    assert db.select("asset_hand_outs", "asset_id = ?", (a["id"],))
+    out = reference.delete(ref["id"], "local", delete_file=True)
+    assert "file was deleted" in " ".join(out["notes"]) and db.fetch("assets", a["id"]) is None
+    assert not db.select("asset_hand_outs", "asset_id = ?", (a["id"],))
+
 def test_examples_stay_inside_their_workspace(env, monkeypatch):
     from clipfoundry.cloud import middleware
     from clipfoundry.studio import reference

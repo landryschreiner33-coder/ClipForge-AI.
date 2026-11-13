@@ -202,6 +202,24 @@ def test_a_file_only_another_shorts_list_names_stays_until_that_short_lets_it_go
     assert shorts._tidy_files(other, "local") == 1 and _gone(both)
 
 
+def test_a_file_tidied_away_takes_the_notes_of_whom_it_was_handed_out_to_with_it(env):
+    """A build that stores bytes already stored is handed the stored copy, with a note that it went to this short
+    (uploads._mark). When that copy is tidied away later, its notes go with it."""
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import uploads
+
+    pid = _make(env)["id"]
+    stray = _loose(env, "Scene 8", "maroon")
+    shorts._list_file(pid, "local", stray["id"])
+    assert uploads._reuse("local", stray["sha256"], project_id=pid)  # noqa: SLF001
+    with db.connect() as conn:  # handed out more than the hour a hand-out counts ago
+        conn.execute("UPDATE assets SET reused_at = reused_at - 7200 WHERE id = ?", (stray["id"],))
+        conn.execute("UPDATE asset_hand_outs SET at = at - 7200 WHERE asset_id = ?", (stray["id"],))
+    assert db.select("asset_hand_outs", "asset_id = ?", (stray["id"],))
+    assert shorts._tidy_files(pid, "local") == 1 and _gone(stray)
+    assert not db.select("asset_hand_outs", "asset_id = ?", (stray["id"],))
+
 def test_tidying_leaves_a_file_an_upload_of_the_same_bytes_was_just_given(env, monkeypatch):
     """The owner uploads bytes ClipForge already has as a short's stray file: the upload is given the stored copy
     and records it a moment later. A tidy that runs in between does not delete that copy from under the upload."""
