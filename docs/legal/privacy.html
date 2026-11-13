@@ -294,36 +294,43 @@
   the name, size and change time your browser gave (so the same file can resume), when it started and finished, which
   stored file it became, and which project or example video took it. The page also keeps the file's name, size and
   change time, with the upload's ID, in this browser's local storage until a page in this browser sees an upload of
-  that same file (same name, size and change time) finish, or until you clear browser storage (an upload that
-  finishes after its page was closed or lost its connection leaves it there); a later upload of the same file puts
-  its own ID there. A file added from this computer is used where it is: ClipForge records where it is and a
-  fingerprint of its contents, keeps its thumbnail and details in the data folder, and never changes or deletes your
-  file. While a file is being sent, Stop, or removing the file from the page, only pauses the upload, and so does
-  leaving or closing the page, a lost connection or an error while sending: the partly received file is kept so the
-  upload can resume. Once it has had no progress for 3 days, it is deleted the next time you start an upload, and its
-  record stays, marked as expired. Once every byte has arrived and ClipForge is checking the file, none of these
-  stops it: the upload finishes and ClipForge keeps the file like any other finished upload, even if you removed it
-  from the page. If an upload fails once all of it has arrived (for example, it does not match the fingerprint your
-  browser made, or it is not a readable video, sound or picture file), what arrived is deleted at once and its record
-  stays, marked as failed with the reason; uploading the file again starts a new upload. When you upload or add a
-  file ClipForge already has, or its own work stores the same bytes again (an animated short's pictures and clips,
-  the music and sound effects it adds to a short or to a video's edit, a link's download, or media added from a
-  search, for a video or to your media only), it hands out the copy it has: it keeps the time of the last hand-out on
-  that file's record, and notes whom each one went to (the project, or the upload or added file; for media added to
-  your media only, the note names no one). Deleting a project keeps a copy handed out after its list was shown and
-  within the hour before deleting when it went to an upload or added file no project or example video took yet, to
-  another project that still exists, or to someone the note does not name; one handed out to the project itself, to a
-  project deleted since, or as an upload a project or example video took, does not keep it (a file another project or
-  example uses stays anyway; section 7). A note counts for an hour; it is removed at the next hand-out once it is
-  older than that, or with its file. Upload records stay until ClipForge deletes its copy of their file (for a file
-  added from this computer, its thumbnail and details; your own file stays): with the last project that used it, or
-  with an example video when you also tick Also delete the video file (the file stays, and the example's delete says
-  why, while a project or another example uses it, or while it was added again in the last day or handed out again
-  within the hour and a page may be about to use it). A file no project or example video uses, for example one you
-  uploaded or added but never used, or an example's file you kept when deleting the example, has no delete button:
-  ClipForge's copy of it (there is none for a file added from this computer), its thumbnail and details, and the
-  sound, transcript and preview copy it made from it stay with its records until you delete the data folder, and so
-  do the records of uploads that failed or expired.
+  that same file (same name, size and change time) finish, or until you clear browser storage (an upload that finishes
+  after its page was closed or lost its connection leaves it there); a later upload of the same file puts its own ID
+  there. A file added from this computer is used where it is: ClipForge records where it is and a fingerprint of its
+  contents, keeps its thumbnail and details in the data folder, and never changes or deletes your file. For a video,
+  it also starts at once to make, and keep in the data folder, a copy of its sound and a transcript of what is said in
+  it (when it has sound) and, for a video wider than 1280 pixels or longer than ten minutes, a smaller preview copy
+  (unless preview copies are turned off). While a file is being sent, Stop, or removing the file from the page, only
+  pauses the upload, and so does leaving or closing the page, a lost connection or an error while sending: the partly
+  received file is kept so the upload can resume. Stopping or removing it while the page still shows Preparing the
+  file does not cancel it either: the upload still starts and is paused at once, with its record, an empty partly
+  received file and the browser entry kept like those of any paused upload. Once it has had no progress for 3 days, it
+  is deleted the next time you start an upload, and its record stays, marked as expired. Once every byte has arrived
+  and ClipForge is checking the file, none of these stops it: the upload finishes and ClipForge keeps the file like
+  any other finished upload, even if you removed it from the page. If an upload fails once all of it has arrived (for
+  example, it does not match the fingerprint your browser made, or it is not a readable video or sound file), what
+  arrived is deleted at once and its record stays, marked as failed with the reason; uploading the file again starts a
+  new upload. A picture file is never refused as unreadable: ClipForge keeps it like any other finished upload. When
+  you upload or add a file ClipForge already has, or its own work stores the same bytes again (an animated short's
+  pictures and clips, the music and sound effects it adds to a short or to a video's edit, a link's download, or media
+  added from a search, for a video or to your media only), it hands out the copy it has: it keeps the time of the last
+  hand-out on that file's record, and notes whom each one went to (the project, or the upload or added file; for media
+  added to your media only, the note names no one). Deleting a project keeps a copy handed out after its list was
+  shown and within the hour before deleting when it went to an upload or added file no project or example video took
+  yet, to another project that still exists, or to someone the note does not name; one handed out to the project
+  itself, to a project deleted since, or as an upload a project or example video took, does not keep it (a file
+  another project or example uses stays anyway; section 7). A note counts for an hour; it is removed at the next
+  hand-out once it is older than that, or with its file. Upload records stay until ClipForge deletes its copy of their
+  file (for a file added from this computer, its thumbnail and details; your own file stays): with the last project
+  that used it (it stays when a copy was handed out as above, and also, as that project's list says, when you uploaded
+  or added the same file again since the day before the list was shown and no project or example video took that
+  upload; section 7), or with an example video when you also tick Also delete the video file (the file stays, and the
+  example's delete says why, while a project or another example uses it, or while it was added again in the last day
+  or handed out again within the hour and a page may be about to use it). A file no project or example video uses, for
+  example one you uploaded or added but never used, or an example's file you kept when deleting the example, has no
+  delete button: ClipForge's copy of it (there is none for a file added from this computer), its thumbnail and
+  details, and the sound, transcript and preview copy it made from it stay with its records until you delete the data
+  folder, and so do the records of uploads that failed or expired.
 </p>
 <p>
   If you run ClipForge in <b>cloud mode</b> on your own server, that data is stored on that server instead of your
