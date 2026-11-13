@@ -1,5 +1,60 @@
 # AI changelog
 
+## A project's own re-stored copies go with it; privacy page: uploads, shorts, makers — 2026-11-13 (Claude Code)
+
+Two follow-ups found after PR #37 merged (3d337c8). Branch `claude/project-thread-gvcf5h` from the release line at
+3d337c8. No release.
+
+- **The leftover copy.** ClipForge stores each file once per workspace; when the same bytes are uploaded, added from
+  this computer or stored again, the stored copy is handed out again and marked (`assets.reused_at`). Deleting a
+  project kept every copy marked after its delete list was shown and within the hour before deleting ("used again
+  just now"), because the one it went to may not have recorded it yet. When that was the project's own work (an
+  animated short's Make again, its music or whoosh, a link's download or a Find media import for it), nothing named
+  the copy once the project was gone, and it stayed for good. Now each hand-out also notes whom it went to, in the
+  same database step as the mark (new table `asset_hand_outs`: asset, time, project or upload; `uploads._mark`).
+  `project_delete._handed_out` keeps a copy only for a note since the window that names someone who may still need
+  it: an upload no project took yet (or still arriving, or whose record is not written yet), another project that
+  still exists, or nobody (a mark an older version made). A note for the project itself, a project deleted since or
+  an upload a project took lets it go. Notes older than the hour are removed at the next hand-out, and a file's
+  notes go with the file (project delete, a short's tidy, an example's delete).
+- **Who passes what:** `uploads.store_file(..., project_id=)` and `library.asset(..., project_id=)` take the project
+  the work is for (shorts' scene pictures and clips, music and whooshes; smart editing's music and sound effects;
+  `link_import.run`; `media_sources.import_one` from an import for a video and from Find media's automatic round);
+  `complete`, `_again` and `link_local`/`_hand_out` note their upload id (link_local names it before the row exists).
+- **Privacy page** (`docs/legal/privacy.html`): a new "Uploads and files added from this computer" paragraph (each
+  upload's record and which project or example took it, how files added from this computer are used where they
+  are, when partial uploads go, the hand-out time and notes, which hand-outs keep a file when a project is deleted,
+  what stays until the data folder is deleted); a new "Animated shorts and the picture, video and voice makers"
+  part (what a short keeps, its list of stored files and tidying, the 120 recorded voices, Hear samples, the Make
+  page's remembered choices; ComfyUI set-up and models on disk, `engines/made` and its notes, what a short takes in,
+  ComfyUI's input and output folders, the graphics-card label, the two ComfyUI logs, use rules not recorded); new
+  rows for the ComfyUI set-up downloads (PyPI, Astral's or GitHub's Python, PyTorch's site, what uv names) and for
+  what ComfyUI receives; Hugging Face and GitHub rows extended; what a short's writer sends (standing rules up to 8,
+  facts up to 6) and that it is not limited by "AI requests a day"; section 7's delete, delete-everything and new
+  Remove bullets. Fixed: the old "unfinished uploads (deleted after 3 days if not finished)" (only the partial bytes
+  go, and only when the next upload starts). Not published to the public website (needs Landry's OK).
+- **Review:** an independent review (races and logic, every caller, the tests, two privacy fact-checks, each finding
+  then checked by a skeptic) found no code bug; it found three test gaps (only the latest note judged, the window
+  filter, four call sites not pinned) and thirteen privacy sentences that were wrong or incomplete, all fixed; a
+  second fact-check of the corrected page found eight more (Stop only pauses an upload and no page cancels one, the
+  browser's own upload record, media added to your media only, what stays of an unused file, a typed ComfyUI
+  address keeps its copies too, the picture to animate is sent unchanged, what a short keeps about its writer, the
+  Settings try uses example words), also fixed; two more rounds on the uploads paragraph alone found nine finer
+  points (what pauses an upload and what does not, a file that fails its check, the browser entry, examples' uploads,
+  when an example's file stays), also fixed. Each new test was checked against a deliberate breakage of the code it
+  pins.
+- **Tests:** on ac764a7, the last code change (later commits change only the privacy page and these records):
+  fast suite `pytest -m "not slow"` 2623 passed, 2 skipped (1790 s); slow suite `pytest -m slow` 30 passed,
+  1 skipped (1376 s); `npm run build` passes with `frontend/dist` unchanged (no frontend change). Each new test
+  was checked against a deliberate breakage of the code it pins (only the latest note judged, no window filter,
+  a dropped `project_id` at a short's picture, its music, smart editing's effects and Find media's automatic
+  round): each was caught. The privacy page's HTML was checked for balanced tags.
+- **Not verified:** a real Mac or Windows PC; real ComfyUI, models and the Supertonic voice (stand-ins in tests);
+  the uv details on the privacy page were read from a real uv 0.13.7 run on Linux only.
+- **Follow-ups (not done here):** an unfinished upload's partial bytes are only cleaned when the next upload starts
+  (`uploads.clean_stale` has no start-up or timer call); a short's script and picture-idea requests do not take from
+  "AI requests a day" (`makers/writer.py` never calls `brain.allowance`).
+
 ## ClipForge AI becomes a real assistant: conversation, actions, helper agents — 2026-11-08 (Claude Code)
 
 Landry asked for a built-in AI to actually talk to like a real AI, and for agents to add that work alongside

@@ -1,5 +1,38 @@
 # AI handoff
 
+## A project's own re-stored copies go with it; privacy page: uploads, shorts, makers — 2026-11-13 (Claude Code)
+
+**Plain-English summary:** when a project's own work stored a file ClipForge already had (pressing Make again on a
+short's scene, its music, a link's download), deleting the project right after kept that copy for good, with nothing
+using it. Now ClipForge notes whom each such copy was handed to, and a delete keeps it only when it went to someone
+else who may still need it. The privacy page now also says what uploads, animated shorts and the picture, video and
+voice makers store, download and send, which it did not before.
+
+- **Branch / PR:** `claude/project-thread-gvcf5h` from the release line at 3d337c8 (PR #37 merged), into
+  `claude/project-thread-x72wkd`, merged under Landry's standing word once its checks pass. Not released: a release,
+  and publishing the privacy page on the public website, need Landry's explicit OK.
+- **Code:** `clipfoundry/db.py` (table `asset_hand_outs`), `studio/uploads.py` (`_mark`; `_reuse`, `_stored_already`,
+  `_store`, `store_file` take `project_id`/`upload_id`; `complete`, `_again`, `link_local`, `_hand_out` note their
+  upload), `studio/project_delete.py` (`_handed_out`, `_for_someone_else`; notes deleted with the file),
+  `studio/library.py` (`asset(project_id=)`), `studio/link_import.py`, `studio/media_sources.py`
+  (`import_one(project_id=)`), `studio/video_flow.py`, `makers/shorts.py` (`_drop` deletes notes too),
+  `studio/reference.py` (`_drop_file` deletes notes too). Details: [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **For other work:** code that stores a file for a project passes that project's id to `uploads.store_file` or
+  `library.asset`, or deleting the project keeps the copy whenever the same bytes were stored again in the last
+  hour (a note naming nobody keeps it, which is safe but leaves it). Code that hands out a stored file again goes
+  through `uploads._reuse` / `_mark`, so the mark and its note are one step. Code that deletes an asset row also
+  deletes its `asset_hand_outs` rows.
+- **Privacy page:** `docs/legal/privacy.html` has "Uploads and files added from this computer" and "Animated shorts
+  and the picture, video and voice makers" in section 2, ComfyUI rows in section 3 and a Remove bullet in section 7.
+  The public website copy (gh-pages) is not updated: that needs Landry's OK.
+- **Verify:** `python -m pytest -q tests/test_studio_project_delete.py tests/test_studio_uploads_taken.py
+  tests/test_studio_local_files.py tests/test_studio_shorts_tidy.py tests/test_studio_reference.py
+  tests/test_studio_media_sources.py tests/test_studio_smart_edit.py tests/test_studio_links.py`; the fast and slow
+  suites.
+- **Not done:** a real Mac or Windows PC, real ComfyUI and models. Follow-ups: partial uploads are cleaned only when
+  the next upload starts; a short's writer does not take from "AI requests a day".
+- **Waiting on Landry:** the release, and publishing the privacy page (explicit OK).
+
 ## ClipForge AI becomes a real assistant: conversation, actions, helper agents — 2026-11-08 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for a built-in AI to actually talk to like a real AI, and for agents that work
