@@ -34,6 +34,9 @@
 .look-card input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 .look-card b { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-small); overflow-wrap: anywhere; }
 .look-card .small { line-height: 1.4; }
+.look-card .look-for { color: var(--text-2); font-style: italic; }
+/* a checkbox whose label explains itself underneath */
+.make-short .choice .hint, .short-scenes .choice .hint { display: block; margin-top: 2px; }
 .look-swatch {
   position: relative; display: block; height: 56px; overflow: hidden; border-radius: 8px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
@@ -116,6 +119,10 @@
 }
 .short-scenes .short-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); gap: var(--s3); }
 .short-scenes .short-choices > .short-voice-field { grid-column: 1 / -1; }
+/* the headline and the main character: a line of text each, saved with its own button */
+.short-scenes .short-choices > .short-text-choice, .short-scenes .short-choices > .choice { grid-column: 1 / -1; }
+.short-scenes .short-text-choice { display: grid; gap: 4px; justify-items: start; }
+.short-scenes .short-text-choice label { display: grid; gap: 4px; width: 100%; }
 .short-scenes .short-made dd { overflow-wrap: anywhere; }
 .short-scenes .short-notes { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; color: var(--text-2); }
 /* next to Download on the editor page: what the voice's licence asks before the short is posted */

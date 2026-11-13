@@ -1,0 +1,185 @@
+{
+ "pictures": {
+  "after/character": {
+   "prompt": "Full-body character design of a tiny round white robot with big blue eyes, standing in a relaxed neutral pose facing the viewer, the whole figure visible and centred on a plain flat light-grey background, even soft front lighting. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Nothing written anywhere.",
+   "seed": 1390572946,
+   "size": [
+    432,
+    576
+   ],
+   "references": [],
+   "seconds": 465.5,
+   "model": "flux2-klein-4b"
+  },
+  "after/scene-04": {
+   "prompt": "Wide establishing shot: the tiny robot looking worried as dark storm clouds roll over the stars. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "seed": 1390596704,
+   "size": [
+    448,
+    800
+   ],
+   "references": [
+    "after/character"
+   ],
+   "seconds": 756.2,
+   "model": "flux2-klein-4b"
+  },
+  "after/scene-08": {
+   "prompt": "Medium shot: the tiny robot's eyes glowing bright blue again, a small smile, one finger raised. The robot is the character from image 1: keep the same design, proportions and colours. Soft key light from the upper left with a bright rim light along the edges. Stylised 3D animated film render, rounded simplified forms, big expressive eyes, smooth matte materials with a soft glow, gentle contact shadows, rich saturated colours, clean uncluttered background. Vertical 9:16 composition, the subject large in the upper middle of the frame, a calm uncluttered lower third, nothing written anywhere.",
+   "seed": 1390628380,
+   "size": [
+    448,
+    800
+   ],
+   "references": [
+    "after/character"
+   ],
+   "seconds": 796.5,
+   "model": "flux2-klein-4b"
+  }
+ },
+ "notes": [
+  "20:25:44 started: 3 pictures to make (15.3 GB memory and 28.3 GB swap free)",
+  "20:26:31 ComfyUI is running (14.8 GB memory and 28.3 GB swap free)",
+  "20:29:48 the model is downloaded (14.9 GB memory and 28.3 GB swap free)",
+  "20:37:41 made after/character in 465.5 s (4.6 GB memory and 20.3 GB swap free)",
+  "20:50:24 made after/scene-04 in 756.2 s (14.6 GB memory and 27.5 GB swap free)",
+  "21:03:48 made after/scene-08 in 796.5 s (5.6 GB memory and 18.8 GB swap free)"
+ ],
+ "batch": "batch-2-after.json",
+ "pins": {
+  "fill": {}
+ },
+ "comfy": {
+  "platform": "linux-x64",
+  "flavor": "cpu",
+  "torch_label": "the processor (no graphics card)",
+  "probe": {
+   "torch": "2.14.1+cpu",
+   "cuda": false,
+   "mps": false
+  },
+  "setup_state": "done",
+  "setup_error": "",
+  "setup_seconds": 30,
+  "installed": true,
+  "python_outside_clipforge": [],
+  "packages": {
+   "torch": "2.14.1+cpu",
+   "torchvision": "0.29.1+cpu",
+   "av": "19.0.2",
+   "transformers": "5.22.2",
+   "comfyui-frontend-package": "1.57.4",
+   "numpy": "2.5.4",
+   "safetensors": "0.8.0",
+   "sympy": "1.14.0",
+   "pip": "26.3"
+  },
+  "disk_mb": 2591,
+  "command": [
+   "/mnt/clipforge/data/tools/comfy/app-0.43.0/ComfyUI-0.43.0/main.py",
+   "--listen",
+   "127.0.0.1",
+   "--port",
+   "36929",
+   "--disable-auto-launch",
+   "--extra-model-paths-config",
+   "/mnt/clipforge/data/tools/comfy/extra_model_paths.yaml",
+   "--output-directory",
+   "/mnt/clipforge/data/engines/comfy/output",
+   "--input-directory",
+   "/mnt/clipforge/data/engines/comfy/input",
+   "--temp-directory",
+   "/mnt/clipforge/data/engines/comfy/temp",
+   "--user-directory",
+   "/mnt/clipforge/data/engines/comfy/user",
+   "--preview-method",
+   "none",
+   "--disable-metadata",
+   "--offline",
+   "--disable-all-custom-nodes",
+   "--cpu",
+   "--bf16-unet"
+  ],
+  "start_seconds": 14.3,
+  "system_stats": {
+   "system": {
+    "os": "linux",
+    "ram_total": 16760344576,
+    "ram_free": 15204200448,
+    "comfyui_version": "0.43.0",
+    "required_frontend_version": "1.57.4",
+    "installed_templates_version": "0.11.97",
+    "required_templates_version": "0.11.97",
+    "comfy_package_versions": [
+     {
+      "name": "comfyui-frontend-package",
+      "installed": "1.57.4",
+      "required": "1.57.4"
+     },
+     {
+      "name": "comfyui-workflow-templates",
+      "installed": "0.11.97",
+      "required": "0.11.97"
+     },
+     {
+      "name": "comfyui-embedded-docs",
+      "installed": "0.5.15",
+      "required": "0.5.15"
+     },
+     {
+      "name": "comfy-aimdo",
+      "installed": "0.6.0",
+      "required": "0.6.0"
+     },
+     {
+      "name": "comfy-kitchen",
+      "installed": "0.2.40",
+      "required": "0.2.40"
+     }
+    ],
+    "python_version": "3.12.16 (main, Oct 26 2026, 14:08:45) [Clang 23.1.3 ]",
+    "pytorch_version": "2.14.1+cpu",
+    "embedded_python": false,
+    "deploy_environment": "local-git",
+    "argv": [
+     "/mnt/clipforge/data/tools/comfy/app-0.43.0/ComfyUI-0.43.0/main.py",
+     "--listen",
+     "127.0.0.1",
+     "--port",
+     "36929",
+     "--disable-auto-launch",
+     "--extra-model-paths-config",
+     "/mnt/clipforge/data/tools/comfy/extra_model_paths.yaml",
+     "--output-directory",
+     "/mnt/clipforge/data/engines/comfy/output",
+     "--input-directory",
+     "/mnt/clipforge/data/engines/comfy/input",
+     "--temp-directory",
+     "/mnt/clipforge/data/engines/comfy/temp",
+     "--user-directory",
+     "/mnt/clipforge/data/engines/comfy/user",
+     "--preview-method",
+     "none",
+     "--disable-metadata",
+     "--offline",
+     "--disable-all-custom-nodes",
+     "--cpu",
+     "--bf16-unet"
+    ]
+   },
+   "devices": [
+    {
+     "name": "cpu",
+     "type": "cpu",
+     "index": null,
+     "vram_total": 16760344576,
+     "vram_free": 15204200448,
+     "torch_vram_total": 16760344576,
+     "torch_vram_free": 15204200448
+    }
+   ]
+  }
+ },
+ "download_seconds": 191
+}

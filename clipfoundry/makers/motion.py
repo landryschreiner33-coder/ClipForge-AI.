@@ -8,6 +8,13 @@ FFmpeg's zoompan, and the frames are piped straight into FFmpeg.
 `video_clip` covers the frame with the video engine's motion, slows it down (at most 1.5 times) when it is shorter
 than the voice, and holds its last frame for the rest.
 
+With a `direction` (director.py writes one for every scene of a short made since the viral-look upgrade),
+`still_clip` films the picture instead of sliding it: the camera eases, punches in on a phrase, lands on the cut or
+whips in, and shakes when something hits (camera.py); the picture is graded and dust, rain, snow, embers, fog or
+light drift over it (fx.py); and with a depth map of the picture (depth.py) near things move more than far things.
+Fast frames are drawn smeared, as a real shutter would. Without a direction it is the slow move it always was, frame
+for frame (shorts made before keep their look until the owner asks for the new one).
+
 Both write an H.264 (BT.709, 4:2:0) + AAC 48 kHz MP4 whose length is exactly frames / fps; the sound is the voice,
 padded with silence to the end. Nothing here is sent anywhere.
 """
@@ -33,6 +40,11 @@ PAN_TRAVEL = 1.5           # a pan travels at most this many times `strength` of
 MAX_SLOWDOWN = 1.5         # the engine's video is slowed down at most this much to cover the voice
 CRF = "16"                 # scene clips are made again in the final render, so they keep the detail
 AUDIO_RATE = "48000"
+SHUTTER = 0.7              # a frame in fast motion is the average of moments spread over this share of its time
+BLUR_STEP = 5.0            # ...one moment for every this many pixels the picture travels (so the smear has no steps)
+BLUR_SAMPLES = (2, 16)     # ...but at least and at most this many
+DEPTH_BLUR = 0.011         # the depth map is softened by this share of the picture's width, so edges never tear
+PUSH_PARALLAX = 1.6        # a push-in parts near and far this many times `parallax` at the frame's edge
 
 
 class MotionError(RuntimeError):
@@ -157,12 +169,154 @@ def _frames(duration_s: float, fps: int) -> int:
     return max(1, round(float(duration_s) * fps))
 
 
+def _read_depth(path: Path | None, shape: tuple[int, int]):
+    """The picture's depth map (any size, grey: bright is near) fitted to the picture: 0 (far) to 1 (near), soft at
+    the edges of things; None when there is none or it cannot be read (the camera then moves without it)."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    if not path:
+        return None
+    try:
+        with Image.open(path) as im:
+            raw = np.asarray(im.convert("F"), dtype=np.float32)
+    except Exception as exc:  # noqa: BLE001 - depth is an extra: without it the picture still moves
+        log.info("depth map unreadable: %s", exc)
+        return None
+    h, w = shape
+    depth = cv2.resize(raw, (w, h), interpolation=cv2.INTER_LINEAR)
+    lo, hi = np.percentile(depth, (2, 98))
+    if not hi - lo > 1e-6:
+        return None   # flat: nothing is nearer than anything else
+    depth = np.clip((depth - lo) / (hi - lo), 0.0, 1.0)
+    return cv2.GaussianBlur(depth, (0, 0), max(1.5, w * DEPTH_BLUR))
+
+
+class _Stage:
+    """A picture being filmed by a direction: `frame(i)` is frame i of the scene (BGR, uint8)."""
+
+    def __init__(self, img, size: tuple[int, int], frames: int, fps: int, direction: dict, depth=None):
+        import numpy as np
+
+        from . import camera, fx
+
+        d = direction if isinstance(direction, dict) else {}
+        self.size = (int(size[0]), int(size[1]))
+        grade = d.get("grade") if isinstance(d.get("grade"), dict) else {}
+        self.img = fx.finish(img, grade)
+        h, w = self.img.shape[:2]
+        seed = int(d.get("seed") or 0)
+        self.depth = depth if depth is not None and depth.shape[:2] == (h, w) else None
+        focus = None
+        if not d.get("focus"):
+            focus = _near_focus(self.depth) if self.depth is not None else camera.find_focus(self.img)
+        self.cam = camera.Camera(d, (w, h), self.size, frames, fps, focus, seed)
+        self.air = fx.Atmosphere(d.get("fx") or (), self.size, fps, seed, float(d.get("fx_amount") or 1.0))
+        self.finish = fx.Frame(self.size, grade.get("vignette") or 0.0, grade.get("grain") or 0.0, seed)
+        self.parallax = self.cam.parallax * self.size[0] if self.depth is not None else 0.0
+        if self.parallax:
+            self.pivot = float(np.median(self.depth))
+            vv, uu = np.mgrid[0:self.size[1], 0:self.size[0]].astype(np.float32)
+            self.u, self.v = uu, vv
+
+    def _draw(self, shot):
+        import cv2
+        import numpy as np
+
+        m = np.array(self.cam.matrix(shot), dtype=np.float64)
+        sharp = cv2.INTER_CUBIC if shot.scale > 1.02 else cv2.INTER_LINEAR
+        if not self.parallax:
+            return cv2.warpAffine(self.img, m, self.size, flags=sharp, borderMode=cv2.BORDER_REFLECT)
+        # near things move more than far things: each frame pixel looks a little further along the camera's path
+        # the nearer the thing it shows (the depth is read where the pixel would look without it)
+        inv = cv2.invertAffineTransform(m)
+        rel = cv2.warpAffine(self.depth, m, self.size, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        rel -= self.pivot
+        edge = PUSH_PARALLAX * self.cam.parallax * shot.push
+        ox = rel * (self.parallax * shot.lateral[0] - edge * (self.u - self.size[0] / 2))
+        oy = rel * (self.parallax * shot.lateral[1] - edge * (self.v - self.size[1] / 2))
+        map_x = (inv[0, 0] * (self.u + ox) + inv[0, 1] * (self.v + oy) + inv[0, 2]).astype(np.float32)
+        map_y = (inv[1, 0] * (self.u + ox) + inv[1, 1] * (self.v + oy) + inv[1, 2]).astype(np.float32)
+        return cv2.remap(self.img, map_x, map_y, sharp, borderMode=cv2.BORDER_REFLECT)
+
+    def _moments(self, i: int) -> int:
+        """How many moments frame i's smear is made of: enough that the picture's furthest-moving corner steps no
+        more than BLUR_STEP pixels between two of them."""
+        import numpy as np
+
+        a = np.array(self.cam.matrix(self.cam.at(max(0.0, i - SHUTTER / 2))), dtype=np.float64)
+        b = np.array(self.cam.matrix(self.cam.at(i + SHUTTER / 2)), dtype=np.float64)
+        h, w = self.img.shape[:2]
+        corners = np.array([[0, 0, 1], [w, 0, 1], [0, h, 1], [w, h, 1]], dtype=np.float64).T
+        travel = float(np.abs(a @ corners - b @ corners).max())
+        return int(min(BLUR_SAMPLES[1], max(BLUR_SAMPLES[0], math.ceil(travel / BLUR_STEP))))
+
+    def frame(self, i: int):
+        import numpy as np
+
+        shot = self.cam.at(i)
+        if shot.blur:   # the average of the moments around this one
+            n = self._moments(i)
+            total = np.zeros((self.size[1], self.size[0], 3), dtype=np.float32)
+            for k in range(n):
+                total += self._draw(self.cam.at(max(0.0, i + ((k + 0.5) / n - 0.5) * SHUTTER)))
+            frame = (total / n).astype(np.uint8)
+        else:
+            frame = self._draw(shot)
+        self.air.apply(frame, i)
+        self.finish.apply(frame, i, shot.flash)
+        return frame
+
+
+def _near_focus(depth) -> tuple[float, float]:
+    """Where the nearest things in the picture are, as shares of its width and height (kept where a short's
+    subject sits)."""
+    import cv2
+    import numpy as np
+
+    from . import camera
+
+    small = cv2.resize(depth, (48, 86), interpolation=cv2.INTER_AREA)
+    near = np.clip(small - np.percentile(small, 70), 0, None)
+    total = float(near.sum())
+    if total <= 1e-6:
+        return camera.FOCUS
+    yy, xx = np.mgrid[0:small.shape[0], 0:small.shape[1]].astype(np.float32)
+    fx_ = float((near * xx).sum() / total) / (small.shape[1] - 1)
+    fy_ = float((near * yy).sum() / total) / (small.shape[0] - 1)
+    (x0, x1), (y0, y1) = camera.FOCUS_BOX
+    return min(x1, max(x0, fx_)), min(y1, max(y0, fy_))
+
+
+def _room(direction: dict) -> float:
+    """How much closer than "the picture just covers the frame" this direction ever goes (the picture is kept that
+    much larger, so the closest framing is still sharp)."""
+    from . import camera
+
+    d = direction if isinstance(direction, dict) else {}
+    try:
+        strength = min(camera.MAX_STRENGTH, max(0.0, float(d.get("strength") or 0.08)))
+    except (TypeError, ValueError):
+        strength = 0.08
+    punch = 1.0
+    for b in d.get("beats") or []:
+        try:
+            punch = max(punch, punch * float(b.get("zoom") or 1.0))
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return min(1.2, (1.0 + strength * 1.6) * min(camera.MAX_PUNCH, punch) - 1.0)
+
+
 def still_clip(picture: Path, audio: Path, out: Path, *, duration_s: float, move: str = "zoom_in", fps: int = 30,
                size: tuple[int, int] = (1080, 1920), strength: float = 0.08,
                cancel: Callable[[], bool] | None = None,
-               progress: Callable[[float], None] | None = None, background: str | None = None) -> dict:
+               progress: Callable[[float], None] | None = None, background: str | None = None,
+               direction: dict | None = None, depth: Path | None = None) -> dict:
     """The still picture moving with the voice under it: {"path", "duration_s", "frames"}. A see-through picture is
-    laid on `background` ("#RRGGBB"; black when None). Raises MotionError."""
+    laid on `background` ("#RRGGBB"; black when None). With `direction` (camera.py describes it) the picture is
+    filmed: eased moves, punch-ins, an entry, the air over it and its grade; `depth` is the picture's depth map
+    (a grey picture, bright is near), which parts near and far as the camera moves. Raises MotionError."""
     import cv2
     import numpy as np
 
@@ -173,9 +327,13 @@ def still_clip(picture: Path, audio: Path, out: Path, *, duration_s: float, move
     duration = frames / fps
     strength = min(0.3, max(0.0, float(strength)))
     w_out, h_out = int(size[0]), int(size[1])
-    img, cover = _prepare(_read_picture(Path(picture), (w_out, h_out), strength, background), (w_out, h_out),
-                          strength)
+    room = _room({"move": move, **direction}) if direction is not None else strength
+    img, cover = _prepare(_read_picture(Path(picture), (w_out, h_out), room, background), (w_out, h_out), room)
     h, w = img.shape[:2]
+    stage = None
+    if direction is not None:
+        stage = _Stage(img, (w_out, h_out), frames, fps, {"move": move, "strength": strength, **direction},
+                       _read_depth(depth, (h, w)))
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     part = out.with_name(out.stem + ".part" + out.suffix)
@@ -195,7 +353,9 @@ def still_clip(picture: Path, audio: Path, out: Path, *, duration_s: float, move
                 for i in range(frames):
                     watch.check()
                     p = i / (frames - 1) if frames > 1 else 0.0
-                    if move == "still" and still is not None:
+                    if stage is not None:
+                        frame = stage.frame(i)
+                    elif move == "still" and still is not None:
                         frame = still
                     else:
                         s, x, y = _transform(move, p, w, h, (w_out, h_out), cover, strength)

@@ -9,14 +9,20 @@ import type { Video } from "./studio";
 /** What one local maker can do right now ("why" says what is missing when it is not ready). */
 export type EngineStatus = { ready: boolean; engine: string; why: string; available: boolean };
 export type ShortEngines = { available: boolean; image: EngineStatus; video: EngineStatus; voice: EngineStatus };
-/** A look: how every picture is drawn. top, bottom and accent are hex colours for a swatch. */
-export type ShortLook = { id: string; name: string; about: string; top: string; bottom: string; accent: string };
+/** A look: how every picture is drawn. top, bottom and accent are hex colours for a swatch; best_for: the kinds of
+ * shorts it suits. */
+export type ShortLook = { id: string; name: string; about: string; top: string; bottom: string; accent: string;
+  best_for?: string };
 export type ShortVoice = { id: string; name: string; lang: string; gender: string; about: string; engine: string };
 export type ShortLength = "short" | "standard" | "long";
-/** "" follows the look's own caption style. */
-export type ShortCaptions = "" | "bold" | "high_energy" | "clean" | "off";
+/** "" follows the look's own caption style; "pop", "impact", "one", "comic" and "soft" are the big caption looks made
+ * for phones; "bold", "high_energy" and "clean" are the editor's own styles. */
+export type ShortCaptions = "" | "pop" | "impact" | "one" | "comic" | "soft" | "bold" | "high_energy" | "clean" | "off";
 export type ShortMusic = "calm" | "balanced" | "energetic" | "none";
-export type ShortMotion = "camera" | "animate";
+/** "opening": the video maker animates the first scene only; the camera moves the rest. */
+export type ShortMotion = "camera" | "animate" | "opening";
+/** How a short is cut. "classic": the slow camera moves and plain captions of earlier ClipForge shorts. */
+export type ShortEdit = "punchy" | "lively" | "gentle" | "classic";
 export type ShortMode = "paste" | "write";
 /** Whether ClipForge AI can write, under which name, and whether it runs on this computer. */
 export type ShortWriter = { configured: boolean; label: string; local: boolean };
@@ -29,6 +35,11 @@ export type ShortOptions = {
   tones: { id: string; label: string }[];
   lengths: { id: ShortLength; label: string; min: number; max: number; target: number }[];
   captions: { id: ShortCaptions; label: string }[];
+  /** The editing styles, the one a new short starts with, and how many pictures the picture maker can be shown while
+   * it draws (0: it cannot keep the main character the same from one picture of them). */
+  edits?: { id: ShortEdit; label: string; about: string }[];
+  default_edit?: ShortEdit;
+  picture_references?: number;
   music: { id: ShortMusic; label: string }[];
   speeds: { value: number; label: string }[];
   engines: ShortEngines;
@@ -71,6 +82,9 @@ export type ShortView = {
   stage: ShortStage; message: string; mode: ShortMode; topic: string; tone: string; length: string; audience: string;
   look: string; voice: string; speed: number; music: string; captions: string; motion: ShortMotion; review: boolean;
   title: string; character: string; scenes: ShortScene[]; progress: { done: number; total: number }; seconds: number;
+  /** The editing style and what goes with it: air over the pictures, sounds on cuts and punch-ins, the headline over
+   * the first seconds, and whether scenes are drawn from one picture of the main character. */
+  edit?: ShortEdit; effects?: boolean; sfx?: boolean; headline?: string; same_character?: boolean;
   engines: ShortEngines;
   /** Designed cards the picture maker (ready now) would swap for real pictures: Draw real pictures does it. */
   cards_to_swap?: number;
@@ -83,6 +97,7 @@ export type ShortView = {
 export type ShortCreate = {
   name: string; mode: ShortMode; script?: string; topic?: string; tone?: string; length?: ShortLength; audience?: string;
   look: string; voice: string; speed: number; music: string; captions: string; motion: ShortMotion; review: boolean;
+  edit?: ShortEdit; effects?: boolean; sfx?: boolean; character?: string; headline?: string; same_character?: boolean;
 };
 export type ScenePatch = {
   narration?: string; picture_prompt?: string; move?: string;
@@ -94,7 +109,8 @@ export type ScenePatch = {
   new_picture?: boolean; again?: boolean;
 };
 export type ShortOptionsPatch = Partial<{ voice: string; speed: number; look: string; music: string; captions: string;
-  motion: ShortMotion }>;
+  motion: ShortMotion; edit: ShortEdit; effects: boolean; sfx: boolean; character: string; headline: string;
+  same_character: boolean }>;
 
 const scenes = (videoId: string) => `/api/studio/shorts/${encodeURIComponent(videoId)}/scenes`;
 let optionsCall: Promise<ShortOptions> | null = null;

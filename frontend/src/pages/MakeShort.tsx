@@ -4,13 +4,15 @@ import { HearButton } from "../components/ShortScenes";
 import { Banner, Icon, PageHead, Segmented, Skel } from "../components/ui";
 import { navigate } from "../router";
 import {
-  aboutLength, ShortLength, ShortLook, ShortMode, ShortMotion, ShortOptions, shorts, speakingSeconds, spokenWords,
+  aboutLength, ShortEdit, ShortLength, ShortLook, ShortMode, ShortMotion, ShortOptions, shorts, speakingSeconds,
+  spokenWords,
 } from "../shorts";
 import "./shorts.css";
 
 /** The choices remembered in this browser for the next short (a convenience: the page works without them). */
 const KEPT = "clipforge.short-choices";
-type Choices = { look: string; voice: string; speed: number; music: string; captions: string; motion: ShortMotion };
+type Choices = { look: string; voice: string; speed: number; music: string; captions: string; motion: ShortMotion;
+  edit: ShortEdit; effects: boolean; sfx: boolean; same_character: boolean };
 
 function kept(): Partial<Choices> {
   try {
@@ -42,7 +44,9 @@ function startingChoices(o: ShortOptions): Choices {
     speed: one(k.speed, speeds, speeds.includes(1) ? 1 : speeds[Math.floor(speeds.length / 2)] ?? 1),
     music: one(k.music, music, music.includes("balanced") ? "balanced" : music[0] ?? "none"),
     captions: one(k.captions, captions, captions.includes("") ? "" : captions[0] ?? ""),  // "": the look's own style
-    motion: k.motion === "animate" && o.engines.video.ready ? "animate" : "camera",
+    motion: (k.motion === "animate" || k.motion === "opening") && o.engines.video.ready ? k.motion : "camera",
+    edit: one(k.edit, (o.edits || []).map((e) => e.id), o.default_edit || "punchy"),
+    effects: k.effects !== false, sfx: k.sfx !== false, same_character: k.same_character !== false,
   };
 }
 
@@ -89,6 +93,8 @@ export default function MakeShort() {
   const [length, setLength] = useState<ShortLength>("standard");
   const [audience, setAudience] = useState("");
   const [review, setReview] = useState(false);
+  const [character, setCharacter] = useState("");
+  const [headline, setHeadline] = useState("");
   const [c, setC] = useState<Choices | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -126,6 +132,8 @@ export default function MakeShort() {
     : (!canWrite ? "Writing needs ClipForge AI. Set it up, or paste your own script." : !topic.trim() ? "Type a topic first." : "");
   const ready = !!opts && !!c && !why;
   const voiceByEngine = !!engines?.voice.ready && !!c && (c.voice === "auto" || c.voice.startsWith("engine:"));
+  const styled = !!c && c.edit !== "classic";
+  const canShow = !!engines?.image.ready && (opts?.picture_references ?? 0) > 0;
 
   const submit = async () => {
     if (!ready || !c || busy) return;
@@ -134,6 +142,7 @@ export default function MakeShort() {
     try {
       const v = await shorts.create({
         name: name.trim(), mode, ...c, review: mode === "write" && review,
+        character: character.trim(), headline: headline.trim(),
         ...(mode === "paste" ? { script: script.trim() } : { topic: topic.trim(), tone, length, audience: audience.trim() }),
       });
       navigate(`video/${v.id}`);
@@ -238,12 +247,72 @@ export default function MakeShort() {
                 <span className="look-check" aria-hidden="true"><Icon name="check" /></span>
                 <b>{l.name}</b>
                 <span className="small muted">{l.about}</span>
+                {l.best_for && <span className="small look-for">{l.best_for}</span>}
               </label>
             ))}
           </div>
         ) : (
           <div className="look-grid" aria-hidden="true">{[0, 1, 2, 3].map((i) => <Skel key={i} className="look-skel" />)}</div>
         )}
+      </section>
+
+      <section className="panel" aria-labelledby={`${ids}-who`}>
+        <h2 id={`${ids}-who`}>Main character and headline</h2>
+        <div className="stack-4">
+          <label className="field"><span>Main character (optional)</span>
+            <input type="text" value={character} maxLength={300} aria-describedby={`${ids}-who-hint`}
+              placeholder="For example: a tiny round white robot with big blue eyes"
+              onChange={(e) => setCharacter(e.target.value)} />
+            <span className="hint" id={`${ids}-who-hint`}>Who the short is about and how they look. Left empty, ClipForge AI
+              describes them when it is set up.</span></label>
+          {styled && c && (
+            <label className="choice">
+              <input type="checkbox" checked={c.same_character} onChange={(e) => set("same_character", e.target.checked)} />
+              <span>Keep the character the same in every scene
+                <span className="hint">{canShow
+                  ? "ClipForge draws the character once, then shows that picture to the picture maker for every scene they are in. Those pictures take about twice as long."
+                  : engines?.image.ready
+                    ? "This picture maker cannot be shown a picture, so each scene describes the character in words. FLUX.2 klein can."
+                    : "Needs a picture maker that can be shown a picture (FLUX.2 klein)."}</span></span>
+            </label>
+          )}
+          {styled && (
+            <label className="field"><span>Headline on screen (optional)</span>
+              <input type="text" value={headline} maxLength={60} aria-describedby={`${ids}-head-hint`}
+                placeholder="For example: The robot who counted stars" onChange={(e) => setHeadline(e.target.value)} />
+              <span className="hint" id={`${ids}-head-hint`}>A few words over the first three seconds that say what the short is
+                about. Left empty, ClipForge AI writes one when it is set up.</span></label>
+          )}
+        </div>
+      </section>
+
+      <section className="panel" aria-labelledby={`${ids}-edit`}>
+        <h2 id={`${ids}-edit`}>Editing style</h2>
+        <p className="small muted">How the short is cut: how the camera moves, how scenes change and how the captions hit.</p>
+        {opts && c ? (
+          <div className="stack-4">
+            <div className="mode-pick" role="radiogroup" aria-labelledby={`${ids}-edit`}>
+              {(opts.edits || []).map((e) => (
+                <label key={e.id}>
+                  <input type="radio" name={`${ids}-edit-choice`} checked={c.edit === e.id} onChange={() => set("edit", e.id)} />
+                  <b>{e.label}</b><span>{e.about}</span>
+                </label>
+              ))}
+            </div>
+            {styled && (
+              <div className="stack-2">
+                <label className="choice">
+                  <input type="checkbox" checked={c.effects} onChange={(e) => set("effects", e.target.checked)} />
+                  <span>Light, dust and weather drifting over the pictures</span>
+                </label>
+                <label className="choice">
+                  <input type="checkbox" checked={c.sfx} onChange={(e) => set("sfx", e.target.checked)} />
+                  <span>Sounds on the cuts and punch-ins</span>
+                </label>
+              </div>
+            )}
+          </div>
+        ) : <Skel className="skel-block short-skel-motion" />}
       </section>
 
       <section className="panel" aria-labelledby={`${ids}-sound`}>
@@ -266,9 +335,12 @@ export default function MakeShort() {
               <Segmented labelledBy={`${ids}-music`} value={c.music} onChange={(x) => set("music", x)}
                 options={opts.music.map((m) => ({ value: m.id as string, label: m.label }))} />
             </Row>
-            <Row label="Captions" labelId={`${ids}-captions`} hint="Big words in the middle; the word being said lights up.">
-              <Segmented labelledBy={`${ids}-captions`} value={c.captions} onChange={(x) => set("captions", x)}
-                options={opts.captions.map((x) => ({ value: x.id as string, label: x.label }))} />
+            <Row label="Captions" htmlFor={`${ids}-captions`}
+              hint={styled ? "A few big words at a time, low in the frame; the word being said lights up."
+                : "Big words in the middle; the word being said lights up."}>
+              <select id={`${ids}-captions`} value={c.captions} onChange={(e) => set("captions", e.target.value)}>
+                {opts.captions.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+              </select>
             </Row>
           </div>
         ) : <div className="stack-3" aria-hidden="true"><Skel className="skel-line" /><Skel className="skel-line" /><Skel className="skel-line" /></div>}
@@ -280,12 +352,18 @@ export default function MakeShort() {
           <div className="mode-pick" role="radiogroup" aria-labelledby={`${ids}-motion`}>
             <label>
               <input type="radio" name={`${ids}-motion-choice`} checked={c.motion === "camera"} onChange={() => set("motion", "camera")} />
-              <b>Gentle camera moves</b><span>Quick, works on every computer</span>
+              <b>{styled ? "Camera moves" : "Gentle camera moves"}</b><span>Quick, works on every computer</span>
+            </label>
+            <label className={engines.video.ready ? "" : "off"}>
+              <input type="radio" name={`${ids}-motion-choice`} checked={c.motion === "opening"} disabled={!engines.video.ready}
+                onChange={() => set("motion", "opening")} />
+              <b>Animate the opening scene</b>
+              <span>The first picture really moves; the camera moves the rest. Adds a few minutes</span>
             </label>
             <label className={engines.video.ready ? "" : "off"}>
               <input type="radio" name={`${ids}-motion-choice`} checked={c.motion === "animate"} disabled={!engines.video.ready}
                 aria-describedby={engines.video.ready ? undefined : `${ids}-video-why`} onChange={() => set("motion", "animate")} />
-              <b>Animate the pictures with the video maker</b>
+              <b>Animate every picture with the video maker</b>
               <span>Slow{engines.video.ready && engines.video.engine ? `. Uses ${engines.video.engine} on this computer` : ""}</span>
               {!engines.video.ready && <span className="hint" id={`${ids}-video-why`}>{engines.video.why || "No video maker is set up."}</span>}
             </label>

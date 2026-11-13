@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { errorText } from "../api";
 import {
-  SceneStatus, ScenePatch, ShortLook, ShortOptions, ShortOptionsPatch, ShortScene, ShortView, shorts,
+  SceneStatus, ScenePatch, ShortEdit, ShortLook, ShortOptions, ShortOptionsPatch, ShortScene, ShortView, shorts,
 } from "../shorts";
 import { PlanClip, studio, Video } from "../studio";
 import { FileDrop, Picked, useUploadsByFile } from "./studioParts";
@@ -386,7 +386,8 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
                 onChange={(e) => void patch({ move: e.target.value }, `Scene ${scene.n} gets the new camera move.`)}>
                 {MOVES.map(([m, t]) => <option key={m} value={m}>{t}</option>)}
               </select>
-              {s.motion === "animate" && <span className="hint">With Animate the pictures, the video maker moves the picture instead.</span>}
+              {(s.motion === "animate" || (s.motion === "opening" && scene.n === 1))
+                && <span className="hint">The video maker moves this picture instead.</span>}
             </label>
           </div>
         </Disclosure>
@@ -408,11 +409,33 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
   );
 }
 
-/** Voice, look and music for the whole short: each change makes again only what it touches. */
+/** A line of text for the whole short (the headline, the main character): saved with its button, not on every key. */
+function TextChoice({ label, value, max, hint, off, onSave }: { label: string; value: string; max: number; hint: string;
+  off: boolean; onSave: (text: string) => void }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  const changed = text.trim() !== value.trim();
+  return (
+    <div className="field short-text-choice">
+      <label>
+        <span>{label}</span>
+        <input type="text" value={text} maxLength={max} disabled={off} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && changed && !off) onSave(text.trim());
+          }} />
+      </label>
+      <span className="hint">{hint}</span>
+      {changed && <button type="button" className="btn btn-small" disabled={off} onClick={() => onSave(text.trim())}>Save</button>}
+    </div>
+  );
+}
+
+/** Voice, look, editing style and music for the whole short: each change makes again only what it touches. */
 function ShortChoices({ v, s, opts, problem, onRetry, off, run, send }: {
   v: Video; s: ShortView; opts: ShortOptions | null; problem: string; onRetry: () => void; off: boolean; run: Run; send: Send;
 }) {
   const [look, setLook] = useState<ShortLook | null>(null);
+  const [style, setStyle] = useState<ShortEdit | null>(null);
   const ids = useId();
   if (!opts) {
     return problem ? (
@@ -424,8 +447,43 @@ function ShortChoices({ v, s, opts, problem, onRetry, off, run, send }: {
   }
   const put = (body: ShortOptionsPatch) => run(() => shorts.setOptions(v.id, body), "Saved. ClipForge makes again what this changes.");
   const video = opts.engines.video;
+  const edit = s.edit || "classic";
+  const styled = edit !== "classic";
+  const canShow = opts.engines.image.ready && (opts.picture_references ?? 0) > 0;
   return (
     <div className="short-choices">
+      <label className="field"><span>Editing style</span>
+        <select value={edit} disabled={off} onChange={(e) => setStyle(e.target.value as ShortEdit)}>
+          {!(opts.edits || []).some((x) => x.id === edit) && <option value={edit}>{edit}</option>}
+          {(opts.edits || []).map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+        </select>
+        <span className="hint">{(opts.edits || []).find((x) => x.id === edit)?.about}</span></label>
+      {styled && (
+        <>
+          <TextChoice label="Headline on screen" value={s.headline || ""} max={60} off={off}
+            hint="A few words over the first three seconds. Empty for none."
+            onSave={(text) => void put({ headline: text })} />
+          <TextChoice label="Main character" value={s.character} max={300} off={off}
+            hint="Who the short is about and how they look. Changing it draws the pictures again."
+            onSave={(text) => void put({ character: text })} />
+          <label className="choice">
+            <input type="checkbox" checked={s.same_character !== false} disabled={off}
+              onChange={(e) => void put({ same_character: e.target.checked })} />
+            <span>Keep the character the same in every scene
+              {!canShow && <span className="hint">{opts.engines.image.ready
+                ? "This picture maker cannot be shown a picture; FLUX.2 klein can."
+                : "Needs a picture maker that can be shown a picture (FLUX.2 klein)."}</span>}</span>
+          </label>
+          <label className="choice">
+            <input type="checkbox" checked={s.effects !== false} disabled={off} onChange={(e) => void put({ effects: e.target.checked })} />
+            <span>Light, dust and weather over the pictures</span>
+          </label>
+          <label className="choice">
+            <input type="checkbox" checked={s.sfx !== false} disabled={off} onChange={(e) => void put({ sfx: e.target.checked })} />
+            <span>Sounds on the cuts and punch-ins</span>
+          </label>
+        </>
+      )}
       <div className="field short-voice-field">
         <label htmlFor={`${ids}-voice`}>Voice</label>
         <div className="short-voice-row">
@@ -457,11 +515,21 @@ function ShortChoices({ v, s, opts, problem, onRetry, off, run, send }: {
           {opts.captions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select></label>
       <label className="field"><span>Motion</span>
-        <select value={s.motion} disabled={off} onChange={(e) => void put({ motion: e.target.value === "animate" ? "animate" : "camera" })}>
-          <option value="camera">Gentle camera moves (quick)</option>
-          <option value="animate" disabled={!video.ready && s.motion !== "animate"}>Animate the pictures with the video maker (slow)</option>
+        <select value={s.motion} disabled={off}
+          onChange={(e) => void put({ motion: e.target.value === "animate" || e.target.value === "opening" ? e.target.value : "camera" })}>
+          <option value="camera">{styled ? "Camera moves (quick)" : "Gentle camera moves (quick)"}</option>
+          <option value="opening" disabled={!video.ready && s.motion !== "opening"}>Animate the opening scene with the video maker</option>
+          <option value="animate" disabled={!video.ready && s.motion !== "animate"}>Animate every picture with the video maker (slow)</option>
         </select>
         {!video.ready && video.why && <span className="hint">{video.why}</span>}</label>
+      {style && (
+        <ConfirmDialog title={`Use the ${(opts.edits || []).find((x) => x.id === style)?.label || style} editing style?`}
+          confirmLabel="Change the style" onClose={() => setStyle(null)}
+          onConfirm={() => send(() => shorts.setOptions(v.id, { edit: style }), "The editing style changed. ClipForge is filming the scenes again.")}>
+          <p className="muted">Every scene is filmed again with the new camera work (the pictures and the voice stay), and
+            the captions follow the style unless you chose your own.</p>
+        </ConfirmDialog>
+      )}
       {look && (
         <ConfirmDialog title={`Use the ${look.name} look?`} confirmLabel="Change the look" onClose={() => setLook(null)}
           onConfirm={() => send(() => shorts.setOptions(v.id, { look: look.id }), `The look is now ${look.name}. ClipForge is making new pictures.`)}>
@@ -496,9 +564,11 @@ function MadeHow({ s, scenes, opts }: { s: ShortView; scenes: ShortScene[]; opts
   const guessed = scenes.filter((x) => x.voice.timing === "estimated").length;
   const timing = !exact && !guessed ? "" : !guessed ? "Exact" : !exact ? "Estimated from the sound"
     : `Exact in ${plural(exact, "scene")}, estimated from the sound in ${guessed}`;
-  const motion = s.motion === "camera" ? "Gentle camera moves"
-    : s.engines.video.ready ? `Animated by ${s.engines.video.engine || "the video maker"}`
-      : `Gentle camera moves${s.engines.video.why ? `. ${s.engines.video.why}` : ""}`;
+  const moves = s.edit && s.edit !== "classic" ? `${s.edit[0].toUpperCase()}${s.edit.slice(1)} camera work` : "Gentle camera moves";
+  const motion = s.motion === "camera" ? moves
+    : s.engines.video.ready ? `${s.motion === "opening" ? "The opening scene animated" : "Animated"} by ${
+      s.engines.video.engine || "the video maker"}${s.motion === "opening" ? `; ${moves.toLowerCase()} for the rest` : ""}`
+      : `${moves}${s.engines.video.why ? `. ${s.engines.video.why}` : ""}`;
   const tone = opts?.tones.find((t) => t.id === s.tone)?.label;
   const length = opts?.lengths.find((l) => l.id === s.length)?.label;
   const script = s.mode === "write"
@@ -666,7 +736,7 @@ export function ShortScenes({ v, busy, onVideo }: { v: Video; busy: boolean; onV
           onAdd={async (narration) => !!(await run(() => shorts.addScene(v.id, { after: last?.id ?? null, narration }),
             "A new scene was added at the end."))} />
       )}
-      <Disclosure summary="Voice, look and music">
+      <Disclosure summary="Voice, look, style and music">
         <ShortChoices v={v} s={s} opts={opts} problem={optsProblem} onRetry={loadOptions} off={off} run={run} send={send} />
       </Disclosure>
       <Disclosure summary="How this short was made">

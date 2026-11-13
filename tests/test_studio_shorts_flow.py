@@ -53,6 +53,7 @@ class Calls:
         self.error = None               # raised by the voice for the next scene
         self.model_used = False         # the speech model listened (and may still be loaded)
         self.released = 0               # times the speech model's memory was given back
+        self.directions: list = []      # how each clip was filmed (None: the plain camera move of a classic short)
 
 
 @pytest.fixture()
@@ -107,8 +108,9 @@ def env(monkeypatch, tmp_path):
         pass
 
     def still_clip(picture, audio, out, *, duration_s, move="zoom_in", fps=30, size=(1080, 1920), strength=0.08,
-                   cancel=None, progress=None, background=None):
+                   cancel=None, progress=None, background=None, direction=None, depth=None):
         calls.clips.append(str(picture))
+        calls.directions.append(direction)
         if calls.during_clip:
             hook, calls.during_clip = calls.during_clip, None
             hook()
@@ -130,6 +132,9 @@ def env(monkeypatch, tmp_path):
     from clipfoundry.makers import shorts
 
     monkeypatch.setattr(shorts, "_status_cache", {})
+    # These tests are about shorts as they were made before editing styles (no `edit` choice: made the classic way,
+    # exactly as they always were). The tests of the styles ask for one themselves (test_studio_shorts_style.py).
+    monkeypatch.setattr(shorts, "DEFAULTS", {k: v for k, v in shorts.DEFAULTS.items() if k not in shorts.STYLE_STATE})
     return {"queued": queued, "calls": calls, "tmp": tmp_path}
 
 
