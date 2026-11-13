@@ -33,8 +33,9 @@
     <li>We, the publisher, receive nothing from the app: no videos, no account details, no usage statistics and no
       crash reports. The app has no ads, no tracking and no usage analytics.</li>
     <li>Information leaves your computer only for features that need another service, for example posting to YouTube
-      or TikTok, Autopilot's searches for videos, downloading the speech-recognition model, or an optional AI service
-      you turn on. It goes straight from your computer to that service.</li>
+      or TikTok, Autopilot's searches for videos, downloading the speech-recognition model or the picture, video and
+      voice makers you set up, or an optional AI service you turn on. It goes straight from your computer to that
+      service.</li>
     <li>You sign in on Google's and TikTok's own pages. ClipFoundry never sees or stores your passwords.</li>
     <li>If you enable the optional phone dashboard, a paired phone receives a small read-only status snapshot
       directly from your PC. It includes video titles, work progress, posting counts and system-check status.
@@ -279,12 +280,29 @@
 <h3 id="clipforge">ClipForge studio and cloud mode (added 2026-11-04)</h3>
 <p>
   ClipForge (the new name of ClipFoundry) also stores, in the same data folder: uploaded files and their SHA-256
-  fingerprints, unfinished uploads (deleted after 3 days if not finished), full-video projects and every saved
+  fingerprints, a record of each upload (below), full-video projects and every saved
   version of their edit plans, story boundaries you adjusted, saved styles (editing choices only: never your files,
   must-keep moments, destinations or consent), imported skill files exactly as you uploaded them, the record of which
   style, skill or Brain note decided each choice of a project, display preferences (theme, layout) and the names you
   gave the robots. Several YouTube channels and TikTok accounts can be connected at once; each keeps its own
   encrypted sign-in, and each post records the exact account it went to.
+</p>
+<p id="uploads">
+  <b>Uploads and files added from this computer (added 2026-11-13).</b> ClipForge keeps one copy of each file. For
+  each upload, and each time you add a file from this computer, it keeps a record: the file's name, kind and size, how
+  much of it arrived and whether it finished, the fingerprint your browser made of it (when it made one) and the
+  name, size and change time your browser gave (so the same file can resume), when it started and finished, which
+  stored file it became, and which project or example video took it. A file added from this computer is used where
+  it is: ClipForge records where it is and a fingerprint of its contents, keeps its thumbnail and details in the data
+  folder, and never changes or deletes your file. An unfinished upload's partly received file is deleted after 3 days
+  without progress; its record stays, marked as expired. When you upload or add a file ClipForge already has, or its
+  own work (an animated short's build, a link's download, an import for a video) stores the same bytes again, it
+  hands out the copy it has: it keeps the time of the last hand-out on that file's record, and notes whom each one
+  went to (the project, or the upload or added file). Deleting a project keeps a copy handed out to someone else in
+  the hour before, and lets go of one handed out to the project itself (section 7). A note counts for an hour; it is
+  removed at the next hand-out once it is older than that, or with its file. Upload records stay until their file is
+  deleted (with the last project or example video that used it); records of uploads that failed or expired stay until
+  you delete the data folder.
 </p>
 <p>
   If you run ClipForge in <b>cloud mode</b> on your own server, that data is stored on that server instead of your
@@ -292,6 +310,43 @@
   name and email address to recognise you, keeps only a fingerprint of your session cookie, and refuses every account
   that is not configured as the owner. Sessions end after 12 hours, after 4 idle hours, or when you sign out. Secrets
   are encrypted on the server with a key kept outside the data folder. Nothing is sent to any other new service.
+</p>
+
+<h3 id="shorts">Animated shorts and the picture, video and voice makers (added 2026-11-13)</h3>
+<p>
+  An animated short keeps, in the same data folder: what you typed (its name, the topic for Write it for me or your
+  whole pasted script, tone, length, audience, look, voice, speed, music, captions and motion), its title and main
+  character; each scene's words, picture idea, camera move and seed, with its picture and up to 8 earlier ones; every
+  saved version of its plan; each scene's picture and moving clip, with the scene's words and their times; its
+  recorded voices with each word's time (once there are more than 120, the oldest that no scene uses are removed after
+  a build); and a list of every picture and clip its builds stored, so a file nothing uses any more is removed at the
+  start and end of each build. If ClipForge AI wrote the script, a note saying so (with the title or topic and how
+  many scenes and words) is kept for that short. All of this goes when you delete the short (section 7). Voice
+  samples you play with Hear are kept in <code>shorts/samples</code> until you delete the data folder. The Make page
+  remembers your last look, voice, speed, music, captions and motion (not the script or topic) in this browser's local
+  storage.
+</p>
+<p>
+  The picture, video and voice makers (Settings → Pictures, video, voice) run on this computer. Setting up ComfyUI
+  stores, in the data folder's <code>tools/comfy</code>: the uv installer, a private Python 3.12, ClipForge's own
+  copy of ComfyUI 0.43.0 and its Python environment with PyTorch (about 2 to 8 GB), with a few small set-up files.
+  Each model you download is stored in <code>models/comfy</code> (16 to 23 GB each) or, for the voice,
+  <code>models/voice</code> (about 400 MB), with a list of the files ClipForge downloaded and checked (where each is
+  on this computer, its checksum, size and time). If you choose the ComfyUI app instead, the models go into that app's
+  own model folders, outside ClipForge's data folder. Each picture, clip and voice-over a maker makes is saved in
+  <code>engines/made</code> with a note of how it was made: its words (for a picture or clip, also the words to
+  avoid, the seed, sizes and which ComfyUI made it; for a voice, the whole text read, the voice, speed and each word's
+  estimated time), the model, its licence and use rule, and when it was made. An animated short takes the
+  files it uses, with their notes, into its own folders, so they go when the short is deleted; one it cannot use (a
+  picture that does not open, a silent voice, work stopped half-way) is deleted at once. Everything else in
+  <code>engines/made</code> (the tries in Settings, the voice's recordings of Hear samples, and a file a short could
+  not take in, for example while another program had it open) stays until you delete the data folder. Each picture
+  copied into ComfyUI's <code>input</code> folder to be animated stays there too (with the ComfyUI app, in that
+  app's folder). While a picture or clip is made, the
+  first 120 characters of its words name the work holding the graphics card; after a graphics-card error they stay
+  with that error until the next one. The set-up log (<code>logs/comfy-setup.log</code>) and everything ClipForge's
+  ComfyUI prints (<code>logs/comfyui.log</code>) are kept with no size limit until you delete them. Agreeing to a
+  model's use rules is not recorded; its rule is copied into each note.
 </p>
 
 <h3 id="clipforge-ai">ClipForge AI (added 2026-11-10)</h3>
@@ -384,9 +439,13 @@
       your file names and lengths, what is said in your videos, your standing rules and the other memories that fit
       your idea, built-in know-how and your helper agents' notes, never where your files are (a helper agent that
       helps with plans writes its note from your idea and your files' names, lengths and what is said in them, with
-      its own name, job and instructions). Each request ClipForge AI, a helper agent, the video planner or the
-      editor (a change request) sends to an online service counts once against "AI requests a day" in Settings →
-      Advanced (0 sends none).
+      its own name, job and instructions). For an animated short: with Write it for me, your topic, tone, length,
+      audience and look, up to 6 of your rules and facts and the know-how that fits (asked once more when the first
+      answer cannot be used or is far from the length); with Paste my script, when a scene has no picture line, your
+      whole script with its title and look and the memories and know-how that fit, for picture ideas. Each request
+      ClipForge AI, a helper agent, the video planner or the editor (a change request) sends to an online service
+      counts once against "AI requests a day" in Settings → Advanced (0 sends none); a short's script and picture
+      ideas do not count against it.
       If you choose an AI program on your own computer (such as Ollama or LM Studio),
       ClipFoundry sends this text only to the address you set for that program; an Ollama cloud model (a model name
       ending in "cloud") answers online even through the Ollama on your computer. If you choose a cloud AI service (for
@@ -409,12 +468,31 @@
       Choosing selected viewers for your uploads does not keep these excerpts on your computer. NVIDIA handles them
       under its own terms, which you should read before turning this on</td></tr>
     <tr><td>Hugging Face</td><td>The first time you use each speech-recognition model, and again if its files are
-      missing or damaged; and when you download ClipForge AI's built-in model (in Settings → ClipForge AI or from
-      its chat)</td><td>A request to download the model. If you have signed in to Hugging Face on this
+      missing or damaged; when you download ClipForge AI's built-in model (in Settings → ClipForge AI or from
+      its chat); and when you download a picture, video or voice model in Settings → Pictures, video, voice</td>
+      <td>A request to download the model. If you have signed in to Hugging Face on this
       computer, a speech-recognition model's download also sends your Hugging Face sign-in token; the built-in
-      model's download sends no token</td></tr>
+      model's and the picture, video and voice models' downloads send no token (if this computer's
+      <code>HF_ENDPOINT</code> setting names another download site, the picture, video and voice models come from
+      there)</td></tr>
     <tr><td>GitHub</td><td>When you download ClipForge AI's built-in model, if the program that runs it (llama.cpp)
-      is not on this computer yet</td><td>A request to download that program from its public release page</td></tr>
+      is not on this computer yet; and when you set up ComfyUI in Settings → Pictures, video, voice</td><td>A request
+      to download that program from its public release page, or ComfyUI 0.43.0's source archive</td></tr>
+    <tr><td>ComfyUI set-up downloads</td><td>When you press Set up ComfyUI in Settings → Pictures, video,
+      voice</td><td>Requests to download the uv installer from the Python Package Index's file server; a private
+      Python 3.12, from where uv gets it; the Python packages ComfyUI needs from the Python Package Index; and on
+      Windows and Linux, PyTorch from PyTorch's download site (download.pytorch.org). Your own pip and uv settings are
+      not used. Like other Python installers, uv names its own version and this computer's system, processor and
+      Python version in these requests</td></tr>
+    <tr><td>ComfyUI</td><td>Each time an animated short or a try in Settings makes a picture or animates one</td>
+      <td>The picture's words (for a short: the scene's picture idea, the main character, the look's style words and
+      words to avoid; for a try: the words you typed or the example words), the seed, size and model names, and to
+      animate a picture, the picture itself. ClipForge's own ComfyUI
+      runs on this computer only and offline, so this does not leave your computer, and the voice runs inside
+      ClipForge. If you choose the ComfyUI app on this computer, that app receives them, along with checks of its
+      status and models; it is a separate program, and what it keeps or sends is up to it. If you type a ComfyUI
+      address, that address receives them, which may be another computer (unencrypted when it starts with
+      http://)</td></tr>
     <tr><td>YouTube, TikTok and other video sites</td><td>You explicitly submit a public video link, or existing
       source/download settings allow acquisition in optional discovery or stream tools</td><td>Requests to identify
       and download the supplied/selected media, or record the stream. These downloads use the guarded importer,
@@ -562,10 +640,13 @@
     it however much there is by then: its clips or versions, chat and notes, and what ClipForge makes for an animated
     short's scenes, also after the list was shown). This deletes the project's clips or a video's versions,
     transcript and analysis, its ClipForge AI chat and the notes kept only for it, and ClipFoundry's copy of the video when nothing
-    else uses it; planned posts that have not started uploading are canceled. Your own original is not touched,
+    else uses it; planned posts that have not started uploading are canceled. An animated short's recorded voices,
+    and the originals the makers made for it with their notes, go with it; an original it could not take in stays in
+    <code>engines/made</code> with its note (section 2). Your own original is not touched,
     and a copy of a file you added again on another page since the day before the list was shown and have not used
-    there yet, or one that was uploaded or stored again after the list was shown and within the hour before deleting,
-    stays (another page may be about to use it). Notes for all
+    there yet, or one that was uploaded, added or stored again for another page or project after the list was shown
+    and within the hour before deleting, stays (it may be about to be used there); one that the project's own work
+    stored again goes with it. Notes for all
     your videos stay. A separate uploaded source copy under
     <code>submitted/</code>, its request and source history remain until you delete the data folder. Some records stay until you delete
     the data folder: the history of posts that were planned or published; for each clip Autopilot made, a short
@@ -576,7 +657,15 @@
   <li><b>Delete everything:</b> first disconnect your accounts (Settings → Accounts → Disconnect), or remove
     ClipFoundry's access on the platform (sections 4 and 5). Then close ClipFoundry and delete its data folder.
     Deleting the folder alone does not cancel ClipFoundry's access to YouTube or TikTok. Your videos folder and any
-    files you exported are separate, and stay until you delete them.</li>
+    files you exported are separate, and stay until you delete them, and so do the models ClipForge put in the
+    ComfyUI app's own folders and what that app kept (remove those in the app).</li>
+  <li><b>Remove the picture, video and voice makers:</b> in Settings → Pictures, video, voice. Remove ComfyUI
+    deletes ClipForge's copy of ComfyUI and its Python environment; the models, the private Python, uv, the work
+    folders, the logs and the made files stay. A model's Remove deletes the files ClipForge downloaded for it into
+    the ComfyUI in use (a part another downloaded model still needs stays), and the voice's Remove deletes its
+    folder. An unfinished ComfyUI set-up or voice download has no Remove; its partly downloaded files stay until it
+    finishes or you delete the data folder. Files in <code>engines/made</code>, voice samples and pictures in
+    ComfyUI's <code>input</code> folder have no delete button; they go with the data folder.</li>
   <li><b>Stop watching a YouTube channel:</b> remove it from the places Autopilot watches, and also remove its
     permission (Autopilot → Permissions &amp; sources). While optional discovery is selected and the permission
     stays, Autopilot can still look for that channel's new videos. Submitted mode admits no new channel videos.</li>
