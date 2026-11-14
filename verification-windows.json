@@ -1,20 +1,20 @@
 {
-  "source_commit": "863e69ee9b69154ad189a1178d6940fd49b660a2",
-  "app_archive_sha256": "fe2a3968e3cd0ce2aa008ddf921db1bd87a03db8358e349c1ec1630f33ccb92d",
-  "zip_bytes": 50107742,
-  "zip_sha256": "a70cffebbd07f2addc3fb9535e02837ce92a82893f27f77b7ed0e6e1efe859e1",
+  "source_commit": "78c060152d2004f860fabf31b90dafab78c390ba",
+  "app_archive_sha256": "708d09f98c5a84e382feb228920f66695069733d0560a1ee9450e161a06e336e",
+  "zip_bytes": 50159553,
+  "zip_sha256": "7832779d28dc67e2ce0557b63ebfa2ce2003a7556e8f2986a05dbfaac5e9f7dc",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
-    "setup.py": "688c5f638b6a1a6adabf48b8c9ebb84d234fce4302eb904e1578e96c70787da3",
-    "app.zip": "fe2a3968e3cd0ce2aa008ddf921db1bd87a03db8358e349c1ec1630f33ccb92d",
+    "setup.py": "de62535ec0bd1dfb90fb212585a6136a959d543d881c526e817674a2ed2a504f",
+    "app.zip": "708d09f98c5a84e382feb228920f66695069733d0560a1ee9450e161a06e336e",
     "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
-  "app_files": 865,
+  "app_files": 868,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
-  "native_windows_verified": true,
+  "native_windows_verified": false,
   "file": "ClipForge-Windows-Setup.zip",
-  "date": "2026-11-13",
+  "date": "2026-11-14",
   "timezone": "UTC",
   "product": "ClipForge",
   "launcher_tests": {
@@ -25,44 +25,18 @@
       "pin_bundle_test"
     ]
   },
-  "payload_review": "All 865 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
+  "payload_review": "All 868 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
-    "status": "passed",
-    "run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410898326",
-    "commit": "74c4d43e3372138139013cfb7d0c0cd078831248",
-    "runner": "GitHub windows-2025 (Windows Server 2025), CPython 3.12.10 64-bit",
-    "downloaded_from": "this branch's public raw URL; SHA-256 matched",
-    "steps": [
-      "previous release (8593947, raw/055ede7) installed to C:\\CF14 with a synthetic setting, then closed",
-      "this ZIP installed over it to C:\\CF14-Open, keeping data folder C:\\CF14\\data and the setting",
-      "marker records source commit 863e69e; all 865 installed app files equal app.zip",
-      "the running app served this commit's index.html and app-icon.png byte for byte",
-      "closed and reopened: same folder, no second extraction, setting still there"
-    ],
-    "not_covered": [
-      "FFmpeg is not installed on the runner, so no video was processed on Windows",
-      "Windows 10/11 desktop, Defender/SmartScreen acceptance, GPUs, the built-in model, ComfyUI and its models, the built-in voice and real AI keys on a PC, real accounts and uploads"
-    ]
+    "status": "pending",
+    "note": "runs on this push; the result is recorded here once it has passed"
   },
   "app_tests": {
-    "branch": "claude/project-thread-e1uuap at 863e69e (PR #44), merged into claude/project-thread-x72wkd as 1d455f6 with the same tree: the release line at 492d254 (since 2026.11.07: PR #40 story clips; #36 animated shorts; #39 pictures, video clips and voice-overs made on this computer; #41 built-in AI engine and process fixes; #38 Make a YouTube video planned with ClipForge AI; #35 deleting projects; #42 cleanup after deleting; #37 ClipForge AI as a real assistant with helper agents; #43 deleting lets go of re-stored files, privacy page) plus three app texts and the privacy page's date",
-    "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410427464",
+    "branch": "claude/project-thread-e1uuap at 78c0601 (PR #50), to be merged into claude/project-thread-x72wkd with the same tree: the release line at 0716ba4 (since 2026.11.13: PR #47 legal pages corrected; #48 records; #49 pictures and video clips made on a rented cloud computer) plus the Mac release notes",
+    "github_run": "pending: the Native Mac desktop app run on 78c0601 is recorded here once it has passed",
     "local": {
-      "commit": "863e69e",
-      "note": "python -m pytest -m 'not slow' (2,623 passed, 2 skipped) and -m slow (30 passed, 1 skipped, with espeak-ng installed) on Linux"
-    },
-    "github_run_result": "native Mac build and bundled-app smoke passed; fast suite 2,623 passed (2 skipped); slow suite 30 passed (1 skipped); all three jobs on their first attempt",
-    "github_fast": 2623,
-    "github_slow": 30,
-    "real_app_checks": {
-      "assistant_basic": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43406106889 (492d254, the same app code: Basic on Linux and Mac; every must-check passed; misses: did not name the projects, said it would ask the Script writer without doing so)",
-      "assistant_standard": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410207243 (492d254: Standard on Linux; every must- and should-check passed)",
-      "shorts": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410077138 (863e69e; Mac, Windows, Linux) and 43406126068 (492d254)",
-      "local_engines": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43406121270 (492d254: pins compared with their sources, ComfyUI set up and started and the voice spoken on Mac, Windows and Linux; one real FLUX.2 klein picture on Linux CPU)",
-      "builtin_ai": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43406111641 (492d254: built-in model on Linux, Mac and Windows; meaning model, eyes and sound cleanup on Linux and Mac; the Linux job passed on its second attempt after the small model's picture answer was cut off)",
-      "filmcraft": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410077149 (863e69e, passed)"
+      "commit": "78c0601",
+      "note": "pending: fast and slow suites with espeak-ng installed"
     }
-  },
-  "superseded_build": "240548b built the same ZIP from 492d254 earlier on Nov 13 and passed its install check (run 43406275512); it was never listed. This build adds PR #44's three app texts and the privacy page's date."
+  }
 }

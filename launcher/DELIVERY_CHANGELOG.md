@@ -1,5 +1,13 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-13, second build: pictures and video on a rented cloud computer (ClipForge 2026.11.13.2)
+
+The setup ZIP now installs source commit `78c060152d2004f860fabf31b90dafab78c390ba`: the 2026.11.13 release plus
+PR #49 (pictures and video clips made on a rented cloud computer such as a RunPod pod), PR #47 (the legal pages in the
+app corrected) and PR #50 (the Mac release notes). start.bat is unchanged, so its pin and upgrade fixtures are the
+same. 77 launcher tests passed. All 868 app files equal the Git tree except the six declared BAT CRLF exports. The
+Windows install check now installs the 2026.11.13 release (863e69e, raw/74c4d43) first, then this one over it.
+
 ## 2026-11-13: ClipForge AI as a real assistant, planned YouTube videos, animated shorts and makers on the computer (ClipForge 2026.11.13)
 
 The setup ZIP now installs source commit `863e69ee9b69154ad189a1178d6940fd49b660a2`: the release line with PR #40

@@ -1,30 +1,30 @@
 # ClipForge downloads
 
-## Windows setup (ClipForge 2026.11.13: ClipForge AI as a real assistant, planned YouTube videos, animated shorts and makers on your computer, November 13, 2026)
+## Windows setup (ClipForge 2026.11.13.2: pictures and video on a rented cloud computer, November 13, 2026)
 
 Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
 **Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
 keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
 needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `863e69ee9b69154ad189a1178d6940fd49b660a2`: the release line with story
-clips (PR #40: Full story and Story parts, five minutes at most, a still centred picture), animated shorts (PR #36),
-pictures, video clips and voice-overs made on the computer (PR #39: ComfyUI and a built-in voice), the built-in AI
-engine and file-address safety fixes (PR #41), Make a YouTube video planned with ClipForge AI (PR #38), deleting
-projects (PR #35, with the clean-up follow-ups of PR #42 and PR #43), ClipForge AI as a real assistant with helper
-agents (PR #37) and PR #44 (three app texts that still described old behaviour, and the privacy page's date). The 77
-setup tests passed, and all 865 app files were compared with that commit (six `.bat` files differ only by the
-declared CRLF export).
-[Windows setup check run 43410898326](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410898326)
-installed the previous release (8593947) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
-ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 865
-installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
-was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
-GPUs, the built-in model, ComfyUI and its models, the built-in voice, real AI keys on a PC and real uploads are not
-tested.
+It installs ClipForge from source commit `78c060152d2004f860fabf31b90dafab78c390ba`: the 2026.11.13 release plus
+PR #49 (pictures and video clips made on a cloud computer you rent, such as a RunPod pod: Settings, Pictures, video,
+voice, A cloud computer), PR #47 (the Terms, privacy and legal home pages in the app corrected) and the Mac release
+notes for this version (PR #50). The 77 setup tests passed, and all 868 app files were compared with that commit (six
+`.bat` files differ only by the declared CRLF export). The Windows install check for this ZIP is recorded here once it
+has run. FFmpeg is not installed on the check machine, so no video is processed on Windows there; Windows 10/11
+desktops, Windows security acceptance, GPUs, the built-in model, ComfyUI and its models, a real rented cloud computer,
+the built-in voice, real AI keys on a PC and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+### Previous Windows setup (ClipForge AI as a real assistant, planned YouTube videos, animated shorts and makers on your computer, November 13, 2026)
+
+Source commit `863e69ee9b69154ad189a1178d6940fd49b660a2`, kept at
+https://github.com/landryschreiner33-coder/ClipForge-AI./raw/74c4d43e3372138139013cfb7d0c0cd078831248/ClipForge-Windows-Setup.zip
+(50,107,742 bytes, SHA-256 `a70cffebbd07f2addc3fb9535e02837ce92a82893f27f77b7ed0e6e1efe859e1`), checked by
+[Windows setup check run 43410898326](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410898326).
 
 ### Previous Windows setup (a far smarter ClipForge AI, long videos and the new look, November 7, 2026)
 
