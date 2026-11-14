@@ -1,5 +1,24 @@
 # AI changelog
 
+## Release 2026.11.13.2: pictures and video on a rented cloud computer — 2026-11-14 UTC (Claude Code)
+
+Landry wrote "Make sure the new version is released". Everything merged into the release line since 2026.11.13 is in
+it: PR #49 (pictures and video clips made on a rented cloud computer such as a RunPod pod), PR #47 (the legal pages
+corrected) and PR #48 (records). PR #50 (`78c0601`) added the Mac release notes and was merged as `81f1718` (same
+tree). Both downloads are built from 78c0601. Every URL, size, hash and run:
+[docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+
+- **Mac:** release `clipforge-mac-2026-11-13-2-78c0601`, the unchanged DMG from build and test run 43550846491
+  (macOS 15: native build and bundled-app smoke passed; 2,674 fast tests passed, 2 skipped; 30 slow tests passed, 1
+  skipped), published by run 43553368922. The first two build runs failed on code.videolan.org (dav1d's source).
+- **Windows:** `ClipForge-Windows-Setup.zip` at `raw/dd6958b` on `claude/clipforge-downloads` (50,159,553 bytes; 868
+  app files equal to the Git tree at 78c0601 except the six declared CRLF exports; 77 launcher tests); the setup
+  check now installs 2026.11.13 (raw/74c4d43) first; Windows setup check run 43547032569 passed; record commit
+  `2a1ab84`.
+- **Download page:** `gh-pages` `6e5918b`: 2026.11.13 moved to All versions; three changes, what was checked and what
+  was not; the AI question mentions the cloud computer and its cost. `privacy.html` and `terms.html` are the app's
+  copies at 78c0601 (the rented cloud computer); the legal home page is unchanged.
+
 ## Pictures and video on a rented cloud computer (RunPod) — 2026-11-13 (Claude Code)
 
 Landry asked for a cheap server so pictures and clips are made faster than on his Mac, then "Do step 4" (connect

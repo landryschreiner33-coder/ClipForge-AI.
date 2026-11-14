@@ -1,5 +1,29 @@
 # AI handoff
 
+## Release 2026.11.13.2 published — 2026-11-14 UTC (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wrote "Make sure the new version is released". ClipForge 2026.11.13.2 is on the
+download page for Mac and Windows. New since 2026.11.13: pictures and video clips can be made on a cloud computer
+rented by the hour (RunPod; PR #49), and the Terms, privacy and legal home pages describe the app as it is (PR #47).
+The public privacy and Terms pages now include the cloud computer too. PR #46 (animated shorts quality) was still a
+draft and is not in it.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `81f1718` (PR #50), whose
+  tree equals that of `78c0601`, the source commit of both downloads; Mac release `clipforge-mac-2026-11-13-2-78c0601`;
+  Windows ZIP at `raw/dd6958b` on `claude/clipforge-downloads` (record commit `2a1ab84`); `gh-pages` `6e5918b`; every
+  URL, size, hash and run in [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 43550846491 on 78c0601 (macOS 15 native build and bundled-app
+  smoke; 2,674 fast tests passed, 2 skipped; 30 slow tests passed, 1 skipped). Two earlier runs (43546868998,
+  43547488594) stopped because GitHub's Mac runner could not connect to code.videolan.org while keeping dav1d's
+  source; it answered again about 40 minutes later. The same suites on the cloud session (one timing test,
+  `test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, was late under load and passed 3 of 3 alone); shorts
+  check 43546824152 on 78c0601; local makers check 43524482498 on ad36e51 (same app code, cloud mode on Linux and Mac,
+  one real picture in cloud mode on Linux CPU); Windows setup check 43547032569; `build.py --check` and `--verify`.
+- **Not verified (needs Landry's account or computer):** a real RunPod pod (costs money), RunPod's current menu and
+  template names, real RTX 5090/4090 speed; everything listed as untested for 2026.11.13.
+- **Next release:** new work starts from `claude/project-thread-x72wkd` at 81f1718 (or the records merge after it). A
+  third release on Landry's November 13 would be `2026.11.13.3`; on November 14, `2026.11.14`.
+
 ## Pictures and video on a rented cloud computer (RunPod) — 2026-11-13 (Claude Code, cloud session)
 
 **Plain-English summary:** ClipForge can now make pictures and video clips on a computer with a big graphics card that

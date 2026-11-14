@@ -232,3 +232,36 @@ Listed as ClipForge 2026.11.13.
   verification file unchanged). Rollback: revert 5e369f8.
 
 Rollback: revert `e97c633` on `gh-pages` with a normal commit. The 2026.11.07 files stay under All versions.
+
+## Pictures and video on a rented cloud computer — ClipForge 2026.11.13.2, November 13, 2026 (Claude Code)
+
+Landry wrote "Make sure the new version is released". The release line held, since 2026.11.13, PR #47 (legal pages
+corrected), PR #48 (records) and PR #49 (pictures and video clips on a rented cloud computer) at `0716ba4`. PR #50
+added the Mac release notes and was merged as `81f1718`, whose tree equals that of its head
+`78c060152d2004f860fabf31b90dafab78c390ba`, which both downloads are built from and name as their source commit.
+Listed as ClipForge 2026.11.13.2, dated November 13 (Landry's local date).
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-13-2-78c0601/ClipForge-Mac-Apple-Silicon.dmg
+  (255,750,672 bytes, SHA-256 `b8abf2287da8790f4127ed1a43d3d97bb0d666accfdfec4568b1d73ae8a65b56`). Unsigned personal
+  preview, published unchanged from
+  [build and test run 43550846491](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43550846491)
+  (native build and bundled-app smoke passed; 2,674 fast tests passed, 2 skipped; 30 slow tests passed, 1 skipped) by
+  [publish run 43553368922](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43553368922). Runs
+  43546868998 and 43547488594 on the same commit stopped in the build step: GitHub's Mac runner could not connect to
+  code.videolan.org while keeping dav1d's corresponding source. The third run, about 40 minutes later, passed.
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/dd6958beb6203c5a35d8300b168859d4c6334bf2/ClipForge-Windows-Setup.zip
+  (50,159,553 bytes, SHA-256 `7832779d28dc67e2ce0557b63ebfa2ce2003a7556e8f2986a05dbfaac5e9f7dc`).
+  [Windows setup check run 43547032569](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43547032569)
+  installed 2026.11.13 (863e69e, raw/74c4d43, now the check's previous release) with a synthetic setting on a Windows
+  Server 2025 runner, then this ZIP over it: same data folder and setting, this commit's page and icon, all 868
+  files, close and reopen. No FFmpeg on the runner, so no video was processed. Record commit `2a1ab84` on
+  `claude/clipforge-downloads`.
+- **Download page:** `gh-pages` commit `6e5918b` (previous `5e369f8`), pushed directly. Three changes (the cloud
+  computer, its cost, the legal pages) with the checked / not checked lists. By hand: the AI question says pictures
+  and clips can also be made on a rented cloud computer, which costs money while it is on. `build.py --check` and
+  `--verify` passed; the page was checked at 1280 and 390 px (no sideways scroll).
+- **Legal pages:** `privacy.html` and `terms.html` at the site root are the app's `docs/legal` copies at 78c0601: the
+  published November 13 pages plus PR #49's text on the rented cloud computer (what it receives, what it keeps, that
+  the company renting it charges by the hour). `index.html` is unchanged.
+
+Rollback: revert `6e5918b` on `gh-pages` with a normal commit. The 2026.11.13 files stay under All versions.
