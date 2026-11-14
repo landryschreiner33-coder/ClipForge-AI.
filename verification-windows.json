@@ -12,7 +12,7 @@
   "app_files": 868,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
-  "native_windows_verified": false,
+  "native_windows_verified": true,
   "file": "ClipForge-Windows-Setup.zip",
   "date": "2026-11-14",
   "timezone": "UTC",
@@ -28,15 +28,36 @@
   "payload_review": "All 868 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
-    "status": "pending",
-    "note": "runs on this push; the result is recorded here once it has passed"
+    "status": "passed",
+    "run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43547032569",
+    "commit": "dd6958beb6203c5a35d8300b168859d4c6334bf2",
+    "runner": "GitHub windows-2025 (Windows Server 2025), CPython 3.12.10 64-bit",
+    "downloaded_from": "this branch's public raw URL; SHA-256 matched",
+    "steps": [
+      "previous release (863e69e, raw/74c4d43) installed to C:\\CF14 with a synthetic setting, then closed",
+      "this ZIP installed over it to C:\\CF14-Open, keeping data folder C:\\CF14\\data and the setting",
+      "marker records source commit 78c0601; all 868 installed app files equal app.zip",
+      "the running app served this commit's index.html and app-icon.png byte for byte",
+      "closed and reopened: same folder, no second extraction, setting still there"
+    ],
+    "not_covered": [
+      "FFmpeg is not installed on the runner, so no video was processed on Windows",
+      "Windows 10/11 desktop, Defender/SmartScreen acceptance, GPUs, the built-in model, ComfyUI and its models, a real rented cloud computer, the built-in voice and real AI keys on a PC, real accounts and uploads"
+    ]
   },
   "app_tests": {
-    "branch": "claude/project-thread-e1uuap at 78c0601 (PR #50), to be merged into claude/project-thread-x72wkd with the same tree: the release line at 0716ba4 (since 2026.11.13: PR #47 legal pages corrected; #48 records; #49 pictures and video clips made on a rented cloud computer) plus the Mac release notes",
-    "github_run": "pending: the Native Mac desktop app run on 78c0601 is recorded here once it has passed",
+    "branch": "claude/project-thread-e1uuap at 78c0601 (PR #50), merged into claude/project-thread-x72wkd as 81f1718 with the same tree: the release line at 0716ba4 (since 2026.11.13: PR #47 legal pages corrected; #48 records; #49 pictures and video clips made on a rented cloud computer) plus the Mac release notes",
+    "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43550846491",
+    "github_run_result": "native Mac build and bundled-app smoke passed; fast suite 2,674 passed (2 skipped); slow suite 30 passed (1 skipped). Two earlier runs (43546868998, 43547488594) stopped in the build step because GitHub's Mac runner could not connect to code.videolan.org while keeping dav1d's source; the third run on the same commit passed",
+    "github_fast": 2674,
+    "github_slow": 30,
     "local": {
       "commit": "78c0601",
-      "note": "pending: fast and slow suites with espeak-ng installed"
+      "note": "python -m pytest -m 'not slow' (2,673 passed, 2 skipped; test_an_nvenc_encode_waits_while_the_gpu_is_transcribing missed its 2.5 s progress message under load and passed 3 of 3 times alone) and -m slow (30 passed, 1 skipped, with espeak-ng installed) on Linux"
+    },
+    "real_app_checks": {
+      "shorts": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43546824152 (78c0601; Mac, Windows, Linux)",
+      "local_engines": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43524482498 (ad36e51, the same app code: pins, ComfyUI set up and started, the voice spoken on Mac, Windows and Linux; cloud mode with a key against that ComfyUI on Linux and Mac, the copy-paste command run for real, one real picture in cloud mode on Linux CPU)"
     }
   }
 }

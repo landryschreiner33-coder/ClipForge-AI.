@@ -11,10 +11,14 @@ It installs ClipForge from source commit `78c060152d2004f860fabf31b90dafab78c390
 PR #49 (pictures and video clips made on a cloud computer you rent, such as a RunPod pod: Settings, Pictures, video,
 voice, A cloud computer), PR #47 (the Terms, privacy and legal home pages in the app corrected) and the Mac release
 notes for this version (PR #50). The 77 setup tests passed, and all 868 app files were compared with that commit (six
-`.bat` files differ only by the declared CRLF export). The Windows install check for this ZIP is recorded here once it
-has run. FFmpeg is not installed on the check machine, so no video is processed on Windows there; Windows 10/11
-desktops, Windows security acceptance, GPUs, the built-in model, ComfyUI and its models, a real rented cloud computer,
-the built-in voice, real AI keys on a PC and real uploads are not tested.
+`.bat` files differ only by the declared CRLF export).
+[Windows setup check run 43547032569](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43547032569)
+installed the previous release (863e69e) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
+ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 868
+installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
+was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
+GPUs, the built-in model, ComfyUI and its models, a real rented cloud computer, the built-in voice, real AI keys on a
+PC and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
