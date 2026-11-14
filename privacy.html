@@ -35,8 +35,8 @@
     <li>Information leaves your computer only for features that need another service, for example posting to YouTube
       or TikTok, importing a video from a link you add, searching for pictures, footage and sounds with Find media,
       downloading the speech-recognition model or the picture, video and
-      voice makers you set up, or an optional AI service you turn on. It goes straight from your computer to that
-      service.</li>
+      voice makers you set up, a cloud computer you rent to make pictures and video, or an optional AI service you
+      turn on. It goes straight from your computer to that service.</li>
     <li>You sign in on Google's and TikTok's own pages. ClipFoundry never sees or stores your passwords.</li>
     <li>If you enable the optional phone dashboard, a paired phone receives a small read-only status snapshot
       directly from your PC. It includes video titles, work progress, posting counts and system-check status.
@@ -368,7 +368,8 @@
   topic) in this browser's local storage.
 </p>
 <p>
-  The picture, video and voice makers (Settings → Pictures, video, voice) run on this computer. Setting up ComfyUI
+  The picture, video and voice makers (Settings → Pictures, video, voice) run on this computer, unless you choose a
+  cloud computer for pictures and video (below). Setting up ComfyUI
   stores, in the data folder's <code>tools/comfy</code>: the uv installer, a private Python 3.12, ClipForge's own
   copy of ComfyUI 0.43.0 and its Python environment with PyTorch (about 2 to 8 GB), with a few small set-up files.
   Each model you download is stored in <code>models/comfy</code> (16 to 23 GB each) or, for the voice,
@@ -393,6 +394,18 @@
   with that error until the next one. The set-up log (<code>logs/comfy-setup.log</code>) and everything ClipForge's
   ComfyUI prints (<code>logs/comfyui.log</code>) are kept with no size limit until you delete them. Agreeing to a
   model's use rules is not recorded; its rule is copied into each note.
+</p>
+<p>
+  <b>A cloud computer for pictures and video (added 2026-11-13).</b> If you choose A cloud computer in Settings →
+  Pictures, video, voice, pictures and clips are made by ComfyUI on a computer you rent (for example from RunPod),
+  and the voice still runs on this computer. ClipForge keeps the address you saved in its settings and, if you set
+  one, its key, encrypted like your other keys and sent only to that address. ClipForge cannot reach that computer's
+  disk: the models get there through a command you copy and run there yourself, which downloads them from Hugging
+  Face onto that computer. What it makes comes back here and is kept as above. That computer's ComfyUI also saves
+  each picture and clip it makes in its own <code>output</code> folder (with the request it was made from, its words
+  included, written into the file) and each picture it animates in its <code>input</code> folder. They stay there
+  until you delete them there or delete the rented computer (on RunPod: Terminate). The company you rent it from
+  runs that computer under its own terms and privacy policy.
 </p>
 
 <h3 id="clipforge-ai">ClipForge AI (added 2026-11-10)</h3>
@@ -541,7 +554,10 @@
       ClipForge. If you choose the ComfyUI app on this computer, that app receives them, along with checks of its
       status and models; it is a separate program, and what it keeps or sends is up to it. If you type a ComfyUI
       address, that address receives them, which may be another computer (unencrypted when it starts with
-      http://)</td></tr>
+      http://). If you choose A cloud computer, the address you saved receives them over an encrypted connection
+      (https), with the key you saved if you set one, along with checks of its status, its graphics card and memory,
+      and which model files it has. That computer is run by the company you rent it from (for example RunPod), and
+      what it keeps stays there until you delete it (section 2)</td></tr>
     <tr><td>YouTube, TikTok and other video sites</td><td>You explicitly submit a public video link</td><td>Requests
       to identify and download the supplied media. These downloads use the guarded importer,
       not the sites' official APIs, and do not use browser cookies or bypass login/protection</td></tr>
@@ -688,7 +704,7 @@
     clip that stays (another project uses it, or it was added, uploaded or stored again for another page or project)
     and an original it could not take in, which stays in <code>engines/made</code> with its note. Each picture
     copied into ComfyUI's <code>input</code> folder to animate its scenes (a picture you chose included) stays there,
-    and with the ComfyUI app or a ComfyUI at an address you typed, so do the copies that ComfyUI saved of what it made
+    and with the ComfyUI app, a ComfyUI at an address you typed or a cloud computer, so do the copies that ComfyUI saved of what it made
     (section 2). Your own original is not
     touched, and a copy of a file you added again on another page since the day before the list was shown and have
     not used there yet, or one that was uploaded, added or stored again for another page or project after the list
@@ -706,7 +722,8 @@
     ClipFoundry's access on the platform (sections 4 and 5). Then close ClipFoundry and delete its data folder.
     Deleting the folder alone does not cancel ClipFoundry's access to YouTube or TikTok. Your videos folder and any
     files you exported are separate, and stay until you delete them, and so do the models ClipForge put in the
-    ComfyUI app's own folders and what that app kept (remove those in the app).</li>
+    ComfyUI app's own folders and what that app kept (remove those in the app), and the models and copies on a cloud
+    computer you rent (delete them there, or delete the rented computer; on RunPod: Terminate).</li>
   <li><b>Remove the picture, video and voice makers:</b> in Settings → Pictures, video, voice. Remove ComfyUI
     deletes ClipForge's copy of ComfyUI and its Python environment; the models, the private Python, uv, the work
     folders, the logs and the made files stay. A model's Remove deletes the files ClipForge downloaded for it into

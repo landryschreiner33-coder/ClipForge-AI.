@@ -2,72 +2,35 @@
   "schema": 2,
   "current": {
     "name": "ClipForge",
-    "version": "2026.11.13",
+    "version": "2026.11.13.2",
     "date": "2026-11-13",
-    "source_commit": "863e69ee9b69154ad189a1178d6940fd49b660a2",
-    "summary": "ClipForge AI becomes a real assistant with helper agents; plan a YouTube video by talking it through; animated shorts, with pictures, clips and voice-overs made on your computer; story clips as full stories or parts; and deleting projects.",
+    "source_commit": "78c060152d2004f860fabf31b90dafab78c390ba",
+    "summary": "Make pictures and video clips on a cloud computer you rent by the hour (for example on RunPod) instead of on your own computer, and the Terms, privacy and legal pages now describe the app as it is.",
     "changes": [
       {
-        "title": "ClipForge AI talks for real",
-        "text": "Both chats (on a YouTube video’s page, and Brain › **Talk to ClipForge AI**) are now a real conversation. ClipForge AI reads what was said so far, knows your projects, your memories and its editing know-how, and writes its answer as it goes (**Stop** keeps what it wrote). It can also find and open your projects, look through your memories, show a button that opens a page, remember what you tell it, and propose a change to a video’s cut. When it wants to rename a project, forget a memory or delete a project, it shows a card, and nothing happens until you press **OK, do it** (for a delete, **OK, delete it**). It talks whenever a model is set up: the free built-in model, or an AI helper you chose in Settings › ClipForge AI. Without one, the old rules still answer and the chat offers to download the built-in model with one press. With an online AI helper, each answer sends the conversation, the memories and know-how that fit it, your project names and the details of the projects it looks at to that service (never your files or their sound), and says so under the answer."
+        "title": "Pictures and video clips on a rented cloud computer",
+        "text": "Making pictures and clips is slow on a laptop, even a fast Mac. Settings › **Pictures, video, voice** now has a fourth choice, **A cloud computer**: rent a computer with a big graphics card by the hour (for example a RunPod “pod” with an RTX 5090 or a cheaper RTX 4090 and a 100 GB disk, using RunPod’s ComfyUI template), paste its address and press **Save and check**. ClipForge says **Connected** and names the graphics card, or says in plain words what is wrong (the pod is off, still starting, terminated, or the address is for the wrong port). To put a model on it, press **Put it on your cloud computer**: ClipForge shows one command to copy into the pod’s terminal, and the pod downloads the model’s files itself and checks their exact size and fingerprint, so your own internet is not used. The animated-shorts maker then gets its pictures and clips from there. Your videos, your projects, the voice and ClipForge AI stay on your computer; what goes to the cloud computer is what a picture or clip is made from (the words describing it, and a picture to animate), and its ComfyUI keeps a copy of what it makes until you delete it there. Making things on your own computer is still the default. Step-by-step instructions are on the same Settings page."
       },
       {
-        "title": "Helper agents that work alongside it",
-        "text": "Brain › **Agents** holds specialists that work with ClipForge AI: eight ready-made ones (Researcher, Script writer, Hook and title writer, Editor, Critic, Sound and music advisor, Thumbnail planner, Growth coach) that you add with one press, or your own with **Make your own**, described in your own words (24 helpers at most). ClipForge AI hands them jobs, you talk to one directly with **@Name**, and the ones set to **Helps plan new videos** add a short note when you plan a new video. Helpers think with ClipForge AI’s model, so they need one set up. They look things up, write and suggest; they never change or delete what you have, and they cannot search the internet."
+        "title": "It costs money while it is on",
+        "text": "A rented computer is charged for every hour it is on, even when nobody uses it, so press **Stop** on the pod in RunPod when you finish. A stopped pod keeps its models and address for next time, and its disk still costs a little (RunPod charges about $0.20 per GB a month, so about $20 a month for 100 GB). **Terminate** stops all charges but deletes the models. Keep the pod’s address to yourself: anyone who has it can use your cloud computer while it is on. ClipForge treats it like a password and never shows it to other pages."
       },
       {
-        "title": "One daily limit for online AI",
-        "text": "**AI requests a day** (Settings › Advanced) used to count only the editor’s change requests. It now counts every request ClipForge AI sends to an online AI service: the chats (one answer can take several), the helpers, video planning and the editor’s change requests. It keeps your number (40 unless you changed it), and 0 sends none. A model on your computer is never counted for the chats, the helpers or planning; the editor’s change requests to it still stop at this number. Making clips, FilmCraft’s finishing, Autopilot and an animated short’s script are not counted."
-      },
-      {
-        "title": "Plan a YouTube video by talking it through",
-        "text": "**Make a YouTube video** now starts with your files and your idea: drop in your videos, pictures and sounds in the order they should play, tell ClipForge AI your idea in your own words, and choose **Ask me questions** or **Just do it** (it plans from what you said and starts editing right away). With questions you talk it through: ClipForge AI writes a plan you can read (the name, who it is for, the length, how it opens, the story in order, what to keep and cut, music, captions), asks a few short questions at a time with quick answers, and changes the plan as you talk or as you edit any line yourself. **Build my video** edits the video from the plan. The plan stays on the editor page, where changing it edits again as a new version. Once you start, the video waits in Projects (“Planning with ClipForge AI”) with your files, the conversation and the plan saved as you go. Without a model, the built-in rules read the plan from what you say."
-      },
-      {
-        "title": "Delete projects",
-        "text": "Every card on the Projects page has a trash button. It opens a window that lists exactly what will be deleted for good and what stays, and nothing happens until you press **Delete project**. Deleting removes what ClipForge keeps only for that project: its clips or edit history, renders, its own copy of the video when nothing else uses it, its ClipForge AI chat and the notes kept only for it, and for an animated short the pictures and clips made for it. Its planned posts not yet sent are canceled (they stay in your post history). Your own files, media another project uses, anything already posted and what ClipForge AI learned for all videos stay. Work running on the project is stopped first; while Autopilot or a post is busy with it, or its video is still being copied in, the window says why it has to wait. On Windows, a file another program has open is removed the next time ClipForge starts."
-      },
-      {
-        "title": "Pictures, video clips and voice-overs made on your computer",
-        "text": "ClipForge can make still pictures, short video clips (up to 5 seconds) and voice-overs itself, for free, and nothing goes online once the files are downloaded. Pictures and clips come from ComfyUI, a free program that ClipForge sets up for itself with one button (or the ComfyUI desktop app if you already have it), with three models: Z-Image Turbo and FLUX.2 klein for pictures and Wan 2.2 for clips. The voice (Supertonic 3, 10 voices, English for now) runs inside ClipForge. Settings › **Pictures, video, voice** recommends what suits your computer. These are big downloads: about 16 GB (FLUX.2 klein), 21 GB (Z-Image Turbo) or 23 GB (Wan 2.2) for a model and about 400 MB for the voice. Pictures run well on a Mac with 16 GB of memory or more, or an NVIDIA card with 8 GB or more, and a video clip takes minutes. Each model, the voice and ComfyUI itself are checked against an exact size and fingerprint. The voice and Wan 2.2 come with use rules you agree to before the download; the voice’s ask you to say that the voice is AI-generated where you post. For now the animated-shorts maker uses them, and Settings has a quick test for each."
-      },
-      {
-        "title": "Animated shorts",
-        "text": "**Make › Make an animated short** makes the voice-over shorts seen on TikTok: choose **Paste my script**, or **Write it for me** with a topic, a tone and a length (this needs ClipForge AI; the free built-in model works). Each scene gets a voice, a picture and a gentle camera move (with the video maker set up, you can choose **Animate the pictures with the video maker** instead), with big captions where the spoken word lights up, music under the voice and a soft whoosh on every other cut. Every scene can be changed on its own afterwards (words, picture, camera move, order, add, delete), and the usual editor, preview, render and FilmCraft work on it. Without the picture and voice makers it still works, with your computer’s own voice and designed cards showing each scene’s key words. With an online AI helper chosen, the topic, or a pasted script for its picture ideas, is sent to it."
-      },
-      {
-        "title": "Story clips: Full story or Story parts",
-        "text": "Every story clip now shows the whole picture, centred and still over a blurred copy, with the captions just above it when there is room, instead of following faces. It was made for videos where someone reads stories aloud over gameplay; to frame one video differently, use **Customize captions and framing** in Make clips. **Full story** makes one clip per story, and **Story parts** cuts each story that is long enough at its most gripping places into parts of about one to three minutes (Part 1, Part 2…). No new story clip is longer than five minutes: a longer story is split into parts. On 40 made-up test transcripts of someone reading four posts over gameplay, ClipForge now finds the 4 stories every time; before, it cut them into 9 to 21 clips."
-      },
-      {
-        "title": "Fixed: files on other computers",
-        "text": "On Windows, a web page, or a FilmCraft project made to do it, could make ClipForge look at a file on another computer, which signs in to that computer as you. ClipForge now refuses such addresses from web pages and FilmCraft projects before looking at anything. Footage on a network drive with its own drive letter still works."
-      },
-      {
-        "title": "Fixed: two uploads finishing at once",
-        "text": "Two uploads of the same file that finish at the same moment no longer fail."
-      },
-      {
-        "title": "The privacy page says more",
-        "text": "The privacy page (linked at the bottom of this page, and inside the app) now also says what ClipForge AI’s chats, memories and helpers keep and send, what deleting a project removes, and what uploads, animated shorts and the picture, video and voice makers store, download and send."
+        "title": "Terms, privacy and legal pages brought up to date",
+        "text": "The Terms of Service, the privacy page and the legal home page (inside the app and linked at the bottom of this page) now describe ClipForge as it is today: it no longer searches the internet for videos, there is a Mac app, **Make & upload clips** uploads to YouTube without asking for each clip, Find media searches Openverse, Wikimedia Commons and Pexels, and the new cloud computer, what it receives, what it keeps and what it costs."
       }
     ],
     "checked": [
-      "2,623 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code: ClipForge AI’s conversation, its tools and OK cards, the helpers and the daily limit; planning a YouTube video; deleting projects; animated shorts; the picture, video and voice makers’ downloads and fingerprints (a wrong file is refused); story clips; and refusing other computers’ file addresses. The 30 checks that render real video and audio ran on GitHub’s Linux machine. Both sets passed again on a second Linux computer.",
-      "ClipForge AI talked with the free built-in model on GitHub’s machines, eleven turns as you would. With **Standard** (on Linux) every check passed: it listed the three projects, remembered the channel and the name, saved a rule, offered a project’s delete only behind a button that waits for your OK (nothing was deleted), and handed a job to the Script writer, who wrote a hook. **Basic** (on Linux and Mac) broke nothing, but it is weak: it did not list the projects, and it said it would ask a helper or write a hook without doing it.",
-      "An animated short was made from a pasted script and rendered with each computer’s own voice on GitHub’s Mac, Windows and Linux machines: 1080×1920 at 30 frames a second, the voice clearly in it, and the captions burnt into the middle of the picture.",
-      "The picture, video and voice makers on GitHub’s Mac, Windows and Linux machines: every pinned download was compared with its source, ClipForge set up and started its own ComfyUI, and the voice was downloaded and spoke a sentence. FLUX.2 klein made one real picture on Linux, on the processor.",
-      "The built-in model was downloaded, checked and started on GitHub’s Linux, Mac and Windows machines, and the meaning model, the eyes and Clean up the sound on Linux and Mac (on Linux the small model’s first answer about a picture came back cut off; the second try passed). The FilmCraft timeline check passed.",
+      "2,674 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code, including 51 for the cloud computer with a stand-in RunPod: the address and key, the plain-words problems, the copy-paste command, waiting out a pod that is busy or restarting, never sending a picture’s job twice, and never showing the address to other pages. The 30 checks that render real video and audio ran on GitHub’s Linux machine. Both sets ran again on a second Linux computer, where one timing check was late once on a busy machine and passed on its own.",
+      "On GitHub’s Linux and Mac machines, ClipForge used a ComfyUI it set up the way it uses a cloud computer, with a key: the check, the copy-paste command run for real, and on Linux one real picture made in cloud mode, on the processor.",
+      "An animated short was made from a pasted script and rendered on GitHub’s Mac, Windows and Linux machines.",
       "The Mac app was built, opened and tested with its own video tools, Keychain and window on an Apple-silicon Mac with macOS 15 in GitHub’s test service. The DMG on this page is that exact build.",
       "The Windows setup was installed in GitHub’s test service over the previous version: it kept the same data folder and settings, opened the app, and closed and reopened cleanly. Every installed file was compared with the exact source."
     ],
     "not_checked": [
+      "A real RunPod pod: it needs your account and costs money. RunPod’s menus and template names may have changed, and the real speed of an RTX 5090 or 4090 was not measured. The first test picture you make in Settings checks the whole path.",
       "Your own computer, its graphics card, and real uploads to your accounts.",
-      "ClipForge AI with your own projects and footage on your computer, the Pro level, and Ollama, LM Studio or an online AI service: those were tested with stand-ins.",
-      "Planning a YouTube video with a real model’s answers: the planner was tested with stand-in answers (the helpers’ notes for it came from the real built-in model).",
-      "Pictures and clips with the real models on your Mac (Metal) or a Windows PC with an NVIDIA card, and a real Wan 2.2 clip: one real picture was made, on Linux, on the processor.",
-      "Story clips on your own recordings with real speech recognition.",
-      "Deleting projects on a real Windows PC: files open in other programs were simulated.",
+      "ClipForge AI and the picture, video and voice makers with your own projects and footage on your computer.",
       "A real YouTube download: YouTube asks test machines to sign in, so links were tested with a stand-in video page.",
       "Whether Windows security accepts the setup without asking. If it reports a threat, stop and read what it found; do not turn protection off.",
       "Apple’s notarization. macOS will ask once before opening the app."
@@ -75,27 +38,102 @@
     "files": {
       "windows": {
         "file": "ClipForge-Windows-Setup.zip",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/74c4d43e3372138139013cfb7d0c0cd078831248/ClipForge-Windows-Setup.zip",
-        "bytes": 50107742,
-        "sha256": "a70cffebbd07f2addc3fb9535e02837ce92a82893f27f77b7ed0e6e1efe859e1",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/dd6958beb6203c5a35d8300b168859d4c6334bf2/ClipForge-Windows-Setup.zip",
+        "bytes": 50159553,
+        "sha256": "7832779d28dc67e2ce0557b63ebfa2ce2003a7556e8f2986a05dbfaac5e9f7dc",
         "kind": "ZIP",
         "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410898326",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43547032569",
         "tested_label": "Windows install check"
       },
       "mac": {
         "file": "ClipForge-Mac-Apple-Silicon.dmg",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-13-863e69e/ClipForge-Mac-Apple-Silicon.dmg",
-        "bytes": 253930009,
-        "sha256": "75fe4fc20feff91914ad72b6d03c550760409b6cdbb49c44e4f1d4ed18d851a3",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-13-2-78c0601/ClipForge-Mac-Apple-Silicon.dmg",
+        "bytes": 255750672,
+        "sha256": "b8abf2287da8790f4127ed1a43d3d97bb0d666accfdfec4568b1d73ae8a65b56",
         "kind": "DMG",
         "requires": "Apple silicon, macOS 15 or newer",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410427464",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43550846491",
         "tested_label": "Mac build and test run"
       }
     }
   },
   "previous": [
+    {
+      "name": "ClipForge",
+      "version": "2026.11.13",
+      "date": "2026-11-13",
+      "source_commit": "863e69ee9b69154ad189a1178d6940fd49b660a2",
+      "summary": "ClipForge AI becomes a real assistant with helper agents; plan a YouTube video by talking it through; animated shorts, with pictures, clips and voice-overs made on your computer; story clips as full stories or parts; and deleting projects.",
+      "changes": [
+        {
+          "title": "ClipForge AI talks for real",
+          "text": "Both chats (on a YouTube video’s page, and Brain › **Talk to ClipForge AI**) are now a real conversation. ClipForge AI reads what was said so far, knows your projects, your memories and its editing know-how, and writes its answer as it goes (**Stop** keeps what it wrote). It can also find and open your projects, look through your memories, show a button that opens a page, remember what you tell it, and propose a change to a video’s cut. When it wants to rename a project, forget a memory or delete a project, it shows a card, and nothing happens until you press **OK, do it** (for a delete, **OK, delete it**). It talks whenever a model is set up: the free built-in model, or an AI helper you chose in Settings › ClipForge AI. Without one, the old rules still answer and the chat offers to download the built-in model with one press. With an online AI helper, each answer sends the conversation, the memories and know-how that fit it, your project names and the details of the projects it looks at to that service (never your files or their sound), and says so under the answer."
+        },
+        {
+          "title": "Helper agents that work alongside it",
+          "text": "Brain › **Agents** holds specialists that work with ClipForge AI: eight ready-made ones (Researcher, Script writer, Hook and title writer, Editor, Critic, Sound and music advisor, Thumbnail planner, Growth coach) that you add with one press, or your own with **Make your own**, described in your own words (24 helpers at most). ClipForge AI hands them jobs, you talk to one directly with **@Name**, and the ones set to **Helps plan new videos** add a short note when you plan a new video. Helpers think with ClipForge AI’s model, so they need one set up. They look things up, write and suggest; they never change or delete what you have, and they cannot search the internet."
+        },
+        {
+          "title": "One daily limit for online AI",
+          "text": "**AI requests a day** (Settings › Advanced) used to count only the editor’s change requests. It now counts every request ClipForge AI sends to an online AI service: the chats (one answer can take several), the helpers, video planning and the editor’s change requests. It keeps your number (40 unless you changed it), and 0 sends none. A model on your computer is never counted for the chats, the helpers or planning; the editor’s change requests to it still stop at this number. Making clips, FilmCraft’s finishing, Autopilot and an animated short’s script are not counted."
+        },
+        {
+          "title": "Plan a YouTube video by talking it through",
+          "text": "**Make a YouTube video** now starts with your files and your idea: drop in your videos, pictures and sounds in the order they should play, tell ClipForge AI your idea in your own words, and choose **Ask me questions** or **Just do it** (it plans from what you said and starts editing right away). With questions you talk it through: ClipForge AI writes a plan you can read (the name, who it is for, the length, how it opens, the story in order, what to keep and cut, music, captions), asks a few short questions at a time with quick answers, and changes the plan as you talk or as you edit any line yourself. **Build my video** edits the video from the plan. The plan stays on the editor page, where changing it edits again as a new version. Once you start, the video waits in Projects (“Planning with ClipForge AI”) with your files, the conversation and the plan saved as you go. Without a model, the built-in rules read the plan from what you say."
+        },
+        {
+          "title": "Delete projects",
+          "text": "Every card on the Projects page has a trash button. It opens a window that lists exactly what will be deleted for good and what stays, and nothing happens until you press **Delete project**. Deleting removes what ClipForge keeps only for that project: its clips or edit history, renders, its own copy of the video when nothing else uses it, its ClipForge AI chat and the notes kept only for it, and for an animated short the pictures and clips made for it. Its planned posts not yet sent are canceled (they stay in your post history). Your own files, media another project uses, anything already posted and what ClipForge AI learned for all videos stay. Work running on the project is stopped first; while Autopilot or a post is busy with it, or its video is still being copied in, the window says why it has to wait. On Windows, a file another program has open is removed the next time ClipForge starts."
+        },
+        {
+          "title": "Pictures, video clips and voice-overs made on your computer",
+          "text": "ClipForge can make still pictures, short video clips (up to 5 seconds) and voice-overs itself, for free, and nothing goes online once the files are downloaded. Pictures and clips come from ComfyUI, a free program that ClipForge sets up for itself with one button (or the ComfyUI desktop app if you already have it), with three models: Z-Image Turbo and FLUX.2 klein for pictures and Wan 2.2 for clips. The voice (Supertonic 3, 10 voices, English for now) runs inside ClipForge. Settings › **Pictures, video, voice** recommends what suits your computer. These are big downloads: about 16 GB (FLUX.2 klein), 21 GB (Z-Image Turbo) or 23 GB (Wan 2.2) for a model and about 400 MB for the voice. Pictures run well on a Mac with 16 GB of memory or more, or an NVIDIA card with 8 GB or more, and a video clip takes minutes. Each model, the voice and ComfyUI itself are checked against an exact size and fingerprint. The voice and Wan 2.2 come with use rules you agree to before the download; the voice’s ask you to say that the voice is AI-generated where you post. For now the animated-shorts maker uses them, and Settings has a quick test for each."
+        },
+        {
+          "title": "Animated shorts",
+          "text": "**Make › Make an animated short** makes the voice-over shorts seen on TikTok: choose **Paste my script**, or **Write it for me** with a topic, a tone and a length (this needs ClipForge AI; the free built-in model works). Each scene gets a voice, a picture and a gentle camera move (with the video maker set up, you can choose **Animate the pictures with the video maker** instead), with big captions where the spoken word lights up, music under the voice and a soft whoosh on every other cut. Every scene can be changed on its own afterwards (words, picture, camera move, order, add, delete), and the usual editor, preview, render and FilmCraft work on it. Without the picture and voice makers it still works, with your computer’s own voice and designed cards showing each scene’s key words. With an online AI helper chosen, the topic, or a pasted script for its picture ideas, is sent to it."
+        },
+        {
+          "title": "Story clips: Full story or Story parts",
+          "text": "Every story clip now shows the whole picture, centred and still over a blurred copy, with the captions just above it when there is room, instead of following faces. It was made for videos where someone reads stories aloud over gameplay; to frame one video differently, use **Customize captions and framing** in Make clips. **Full story** makes one clip per story, and **Story parts** cuts each story that is long enough at its most gripping places into parts of about one to three minutes (Part 1, Part 2…). No new story clip is longer than five minutes: a longer story is split into parts. On 40 made-up test transcripts of someone reading four posts over gameplay, ClipForge now finds the 4 stories every time; before, it cut them into 9 to 21 clips."
+        },
+        {
+          "title": "Fixed: files on other computers",
+          "text": "On Windows, a web page, or a FilmCraft project made to do it, could make ClipForge look at a file on another computer, which signs in to that computer as you. ClipForge now refuses such addresses from web pages and FilmCraft projects before looking at anything. Footage on a network drive with its own drive letter still works."
+        },
+        {
+          "title": "Fixed: two uploads finishing at once",
+          "text": "Two uploads of the same file that finish at the same moment no longer fail."
+        },
+        {
+          "title": "The privacy page says more",
+          "text": "The privacy page (linked at the bottom of this page, and inside the app) now also says what ClipForge AI’s chats, memories and helpers keep and send, what deleting a project removes, and what uploads, animated shorts and the picture, video and voice makers store, download and send."
+        }
+      ],
+      "files": {
+        "windows": {
+          "file": "ClipForge-Windows-Setup.zip",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/74c4d43e3372138139013cfb7d0c0cd078831248/ClipForge-Windows-Setup.zip",
+          "bytes": 50107742,
+          "sha256": "a70cffebbd07f2addc3fb9535e02837ce92a82893f27f77b7ed0e6e1efe859e1",
+          "kind": "ZIP",
+          "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410898326",
+          "tested_label": "Windows install check"
+        },
+        "mac": {
+          "file": "ClipForge-Mac-Apple-Silicon.dmg",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-13-863e69e/ClipForge-Mac-Apple-Silicon.dmg",
+          "bytes": 253930009,
+          "sha256": "75fe4fc20feff91914ad72b6d03c550760409b6cdbb49c44e4f1d4ed18d851a3",
+          "kind": "DMG",
+          "requires": "Apple silicon, macOS 15 or newer",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43410427464",
+          "tested_label": "Mac build and test run"
+        }
+      }
+    },
     {
       "name": "ClipForge",
       "version": "2026.11.07",
