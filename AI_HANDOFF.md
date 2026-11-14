@@ -1,5 +1,32 @@
 # AI handoff
 
+## Pictures and video on a rented cloud computer (RunPod) — 2026-11-13 (Claude Code, cloud session)
+
+**Plain-English summary:** ClipForge can now make pictures and video clips on a computer with a big graphics card that
+Landry rents by the hour on RunPod, instead of on his Mac. He pastes the pod's address in Settings → Pictures, video,
+voice → A cloud computer, puts the models on it with a command ClipForge shows (copy, paste in the pod's terminal),
+and the shorts maker works as before, faster. He must press Stop in RunPod when done: a running pod costs money every
+hour.
+
+- **Branch / PR:** `claude/project-thread-64dck1` from 64ab85f, PR #49 into `claude/project-thread-x72wkd`, merged under
+  Landry's standing word once its checks pass. Not released.
+- **Code:** `clipfoundry/engines/remote.py` (new), `comfy.py` (`use_remote`, `remote_key`, `auth_headers`, retries,
+  `_poll`, `_fetch`), `makers.py` (remote branches in `base_url`, `chosen`, `status`, `_run`), `__init__.py`
+  (`overview` cloud view, `connect_remote`, `remote_command`), `routes.py`, `config.py`; `frontend/src/components/
+  LocalMakers.tsx`, `studio.ts`, `shorts.ts`, `MakeShort.tsx`, `ShortScenes.tsx`.
+- **For other work:** a client for the cloud address gets its key from `comfy.remote_key(base)`; only one cloud
+  address is registered at a time (`use_remote`, called by `remote.check`). Never retry `/prompt` (it would make and
+  charge twice). Pages that say where a picture is made should read `status(role)["remote"]` (the shorts door passes
+  it on). Never put the cloud address in words other pages get (labels, whys, errors): `makers.engine_label` names
+  the pod by its graphics card. With the cloud computer, `models._listed` raises when the pod did not answer.
+- **Open follow-up (not this PR):** `GET /api/settings` and other read routes have no Host check, so a page that
+  points its own name at 127.0.0.1 (DNS rebinding) can read them; this PR only hid the cloud address there.
+- **Verify:** `python -m pytest -q tests/test_remote_engines.py tests/test_local_engines.py`; the fast and slow suites;
+  the "Local makers check" workflow (by hand on this branch) with `--remote`.
+- **Not done:** a real RunPod pod (Landry's account, costs money), RunPod's current menus and template names, real
+  speeds on an RTX 5090/4090. The first test picture Landry makes in Settings checks the whole path.
+- **Waiting on Landry:** a release, and publishing the changed privacy and terms pages (explicit OK).
+
 ## Release 2026.11.13 published — 2026-11-13 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry said "Release the new version with all the changes and update the website".

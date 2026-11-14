@@ -15,13 +15,19 @@ web page does:
 * ws   /ws?clientId=    progress while it works (sampler steps, the node it is on)
 
 Nothing here sends anything but the graph, the prompt words inside it and a picture to animate. The address is
-ClipForge's own ComfyUI on 127.0.0.1, or the one the person typed in Settings.
+ClipForge's own ComfyUI on 127.0.0.1, or the one the person typed in Settings, or their cloud computer (remote.py).
+
+A cloud computer's ComfyUI (use_remote) is reached over the internet: its requests carry the key from Settings (only
+to that one address), go through this computer's proxy settings like a browser's would, and a moment without an
+answer (the internet, the cloud's own proxy) is waited out for up to LOST_S before the job is given up.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import mimetypes
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -37,8 +43,43 @@ log = logging.getLogger(__name__)
 POLL_S = 1.0
 STOP_WAIT_S = 120.0  # after a stop, how long to wait for ComfyUI to let go of the graphics card
 STOP_POLL_S = 0.5
+LOST_S = 180.0       # how long a cloud computer may stop answering during a job before ClipForge gives up on it
+RETRIES = 3          # tries of an upload or a download to a cloud computer (a dropped connection is tried again)
+RETRY_WAIT_S = 2.0
+# What a cloud computer's proxy answers while the program behind it is not there (RunPod's goes through Cloudflare:
+# 502 to 504 and its own 520 to 530 while the pod starts, stops or its ComfyUI is down)
+LOST_CHECK_S = 30.0  # how often a cloud job not finished yet is looked for in the cloud computer's queue
+GATEWAY = {502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530}
 Progress = Callable[[float, str], None]
 Cancel = Callable[[], bool]
+
+_remote_lock = threading.Lock()
+_remote: dict[str, str] = {}  # the cloud computer's address (one at a time) → its key ("" for none)
+
+
+def use_remote(base: str, key: str = "") -> None:
+    """The ComfyUI at `base` is the person's cloud computer, to be reached with `key` (remote.check sets it from
+    Settings each time it reads them): only requests to exactly this address carry the key."""
+    base = (base or "").rstrip("/")
+    with _remote_lock:
+        _remote.clear()
+        if base:
+            _remote[base] = key or ""
+
+
+def remote_key(base: str) -> str | None:
+    """The key of the cloud computer at `base` ("" when it has none); None when `base` is not the cloud computer."""
+    with _remote_lock:
+        return _remote.get((base or "").rstrip("/"))
+
+
+def auth_headers(key: str) -> dict[str, str]:
+    """What a cloud computer's key becomes: "name:password" is a password (HTTP Basic), anything else a token."""
+    if not key:
+        return {}
+    if ":" in key:
+        return {"Authorization": "Basic " + base64.b64encode(key.encode("utf-8")).decode("ascii")}
+    return {"Authorization": f"Bearer {key}"}
 
 # Words in ComfyUI's error text and what they mean for the person.
 _PLAIN = (
@@ -81,25 +122,72 @@ def local_address(url: str) -> bool:
 
 
 class Comfy:
-    """One ComfyUI server at `base` (for example http://127.0.0.1:8188)."""
+    """One ComfyUI server at `base` (for example http://127.0.0.1:8188, or a cloud computer's https address)."""
 
     def __init__(self, base: str, *, timeout: float = 30.0) -> None:
         self.base = base.rstrip("/")
         self.timeout = timeout
         self.client_id = uuid.uuid4().hex
+        key = remote_key(self.base)
+        self.remote = key is not None
+        # a cloud computer gets its key and a name; it is reached the way this computer reaches the internet (its
+        # proxy settings), while a ComfyUI on this computer is always asked directly
+        self.headers = {**auth_headers(key or ""), "User-Agent": "ClipForge"} if self.remote else {}
+        self.trust_env = self.remote and not local_address(self.base)
+
+    def _unreachable(self, exc: Exception) -> EngineError:
+        if self.remote:  # its address is not named: these words reach pages (a short's scene) that need not know it
+            return EngineError(f"Your cloud computer did not answer ({exc.__class__.__name__}). Check in RunPod that "
+                               "it is still on, then try again.")
+        return EngineError(f"ComfyUI at {self.base} did not answer ({exc.__class__.__name__}).")
+
+    def _down(self) -> EngineError | None:
+        """For a cloud computer that answered a question oddly (RunPod's proxy answers 404 for a pod that was just
+        stopped): what is wrong with it, in Settings' words, when its ComfyUI no longer answers; None when it does."""
+        from . import remote
+
+        view = remote._probe(self.base)  # noqa: SLF001 - the same check and words as Settings
+        return None if view.get("base") else EngineError(view.get("why") or "Your cloud computer did not answer.")
+
+    def _gateway(self, r: httpx.Response) -> str:
+        """Plain words for a cloud computer's proxy answering in place of ComfyUI ("" for any other answer)."""
+        if not self.remote:
+            return ""
+        if r.status_code in GATEWAY:
+            return (f"Your cloud computer did not pass the request on to ComfyUI (it answered {r.status_code}): it "
+                    "may be stopping or starting. Check in RunPod that it is on, then try again.")
+        if r.status_code in (401, 403):
+            return (f"Your cloud computer said no (it answered {r.status_code}). Check the key in Settings, "
+                    "Pictures, video, voice.")
+        return ""
 
     # ------------------------------------------------------------------ plain requests
-    def _get(self, path: str, **params) -> httpx.Response:
-        try:
-            return httpx.get(self.base + path, params=params or None, timeout=self.timeout, trust_env=False)
-        except httpx.HTTPError as exc:
-            raise EngineError(f"ComfyUI at {self.base} did not answer ({exc.__class__.__name__}).") from exc
+    def _get(self, path: str, *, once: bool = False, **params) -> httpx.Response:
+        """A question to ComfyUI. A cloud computer whose proxy answers for ComfyUI for a moment, or that drops the
+        connection, is asked again (RETRIES), so a hiccup is not read as "it has no such model". `once`: asked once
+        (a job's history: wait() waits outages out itself, LOST_S, and checks Stop between questions)."""
+        tries = 1 if once else self._tries()
+        for n in range(1, tries + 1):
+            try:
+                r = httpx.get(self.base + path, params=params or None, timeout=self.timeout,
+                              trust_env=self.trust_env, headers=self.headers)
+            except httpx.HTTPError as exc:
+                if n < tries:
+                    time.sleep(RETRY_WAIT_S * n)
+                    continue
+                raise self._unreachable(exc) from exc
+            if r.status_code in GATEWAY and n < tries:
+                time.sleep(RETRY_WAIT_S * n)
+                continue
+            return r
+        raise AssertionError("unreachable")  # pragma: no cover - the last try returns or raises
 
     def _post(self, path: str, body: dict | None = None, **kwargs) -> httpx.Response:
         try:
-            return httpx.post(self.base + path, json=body, timeout=self.timeout, trust_env=False, **kwargs)
+            return httpx.post(self.base + path, json=body, timeout=self.timeout, trust_env=self.trust_env,
+                              headers=self.headers, **kwargs)
         except httpx.HTTPError as exc:
-            raise EngineError(f"ComfyUI at {self.base} did not answer ({exc.__class__.__name__}).") from exc
+            raise self._unreachable(exc) from exc
 
     def stats(self) -> dict:
         r = self._get("/system_stats")
@@ -121,10 +209,15 @@ class Comfy:
             return False
 
     def missing_nodes(self, classes: list[str]) -> list[str]:
-        """The node types of `classes` this ComfyUI does not have."""
+        """The node types of `classes` this ComfyUI does not have. A cloud computer whose proxy did not let ComfyUI
+        answer (or that said no) raises EngineError in plain words: that is not a missing node."""
         missing = []
         for cls in dict.fromkeys(classes):
             r = self._get(f"/object_info/{quote(cls, safe='')}")
+            if r.status_code != 200 and self.remote:  # ComfyUI answers 200 ({} for a node it lacks): not ComfyUI
+                raise EngineError(self._gateway(r)) if self._gateway(r) else self._down() or EngineError(
+                    f"Your cloud computer's ComfyUI did not say whether it has {cls} (it answered {r.status_code}). "
+                    "Try again in a minute.")
             try:
                 found = r.status_code == 200 and cls in (r.json() or {})
             except ValueError:
@@ -135,9 +228,18 @@ class Comfy:
 
     def model_files(self, folder: str) -> list[str] | None:
         """The files ComfyUI sees in one model folder (diffusion_models, text_encoders, vae...); None when this
-        ComfyUI cannot list them."""
+        ComfyUI cannot list them. A cloud computer whose proxy did not let ComfyUI answer (or that said no) raises
+        EngineError in plain words instead: that does not mean it has no models."""
         r = self._get(f"/models/{quote(folder, safe='')}")
         if r.status_code != 200:
+            if self.remote and self._gateway(r):
+                raise EngineError(self._gateway(r))
+            if self.remote and r.status_code == 404:
+                # either ComfyUI not knowing that folder (an older one: None, as on this computer) or RunPod's proxy
+                # for a pod that was just stopped: the cloud computer is checked again to tell which
+                down = self._down()
+                if down:
+                    raise down
             return None
         try:
             names = r.json()
@@ -145,24 +247,39 @@ class Comfy:
             return None
         return [str(n) for n in names] if isinstance(names, list) else None
 
+    def _tries(self) -> int:
+        return RETRIES if self.remote else 1
+
     def upload_image(self, path: Path) -> str:
-        """Hand a picture to ComfyUI (for LoadImage); returns the name ComfyUI knows it by."""
+        """Hand a picture to ComfyUI (for LoadImage); returns the name ComfyUI knows it by. A cloud computer that
+        drops the connection or whose proxy answers for it is tried again (the same name: it overwrites)."""
         mime = mimetypes.guess_type(path.name)[0] or "image/png"
         name = f"clipforge-{uuid.uuid4().hex[:12]}{path.suffix.lower() or '.png'}"
-        try:
-            with open(path, "rb") as fh:
-                r = httpx.post(self.base + "/upload/image", files={"image": (name, fh, mime)},
-                               data={"type": "input", "overwrite": "true"}, timeout=max(self.timeout, 120.0),
-                               trust_env=False)
-        except OSError as exc:
-            raise EngineError(f"Could not read the picture to animate ({exc}).") from exc
-        except httpx.HTTPError as exc:
-            raise EngineError(f"ComfyUI did not take the picture ({exc.__class__.__name__}).") from exc
+        for n in range(1, self._tries() + 1):
+            try:
+                with open(path, "rb") as fh:
+                    r = httpx.post(self.base + "/upload/image", files={"image": (name, fh, mime)},
+                                   data={"type": "input", "overwrite": "true"}, timeout=max(self.timeout, 120.0),
+                                   trust_env=self.trust_env, headers=self.headers)
+            except OSError as exc:
+                raise EngineError(f"Could not read the picture to animate ({exc}).") from exc
+            except httpx.HTTPError as exc:
+                if n < self._tries():
+                    time.sleep(RETRY_WAIT_S * n)
+                    continue
+                raise EngineError(f"ComfyUI did not take the picture ({exc.__class__.__name__}).") from exc
+            if r.status_code in GATEWAY and n < self._tries():
+                time.sleep(RETRY_WAIT_S * n)
+                continue
+            break
         if r.status_code != 200:
-            raise EngineError(f"ComfyUI did not take the picture (it answered {r.status_code}).")
-        got = r.json()
-        sub = str(got.get("subfolder") or "")
-        return f"{sub}/{got['name']}" if sub else str(got["name"])
+            raise EngineError(self._gateway(r) or f"ComfyUI did not take the picture (it answered {r.status_code}).")
+        try:
+            got = r.json()
+            sub = str(got.get("subfolder") or "")
+            return f"{sub}/{got['name']}" if sub else str(got["name"])
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise EngineError("ComfyUI took the picture but answered in an unexpected way.") from exc
 
     def interrupt(self, prompt_id: str = "") -> None:
         try:
@@ -174,7 +291,7 @@ class Comfy:
     def running(self, prompt_id: str) -> bool | None:
         """Whether ComfyUI still runs (or holds) the graph `prompt_id`; None when it does not say."""
         try:
-            r = httpx.get(self.base + "/queue", timeout=10.0, trust_env=False)
+            r = httpx.get(self.base + "/queue", timeout=10.0, trust_env=self.trust_env, headers=self.headers)
             q = r.json() if r.status_code == 200 else None
         except (httpx.HTTPError, ValueError):
             return None
@@ -202,9 +319,10 @@ class Comfy:
 
     # ------------------------------------------------------------------ running a graph
     def submit(self, graph: dict) -> str:
+        # never sent twice: a request whose answer was lost may already be running there
         r = self._post("/prompt", {"prompt": graph, "client_id": self.client_id})
         if r.status_code != 200:
-            raise EngineError(plain(_validation_text(r)))
+            raise EngineError(self._gateway(r) or plain(_validation_text(r)))
         try:
             got = r.json()
         except ValueError as exc:
@@ -224,6 +342,44 @@ class Comfy:
             return (r.json() or {}).get(prompt_id)
         except ValueError:
             return None
+
+    def _poll(self, prompt_id: str, state: dict) -> dict | None:
+        """The history entry while wait() waits. A ComfyUI on this computer that does not answer ends the job at once
+        (history raises); a cloud computer may not answer for up to LOST_S (the internet, its proxy) before it does."""
+        if not self.remote:
+            return self.history(prompt_id)
+        entry, answered = self._remote_history(prompt_id)
+        if answered:
+            came_back = bool(state.get("lost"))
+            state["lost"] = 0.0
+            asked = state.setdefault("queue_at", time.monotonic())
+            # a cloud computer whose ComfyUI restarted (it ran out of memory, or the pod was restarted) forgot the
+            # job: it is in neither its queue nor its history, and waiting would only use up the time limit (and
+            # keep the other jobs waiting for their turn). Looked for after an outage, and every LOST_CHECK_S.
+            if entry is None and (came_back or time.monotonic() - asked >= LOST_CHECK_S):
+                state["queue_at"] = time.monotonic()
+                if self.running(prompt_id) is False:
+                    entry, answered = self._remote_history(prompt_id)  # it may have finished just now
+                    if answered and entry is None:
+                        raise EngineError("Your cloud computer restarted and lost this picture or clip, so ClipForge "
+                                          "stopped waiting for it. Make it again.")
+            return entry
+        state["lost"] = state.get("lost") or time.monotonic()
+        if time.monotonic() - state["lost"] > LOST_S:
+            raise EngineError(f"Your cloud computer stopped answering for {LOST_S / 60:.0f} minutes, so ClipForge "
+                              "gave up on this one. Check in RunPod that it is still on (a pod stops by itself when "
+                              "your RunPod money runs out), then try again.")
+        return None
+
+    def _remote_history(self, prompt_id: str) -> tuple[dict | None, bool]:
+        """(the history entry or None, whether the cloud computer answered at all)."""
+        try:
+            r = self._get(f"/history/{quote(prompt_id, safe='')}", once=True)
+            if r.status_code != 200:
+                return None, False
+            return (r.json() or {}).get(prompt_id), True
+        except (EngineError, ValueError, AttributeError):
+            return None, False
 
     def wait(self, prompt_id: str, *, progress: Progress | None = None, cancel: Cancel | None = None,
              timeout_s: float = 1800.0, steps_node: str = "", labels: dict[str, str] | None = None) -> dict:
@@ -257,19 +413,19 @@ class Comfy:
                     elif isinstance(msg, dict):
                         done = _on_message(msg, prompt_id, report, steps_node, labels, state)
                         if done == "error":
-                            entry = self.history(prompt_id) or {}
+                            entry = self._poll(prompt_id, state) or {}
                             raise EngineError(plain(_entry_error(entry) or _message_error(msg)))
                         if done == "interrupted":
                             raise EngineError("ComfyUI stopped the work (it was interrupted).")
                         if done == "success":
-                            entry = self.history(prompt_id)
+                            entry = self._poll(prompt_id, state)
                             if entry:
                                 return entry
                 else:
                     time.sleep(0.25)
                 if time.monotonic() - last_poll >= (POLL_S if ws is None else 5.0):
                     last_poll = time.monotonic()
-                    entry = self.history(prompt_id)
+                    entry = self._poll(prompt_id, state)
                     if entry:
                         status = entry.get("status") or {}
                         if status.get("status_str") == "error":
@@ -300,25 +456,42 @@ class Comfy:
         return files
 
     def download(self, file: dict, dest: Path) -> Path:
+        """Fetch one output file into `dest` (through `dest`.part, so a broken transfer never looks finished). From a
+        cloud computer, a dropped connection or its proxy answering for ComfyUI is tried again from the start."""
         dest.parent.mkdir(parents=True, exist_ok=True)
         params = {"filename": file["filename"], "subfolder": file.get("subfolder", ""), "type": file.get("type", "output")}
         part = dest.with_name(dest.name + ".part")
-        try:
-            with httpx.stream("GET", self.base + "/view", params=params, timeout=max(self.timeout, 300.0),
-                              trust_env=False) as r:
-                if r.status_code != 200:
-                    raise EngineError(f"ComfyUI did not hand over the result (it answered {r.status_code}).")
-                with open(part, "wb") as fh:
-                    for block in r.iter_bytes(1 << 20):
-                        fh.write(block)
-        except httpx.HTTPError as exc:
-            part.unlink(missing_ok=True)
-            raise EngineError(f"ComfyUI did not hand over the result ({exc.__class__.__name__}).") from exc
+        for n in range(1, self._tries() + 1):
+            try:
+                self._fetch(params, part)
+                break
+            except _Again as exc:
+                part.unlink(missing_ok=True)
+                if n < self._tries():
+                    time.sleep(RETRY_WAIT_S * n)
+                    continue
+                raise EngineError(exc.text) from exc.__cause__
         if not part.stat().st_size:
             part.unlink(missing_ok=True)
             raise EngineError("ComfyUI handed over an empty file.")
         part.replace(dest)
         return dest
+
+    def _fetch(self, params: dict, part: Path) -> None:
+        """One try of download(): _Again for what may work when tried again, EngineError for what will not."""
+        try:
+            with httpx.stream("GET", self.base + "/view", params=params, timeout=max(self.timeout, 300.0),
+                              trust_env=self.trust_env, headers=self.headers) as r:
+                if r.status_code != 200:
+                    text = self._gateway(r) or f"ComfyUI did not hand over the result (it answered {r.status_code})."
+                    if r.status_code in GATEWAY:
+                        raise _Again(text)
+                    raise EngineError(text)
+                with open(part, "wb") as fh:
+                    for block in r.iter_bytes(1 << 20):
+                        fh.write(block)
+        except httpx.HTTPError as exc:
+            raise _Again(f"ComfyUI did not hand over the result ({exc.__class__.__name__}).") from exc
 
     def run(self, graph: dict, *, progress: Progress | None = None, cancel: Cancel | None = None,
             timeout_s: float = 1800.0, steps_node: str = "", labels: dict[str, str] | None = None) -> list[dict]:
@@ -334,6 +507,14 @@ class Comfy:
         return files
 
 
+class _Again(Exception):
+    """A download that may work when it is tried again; `text` says why it did not."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.text = text
+
+
 # ------------------------------------------------------------------ the websocket (optional)
 def _socket(base: str, client_id: str):
     try:
@@ -342,13 +523,23 @@ def _socket(base: str, client_id: str):
         return None
     parts = urlsplit(base)
     scheme = "wss" if parts.scheme == "https" else "ws"
+    url = f"{scheme}://{parts.netloc}{parts.path.rstrip('/')}/ws?clientId={client_id}"
+    key = remote_key(base)
+    extra: dict = {}
+    if key is not None:  # the cloud computer: its key, and this computer's proxy settings (websockets' default)
+        extra["additional_headers"] = {**auth_headers(key), "User-Agent": "ClipForge"}
+        open_timeout = 15
+        if local_address(base):
+            extra["proxy"] = None
+    else:
+        open_timeout = 5
+        extra["proxy"] = None
     try:
-        return connect(f"{scheme}://{parts.netloc}{parts.path.rstrip('/')}/ws?clientId={client_id}", open_timeout=5,
-                       close_timeout=2, max_size=64 << 20, proxy=None)
+        return connect(url, open_timeout=open_timeout, close_timeout=2, max_size=64 << 20, **extra)
     except TypeError:  # an older websockets without the proxy argument
+        extra.pop("proxy", None)
         try:
-            return connect(f"{scheme}://{parts.netloc}{parts.path.rstrip('/')}/ws?clientId={client_id}",
-                           open_timeout=5, close_timeout=2, max_size=64 << 20)
+            return connect(url, open_timeout=open_timeout, close_timeout=2, max_size=64 << 20, **extra)
         except Exception:  # noqa: BLE001
             return None
     except Exception:  # noqa: BLE001 - an address that does not take websockets: poll instead

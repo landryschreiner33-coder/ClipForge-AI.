@@ -7,9 +7,10 @@ is blocking and meant for a job thread; every call takes the same two callbacks:
 person. `status(role)` never raises.
 
 Roles: "image" (a still picture from words), "video" (a few seconds of motion from words or a picture) and "voice"
-(speech from words). Pictures and video are made by ComfyUI (ClipForge's own copy, or the ComfyUI app already on this
-computer) with a model from catalog.py; the voice runs inside ClipForge (voice.py). Settings → Pictures, video, voice
-sets them up (overview(), setup(), remove()).
+(speech from words). Pictures and video are made by ComfyUI (ClipForge's own copy, the ComfyUI app already on this
+computer, or a ComfyUI on the person's rented cloud computer: remote.py) with a model from catalog.py; the voice runs
+inside ClipForge (voice.py). Settings → Pictures, video, voice sets them up (overview(), setup(), remove(),
+connect_remote()).
 """
 from __future__ import annotations
 
@@ -90,18 +91,22 @@ def voices() -> list[dict]:
 # ------------------------------------------------------------------ Settings → Pictures, video, voice
 def overview() -> dict:
     """Everything the Settings section shows (cheap: does not start anything)."""
-    from . import catalog, comfy_server, makers, models, tasks, voice
+    from . import catalog, comfy_server, makers, models, remote, tasks, voice
     from ..cloud import settings as cloud_settings
 
     settings = _settings()
     mode = makers.mode(settings)
     app = makers.find_app(settings) if mode == "app" else None
+    cloud = remote.check(settings) if mode == "remote" else None
     machine = makers.machine()
     flavor = machine["flavor"]
-    best = {r: makers.ranked(r, machine)[0].id for r in ROLES if catalog.for_role(r)}
-    recommended = {best[r] for r in best if len(catalog.for_role(r)) > 1}
+    # which model suits the computer that makes pictures and clips: this one, or the cloud computer
+    maker_machine = remote.machine(cloud) if cloud else machine
+    best = {r: makers.ranked(r, maker_machine)[0].id for r in ROLES if catalog.for_role(r)}
+    # a cloud computer that did not answer has no graphics card to suit yet
+    recommended = {best[r] for r in best if len(catalog.for_role(r)) > 1} if not cloud or cloud["base"] else set()
     out_models = []
-    seen: dict = {}  # the model folders of the ComfyUI app, asked once
+    seen: dict = {}  # the model folders of the ComfyUI app (or of the cloud computer), asked once
     where = models.folders(mode, app) if mode == "clipforge" or (mode == "app" and app) else None
     for m in catalog.MODELS:
         if m.role == "voice":
@@ -109,18 +114,19 @@ def overview() -> dict:
             out_models.append(_model_view(m, ready, 0 if ready else voice.download_bytes(m), True, ready, machine,
                                           recommended))
             continue
-        base = app if mode == "app" else None
+        base = app if mode == "app" else cloud["base"] if cloud else None
         try:
             lacking = models.missing(m, mode, base, seen) if mode != "off" else list(m.files)
             removable = bool(where) and bool(models.removal_plan(m, mode, base, seen, where)[0])
         except EngineError:
             lacking, removable = list(m.files), False
         out_models.append(_model_view(m, not lacking, sum(f.size for f in lacking), where is not None, removable,
-                                      machine, recommended))
+                                      maker_machine, recommended))
     return {
         "online": cloud_settings.enabled(),
         "roles": {r: status(r) for r in ROLES},
         "comfyui": {"mode": mode, "url": settings.get("engines_comfyui_url") or "", "app_found": app,
+                    "remote": _remote_view(cloud, settings),
                     "installed": comfy_server.installed(), "running": comfy_server.server.running(),
                     "version": catalog.COMFYUI["version"], "supported": bool(comfy_server.platform_key()),
                     "mac_too_old": comfy_server.mac_too_old(), "flavor": flavor,
@@ -137,6 +143,78 @@ def overview() -> dict:
         "task": tasks.view(),
         "voice_rule": catalog.SUPERTONIC_RULE,
     }
+
+
+def _remote_view(cloud: dict | None, settings: dict) -> dict:
+    """The cloud computer for Settings (never its key: only whether one is kept)."""
+    view = dict(cloud) if cloud else {"url": str(settings.get("engines_remote_url") or ""), "base": None, "why": "",
+                                      "host": "", "gpu": "", "vram_mb": 0, "ram_mb": 0, "version": "", "device": ""}
+    view["key_set"] = bool(settings.get("engines_remote_key")) or _key_kept()
+    view["found"] = view.pop("base", None)
+    return view
+
+
+def _key_kept() -> bool:
+    """Whether a cloud key is stored, even one this computer cannot read right now (a locked Keychain)."""
+    from .. import db
+
+    try:
+        return db.setting_kept("engines_remote_key")
+    except Exception:  # noqa: BLE001 - the page still shows the rest
+        return False
+
+
+def connect_remote(url: str, key: str | None = None) -> dict:
+    """Settings → "A cloud computer" → Save and check: keep the address (and the key, when one is given: "" removes
+    it), use the cloud computer for pictures and video, and check it now."""
+    from .. import db
+    from . import makers, remote
+
+    from .. import config
+
+    before = _settings()
+    patch: dict = {"engines_comfyui": "remote", "engines_remote_url": remote.normalize(url)}
+    note = ""
+    if key is not None:
+        patch["engines_remote_key"] = remote.clean_key(key)
+    elif _origin(before.get("engines_remote_url")) != _origin(patch["engines_remote_url"]) and (
+            before.get("engines_remote_key") or _key_kept()):
+        # a key is only ever sent to the computer it was typed for: it goes even when it cannot be read right now
+        # (a locked Keychain), or it would reach the new address once the Keychain is unlocked
+        patch["engines_remote_key"] = ""
+        note = ("The key you saved was for another address, so ClipForge removed it. If this cloud computer needs "
+                "one, enter it again.")
+    if set(config.validate_settings(patch)) != set(patch):  # all of it or nothing (never a new address, old key)
+        raise EngineError("ClipForge cannot keep that address or key. Copy it again from RunPod.")
+    db.save_settings(patch)
+    makers.forget_found()
+    view = overview()
+    if note:
+        view["note"] = note
+    return view
+
+
+def _origin(url) -> tuple:
+    """Which computer an address reaches: scheme, host and port (two tunnels on this computer at different ports reach
+    different computers, so a key typed for one is never sent to the other)."""
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(str(url or ""))
+        scheme = parts.scheme.lower()
+        return scheme, (parts.hostname or "").lower(), parts.port or {"https": 443, "http": 80}.get(scheme)
+    except ValueError:
+        return ("", str(url or ""), None)
+
+
+def remote_command(model_id: str, agreed: bool = False) -> dict:
+    """The command that puts a model on the cloud computer (remote.command_for)."""
+    from . import makers, remote
+
+    settings = _settings()
+    if makers.mode(settings) != "remote":
+        raise EngineError("Choose \"A cloud computer\" in Settings, Pictures, video, voice first.")
+    return remote.command_for(model_id, settings, agreed=agreed)
 
 
 def _model_view(m, ready: bool, need: int, can_download: bool, removable: bool, machine: dict,
@@ -171,6 +249,9 @@ def setup(what: str, model_id: str = "", agreed: bool = False) -> dict:
     mode = makers.mode(settings)
     if mode == "off":
         raise EngineError("Pictures and video are turned off. Choose a ComfyUI first.")
+    if mode == "remote":
+        raise EngineError(f"ClipForge cannot download {m.name} onto your cloud computer by itself. Press \"Put it on "
+                          "your cloud computer\" next to it: it shows a command to paste into the cloud computer.")
     base = makers.find_app(settings, max_age=0) if mode == "app" else None
     if mode == "app" and not base:
         raise EngineError("ComfyUI is not running. Open the ComfyUI app first, then download the model.")
@@ -205,6 +286,9 @@ def remove(what: str, model_id: str = "") -> dict:
         mode = makers.mode(settings)
         if mode == "off":
             raise EngineError("Pictures and video are turned off. Choose a ComfyUI in Settings first.")
+        if mode == "remote":
+            raise EngineError(f"{m.name} on your cloud computer stays there: delete its files in ComfyUI's models "
+                              "folder on the cloud computer, or delete the whole pod in RunPod.")
         base = makers.find_app(settings, max_age=0) if mode == "app" else None
         if mode == "app" and not base:
             raise EngineError("ComfyUI is not running. Open the ComfyUI app first, then remove the model.")

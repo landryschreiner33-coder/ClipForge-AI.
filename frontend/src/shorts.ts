@@ -7,7 +7,7 @@ import { req, responseError } from "./api";
 import type { Video } from "./studio";
 
 /** What one local maker can do right now ("why" says what is missing when it is not ready). */
-export type EngineStatus = { ready: boolean; engine: string; why: string; available: boolean };
+export type EngineStatus = { ready: boolean; engine: string; why: string; available: boolean; remote?: boolean };
 export type ShortEngines = { available: boolean; image: EngineStatus; video: EngineStatus; voice: EngineStatus };
 /** A look: how every picture is drawn. top, bottom and accent are hex colours for a swatch. */
 export type ShortLook = { id: string; name: string; about: string; top: string; bottom: string; accent: string };

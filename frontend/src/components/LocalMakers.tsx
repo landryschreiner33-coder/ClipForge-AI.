@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
-import { EngineModel, EngineRole, engines, EnginesView } from "../studio";
-import { Banner, ConfirmDialog, Disclosure, Icon, Pill, ProgressBar, Segmented, toast } from "./ui";
+import { EngineCloudCommand, EngineModel, EngineRole, engines, EnginesView } from "../studio";
+import { Banner, ConfirmDialog, Dialog, Disclosure, Icon, Pill, ProgressBar, Segmented, toast } from "./ui";
 
 const gb = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`);
 const ROLE_NAME: Record<EngineRole, string> = { image: "Pictures", video: "Video clips", voice: "Voice" };
@@ -9,8 +9,10 @@ const ROLE_NAME: Record<EngineRole, string> = { image: "Pictures", video: "Video
 /**
  * Settings → Pictures, video, voice: the makers that run on this computer. Pictures and short video clips come from
  * ComfyUI (a free, open-source program: ClipForge's own copy, set up from here, or the ComfyUI app if it is already
- * installed) with free models whose licences allow commercial use; the voice runs inside ClipForge. Every download is
- * pinned and checked, and nothing made here leaves the computer. The animated-shorts maker and the AI use them.
+ * installed, or a ComfyUI on a cloud computer the person rents by the hour, e.g. on RunPod) with free models whose
+ * licences allow commercial use; the voice runs inside ClipForge. Every download is pinned and checked. On this computer
+ * nothing made here leaves it; a cloud computer gets the words (and the picture a clip starts from) and sends back what
+ * it made. The animated-shorts maker and the AI use them.
  */
 export default function LocalMakersSettings() {
   const [st, setSt] = useState<EnginesView | null>(null);
@@ -19,6 +21,12 @@ export default function LocalMakersSettings() {
   const [url, setUrl] = useState("");
   const [voice, setVoice] = useState("F1");
   const [confirm, setConfirm] = useState<null | { what: "comfyui" | "model"; model?: EngineModel }>(null);
+  const [cloudUrl, setCloudUrl] = useState("");
+  const [cloudKey, setCloudKey] = useState("");
+  // "Put it on your cloud computer": the model, then (once agreed to its use rules, if it has any) the command
+  const [command, setCommand] = useState<null | { model: EngineModel; view: EngineCloudCommand | null; error: string;
+    asking?: boolean }>(null);
+  const asked = useRef(0);  // an answer for a dialog that was closed (or asked again) is dropped
 
   const load = useCallback(async () => {
     try {
@@ -31,8 +39,8 @@ export default function LocalMakersSettings() {
       return null;
     }
   }, []);
-  useEffect(() => { void load().then((v) => { if (v) setUrl(v.comfyui.url); }); }, [load]);
-  const running = st?.task.state === "running" || st?.trial.state === "running";
+  useEffect(() => { void load().then((v) => { if (v) { setUrl(v.comfyui.url); setCloudUrl(v.comfyui.remote?.url || ""); } }); }, [load]);
+  const running = st?.task?.state === "running" || st?.trial?.state === "running";
   useEffect(() => {
     if (!running) return;
     const t = window.setInterval(() => { void load(); }, 1500);
@@ -64,12 +72,20 @@ export default function LocalMakersSettings() {
   const trial = st.trial;
   const byRole = (role: EngineRole) => st.models.filter((m) => m.role === role);
   const voiceModel = byRole("voice")[0];
-  const comfyReady = c.mode === "clipforge" ? c.installed : c.mode === "app" ? Boolean(c.app_found) : false;
+  const cloud = c.mode === "remote" ? c.remote : null;
+  const comfyReady = c.mode === "clipforge" ? c.installed : c.mode === "app" ? Boolean(c.app_found)
+    : c.mode === "remote" ? Boolean(cloud?.found) : false;
+  const cloudName = cloud ? cloud.gpu || cloud.host || "your cloud computer" : "";
 
   // the reasons name this page for other pages (the shorts maker); here that hint is redundant
   const why = (role: EngineRole) => st.roles[role].why.replace(/ \(Settings, Pictures, video, voice\)/, "");
 
   const fitNote = (m: EngineModel) => {
+    if (cloud) {  // the fit is the cloud computer's (its graphics card), not this one's
+      if (m.fit === "slow") return `Your cloud computer's graphics card has ${Math.round((cloud.vram_mb || 0) / 1024)} GB, so this one will be slow there. Rent one with at least ${m.vram_gb} GB.`;
+      if (m.fit === "cpu") return "Your cloud computer has no graphics card ComfyUI can use, so this would be very slow there.";
+      return "";
+    }
     if (m.fit === "slow" && c.flavor === "mps") {
       return `This Mac has ${Math.round(st.memory_mb / 1024)} GB of memory, so this one will be slow here.`;
     }
@@ -85,11 +101,14 @@ export default function LocalMakersSettings() {
         <div><b>{m.name}</b> <span className="small muted">by {m.maker} · <a href={m.licence_url} target="_blank"
           rel="noreferrer">{m.licence}</a></span>
           <span className="block small">{m.about}</span>
-          <span className="block small muted">{m.ready ? "Downloaded" : `Download: ${gb(m.download_bytes || m.bytes)}`}
-            {m.memory_gb ? ` · runs well on a Mac with ${m.memory_gb} GB of memory or a PC with an NVIDIA card with ${m.vram_gb} GB` : ""}</span>
+          {cloud && m.role !== "voice" ? <span className="block small muted">{m.ready ? "On your cloud computer"
+            : `Not on it yet: ${gb(m.download_bytes || m.bytes)}`}{m.vram_gb ? ` · runs well on a graphics card with ${m.vram_gb} GB` : ""}</span>
+            : <span className="block small muted">{m.ready ? "Downloaded" : `Download: ${gb(m.download_bytes || m.bytes)}`}
+            {m.memory_gb ? ` · runs well on a Mac with ${m.memory_gb} GB of memory or a PC with an NVIDIA card with ${m.vram_gb} GB` : ""}</span>}
           {fitNote(m) && <span className="block small">{fitNote(m)}</span>}</div>
         {m.ready ? <Pill tone="good" icon="check">{chosen && byRole(m.role).length > 1 ? "In use" : "Ready"}</Pill>
           : m.removable ? <Pill tone="warn">Partly downloaded</Pill>
+          : cloud && m.role !== "voice" ? (m.recommended ? <Pill tone="info">Best for your cloud computer</Pill> : <Pill>Not on it yet</Pill>)
           : m.recommended ? <Pill tone="info">Best for this computer</Pill> : <Pill>Not downloaded</Pill>}
         <div className="row-actions">
           {m.ready && byRole(m.role).length > 1 && !chosen && <button type="button" className="btn btn-small" disabled={busy}
@@ -98,6 +117,9 @@ export default function LocalMakersSettings() {
           {!m.ready && m.can_download && <button type="button" className="btn btn-small" disabled={busy || setupRunning ||
             (m.role !== "voice" && !comfyReady)} onClick={() => setConfirm({ what: "model", model: m })}>
             <Icon name="download" />Download</button>}
+          {cloud && m.role !== "voice" && !m.ready && <button type="button" className="btn btn-small" disabled={busy || !cloud.found}
+            title={cloud.found ? undefined : "Connect your cloud computer above first."} onClick={() => openCommand(m)}>
+            <Icon name="download" />Put it on your cloud computer</button>}
           {m.removable && <button type="button" className="btn btn-small btn-quiet" disabled={busy || setupRunning}
             onClick={() => void act(() => engines.remove("model", m.id), (v) => v.note || `${m.name} removed.`)}>
             <Icon name="trash" />Remove</button>}
@@ -121,6 +143,54 @@ export default function LocalMakersSettings() {
     );
   };
 
+  // ------------------------------------------------------------------ the cloud computer
+  const connect = (key?: string) => act(() => engines.connectCloud(cloudUrl.trim() || cloud?.url || "", key), (v) => {
+    const r = v.comfyui.remote;
+    if (r.url) setCloudUrl(r.url);
+    const said = r.found ? `Connected to your cloud computer${r.gpu ? ` (${r.gpu})` : ""}.` : "Saved, but it is not connected yet: see below.";
+    return v.note ? `${said} ${v.note}` : said;
+  });
+
+  const fetchCommand = async (m: EngineModel, agreed: boolean) => {
+    const n = ++asked.current;
+    setCommand({ model: m, view: null, error: "", asking: true });
+    try {
+      const view = await engines.cloudCommand(m.id, agreed);
+      if (asked.current === n) setCommand({ model: m, view, error: "" });
+    } catch (e) {
+      if (asked.current === n) setCommand({ model: m, view: null, error: errorText(e) });
+    }
+  };
+  const closeCommand = () => { asked.current++; setCommand(null); };
+  // a model with use rules shows them first; pressing "Agree and show the command" is agreeing to them
+  const openCommand = (m: EngineModel) => {
+    if (m.rule) { asked.current++; setCommand({ model: m, view: null, error: "" }); }
+    else void fetchCommand(m, false);
+  };
+  const copyCommand = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); toast("Command copied. Paste it into your cloud computer's terminal."); }
+    catch { toast("Could not copy. Select the command and copy it yourself.", true); }
+  };
+  const checkCommand = async (m: EngineModel) => {
+    setBusy(true);
+    try {
+      const got = await engines.connectCloud(cloud?.url || cloudUrl.trim());
+      const v = { ...got, trial: got.trial ?? trial };  // the page's state needs the whole view
+      setSt(v);
+      const now = v.models.find((x) => x.id === m.id);
+      if (now?.ready) {
+        closeCommand();
+        toast(`${m.name} is on your cloud computer.`);
+      } else {
+        toast(v.comfyui.remote.found ? `${m.name} is not all there yet. Wait until the command says Done, then check again.`
+          : v.comfyui.remote.why || "Your cloud computer did not answer.", true);
+      }
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setBusy(false);
+  };
+
   const trialResult = (role: EngineRole) => {
     if (trial.role !== role || trial.state === "idle") return null;
     if (trial.state === "running") {
@@ -134,18 +204,24 @@ export default function LocalMakersSettings() {
         {role === "image" && <img src={trial.file} alt="The test picture" style={{ maxWidth: 240, borderRadius: 8 }} />}
         {role === "video" && <video src={trial.file} controls loop muted style={{ maxWidth: 240, borderRadius: 8 }} />}
         {role === "voice" && <audio src={trial.file} controls />}
-        <p className="small muted">Made on this computer in {trial.seconds} seconds.</p>
+        <p className="small muted">Made {cloud && role !== "voice" ? "on your cloud computer" : "on this computer"} in {trial.seconds} seconds.</p>
       </div>
     );
   };
 
   return (
     <>
-      <section className="panel" aria-labelledby="lm-what"><h2 id="lm-what">Pictures, video and voice on this computer</h2>
-        <p className="small">ClipForge can make pictures, short video clips and voice-overs itself, on this computer, for free:
+      <section className="panel" aria-labelledby="lm-what"><h2 id="lm-what">{cloud ? "Pictures, video and voice"
+        : "Pictures, video and voice on this computer"}</h2>
+        {cloud ? <p className="small">ClipForge makes pictures and short video clips on the cloud computer you rent, which is
+          much faster than most computers, and the voice-overs here, inside ClipForge: the animated-shorts maker uses them.
+          Pictures and clips are made by ComfyUI, a free, open-source program, with models whose licences allow commercial
+          use. The cloud computer gets the words for each picture or clip (and the picture a clip starts from) and sends
+          back what it made.</p>
+          : <p className="small">ClipForge can make pictures, short video clips and voice-overs itself, on this computer, for free:
           the animated-shorts maker uses them. Pictures and clips are made by ComfyUI, a free, open-source
           program, with models whose licences allow commercial use. The voice runs inside ClipForge. Once downloaded,
-          nothing goes online and nothing you make leaves the computer.</p>
+          nothing goes online and nothing you make leaves the computer.</p>}
         {(["image", "video", "voice"] as EngineRole[]).map((r) => (
           <p key={r} className="small">{st.roles[r].ready ? <Pill tone="good" icon="check">{ROLE_NAME[r]}</Pill> :
             <Pill>{ROLE_NAME[r]}</Pill>} {st.roles[r].ready ? st.roles[r].engine : why(r)}</p>
@@ -157,6 +233,7 @@ export default function LocalMakersSettings() {
           onChange={(mode) => void save({ engines_comfyui: mode })} options={[
             { value: "clipforge", label: "ClipForge's own" },
             { value: "app", label: "The ComfyUI app on this computer" },
+            { value: "remote", label: "A cloud computer" },
             { value: "off", label: "Off" }]} />
         {c.mode === "clipforge" && <>
           <p className="small muted">ClipForge downloads ComfyUI {c.version} with a private Python of its own and keeps it in
@@ -194,6 +271,63 @@ export default function LocalMakersSettings() {
               <Icon name="refresh" />Check again</button>
           </div>
         </>}
+        {cloud && <>
+          <p className="small muted">Rent a computer with a fast graphics card by the hour (RunPod is one place that does
+            this), start ComfyUI on it, and paste its address here. ClipForge sends it the words for each picture or clip,
+            and the picture a clip starts from, and gets back what it made. The voice still runs on this computer.</p>
+          <p className="small">{cloud.found ? <><Pill tone="good" icon="check">Connected</Pill> {cloudName}
+            {cloud.version ? ` · ComfyUI ${cloud.version}` : ""}{cloud.vram_mb ? ` · ${Math.round(cloud.vram_mb / 1024)} GB of graphics memory` : ""}</>
+            : <><Pill>{cloud.url ? "Not connected yet" : "Not connected"}</Pill> {cloud.url ? cloud.why : "Follow the steps below, then paste its address."}</>}</p>
+          {cloud.found && <Banner tone="warn" title="It costs money every hour it is on">Your cloud computer costs money for
+            every hour it is on, even when ClipForge is not using it. When you finish, open RunPod and press Stop on your pod.
+            Start it again next time (its address stays the same).</Banner>}
+          <div className="row-actions" style={{ alignItems: "flex-end" }}>
+            <label className="field grow"><span>Your cloud computer&apos;s address</span><input value={cloudUrl}
+              placeholder="https://abc123xyz-8188.proxy.runpod.net" spellCheck={false} autoComplete="off"
+              onChange={(e) => setCloudUrl(e.target.value)} /></label>
+            <button type="button" className="btn btn-small" disabled={busy || !cloudUrl.trim()} onClick={() => void connect()}>
+              Save and check</button>
+            <button type="button" className="btn btn-small btn-quiet" disabled={busy || !cloud.url}
+              onClick={() => void act(() => engines.connectCloud(cloud.url))}><Icon name="refresh" />Check again</button>
+          </div>
+          <Disclosure summary={cloud.key_set ? "Key: kept on this computer" : "Does it need a password? (Most don't.)"}>
+            <p className="small">Only if you put a password in front of your ComfyUI yourself. ClipForge keeps it locked on this
+              computer and sends it only to the address above. For a user name and a password, type them as
+              {" "}<span className="mono">name:password</span>.</p>
+            <div className="row-actions" style={{ alignItems: "flex-end" }}>
+              <label className="field grow"><span>{cloud.key_set ? "A new key" : "Key or password"}</span>
+                <input type="password" value={cloudKey} autoComplete="off" onChange={(e) => setCloudKey(e.target.value)} /></label>
+              <button type="button" className="btn btn-small" disabled={busy || !cloudKey.trim() || !(cloudUrl.trim() || cloud.url)}
+                onClick={() => void connect(cloudKey.trim()).then(() => setCloudKey(""))}>Save key</button>
+              {cloud.key_set && <button type="button" className="btn btn-small btn-quiet" disabled={busy || !(cloudUrl.trim() || cloud.url)}
+                onClick={() => void connect("")}><Icon name="trash" />Remove key</button>}
+            </div>
+          </Disclosure>
+          <Disclosure summary="How to get a cloud computer on RunPod, step by step" open={!cloud.url}>
+            <ol className="steps-list">
+              <li>Go to <a href="https://www.runpod.io" target="_blank" rel="noreferrer">runpod.io</a> and make an account.
+                In Billing, add some credit ($10 is plenty to try it).</li>
+              <li>Press <b>Pods</b>, then <b>Deploy</b>. Choose <b>Community Cloud</b> (it is cheaper).</li>
+              <li>Pick an <b>RTX 5090</b>: it is the fastest. An <b>RTX 4090</b> costs less and works well too. Any card with
+                at least 24 GB is fine. RunPod shows the price per hour next to each one.</li>
+              <li>Press <b>Change Template</b>. For an RTX 5090 pick <b>ComfyUI Blackwell Edition</b>. For an RTX 4090 pick
+                {" "}<b>ComfyUI</b>.</li>
+              <li>Press <b>Edit Template</b> and set the <b>Volume Disk</b> to <b>100 GB</b>, so the models fit and stay there.
+                Save it.</li>
+              <li>Press <b>Deploy On-Demand</b>. Wait until your pod says <b>Running</b> (a few minutes the first time).</li>
+              <li>Press <b>Connect</b>, then the button for port <b>8188</b>. ComfyUI opens in a new tab. Copy that tab&apos;s
+                address from the top of your browser. It looks like <span className="mono">https://abc123xyz-8188.proxy.runpod.net</span>.</li>
+              <li>Paste it in the box above and press <b>Save and check</b>.</li>
+              <li>Put the models on it: in Pictures and in Video clips below, press <b>Put it on your cloud computer</b> and
+                follow the steps.</li>
+              <li>When you finish, press <b>Stop</b> on your pod in RunPod. It stops costing money for the graphics card.
+                Its 100 GB disk still costs a little while it is stopped (about $20 a month). If you will not use it for a
+                long time, press <b>Terminate</b> instead: that costs nothing, but the models are deleted and you put them
+                back next time.</li>
+            </ol>
+            <p className="small">Keep the address to yourself: anyone who has it can use your cloud computer while it is on.</p>
+          </Disclosure>
+        </>}
         {c.mode === "off" && <p className="small muted">ClipForge makes no pictures or clips. The shorts maker uses your own
           pictures and video, and plain coloured scenes.</p>}
         {setupRunning && <div><ProgressBar value={t.total ? t.done / t.total : 0} label={t.what} />
@@ -210,7 +344,8 @@ export default function LocalMakersSettings() {
           <h2 id={`lm-${role}`}>{ROLE_NAME[role]}</h2>
           {byRole(role).length ? <ul className="file-list">{byRole(role).map(modelRow)}</ul> :
             <p className="small muted">No model for this yet.</p>}
-          {c.mode !== "off" && !comfyReady && <p className="small muted">Set up ComfyUI above first.</p>}
+          {c.mode !== "off" && !comfyReady && <p className="small muted">{cloud ? "Connect your cloud computer above first."
+            : "Set up ComfyUI above first."}</p>}
           {c.mode === "app" && c.app_found && byRole(role).some((m) => !m.can_download) &&
             <p className="small muted">That ComfyUI is on another computer: download the model in it yourself.</p>}
           {tryRow(role)}
@@ -238,8 +373,12 @@ export default function LocalMakersSettings() {
             video) and voice. Everything made here: engines/made, with a note next to each file saying which model made it,
             its licence, the words and the seed. What an animated short uses is kept with that short instead, with its
             note, and goes when the short is deleted.</li>
+          {cloud && <li>On your cloud computer: the models are in ComfyUI&apos;s models folder there. ComfyUI also keeps a copy
+            of each picture and clip it made, and of each picture a clip started from, in its output and input folders
+            there, until you delete them or terminate the pod. ClipForge keeps what it gets back in engines/made here.</li>}
           <li>ComfyUI {c.version} is GPL-3.0 open source (<a href={c.source} target="_blank" rel="noreferrer">its source</a>). It
-            runs as a separate program that ClipForge talks to on this computer only.</li>
+            runs as a separate program that ClipForge talks to{cloud ? ": on your cloud computer, over the internet at the address you saved (the one ClipForge sets up on this computer is not used then)"
+              : " on this computer only"}.</li>
           <li>Each model, the voice and ComfyUI itself have a fixed address, size and checksum: a file that does not match
             is deleted and never used. The parts ComfyUI runs on (its Python, PyTorch and their packages) are fixed
             versions that uv checks as it downloads them.</li>
@@ -263,6 +402,43 @@ export default function LocalMakersSettings() {
             {confirm.model?.rule && <p><b>Its use rules:</b> {confirm.model.rule}</p>}
             <p>About {gb(confirm.model?.download_bytes || 0)} to download.</p></>}
       </ConfirmDialog>}
+
+      {command && <Dialog wide title={`Put ${command.model.name} on your cloud computer`} onClose={closeCommand}
+        actions={command.view?.command ? <>
+          <button type="button" className="btn btn-quiet" onClick={closeCommand}>Close</button>
+          <button type="button" className="btn" onClick={() => void copyCommand(command.view?.command || "")}><Icon name="copy" />Copy the command</button>
+          <button type="button" className="btn" disabled={busy} onClick={() => void checkCommand(command.model)}>
+            <Icon name="refresh" />I ran it: check again</button>
+        </> : !command.view && !command.error && !command.asking && command.model.rule ? <>
+          <button type="button" className="btn btn-quiet" onClick={closeCommand}>Cancel</button>
+          <button type="button" className="btn" onClick={() => void fetchCommand(command.model, true)}>Agree and show the command</button>
+        </> : <button type="button" className="btn" onClick={closeCommand}>{command.asking ? "Cancel" : "Close"}</button>}>
+        {command.error ? <Banner tone="bad" title="No command">{command.error}</Banner>
+          : !command.view && !command.asking && command.model.rule ? <>
+            <p>{command.model.about} {command.model.name} is made by {command.model.maker} and comes under
+              {" "}<a href={command.model.licence_url} target="_blank" rel="noreferrer">{command.model.licence}</a>.</p>
+            <p><b>Its use rules:</b> {command.model.rule}</p>
+          </>
+          : !command.view ? <p className="small muted">Asking your cloud computer what it has…</p>
+          : !command.view.command ? <p>Your cloud computer already has everything {command.view.name} needs. Press Close, then
+            Check again at the top.</p>
+          : <>
+            <ol className="steps-list">
+              <li>In RunPod, press <b>Connect</b> on your pod. Turn on the <b>Web Terminal</b> and open it (or open
+                {" "}<b>JupyterLab</b>, then File, New, Terminal).</li>
+              <li>Press <b>Copy the command</b> below. Click in the terminal, paste it, and press Enter.</li>
+              <li>Wait until it says <b>Done</b>. It downloads {gb(command.view.bytes)} on the cloud computer, which usually
+                takes a few minutes, sometimes longer. Your own internet is not used.</li>
+              <li>Come back here and press <b>I ran it: check again</b>.</li>
+            </ol>
+            {!command.view.asked && <Banner tone="info" title="Your cloud computer did not answer just now">The command finds
+              ComfyUI&apos;s models folder by itself. {command.view.why}</Banner>}
+            <pre className="command-box" aria-label="The command">{command.view.command}</pre>
+            <p className="small muted">{command.view.files.length === 1 ? "1 file" : `${command.view.files.length} files`}
+              {command.view.where ? ` go into ${command.view.where}` : ""}. Each one is checked when it arrives; a damaged
+              one is deleted. If it stops, paste the same command again: it goes on where it stopped.</p>
+          </>}
+      </Dialog>}
     </>
   );
 }

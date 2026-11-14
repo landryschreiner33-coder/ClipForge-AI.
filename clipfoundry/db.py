@@ -2183,6 +2183,19 @@ def get_settings() -> dict[str, Any]:
     return values
 
 
+def setting_kept(key: str) -> bool:
+    """Whether a value other than empty is stored for `key`, whether or not this computer can read it now (a sealed
+    key a locked Keychain cannot open is still kept, and would be read again once it is unlocked)."""
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    if row is None:
+        return False
+    try:
+        return bool(json.loads(row["value"]))
+    except ValueError:
+        return bool(row["value"])
+
+
 def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
     clean = config.validate_settings(patch)
     for key in config.SEALED_KEYS & set(clean):

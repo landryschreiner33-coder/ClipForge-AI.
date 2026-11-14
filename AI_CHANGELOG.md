@@ -1,5 +1,52 @@
 # AI changelog
 
+## Pictures and video on a rented cloud computer (RunPod) — 2026-11-13 (Claude Code)
+
+Landry asked for a cheap server so pictures and clips are made faster than on his Mac, then "Do step 4" (connect
+ClipForge to it). Branch `claude/project-thread-64dck1` from the release line at 64ab85f, PR #49 into
+`claude/project-thread-x72wkd`. No release. Guide and design: [docs/clipforge/CLOUD_GPU.md](docs/clipforge/CLOUD_GPU.md).
+
+- **Settings → Pictures, video, voice → A cloud computer** (`engines_comfyui = "remote"`): the pod's address
+  (`engines_remote_url`, https only except loopback http, no user name) and an optional key (`engines_remote_key`,
+  sealed, `********` in the settings view, sent only to that address as Bearer, or Basic for `name:password`); the
+  check (`remote.check`, cached 15 s) explains a pod that is off, starting (502–504, 520–530), terminated (RunPod's
+  404), on the wrong port, behind a sign-in or refusing the key; a cost warning while connected; a RunPod guide.
+- **Models on the pod:** "Put it on your cloud computer" shows a bash command (`remote.download_command`) for the
+  pod's terminal: pinned Hugging Face files into the folders ComfyUI names at `/internal/folder_paths` (or RunPod's
+  usual models folder), `.part` + resume, size and SHA-256 checked before the final name, a different file never
+  replaced, every value shell-quoted. Download/Remove for the pod are refused with what to do instead.
+- **Jobs:** the pod's graphics card picks the model (`remote.machine` into `makers.ranked/fit`); jobs take turns
+  (`remote.turn`) instead of this computer's graphics lock; for the pod only, uploads/downloads retry 3 times on
+  gateway answers and dropped connections, waiting rides out up to 3 minutes (`comfy.LOST_S`), and `/prompt` is never
+  retried. Local ComfyUI is unchanged.
+- **Routes:** `POST /api/engines/remote`, `GET /api/engines/remote/command`. Shorts pages say "on your cloud
+  computer" (`status()["remote"]`).
+- **Legal pages:** privacy section 2 (what the pod keeps), section 3 (ComfyUI row), section 7; terms sections 2, 7
+  and 10 mention the rented computer and its cost. Not published to the website.
+- **Review fixes:** the address and key are action-only (never `PUT /api/settings`); a new host drops the kept key;
+  keys are printable ASCII; `makers.mode()` forgets the cloud registration in the local modes and the command route
+  needs cloud mode; a job a restarted pod forgot ends in plain words (`LOST_CHECK_S`); a locked Mac Keychain is a 422
+  with its message.
+- **Second review fixes:** `POST /api/engines/remote` answers the whole view with the trial (the "I ran it: check
+  again" button blanked the page); the shorts door (`makers/local_engines.status`) passes `remote` on; questions to
+  the pod (`Comfy._get`) are retried on gateway answers and dropped connections, and a model or node list the pod's
+  proxy answered for raises plain words (`model_files`, `missing_nodes`, `models._listed`) instead of reading as
+  "not on it yet"; the note names the model that made the file; a job re-reads Settings when its turn comes and
+  stops if another ComfyUI was chosen; a new address drops a kept key even when a locked Keychain cannot read it,
+  `key_set` counts a kept unreadable key, and an address and key are saved together or not at all (addresses over
+  300 characters are refused, never cut); the address is `********` in `GET /api/settings`
+  (`config.UNSHOWN_KEYS`), `GET /api/engines` is this computer only, and status words and errors never name the
+  address; a key box with only spaces or a too-long key says so; the command dialog drops answers for a closed
+  dialog and shows that it is asking; the check script picks the smallest file ComfyUI does not list yet.
+  A third, smaller review: a job's history is asked once per look (retries had stretched Stop and `LOST_S`); RunPod's
+  404 for a pod stopped since the check reads as the pod being gone (`Comfy._down`), not as missing models or nodes;
+  the note's label is worked out inside the job's turn; a kept key also goes when only the port changes.
+- **Checks:** `tests/test_remote_engines.py` (51, with a stand-in RunPod proxy; real bash runs of the command; every
+  rule broken on purpose once, the later reviews' 28 rules too); a browser run of the cloud panel (Save and check,
+  the command dialog, "I ran it: check again", closing while it asks); `scripts/local_engines_check.py --remote` on Linux and Mac (Linux, run 43507318631:
+  the command fetched Z-Image's smallest file from Hugging Face and ComfyUI listed it, and a real FLUX.2 klein picture
+  was made in cloud mode in 169 s). Fast suite 2,644 passed, 7 skipped.
+
 ## Release 2026.11.13: ClipForge AI as a real assistant, planned YouTube videos, animated shorts — 2026-11-13 (Claude Code)
 
 Landry wrote "Release the new version with all the changes and update the website". Everything merged into the

@@ -24,6 +24,9 @@ everything runs locally. His Mac is Apple silicon; the app also ships for Window
   Nothing is downloaded from an address not written in `engines/catalog.py`.
 - **Once downloaded, nothing goes online**: ComfyUI runs with `--offline`, without add-on nodes, and only listens on
   127.0.0.1. What it makes stays on the computer.
+- **Or a rented cloud computer (since Nov 13)**: pictures and clips can be made by ComfyUI on a computer with a big
+  graphics card rented by the hour (RunPod). Then the words for each picture or clip, and the picture a clip starts
+  from, go to it. See [CLOUD_GPU.md](CLOUD_GPU.md).
 
 ## Landry's list: what was plugged in, what was skipped, and why
 
@@ -185,9 +188,14 @@ set-up runs at a time with progress and Cancel.
   because Windows will not delete a file a program still holds; a file Windows still holds is tried again for a few
   seconds. Removing ComfyUI itself is refused while another copy of ClipForge that is open runs it.
 
+**A cloud computer** is a fourth choice for ComfyUI (Nov 13): its address (and an optional key), a cost warning, a
+step-by-step RunPod guide, and "Put it on your cloud computer" next to each picture and video model instead of
+Download, which shows a copy-paste command for the cloud computer's terminal. The design, the checks and what goes to
+the cloud computer are in [CLOUD_GPU.md](CLOUD_GPU.md).
+
 The online studio does not offer local makers (the routes answer 404 in cloud mode). Routes: `GET /api/engines`,
-`POST /api/engines/setup|cancel|remove|try|try/cancel` (all need the app's own header), `GET /api/engines/made/<file>`
-(this computer only).
+`POST /api/engines/setup|cancel|remove|try|try/cancel|remote` (all need the app's own header),
+`GET /api/engines/made/<file>` and `GET /api/engines/remote/command` (this computer only).
 
 ## How it was checked
 

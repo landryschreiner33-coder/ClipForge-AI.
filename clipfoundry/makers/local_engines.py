@@ -55,19 +55,20 @@ def discard_made(path: Path | str | None) -> None:
 
 
 def status(role: str) -> dict:
-    """{"ready": bool, "engine": str, "why": str, "available": bool} for one role. Never raises."""
+    """{"ready": bool, "engine": str, "why": str, "available": bool, "remote": bool} for one role ("remote": it is
+    made on the person's cloud computer, so the pages say so instead of "on this computer"). Never raises."""
     mod = module()
     if mod is None:
         return {"ready": False, "engine": "", "why": "This version of ClipForge does not have the local makers yet.",
-                "available": False}
+                "available": False, "remote": False}
     try:
         got = mod.status(role) or {}
     except Exception as exc:  # noqa: BLE001 - a broken engine is reported, never fatal
         log.exception("engine status failed")
         return {"ready": False, "engine": "", "why": f"The {role} engine could not be checked ({exc}).",
-                "available": True}
+                "available": True, "remote": False}
     return {"ready": bool(got.get("ready")), "engine": str(got.get("engine") or ""), "why": str(got.get("why") or ""),
-            "available": True}
+            "available": True, "remote": bool(got.get("remote"))}
 
 
 def errors() -> tuple[type[BaseException], ...]:

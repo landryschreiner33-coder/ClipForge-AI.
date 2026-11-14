@@ -117,13 +117,18 @@ def file_path(f: catalog.ModelFile, where: dict[str, Path]) -> Path:
 
 
 # ------------------------------------------------------------------ what is there
-def _listed(base: str, folder: str, seen: dict[str, list[str] | None]) -> list[str] | None:
-    """The file names a ComfyUI lists in one model folder (asked once per `seen`)."""
+def _listed(base: str, folder: str, seen: dict) -> list[str] | None:
+    """The file names a ComfyUI lists in one model folder (asked once per `seen`). A cloud computer that did not
+    answer raises EngineError (its plain words), each time it is asked within `seen`: it may well have the model, so
+    that must not read as "not there"."""
     if folder not in seen:
+        client = Comfy(base, timeout=10)
         try:
-            seen[folder] = Comfy(base, timeout=10).model_files(folder)
-        except EngineError:
-            seen[folder] = None
+            seen[folder] = client.model_files(folder)
+        except EngineError as exc:
+            seen[folder] = exc if client.remote else None
+    if isinstance(seen[folder], EngineError):
+        raise EngineError(str(seen[folder]))
     return seen[folder]
 
 
