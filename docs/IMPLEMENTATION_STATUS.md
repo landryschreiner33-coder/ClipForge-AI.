@@ -1,5 +1,19 @@
 # Implementation status
 
+## Clip live streams while they are live, several at once — 2026-11-16 (Claude Code)
+
+PR #52, branch `claude/project-thread-09o53d` from the release line at cef8add. Missions → Live streams records
+several streams at once, clips them while live and uploads passing clips during the stream with each stream's own
+request. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-16, on 1c7ef31 | `python -m pytest -m "not slow" -q` | 2721 passed, 2 skipped, 32 deselected (2261 s) |
+| 2026-11-16, on 1c7ef31 | `python -m pytest -m slow -q` | 31 passed, 1 skipped, 2723 deselected (1851 s) |
+| 2026-11-16, on 1c7ef31 | `cd frontend && npm run build` | passed; `frontend/dist` unchanged from the commit |
+
+Not verified: real Twitch, Kick and YouTube broadcasts; CPU Whisper with 2-3 streams on a Mac.
+
 ## A project's own re-stored copies go with it; privacy page — 2026-11-13 (Claude Code)
 
 PR #43, branch `claude/project-thread-gvcf5h` from the release line at 3d337c8. Deleting a project no longer keeps a
