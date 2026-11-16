@@ -99,6 +99,14 @@ def canonical_url(raw: str) -> dict:
                 "title": f"{name.rsplit('/', 1)[-1]} live"[:120], "kind": "live"}
     if host in (*verify.YOUTUBE_HOSTS, "youtu.be", *verify.TIKTOK_HOSTS, *SHORT_TIKTOK_HOSTS):
         raise ValueError("Paste the link to one video or stream, rather than a channel or playlist.")
+    site = host.removeprefix("www.").removeprefix("m.")
+    if site in CHANNEL_HOSTS and parts.scheme.lower() in netguard.HTTP and channel_live_page(value):
+        # twitch.tv/Name, www.twitch.tv/name/ and m.twitch.tv/name?ref=x are one channel (names ignore case), so
+        # the same stream added twice in another spelling is refused instead of being recorded twice.
+        name = next(part for part in parts.path.split("/") if part).lower()
+        url = f"https://www.twitch.tv/{name}" if site == "twitch.tv" else f"https://kick.com/{name}"
+        return {"platform": "url", "external_id": hashlib.sha256(url.encode()).hexdigest()[:32], "url": url,
+                "title": f"{name} live"[:120], "kind": "live"}
     normalized = _direct_url(value)
     live = parts.scheme.lower() not in netguard.HTTP or parts.path.lower().endswith(STREAM_EXTENSIONS)
     title = unquote(PurePosixPath(parts.path).name)[:120] or ("Live stream" if live else "Video link")
@@ -457,7 +465,7 @@ def item(source: dict) -> dict:
             "scheduled_at": meta.get("scheduled_at"), "can_remove": can_remove,
             "can_cancel": bool(active) and status not in ("canceled", "removed"),
             "can_retry": status in ("inaccessible", "failed", "canceled", "removed")
-            and not any(j["status"] == "running" for j in jobs),
+            and not any(j["status"] == "running" for j in jobs) and not meta.get("superseded_by"),
             "can_prioritize": bool(active) and status != "canceled",
             "can_finish": _can_finish(source, status, active, jobs),
             "finishing": source.get("kind") == "live" and finish_requested(source["id"]) and
@@ -505,10 +513,10 @@ def action(source_id: str, operation: str) -> dict:
                 queue.cancel(job["id"])
         _cancel_posts(source)
     elif operation == "retry":
-        if not view["can_retry"]:
-            raise ValueError("This video is already waiting, processing, or finished.")
         if meta.get("superseded_by"):
             raise ValueError("This stream was added again as a new input. Use that one instead.")
+        if not view["can_retry"]:
+            raise ValueError("This video is already waiting, processing, or finished.")
         state.delete(f"live_finish:{source_id}")
         retryable = _resume_jobs(source)
         previous = meta.get("previous_status") or source["status"]

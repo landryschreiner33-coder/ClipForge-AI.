@@ -316,6 +316,20 @@ class WorkerHost:
         return queue.claim(name, self._token(name), min_priority=min_priority if min_priority > 0 else None,
                            manual_priority=MANUAL_PRIORITY)
 
+    def _canceled(self, name: str, row: dict, token: str, job: Job) -> None:
+        if job.timed_out:
+            queue.fail(row, token, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
+                       "It will run again on the next cycle; check the log if this repeats.")
+            self.set_state(name, "failed", None, message="Timed out", error="time limit reached")
+        elif self._stop.is_set() and not state.paused() and not (queue.get(job.id) or {}).get("cancel_requested"):
+            # Closing the app is an interruption, not the user's decision to cancel this item. A waiting job
+            # resumes without consuming another attempt when the next host starts.
+            queue.wait(row, token, "restart", 1, "App closed; continuing when it starts again")
+            self.set_state(name, "idle", None, message="Saved for restart")
+        else:
+            queue.mark_canceled(row, token, "Canceled")
+            self.set_state(name, "idle", None, message="Canceled")
+
     def _idle(self, name: str, message: str) -> None:
         if queue.WORKER_LANES.get(name, 1) > 1:
             with self._lock:
@@ -354,21 +368,18 @@ class WorkerHost:
             queue.complete(row, token, result, str(result.get("message") or "Done"))
             self.set_state(name, "completed", job, message=str(result.get("message") or f"{row['kind']} done"))
         except queue.Wait as w:
-            queue.wait(row, token, w.reason, w.seconds, w.message)
-            self.set_state(name, "waiting", job, message=w.message)
-        except queue.Canceled:
-            if job.timed_out:
-                queue.fail(row, token, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
-                           "It will run again on the next cycle; check the log if this repeats.")
-                self.set_state(name, "failed", None, message="Timed out", error="time limit reached")
-            elif self._stop.is_set() and not state.paused() and not (queue.get(job.id) or {}).get("cancel_requested"):
-                # Closing the app is an interruption, not the user's decision to cancel this item. A waiting job
-                # resumes without consuming another attempt when the next host starts.
-                queue.wait(row, token, "restart", 1, "App closed; continuing when it starts again")
-                self.set_state(name, "idle", None, message="Saved for restart")
+            if queue.wait(row, token, w.reason, w.seconds, w.message):
+                self.set_state(name, "waiting", job, message=w.message)
             else:
-                queue.mark_canceled(row, token, "Canceled")
-                self.set_state(name, "idle", None, message="Canceled")
+                latest = queue.get(job.id) or {}
+                if latest.get("status") == "running" and latest.get("lease_owner") == token and \
+                        latest.get("cancel_requested"):
+                    # Cancel or Stop all jobs arrived while this turn ran: the request wins over the turn's wait
+                    # (Stop all keeps its hold marker, so Resume can continue the job).
+                    job.timed_out = latest["cancel_requested"] == 2
+                    self._canceled(name, row, token, job)
+        except queue.Canceled:
+            self._canceled(name, row, token, job)
         except queue.Retry as exc:
             status = queue.retry_or_fail(row, token, str(exc), exc.fix, exc.delay)
             self.set_state(name, "failed" if status == "failed" else "waiting", None, message=str(exc),

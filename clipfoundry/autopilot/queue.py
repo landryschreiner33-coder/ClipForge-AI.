@@ -223,7 +223,7 @@ def renew(job_id: str, owner: str, lease_s: float = LEASE_SECONDS) -> dict | Non
     return dict(row) if row else None
 
 
-def _finish(job: dict, owner: str, **fields: Any) -> bool:
+def _finish(job: dict, owner: str, *, unless_canceled: bool = False, **fields: Any) -> bool:
     """Write the outcome only if this worker still owns the job (a recovered job may belong to another)."""
     now = _now()
     fields = {**fields, "lease_owner": "", "lease_until": 0, "updated_at": now}
@@ -231,9 +231,10 @@ def _finish(job: dict, owner: str, **fields: Any) -> bool:
         if k in fields:
             fields[k] = json.dumps(fields[k], default=str)
     cols = ", ".join(f"{k} = ?" for k in fields)
+    extra = " AND cancel_requested = 0" if unless_canceled else ""
     with db.connect() as conn:
-        n = conn.execute(f"UPDATE worker_jobs SET {cols} WHERE id = ? AND lease_owner = ? AND status = 'running'",
-                         [*fields.values(), job["id"], owner]).rowcount
+        n = conn.execute(f"UPDATE worker_jobs SET {cols} WHERE id = ? AND lease_owner = ? AND status = 'running'"
+                         + extra, [*fields.values(), job["id"], owner]).rowcount
     return bool(n)
 
 
@@ -276,7 +277,9 @@ def fail(job: dict, owner: str, error: str, fix: str = "") -> bool:
 
 
 def wait(job: dict, owner: str, reason: str, seconds: float, message: str = "") -> bool:
-    ok = _finish(job, owner, status="waiting", wait_reason=reason, run_after=_now() + seconds,
+    """Park the job until later. Refused (False) when Cancel or Stop all jobs arrived while it ran: a parked job with
+    a pending cancel request would never be claimed again, so the caller cancels it instead (host._run)."""
+    ok = _finish(job, owner, unless_canceled=True, status="waiting", wait_reason=reason, run_after=_now() + seconds,
                  message=message or reason)
     if ok and reason not in ROUTINE_WAITS:
         log_line(job["id"], job["worker"], "info", "waiting", message or reason, reason=reason,

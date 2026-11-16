@@ -407,11 +407,12 @@ def stop_captures(host=None) -> None:
 
 
 def resume_held() -> int:
-    """After Stop all jobs: continue the live inputs it held (recording, waiting for the stream, or finishing).
-    Their saved minutes are kept; a channel that moved on to another broadcast is finished, not continued."""
+    """After Stop all jobs: continue the live inputs it held (recording, waiting for the stream, finishing, or
+    analyzing the full recording). Their saved minutes are kept; a channel that moved on to another broadcast is
+    finished, not continued."""
     resumed = 0
-    for row in db.select("worker_jobs", "kind IN ('live_capture', 'identify_link') AND status = 'canceled' AND "
-                         "wait_reason = ?", (queue.STOP_ALL,), "updated_at DESC", 200):
+    for row in db.select("worker_jobs", "kind IN ('live_capture', 'identify_link', 'post_live') AND status = "
+                         "'canceled' AND wait_reason = ?", (queue.STOP_ALL,), "updated_at DESC", 200):
         src = db.fetch("sources", (row.get("payload") or {}).get("source_id") or "") or {}
         meta = src.get("intake") or {}
         if not src or meta.get("canceled") or meta.get("removed") or not meta.get("submitted") or \
