@@ -1227,13 +1227,6 @@ def _live_turn(job: Job) -> dict:
             except queue.Fail as exc:
                 db.update("sources", src["id"], status="needs_file", status_note=str(exc)[:300])
                 raise
-            if _other_broadcast(sess, src, broadcast, recorded):
-                for relay in relays:
-                    relay.close()
-                db.update("sources", src["id"], live_status="ended", status_note=(
-                    "The channel is showing a different broadcast now. The recorded one is being finished; add the "
-                    "link again to clip the new broadcast."))
-                raise queue.Wait("live", TURN_SECONDS, "Finishing the recorded broadcast")
             # Streams recording at the same time share the disk: reserve what the others may still write, so a
             # new stream waits to start rather than every stream stopping halfway when the disk fills up.
             # A reconnect counts them too: what was checked when it started may since have been taken by a stream
@@ -1254,8 +1247,15 @@ def _live_turn(job: Job) -> dict:
                     relay.close()
                 raise
             try:
-                state.resolve("disk:space")
                 try:
+                    state.resolve("disk:space")
+                    # Checked only once there is room: a stream waiting for disk space has not started recording
+                    # this broadcast, and remembering its id would end the channel's next broadcast later.
+                    if _other_broadcast(sess, src, broadcast, recorded):
+                        db.update("sources", src["id"], live_status="ended", status_note=(
+                            "The channel is showing a different broadcast now. The recorded one is being finished; "
+                            "add the link again to clip the new broadcast."))
+                        raise queue.Wait("live", TURN_SECONDS, "Finishing the recorded broadcast")
                     capture = Capture(sess, job, args, relays=relays)
                     capture.recorded_at_start = recorded
                 except BaseException:

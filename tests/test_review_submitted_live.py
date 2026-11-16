@@ -1538,3 +1538,31 @@ def test_your_cancel_after_the_time_limit_was_noticed_stays_a_cancel(data, monke
     claim = queue.claim("live_monitor", "lane")
     worker_host._run("live_monitor", claim)
     assert queue.get(claim["id"])["status"] == "canceled"
+
+
+def test_a_stream_waiting_for_disk_space_remembers_no_broadcast(data, recorder, monkeypatch):
+    """A stream that has to wait for disk space has not started recording the broadcast it found. Remembering that
+    broadcast would make the channel's next broadcast look like a different one at its first reconnect and end it.
+    The stream relay it opened is closed while it waits."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import live, queue
+
+    closed = []
+    relay = SimpleNamespace(close=lambda: closed.append(True), reached_limit=lambda: False, error=lambda: "")
+
+    def lookup(src, settings, public_relays=None, broadcast=None, **kw):
+        public_relays.append(relay)
+        broadcast.update({"id": "b1", "title": "Broadcast b1", "url": src.get("url", "")})
+        return []
+
+    def no_room(path, need=0):
+        raise queue.Wait("disk", 1800, "Waiting for free disk space; saved work is kept")
+
+    monkeypatch.setattr(live, "input_args", lookup)
+    monkeypatch.setattr(live, "require_disk_space", no_room)
+    src = going_live(add_live())
+    job = turn_job(src, SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None))
+    with pytest.raises(queue.Wait) as waiting:
+        live.live_capture(job)
+    assert waiting.value.reason == "disk" and closed == [True] and not live._starting and not recorder.made
+    assert not live.Session(db.fetch("sources", src["id"]), db.get_settings()).broadcast.get("id")
