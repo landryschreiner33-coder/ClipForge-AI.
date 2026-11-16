@@ -1,5 +1,34 @@
 # AI changelog
 
+## Release 2026.11.16: clip live streams while they are live — 2026-11-16 (Claude Code)
+
+Landry wrote "Make sure you release the new changes". Everything merged into the release line since 2026.11.13.2 is in
+it: PR #52 (clip live streams while they are live, several at once, with uploads during the stream). PR #53
+(`f3aea38`) corrected the texts a fact-check found wrong or missing and added the Mac release notes; it was merged as
+`9d0be40` (same tree). Both downloads are built from f3aea38. Every URL, size, hash and run:
+[docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+
+- **Fact-check before release** (release notes, app texts and legal pages against the code at a187452; each finding
+  checked again by a second reviewer): the Live streams page now names the recording limits (Largest source, 4 hours
+  or 8 GB by default; the recording stops even if the stream is still live); the Stop recording dialog says the
+  full-recording check may swap a live clip nobody approved, and offers "add the link again" only for links the app
+  accepts again (channel pages and stream addresses); the Missions header no longer says nothing uploads without a
+  review (Make & upload uploads passing clips); the privacy page says a channel link is checked every few minutes until
+  it goes live, for up to a day; the Terms say a live recording is kept on cancel and deleted with its project. On the
+  download page, live links in Make clips (refused by the app) became Clip a live stream, and two answers name Make &
+  upload.
+- **Mac:** release `clipforge-mac-2026-11-16-f3aea38`, the unchanged DMG from build and test run 43912561838 (macOS 15:
+  native build and bundled-app smoke passed; 2,721 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped),
+  published by run 43921441880. GitHub had no Apple-silicon Mac runner free for the native job's first four tries
+  (run 43897847676 twice, run 43909484088 and run 43912561838's first attempt, each cancelled after 15 minutes: "The job
+  was not acquired by Runner of type hosted even after multiple attempts"); re-running only that job worked.
+- **Windows:** `ClipForge-Windows-Setup.zip` at `raw/26ef3a1` on `claude/clipforge-downloads` (50,216,384 bytes; 872
+  app files equal to the Git tree at f3aea38 except the six declared CRLF exports; 77 launcher tests); the setup check
+  now installs 2026.11.13.2 (raw/dd6958b) first; Windows setup check run 43898294309 passed; record commit
+  `622dfef`.
+- **Download page:** `gh-pages` `c68f266`: 2026.11.13.2 moved to All versions; seven changes, what was checked and what
+  was not. `index.html`, `privacy.html` and `terms.html` are the app's copies at f3aea38 (live streams).
+
 ## Clip live streams while they are live, several at once — 2026-11-16 (Claude Code)
 
 Landry asked: "Make it so I can clip streams while they are live and the auto pilot is able to upload them as a clip

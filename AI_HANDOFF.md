@@ -1,5 +1,33 @@
 # AI handoff
 
+## Release 2026.11.16 published — 2026-11-16 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wrote "Make sure you release the new changes". ClipForge 2026.11.16 is on the
+download page for Mac and Windows. New since 2026.11.13.2: clip live streams while they are live, several at once,
+and with Make & upload clips the passing clips upload to YouTube during the stream (PR #52). A fact-check before the
+release corrected the texts that promised more than the app does (PR #53). **Live recordings stop at Largest source
+(Settings → Advanced, 8 GB / 240 minutes by default, about 3–4 hours of 1080p)**; raise it before long streams.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `9d0be40` (PR #53), whose
+  tree equals that of `f3aea38`, the source commit of both downloads; Mac release `clipforge-mac-2026-11-16-f3aea38`;
+  Windows ZIP at `raw/26ef3a1` on `claude/clipforge-downloads` (record commit `622dfef`); `gh-pages` `c68f266`;
+  every URL, size, hash and run in [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 43912561838 on f3aea38 (macOS 15 native build and bundled-app
+  smoke; 2,721 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped, including two live streams played
+  in real time that upload clips while live); dry run 43887790346 on a187452 passed the same jobs; the cloud session
+  ran the fast suite (2,721 passed, 2 skipped) and slow suite (31 passed, 1 skipped) on a187452 and, on f3aea38, 218
+  quick tests for the legal pages, live streams and review mode plus the 8 review-queue browser checks; building
+  a187452's source reproduced its committed `frontend/dist` byte for byte; shorts check 43897854094 on f3aea38;
+  Windows setup check 43898294309; `build.py --check` and `--verify`.
+- **Not verified (needs Landry's computer):** a real Twitch, Kick or YouTube broadcast (YouTube asks test machines to
+  sign in; checks play streams from files); whether the Mac's processor keeps up with transcribing two or three
+  streams one minute at a time; everything listed as untested for 2026.11.13.2.
+- **Next release:** new work starts from `claude/project-thread-x72wkd` at 9d0be40 (or the records merge after it). A
+  second release on November 16 would be `2026.11.16.2`. If the native Mac job (or the publish job, also `macos-15`)
+  is cancelled after 15 minutes with "The job was not acquired by Runner of type hosted", GitHub has no Apple-silicon
+  runner free: wait until the run's Linux test jobs finish, then re-run failed jobs (a new dispatch on the same branch
+  cancels the running one).
+
 ## Clip live streams while they are live, several at once — 2026-11-16 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry can paste one or more stream links in Missions → Live streams. ClipForge records
