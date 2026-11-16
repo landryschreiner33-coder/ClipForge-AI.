@@ -1459,8 +1459,10 @@ def test_a_minute_with_other_sound_settings_is_joined_at_the_right_speed(data):
     length = segments[2]["end"] - segments[2]["start"]
     extract_audio(other, sess.segdir / "other.wav", length)  # as this minute was heard live
     heard[2] = [segments[2]["start"] + t for t in _beeps(sess.segdir / "other.wav")]
-    sess.segments = [{**s, "sound": live._sound_of(sess.segdir / s["name"])} for s in segments]
-    assert {s["sound"] for s in sess.segments} == {"aac,48000,1", "aac,44100,1"}
+    # Only the changed minute has its settings saved (the others were recorded before they were saved).
+    sess.segments = [{**s, "sound": live._sound_of(sess.segdir / s["name"])} if n == 2 else s
+                     for n, s in enumerate(segments)]
+    assert [s.get("sound") for s in sess.segments][1:4] == [None, "aac,44100,1", None]
     sess.offset = segments[-1]["end"]
     out = live.finalize(sess)
     extract_audio(out, sess.segdir / "joined.wav", sess.offset)
@@ -1471,9 +1473,10 @@ def test_a_minute_with_other_sound_settings_is_joined_at_the_right_speed(data):
 
 
 def test_two_streams_starting_together_count_each_other(data, recorder, monkeypatch):
-    """Two streams added together start on two live lanes at the same moment. While one looks up its stream
-    address it has no recorder yet; the other must still count its room, or both start on a disk with room for one
-    and both stop halfway when it fills up. A start that gives up frees its room."""
+    """Streams added together start on several live lanes at the same moment. One whose recorder is being started
+    is not listed yet; the others must still count its room, or several start on a disk with room for one and all
+    stop halfway when it fills up. A stream still looking up its address (it may be offline) holds no room, and a
+    start that gives up frees its room."""
     from clipfoundry import db
     from clipfoundry.autopilot import hunter, live, queue
 
@@ -1481,31 +1484,38 @@ def test_two_streams_starting_together_count_each_other(data, recorder, monkeypa
     asked = []
     monkeypatch.setattr(live, "require_disk_space", lambda path, need=0: asked.append(need))
     broadcasts(monkeypatch, "b1")
-    looked_up = live.input_args
+    looked_up, started = live.input_args, live.Capture
     host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
-    first = turn_job(going_live(add_live()), host)
-    second = turn_job(going_live(add_live("https://kick.com/otherstreamer")), host)
-    third = turn_job(going_live(add_live("https://kick.com/thirdstreamer")), host)
+    first, second, third, fourth = (turn_job(going_live(add_live(url)), host) for url in (
+        "https://www.twitch.tv/SomeStreamer", "https://kick.com/otherstreamer", "https://kick.com/thirdstreamer",
+        "https://kick.com/fourthstreamer"))
     budget = hunter.max_source_bytes(db.get_settings())
 
     def lookup(src, settings, **kw):
-        if src["id"] == first.payload["source_id"] and len(asked) == 1:
+        if src["id"] == first.payload["source_id"] and not asked:
             with pytest.raises(queue.Wait, match="Watching live"):
-                live.live_capture(second)  # the other lane starts while this one is still looking up its stream
-            assert asked == [budget, 2 * budget]
-        if src["id"] == third.payload["source_id"]:
-            raise queue.Fail("The stream address could not be found")
+                live.live_capture(second)  # another lane starts while this one looks up its stream
+            assert asked == [budget]  # nothing held for a stream that may turn out offline
         return looked_up(src, settings, **kw)
 
+    def recorder_start(sess, job, args, relays=None):
+        if job is first and len(asked) == 2:
+            with pytest.raises(queue.Wait, match="Watching live"):
+                live.live_capture(third)  # another lane starts while this recorder is being started
+            assert asked == [budget, 2 * budget, 3 * budget]
+        if job is fourth:
+            raise OSError("the recorder could not start")
+        return started(sess, job, args, relays=relays)
+
     monkeypatch.setattr(live, "input_args", lookup)
+    monkeypatch.setattr(live, "Capture", recorder_start)
     with pytest.raises(queue.Wait, match="Watching live"):
         live.live_capture(first)
-    assert asked == [budget, 2 * budget] and not live._starting
+    assert asked == [budget, 2 * budget, 3 * budget] and not live._starting
     asked.clear()
-    with pytest.raises(queue.Fail):
-        live.live_capture(third)
-    assert asked == [3 * budget] and not live._starting  # the two recording, then nothing held for the failed start
-
+    with pytest.raises(OSError):
+        live.live_capture(fourth)
+    assert asked == [4 * budget] and not live._starting  # the three recording; nothing held for the failed start
 
 def test_your_cancel_after_the_time_limit_was_noticed_stays_a_cancel(data, monkeypatch):
     """The heartbeat passed on the time limit, then you pressed Cancel before the turn stopped. A time-limit failure

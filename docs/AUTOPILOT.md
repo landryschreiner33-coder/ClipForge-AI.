@@ -155,7 +155,8 @@ It covers that one broadcast only, never the channel's later streams.
   reconnects without using an attempt. A stream that starts or reconnects reserves the remaining recording size of
   the streams still recording on disk (room checked earlier may since have been taken, for example by a stream that
   started while this one had no recorder); streams starting at the same moment count each other, so two links added
-  together never both start on a disk with room for one. **Stop all jobs** holds recordings (the recorder stops;
+  together never both start on a disk with room for one, and a link still being looked up (it may be offline) holds
+  no room. **Stop all jobs** holds recordings (the recorder stops;
   nothing is canceled); **Resume** continues them from their saved minutes, including a held full-recording analysis.
   A turn that was still running when Resume was pressed ends held and the worker supervisor continues it within
   30 seconds. A turn that ends with a retry or a crash after Stop all jobs (or Cancel, or its time limit) arrived is

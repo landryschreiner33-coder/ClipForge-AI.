@@ -856,12 +856,17 @@ def _assemble(sess: Session, segs: list[dict], span: list[dict], out: Path, *, c
         paths = [sess.segdir / s["name"] for s in segs]
         readable = [s for s in span if s["name"] not in bad]
         heard = [s for s in readable if [s["start"], s["end"]] not in sess.missing_audio]
-        mixed_audio = bool(heard) and (len(heard) < len(readable) or
-                                       len({s.get("sound") for s in heard} - {None, ""}) > 1)
-        # Mixed: each minute's sound as PCM (48 kHz stereo, 192 kB a second) until the whole is encoded once.
-        length = float(span[-1]["end"]) - float(span[0]["start"])
-        require_disk_space(sess.segdir, sum(path.stat().st_size for path in paths) +
-                           (int(192_000 * length) if mixed_audio else 0))
+        mixed_audio = bool(heard) and len(heard) < len(readable)
+        size = sum(path.stat().st_size for path in paths)
+        require_disk_space(sess.segdir, size)
+        if len(heard) > 1 and not mixed_audio:
+            # Minutes recorded before their sound settings were saved (or whose check failed then) are read now.
+            seen = {s.get("sound") or _sound_of(sess.segdir / s["name"], cancel) for s in heard}
+            mixed_audio = len(seen - {""}) > 1
+        if mixed_audio:
+            # Each minute's sound as PCM (48 kHz stereo, 192 kB a second) until the whole is encoded once.
+            length = float(span[-1]["end"]) - float(span[0]["start"])
+            require_disk_space(sess.segdir, size + int(192_000 * length))
         inputs = ["-f", "concat", "-safe", "0", "-i", str(sess.segdir / listing)]
         codecs = ["-c", "copy"]
         if mixed_audio:
@@ -1204,46 +1209,52 @@ def _live_turn(job: Job) -> dict:
             # configured budget reserved because neither their length nor their bitrate is trustworthy.
             expected = (min(byte_budget, Path(src["local_path"]).stat().st_size)
                         if src.get("local_path") else byte_budget)
+            relays: list = []
+            broadcast: dict = {}
+            try:
+                args = input_args(src, settings, public_relays=relays, byte_budget=max(1, byte_budget),
+                                  on_retry=lambda until: write_json(retry_path, {"until": until}),
+                                  broadcast=broadcast)
+            except StreamEnded:
+                from .intake import channel_live_page
+
+                if channel_live_page(src.get("url") or "") and recorded <= 0:
+                    _offline(sess, src, recorded)  # the page still shows an earlier broadcast: wait for the next
+                db.update("sources", src["id"], live_status="ended")
+                raise queue.Wait("live", TURN_SECONDS, "Stream ended — recovering the full recording")
+            except StreamOffline:
+                _offline(sess, src, recorded)
+            except queue.Fail as exc:
+                db.update("sources", src["id"], status="needs_file", status_note=str(exc)[:300])
+                raise
+            if _other_broadcast(sess, src, broadcast, recorded):
+                for relay in relays:
+                    relay.close()
+                db.update("sources", src["id"], live_status="ended", status_note=(
+                    "The channel is showing a different broadcast now. The recorded one is being finished; add the "
+                    "link again to clip the new broadcast."))
+                raise queue.Wait("live", TURN_SECONDS, "Finishing the recorded broadcast")
             # Streams recording at the same time share the disk: reserve what the others may still write, so a
             # new stream waits to start rather than every stream stopping halfway when the disk fills up.
             # A reconnect counts them too: what was checked when it started may since have been taken by a stream
             # that started while it had no recorder (or by anything else on the disk). Their remaining room shrinks
             # as they record, so a reconnect needs no more than its first start did. Streams starting at the same
             # moment (one per live lane) count each other as well: the check and this stream's reservation happen
-            # together, and the reservation lasts until its recorder is listed or the start gives up.
-            with _capture_lock:
-                others = [c for k, c in _captures.items() if k != key and c.proc.poll() is None]
-                reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
-                reserved += sum(room for k, room in _starting.items() if k != key)
-                require_disk_space(sess.segdir, max(1, expected) + reserved)
-                _starting[key] = max(1, expected)
+            # together, and the reservation lasts until its recorder is listed or the start gives up. Only a
+            # stream found live reserves: one still looking up its address (it may be offline) holds nothing.
+            try:
+                with _capture_lock:
+                    others = [c for k, c in _captures.items() if k != key and c.proc.poll() is None]
+                    reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
+                    reserved += sum(room for k, room in _starting.items() if k != key)
+                    require_disk_space(sess.segdir, max(1, expected) + reserved)
+                    _starting[key] = max(1, expected)
+            except BaseException:
+                for relay in relays:
+                    relay.close()
+                raise
             try:
                 state.resolve("disk:space")
-                relays: list = []
-                broadcast: dict = {}
-                try:
-                    args = input_args(src, settings, public_relays=relays, byte_budget=max(1, byte_budget),
-                                      on_retry=lambda until: write_json(retry_path, {"until": until}),
-                                      broadcast=broadcast)
-                except StreamEnded:
-                    from .intake import channel_live_page
-
-                    if channel_live_page(src.get("url") or "") and recorded <= 0:
-                        _offline(sess, src, recorded)  # the page still shows an earlier broadcast: wait for the next
-                    db.update("sources", src["id"], live_status="ended")
-                    raise queue.Wait("live", TURN_SECONDS, "Stream ended — recovering the full recording")
-                except StreamOffline:
-                    _offline(sess, src, recorded)
-                except queue.Fail as exc:
-                    db.update("sources", src["id"], status="needs_file", status_note=str(exc)[:300])
-                    raise
-                if _other_broadcast(sess, src, broadcast, recorded):
-                    for relay in relays:
-                        relay.close()
-                    db.update("sources", src["id"], live_status="ended", status_note=(
-                        "The channel is showing a different broadcast now. The recorded one is being finished; add the "
-                        "link again to clip the new broadcast."))
-                    raise queue.Wait("live", TURN_SECONDS, "Finishing the recorded broadcast")
                 try:
                     capture = Capture(sess, job, args, relays=relays)
                     capture.recorded_at_start = recorded
