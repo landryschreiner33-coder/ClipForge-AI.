@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
  * (history.replaceState), so they open the new page and Back never bounces on them.
  */
 const POSTS = "(review|scheduled|published|history|problems|results)";
-const MISSIONS = "(activity|sources|system|jobs|learning)";
+const MISSIONS = "(live|activity|sources|system|jobs|learning)";
 const ALIASES: [RegExp, string][] = [
   // ClipForge places (docs/clipforge/ROUTE_MAP.md): Studio, Projects, Brain, Publishing, Accounts, Settings.
   // Studio is Home and the Office together; #/office is its expanded office and #/office/team the Team list.

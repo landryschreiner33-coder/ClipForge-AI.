@@ -224,6 +224,9 @@ export interface AutopilotLink {
   can_cancel: boolean;
   can_retry: boolean;
   can_prioritize: boolean;
+  /** A live recording that "Stop recording" can end (the minutes so far are kept and finished). */
+  can_finish?: boolean;
+  finishing?: boolean;
 }
 
 /** Something that really needs you, in plain words (the simple Autopilot page). */
@@ -525,7 +528,7 @@ const A = "/api/autopilot";
 export const ap = {
   links: () => req<AutopilotLink[]>("GET", `${A}/links`),
   addLink: (url: string) => req<{ item: AutopilotLink; already_added: boolean }>("POST", `${A}/links`, { url }),
-  linkAction: (id: string, action: "cancel" | "retry" | "prioritize" | "remove") =>
+  linkAction: (id: string, action: "cancel" | "retry" | "prioritize" | "remove" | "finish") =>
     req<AutopilotLink>("POST", `${A}/links/${id}/${action}`),
   status: () => req<AutopilotStatus>("GET", `${A}/status`),
   enable: (enabled: boolean) => req<AutopilotStatus>("POST", `${A}/enable`, { enabled }),

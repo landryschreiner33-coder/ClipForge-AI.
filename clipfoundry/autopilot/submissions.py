@@ -13,7 +13,9 @@ import time
 from pathlib import Path
 from typing import BinaryIO
 
-from .. import config, db
+from urllib.parse import urlsplit
+
+from .. import config, db, netguard
 from ..pipeline import artifact
 from ..publish import audience
 from . import intake, queue, rights, state
@@ -119,9 +121,26 @@ def reuse_confirmation(item: dict, settings: dict) -> dict | None:
     return {**confirmation, "submission_id": row["id"], "confirmed_from": "source_submission"}
 
 
-def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "") -> dict:
-    if db.select("sources", "platform = ? AND external_id = ?", (fields["platform"], fields["external_id"])):
+def _finished_broadcast(source: dict) -> bool:
+    """A channel page (twitch.tv/name, youtube.com/@name/live) names every broadcast of that channel. Once the
+    recording of an earlier broadcast is over, the same link may start a new input for the next one."""
+    if source.get("kind") != "live" or source.get("platform") not in ("url", "stream"):
+        return False
+    if not (source.get("live_status") in ("ended", "stopped") or source.get("status") in ("failed", "canceled", "error")):
+        return False
+    return not db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE kind IN ('identify_link', 'live_capture') AND "
+                         "status IN ('queued', 'retrying', 'waiting', 'running') AND "
+                         "json_extract(payload, '$.source_id') = ?", (source["id"],))
+
+
+def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", live: bool = False) -> dict:
+    # Earlier broadcasts of the same channel link carry ":<id>" after the link's identity.
+    same_identity = db.select("sources", "platform = ? AND (external_id = ? OR external_id LIKE ?)",
+                              (fields["platform"], fields["external_id"], fields["external_id"] + ":%"), "created_at DESC")
+    again = bool(same_identity) and all(_finished_broadcast(row) for row in same_identity)
+    if same_identity and not again:
         raise ValueError("This video was already added. Its existing work and permissions are unchanged; check its progress below.")
+    previous = same_identity[0] if again else None
     if fields["platform"] != "local":
         from . import verify
 
@@ -134,21 +153,31 @@ def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "") -
                 same = same or intake._direct_url(existing["url"]) == fields["url"]
             except ValueError:
                 pass
-            if same:
+            if same and not _finished_broadcast(existing):
                 raise ValueError("This video was already added. Its existing work and permissions are unchanged; check its progress below.")
+            if same and (previous is None or existing["created_at"] > previous["created_at"]):
+                previous = existing
     now, source_id, submission_id = time.time(), db.new_id(), db.new_id()
+    if previous is not None:
+        # A new broadcast on the same channel page is a new input with its own identity and its own request. It
+        # never reuses the earlier broadcast's source, project, recording or upload permission. The identity names
+        # the input it follows, so two adds of the same link at once collide instead of recording twice.
+        fields = {**fields, "external_id": f"{fields['external_id'].split(':')[0][:64]}:{previous['id'][:16]}"}
     source = {**fields, "id": source_id, "user_added": 1, "status": "queued", "status_note": "Waiting to make clips",
               "created_at": now, "updated_at": now,
               "intake": {"submitted": True, "submission_id": submission_id, "original_url": original_url,
-                         "added_at": now, "priority": intake.LINK_PRIORITY}}
+                         "added_at": now, "priority": intake.LINK_PRIORITY, "live_requested": bool(live)}}
     cfg = {**cfg, "source_identity": _identity(source), "source_sha256": sha,
            "source_path": fields.get("local_path") or "", "bound_project_id": "", "terms_sha256": ""}
     text = (f"Make clips from this video using relevant saved Brain guidance and app settings. Upload qualifying "
             f"finished clips automatically to YouTube channel {cfg['account_id']} as {cfg['privacy']}, marked "
             f"{'made for kids' if cfg['made_for_kids'] else 'not made for kids'}. {cfg['reuse_statement']} "
+            "If this link is a live stream, record it while it is live, and upload qualifying clips during the "
+            "stream and from the full recording afterwards. "
             "This request covers this input only, with current required credit and final quality checks. It does not "
             "approve earlier clips, other inputs or TikTok posts. I can cancel this video's future work."
-            if cfg["auto_upload"] else "Make local clips from this input using relevant Brain guidance and app settings. Do not upload them automatically.")
+            if cfg["auto_upload"] else "Make local clips from this input using relevant Brain guidance and app "
+            "settings. If it is a live stream, record it while it is live. Do not upload them automatically.")
     # Insert both records together. Neither a periodic scout nor a worker can see a half-created publishing grant.
     try:
         with db.connect() as conn:
@@ -157,6 +186,10 @@ def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "") -
             conn.execute("INSERT INTO source_submissions (id,source_id,platform,settings,text,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
                          (submission_id, source_id, "youtube", json.dumps(cfg), text, now, now))
             conn.execute("INSERT INTO settings (key,value) VALUES ('autopilot_enabled','true') ON CONFLICT(key) DO UPDATE SET value='true'")
+            if previous is not None:
+                # The earlier input stays as it is (its clips and uploads), but it cannot start recording again.
+                conn.execute("UPDATE sources SET intake = json_set(COALESCE(intake, '{}'), '$.superseded_by', ?) "
+                             "WHERE id = ?", (source_id, previous["id"]))
     except sqlite3.IntegrityError as exc:
         raise ValueError("This video was already added. Check its existing progress; no new upload permission was created.") from exc
     source = db.fetch("sources", source_id) or source
@@ -199,12 +232,16 @@ def recover_unstarted(limit: int = 24) -> int:
     return recovered
 
 
-def add_link(url: str, options: dict) -> dict:
+def add_link(url: str, options: dict, *, live: bool = False) -> dict:
+    """A video or a live stream. `live` only says where the owner added it (Live streams); what the link really is
+    (a recorded video, a live broadcast, or a channel waiting to go live) is decided when it is checked."""
     cfg = _options(options)
     fields = intake.canonical_url(url)
-    if fields.get("kind") == "live" or fields["platform"] == "stream":
-        raise ValueError("Use a recorded video for Make and upload. Live streams remain available in the existing stream tools.")
-    return _create(fields, cfg, original_url=url.strip())
+    if urlsplit(fields["url"]).scheme.lower() not in netguard.HTTP:
+        # The recorder reads typed links only through the guarded public HTTP relay (live.input_args).
+        raise ValueError("Use the stream's web page or an https:// stream link. RTMP, SRT and RTSP addresses "
+                         "cannot be recorded safely.")
+    return _create(fields, cfg, original_url=url.strip(), live=live)
 
 
 def add_file(file: BinaryIO, filename: str, options: dict) -> dict:
@@ -263,10 +300,54 @@ def bind_project(source: dict, project: dict) -> None:
         raise ValueError("The submitted video changed; add it as a new input before creating or uploading new clips.")
     if cfg.get("bound_project_id") and cfg["bound_project_id"] != project["id"]:
         raise ValueError("The submitted video is already bound to another project.")
+    if cfg.get("live"):
+        # Only the live recorder (bind_live, bind_live_recording) binds a live input's recording.
+        raise ValueError("This live input's recording is bound by its live recorder.")
     if not cfg.get("bound_project_id"):
         settings = db.get_settings()
         db.update("source_submissions", row["id"], settings={**cfg, "source_sha256": sha,
                   "source_path": str(path), "bound_project_id": project["id"], "terms_sha256": _terms(source, settings)})
+
+
+def bind_live(source: dict, project: dict) -> None:
+    """Bind a submitted live input to the project its recorder writes into.
+
+    A live stream has no original file while it is being recorded. Its grant is bound to the source and this one
+    project instead; every clip is still approved against its own exact final bytes. The joined recording is bound
+    by bind_live_recording when the stream ends, before the full-recording analysis.
+    """
+    row = for_source(source)
+    if not row:
+        return
+    cfg = row["settings"]
+    if project.get("source_id") != source.get("id") or source.get("kind") != "live":
+        raise ValueError("The submitted live input does not match this recording's project.")
+    if cfg.get("bound_project_id") and cfg["bound_project_id"] != project["id"]:
+        raise ValueError("The submitted live input is already bound to another project.")
+    if cfg.get("bound_project_id"):
+        return
+    if cfg.get("source_path") or cfg.get("source_sha256"):
+        raise ValueError("This input was submitted as a file, not a live stream.")
+    db.update("source_submissions", row["id"], settings={**cfg, "live": True, "bound_project_id": project["id"],
+              "terms_sha256": _terms(source, db.get_settings())})
+
+
+def bind_live_recording(source: dict, project: dict, path: Path) -> None:
+    """After a submitted live stream ends: bind the full recording ClipForge joined from its own minutes."""
+    row = for_source(source)
+    if not row or not row["settings"].get("live"):
+        return
+    cfg = row["settings"]
+    if cfg.get("bound_project_id") != project.get("id") or project.get("source_id") != source.get("id"):
+        raise ValueError("The submitted live input is bound to another project.")
+    try:
+        sha = artifact.sha256_file(path)
+    except OSError as exc:
+        raise ValueError("The joined live recording cannot be read.") from exc
+    if sha and (cfg.get("source_path"), cfg.get("source_sha256")) != (str(path), sha):
+        # Joining again after a crash may write a new container around the same minutes; the newest join is the
+        # file every later post-live clip is cut from, so it is the one later approvals check.
+        db.update("source_submissions", row["id"], settings={**cfg, "source_path": str(path), "source_sha256": sha})
 
 
 def problem(source: dict, settings: dict | None = None, require_bound: bool = True, *, quick: bool = False) -> str:
@@ -295,14 +376,17 @@ def problem(source: dict, settings: dict | None = None, require_bound: bool = Tr
         return "The submitted video needs a genuine made-for-kids answer."
     if require_bound:
         project = db.get_project(source.get("project_id") or "") or {}
+        # While a submitted live stream records there is no original file yet: the grant covers this project only.
+        recording = bool(cfg.get("live")) and not cfg.get("source_path") and source.get("kind") == "live"
         if not cfg.get("bound_project_id") or project.get("id") != cfg["bound_project_id"] or \
-                project.get("source_path") != cfg.get("source_path") or project.get("source_id") != source.get("id"):
+                project.get("source_id") != source.get("id") or \
+                (not recording and project.get("source_path") != cfg.get("source_path")):
             return "The submitted original has not been bound to its project yet, or was replaced."
         from .scheduler import video_sha256
 
         # A quick display check may reuse the memo; every actual approval/dispatch hashes the original again.
-        source_sha = video_sha256(cfg.get("source_path") or "", quick=quick)
-        if not source_sha or source_sha != cfg.get("source_sha256"):
+        source_sha = "" if recording else video_sha256(cfg.get("source_path") or "", quick=quick)
+        if not recording and (not source_sha or source_sha != cfg.get("source_sha256")):
             return "The submitted original's bytes changed or are missing; new clips need a new submission."
         if cfg.get("terms_sha256") != _terms(source, settings):
             return "The reuse terms or source credit changed since this video was prepared; review it again."
@@ -447,3 +531,27 @@ def item(source: dict) -> dict:
 
 def list_items() -> list[dict]:
     return [item(source) for source in db.select("sources", "user_added=1 AND json_extract(intake,'$.submitted')=1", (), "created_at DESC", 200)]
+
+
+def _live_view(source: dict, view: dict) -> dict:
+    """What the Live streams card shows. Counts only; nothing here hashes a recording."""
+    project = db.get_project(source.get("project_id") or "") or {}
+    clips = db.select("clips", "project_id = ?", (project.get("id") or "",)) if project else []
+    recording = view["status"] == "watching_live" and source.get("live_status") == "live"
+    return {"recording": recording, "finishing": view.get("finishing", False),
+            "minutes": round(float(project.get("duration") or 0) / 60, 1) if project.get("origin") == "live" else 0.0,
+            "live_clips": sum(c["status"] == "ready" and c.get("score_source") == "Live analysis" for c in clips),
+            "ended": source.get("live_status") in ("ended", "stopped"), "stopped": source.get("live_status") == "stopped"}
+
+
+def live_items() -> list[dict]:
+    """Inputs added in Live streams, and submitted links that turned out to be live broadcasts."""
+    rows = db.select("sources", "user_added=1 AND json_extract(intake,'$.submitted')=1 AND (kind='live' OR "
+                     "json_extract(intake,'$.live_requested')=1)", (), "created_at DESC", 200)
+    out = []
+    for source in rows:
+        if (source.get("intake") or {}).get("removed"):
+            continue
+        view = item(source)
+        out.append({**view, "live": _live_view(source, view)})
+    return out

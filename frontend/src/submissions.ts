@@ -38,13 +38,21 @@ export interface Submission {
 }
 
 export interface SubmittedVideo extends AutopilotLink { submission: Submission }
+
+/** A stream added in Live streams: its recording, live clips and the uploads of its clips. */
+export interface LiveStream extends SubmittedVideo {
+  live: { recording: boolean; finishing: boolean; minutes: number; live_clips: number; ended: boolean;
+    stopped: boolean };
+}
 export interface SubmissionResult { item: SubmittedVideo; already_added: boolean; submission: Submission }
 
 const ROOT = "/api/autopilot/submissions";
 export const submissions = {
   setup: () => req<SubmissionSetup>("GET", `${ROOT}/setup`),
   list: () => req<SubmittedVideo[]>("GET", ROOT),
-  link: (url: string, options: SubmissionOptions) => req<SubmissionResult>("POST", `${ROOT}/link`, { url, ...options }),
+  link: (url: string, options: SubmissionOptions, live = false) =>
+    req<SubmissionResult>("POST", `${ROOT}/link`, { url, ...options, live }),
+  live: () => req<LiveStream[]>("GET", `${ROOT}/live`),
   file: (file: File, options: SubmissionOptions, onProgress: (fraction: number) => void) =>
     new Promise<SubmissionResult>((resolve, reject) => {
       const form = new FormData();

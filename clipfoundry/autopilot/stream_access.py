@@ -307,6 +307,11 @@ class PublicStream:
         with self._lock:
             return self._error
 
+    def reached_limit(self) -> bool:
+        """The recording reached its configured size: an ordinary end of the recording, not a stream failure."""
+        with self._lock:
+            return self._bytes > self._max_bytes
+
     def retry_until(self) -> float:
         with self._lock:
             return self._retry_at

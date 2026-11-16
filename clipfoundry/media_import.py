@@ -61,6 +61,9 @@ ACCESS = {
                       "Reinstall ClipForge, or set the FFmpeg folder in Settings. Autopilot goes on with other "
                       "videos."),
     "extraction_failed": ("No video found", "No downloadable video was found on this page.", OTHER_VIDEOS),
+    # A channel page (Twitch, Kick, YouTube /@name/live) whose streamer is offline. Live inputs wait for it.
+    "not_live": ("Not live right now", "This channel is not streaming right now.",
+                 "ClipForge waits for the stream to start. Add the link again if it does not."),
 }
 TEMPORARY = ("rate_limited", "network", "disk_space")  # trying again later can work; the others stay as they are
 # Words in yt-dlp's (or a website's) error messages, checked in this order: the first match decides.
@@ -148,14 +151,16 @@ def classify(exc: BaseException) -> tuple[str, float | None]:
             return e.code, e.retry_after
     try:
         from yt_dlp.networking.exceptions import TransportError
-        from yt_dlp.utils import GeoRestrictedError, UnsupportedError
+        from yt_dlp.utils import GeoRestrictedError, UnsupportedError, UserNotLive
     except ImportError:  # pragma: no cover - yt-dlp is a dependency
-        TransportError = GeoRestrictedError = UnsupportedError = ()  # type: ignore[assignment,misc]
+        TransportError = GeoRestrictedError = UnsupportedError = UserNotLive = ()  # type: ignore[assignment,misc]
     for e in chain:
         if GeoRestrictedError and isinstance(e, GeoRestrictedError):
             return "geo_blocked", None
         if UnsupportedError and isinstance(e, UnsupportedError):
             return "unsupported_site", None
+        if UserNotLive and isinstance(e, UserNotLive):
+            return "not_live", None
     for e in chain:
         status, wait = _status(e)
         if status in HTTP_CODES:

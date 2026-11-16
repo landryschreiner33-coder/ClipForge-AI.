@@ -6,6 +6,7 @@ nor permission to download it: the existing access resolver and publishing gates
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 import time
 from pathlib import Path, PurePosixPath
@@ -16,11 +17,14 @@ import httpx
 from .. import config, db, netguard, media_import
 from ..publish.common import PublishError, asked_to_wait, client, retry_after
 from . import access, providers, queue, quota, rights, state, verify
-from .host import Job, handler
+from .host import MANUAL_PRIORITY, Job, handler
 
 LINK_PRIORITY = 80
+UPCOMING_MAX_WAIT = 24 * 3600  # a submitted stream that has not started this long after its start time fails
 TOP_PRIORITY = 99  # Manual Clip now is 100. Claim order changes; a running GPU step is never interrupted.
 STREAM_EXTENSIONS = (".m3u8", ".mpd")
+# A YouTube channel's "live now" page (youtube.com/@name/live). yt-dlp resolves it to the broadcast that is live.
+YOUTUBE_LIVE_PAGE = re.compile(r"/(@[\w.\-]{1,100}|channel/[\w-]{1,64}|c/[\w.\-]{1,100}|user/[\w.\-]{1,100})/live/?")
 SHORT_TIKTOK_HOSTS = ("vm.tiktok.com", "vt.tiktok.com")
 STATUS_LABELS = {
     "waiting": "Waiting", "getting_video": "Getting video", "listening": "Listening to video",
@@ -87,8 +91,22 @@ def canonical_url(raw: str) -> dict:
         video_id, handle = tiktok
         return {"platform": "tiktok", "external_id": video_id,
                 "url": f"https://www.tiktok.com/@{handle.lower()}/video/{video_id}", "title": "TikTok video"}
+    page = YOUTUBE_LIVE_PAGE.fullmatch(parts.path) if host in verify.YOUTUBE_HOSTS and not parts.query else None
+    if page and parts.scheme.lower() in netguard.HTTP:
+        name = page.group(1).lower() if page.group(1).startswith("@") else page.group(1)  # handles ignore case
+        url = f"https://www.youtube.com/{name}/live"
+        return {"platform": "url", "external_id": hashlib.sha256(url.encode()).hexdigest()[:32], "url": url,
+                "title": f"{name.rsplit('/', 1)[-1]} live"[:120], "kind": "live"}
     if host in (*verify.YOUTUBE_HOSTS, "youtu.be", *verify.TIKTOK_HOSTS, *SHORT_TIKTOK_HOSTS):
         raise ValueError("Paste the link to one video or stream, rather than a channel or playlist.")
+    site = host.removeprefix("www.").removeprefix("m.")
+    if site in CHANNEL_HOSTS and parts.scheme.lower() in netguard.HTTP and channel_live_page(value):
+        # twitch.tv/Name, www.twitch.tv/name/ and m.twitch.tv/name?ref=x are one channel (names ignore case), so
+        # the same stream added twice in another spelling is refused instead of being recorded twice.
+        name = next(part for part in parts.path.split("/") if part).lower()
+        url = f"https://www.twitch.tv/{name}" if site == "twitch.tv" else f"https://kick.com/{name}"
+        return {"platform": "url", "external_id": hashlib.sha256(url.encode()).hexdigest()[:32], "url": url,
+                "title": f"{name} live"[:120], "kind": "live"}
     normalized = _direct_url(value)
     live = parts.scheme.lower() not in netguard.HTTP or parts.path.lower().endswith(STREAM_EXTENSIONS)
     title = unquote(PurePosixPath(parts.path).name)[:120] or ("Live stream" if live else "Video link")
@@ -150,6 +168,41 @@ def add(url: str) -> dict:
     return {"item": item(db.fetch("sources", source["id"]) or source), "already_added": already_added}
 
 
+CHANNEL_HOSTS = ("twitch.tv", "kick.com")
+NOT_CHANNELS = {"videos", "directory", "p", "settings", "search", "downloads", "jobs", "turbo", "subscriptions",
+                "inventory", "wallet", "drops", "friends", "messages", "categories", "browse", "following", "video"}
+
+
+def channel_live_page(url: str) -> bool:
+    """A page that shows whichever broadcast the channel has live now: twitch.tv/name, kick.com/name or
+    youtube.com/@name/live. One input from such a link covers one broadcast only, never the channel's later ones."""
+    parts = urlsplit(url or "")
+    host = (parts.hostname or "").lower().removeprefix("www.").removeprefix("m.")
+    if host in ("youtube.com", "youtube-nocookie.com"):
+        return bool(YOUTUBE_LIVE_PAGE.fullmatch(parts.path))
+    names = [part for part in parts.path.split("/") if part]
+    return host in CHANNEL_HOSTS and len(names) == 1 and names[0].lower() not in NOT_CHANNELS
+
+
+def _inspect(url: str) -> dict:
+    """The guarded public extractor's answer; a channel page whose streamer is offline is a stream to wait for."""
+    try:
+        found = media_import.inspect_video(url)
+    except media_import.MediaUnavailable as exc:
+        if exc.code == "not_live":
+            return {"kind": "live", "live_status": "upcoming"}
+        raise
+    if channel_live_page(url) and found.get("kind") != "live":
+        # A channel page still showing its last (ended) broadcast is not that recording: wait for the next one.
+        return {"kind": "live", "live_status": "upcoming"}
+    return found
+
+
+def finish_requested(source_id: str) -> bool:
+    """"Stop recording" was pressed. Kept apart from the source's intake fields, which other steps rewrite."""
+    return bool(state.get(f"live_finish:{source_id}"))
+
+
 def identify(source: dict, settings: dict) -> dict:
     """Read only public/platform metadata; no cookies, authentication bypass or DRM handling."""
     netguard.check(source["url"], schemes=netguard.STREAM, allow_private=False)
@@ -157,11 +210,11 @@ def identify(source: dict, settings: dict) -> dict:
         if (source.get("intake") or {}).get("submitted"):
             # A supplied URL is an input, not a search. Optional discovery keys must not gate its metadata.
             # The same bounded public extractor checks the page without cookies, logins or protected access.
-            return media_import.inspect_video(source["url"])
+            return _inspect(source["url"])
         try:
             api = providers.YouTubeDiscovery(settings)
         except providers.Unavailable:
-            return media_import.inspect_video(source["url"])
+            return _inspect(source["url"])
         found = api._get("videos.list", "videos", {"part": providers.VIDEO_PARTS,
                                                    "id": source["external_id"]}, ttl=30)
         video = next((v for v in found.get("items") or [] if v.get("id") == source["external_id"]), None)
@@ -210,6 +263,10 @@ def identify(source: dict, settings: dict) -> dict:
         return fields
     if source["platform"] == "stream":
         return {"kind": "live", "live_status": "live"}
+    if rights.is_platform_url(source["url"]):
+        # Video websites (Twitch, Kick, a YouTube channel's live page) answer a bare request with consent, sign-in
+        # or bot pages. The guarded extractor reads the page itself, with the same address checks and no cookies.
+        return {**_inspect(source["url"]), "access": {"webpage": True}}
     # Read headers only. The actual media download remains bounded and checked by Clip Hunter.
     with client(20) as c:
         response = netguard.open_checked(c, source["url"])
@@ -233,7 +290,7 @@ def identify(source: dict, settings: dict) -> dict:
         finally:
             response.close()
     if webpage:
-        return {**media_import.inspect_video(source["url"]), "access": {"webpage": True}}
+        return {**_inspect(source["url"]), "access": {"webpage": True}}
     return {"kind": "recorded", "live_status": ""}
 
 
@@ -254,8 +311,6 @@ def identify_link(job: Job) -> dict:
     try:
         settings = db.get_settings()
         fields = identify(source, settings)
-        if meta.get("submitted") and fields.get("kind") == "live":
-            raise queue.Fail("This input is a live or upcoming stream. Submit its recorded video after it ends, or use the live-stream tools.")
         scheduled_at = fields.pop("scheduled_at", None)
         fresh = db.fetch("sources", source["id"]) or source
         meta = fresh.get("intake") or {}
@@ -269,6 +324,12 @@ def identify_link(job: Job) -> dict:
         if not rights.local_allowed(source, r, settings):
             raise queue.Fail("This video is blocked by your content permissions.")
         if source["live_status"] == "upcoming":
+            # A stream nobody starts must not keep a submitted input waiting forever: a day after it was added
+            # (or after its announced start), the owner adds the link again when the streamer is live.
+            deadline = max(float(meta.get("added_at") or source.get("created_at") or 0), float(scheduled_at or 0))
+            if meta.get("submitted") and time.time() > deadline + UPCOMING_MAX_WAIT:
+                raise queue.Fail("The stream did not start within a day.",
+                                 "Add the link again in Live streams when the streamer is live.")
             db.update("sources", source["id"], status="queued", status_note="Waiting for stream")
             delay = max(30.0, min(300.0, (scheduled_at or time.time() + 300) - time.time()))
             raise queue.Wait("stream_start", delay, "Waiting for the stream to start")
@@ -404,8 +465,27 @@ def item(source: dict) -> dict:
             "scheduled_at": meta.get("scheduled_at"), "can_remove": can_remove,
             "can_cancel": bool(active) and status not in ("canceled", "removed"),
             "can_retry": status in ("inaccessible", "failed", "canceled", "removed")
-            and not any(j["status"] == "running" for j in jobs),
-            "can_prioritize": bool(active) and status != "canceled"}
+            and not any(j["status"] == "running" for j in jobs) and not meta.get("superseded_by"),
+            "can_prioritize": bool(active) and status != "canceled",
+            "can_finish": _can_finish(source, status, active, jobs),
+            "finishing": source.get("kind") == "live" and finish_requested(source["id"]) and
+            any(j["kind"] == "live_capture" for j in active)}
+
+
+def _can_finish(source: dict, status: str, active: list[dict], jobs: list[dict]) -> bool:
+    """A recording is running, or a stopped one still holds minutes that were never joined and analyzed."""
+    meta = source.get("intake") or {}
+    if source.get("kind") != "live" or status in ("canceled", "removed") or meta.get("canceled") or \
+            meta.get("superseded_by") or finish_requested(source["id"]):
+        return False
+    if any(j["kind"] == "live_capture" for j in active):
+        return True
+    capture = next((j for j in jobs if j["kind"] == "live_capture"), None)
+    if not capture or capture["status"] not in ("failed", "canceled") or \
+            any(j["kind"] == "post_live" for j in jobs):
+        return False
+    live_state = config.projects_dir() / (source.get("project_id") or "-") / "live" / "state.json"
+    return bool(source.get("project_id")) and live_state.is_file() and source.get("live_status") not in ("ended", "stopped")
 
 
 def links() -> list[dict]:
@@ -433,8 +513,11 @@ def action(source_id: str, operation: str) -> dict:
                 queue.cancel(job["id"])
         _cancel_posts(source)
     elif operation == "retry":
+        if meta.get("superseded_by"):
+            raise ValueError("This stream was added again as a new input. Use that one instead.")
         if not view["can_retry"]:
             raise ValueError("This video is already waiting, processing, or finished.")
+        state.delete(f"live_finish:{source_id}")
         retryable = _resume_jobs(source)
         previous = meta.get("previous_status") or source["status"]
         status = previous if previous in ("analyzed", "weak") else "queued"
@@ -448,6 +531,20 @@ def action(source_id: str, operation: str) -> dict:
             identifier = _enqueue(db.fetch("sources", source_id) or source)
             db.update("worker_jobs", identifier["id"], status="queued", attempts=0, cancel_requested=0,
                       run_after=time.time(), finished_at=None, error="", fix="", lease_owner="", lease_until=0)
+    elif operation == "finish":
+        if not view["can_finish"]:
+            raise ValueError("Nothing is being recorded for this input. Use Cancel to stop waiting for it.")
+        # The recorder's watchdog and the next turn read this flag: recording stops, the saved minutes are joined
+        # and analyzed like an ended stream, and the clips and uploads made so far stay. The turn that finishes
+        # never contacts the platform, and it runs even while Autopilot is paused (like a job you start).
+        state.put(f"live_finish:{source_id}", {"at": time.time()})
+        db.update("sources", source_id, status_note="Stopping the recording; finishing what was recorded")
+        capture = queue.enqueue("live_capture", {"source_id": source_id}, idem_key=f"live:{source_id}",
+                                ref=("source", source_id), max_attempts=5, timeout_s=24 * 3600,
+                                priority=MANUAL_PRIORITY, revive=True, revive_canceled=True)
+        db.execute("UPDATE worker_jobs SET priority = ? WHERE id = ? AND status IN ('queued', 'waiting', 'retrying', "
+                   "'running')", (MANUAL_PRIORITY, capture["id"]))
+        queue.wake(capture["id"])
     elif operation == "prioritize":
         if not view["can_prioritize"]:
             raise ValueError("Only waiting or active videos can be moved to the top.")

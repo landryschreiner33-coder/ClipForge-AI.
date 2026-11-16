@@ -43,7 +43,8 @@ MESSAGES = {
     "not_one_video": ("Not one video", "This YouTube address does not point to one video.",
                       "Use a watch, Shorts or youtu.be link to one video."),
     "live_only": ("Live stream", "This is a live or upcoming stream, or its recording is still being processed.",
-                  "Add the link again once the finished recording is available, or upload your own copy."),
+                  "To clip it while it is live, add it in Autopilot → Live streams. Or add the link here again once "
+                  "the finished recording is available."),
     "login_required": ("Sign-in required", "The website only shares this video with signed-in viewers or members. "
                        "ClipForge never signs in or uses your browser's cookies.",
                        "If it is your video, download your own copy and use Video file."),
@@ -260,7 +261,7 @@ def _classify(exc: BaseException) -> LinkError:
     if isinstance(exc, DownloadRefused):
         return LinkError(exc.code if exc.code in MESSAGES else "too_large", str(exc))
     if isinstance(exc, MediaUnavailable):
-        return LinkError(exc.code)
+        return LinkError("live_only" if exc.code == "not_live" else exc.code)
     if isinstance(exc, netguard.UnsafeUrl):
         return LinkError("unsafe")
     if isinstance(exc, ImportError):

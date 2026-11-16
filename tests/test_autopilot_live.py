@@ -136,8 +136,8 @@ def test_live_capture_and_post_live_analysis(talk_video, data, monkeypatch):
     assert out["live_clips"] == len(live_clips) >= 1  # clipped while the stream was running
     for c in live_clips:
         assert Path(c["output_path"]).exists() and c["score_source"] == "Live analysis"
-    post = queue.jobs(worker="live_monitor", status=("queued",))
-    assert any(j["kind"] == "post_live" for j in post)
+    post = [j for j in queue.jobs(status=("queued",), limit=1000) if j["kind"] == "post_live"]
+    assert post and all(j["worker"] == "analyzer" for j in post)  # the finished recording is analyzed off the live lanes
     result = run("post_live", {"source_id": src["id"], "project_id": project["id"]})
     s = db.fetch("sources", src["id"])
     assert s["status"] in ("analyzed", "weak") and "Post-live" in s["status_note"]

@@ -1,5 +1,42 @@
 # AI changelog
 
+## Clip live streams while they are live, several at once — 2026-11-16 (Claude Code)
+
+Landry asked: "Make it so I can clip streams while they are live and the auto pilot is able to upload them as a clip
+stuff during the live" and "Also, let me be able to clip multiple streams at once". Branch
+`claude/project-thread-09o53d` from the release line at cef8add, PR #52 into `claude/project-thread-x72wkd`. No
+release. Design: [docs/AUTOPILOT.md](docs/AUTOPILOT.md), *Clip live streams*.
+
+- **Missions → Live streams** (`#/missions/live`, also Make → Clip a live stream): up to 10 links at a time (Twitch or
+  Kick channels, YouTube live videos or `youtube.com/@name/live`, public `.m3u8`); each is its own input with its own
+  **Make & upload clips** request. RTMP/SRT/RTSP are refused. **Stop recording** finishes from what was recorded and
+  keeps the clips and uploads.
+- **Uploads during the live:** `submissions.bind_live` binds the request to the recording project while live; every
+  upload is still the exact clip file that passed its final checks; after the end `bind_live_recording` binds the
+  joined recording (path and SHA-256) before the full-recording analysis. Pace: Minimum gap per YouTube account,
+  shared by all streams.
+- **Several at once:** Live Monitor runs 3 lanes (`queue.WORKER_LANES`); `post_live` runs on the Deep Clip Analyzer.
+  A starting or reconnecting stream reserves the room the streams still recording, and those starting at the same
+  moment (`live._starting`), may still write; only a stream found live reserves, after its lookup.
+- **One broadcast per input:** 5 minutes' offline grace; a new broadcast id, or (channel pages only) a long gap,
+  finishes the recorded one; a stream waiting for disk space remembers no broadcast.
+- **Joining** (`live._assemble`, also for live-clip windows): minutes placed by recorded length (`duration`) and cut
+  there (`outpoint`); unreadable minutes become gaps; minutes without sound, or with changed sound settings (saved per
+  minute as `sound`), get a per-minute PCM sound track encoded once.
+- **Queue, all job kinds:** a turn that waits, retries or crashes after Cancel, Stop all jobs or its time limit
+  arrived ends canceled, held or timed out (`host._cancel_won`); Stop all never turns your own Cancel into a hold, and
+  Cancel after a time limit stays a cancel. The supervisor continues held live turns every 30 s after Resume.
+- **Docs:** `docs/AUTOPILOT.md`, README, AGENTS, CLAUDE_HANDOFF; the app's privacy, terms and legal home pages
+  (effective Nov 16; the public website copies change only with a release).
+- **Tests run:** `tests/test_review_submitted_live.py` (47 tests) and slow `tests/test_review_submitted_live_streams.py`
+  (two streams at real speed through the real worker host, recorder, FFmpeg, rendering, checks and a fake YouTube; both
+  upload while still live); every rule from five review rounds broken on purpose was caught by a test; on 1c7ef31 the
+  fast suite passed (2,721 passed, 2 skipped) and the slow suite passed (31 passed, 1 skipped); `npm run build`
+  reproduces `frontend/dist`.
+- **Not verified:** real Twitch, Kick and YouTube broadcasts (YouTube cannot be reached from the cloud); CPU Whisper
+  on Landry's Mac with 2-3 streams; an encoder whose decode times lag more than its declared reorder depth (the cut at
+  each minute could drop a few frames there; not seen with x264).
+
 ## Release 2026.11.13.2: pictures and video on a rented cloud computer — 2026-11-14 UTC (Claude Code)
 
 Landry wrote "Make sure the new version is released". Everything merged into the release line since 2026.11.13 is in

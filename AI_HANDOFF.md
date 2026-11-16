@@ -1,5 +1,29 @@
 # AI handoff
 
+## Clip live streams while they are live, several at once — 2026-11-16 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry can paste one or more stream links in Missions → Live streams. ClipForge records
+each stream on his computer, makes clips from strong moments while the stream is live and, if he chose Make & upload,
+uploads the clips that pass the final checks during the stream at his posting pace. Up to three streams record at
+once. Stop recording keeps everything made so far; when a stream ends, the full recording is checked for moments the
+live pass missed.
+
+- **Branch / PR:** `claude/project-thread-09o53d` from cef8add, PR #52 into `claude/project-thread-x72wkd`, merged under
+  Landry's standing word once its checks passed. Not released.
+- **Code:** `clipfoundry/autopilot/live.py` (recorder turns, `_assemble` join, `_starting` disk reservations,
+  `resume_held`, `_stop_reason`), `submissions.py` (`bind_live`, `bind_live_recording`), `intake.py` (one broadcast per
+  input, channel link spellings), `queue.py` (`WORKER_LANES`, refusals while canceled), `host.py` (`_cancel_won`,
+  lanes, supervisor), `routes.py`; `frontend/src/components/liveStreams.tsx`, `uploadChoice.tsx`, `submissions.ts`.
+- **For other work:** every job kind now ends canceled/held/timed out when its turn waits, retries or crashes after a
+  stop request (`queue.wait`/`retry_or_fail` return "" then). A second lane of a worker is `queue.WORKER_LANES`; one
+  source never runs two live turns at once. Minutes keep `sound` (codec,rate,channels) in `state.json`.
+- **Verify:** `python -m pytest -q tests/test_review_submitted_live.py tests/test_media_reliability.py
+  tests/test_disk_reserve.py`; `python -m pytest -m slow -q tests/test_review_submitted_live_streams.py`; the fast and
+  slow suites.
+- **Not done:** real Twitch, Kick and YouTube broadcasts; CPU Whisper keeping up with 2-3 streams on the Mac.
+- **Waiting on Landry:** a release (it would include the app's updated privacy and terms pages), and a first real
+  stream on his Mac.
+
 ## Release 2026.11.13.2 published — 2026-11-14 UTC (Claude Code, cloud session)
 
 **Plain-English summary:** Landry wrote "Make sure the new version is released". ClipForge 2026.11.13.2 is on the

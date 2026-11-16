@@ -99,7 +99,9 @@ export default function Studio() {
           </a>
         </div>
         <p className="studio-link-action"><a className="btn" href="#/create/link"><Icon name="external" />Make clips from a video link</a>
-          <span className="small muted">YouTube watch, Shorts and live links work the same way as a file.</span></p>
+          <a className="btn" href="#/missions/live"><Icon name="dot" />Clip a live stream</a>
+          <span className="small muted">YouTube watch and Shorts links work the same way as a file. Streams that are
+            live now are clipped while they run.</span></p>
       </section>
 
       {problem && <Banner tone="warn" title="Could not load your projects">{problem}</Banner>}
