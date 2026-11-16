@@ -222,7 +222,7 @@ def test_ended_stream_drains_old_csv_and_posts_once_with_parent_priority(data, m
     job = context(src, priority=90)
     assert live.live_capture(job)["minutes"] == 2
     assert live.live_capture(job)["minutes"] == 2
-    posts = [row for row in queue.jobs(worker="live_monitor") if row["kind"] == "post_live"]
+    posts = [row for row in queue.jobs(limit=1000) if row["kind"] == "post_live"]
     assert len(posts) == 1 and posts[0]["priority"] == 90
 
 
@@ -272,7 +272,7 @@ def test_closing_or_pausing_during_a_turn_keeps_the_broadcast_open(data, monkeyp
         live.live_capture(job)
     assert waiting.value.reason == reason
     assert db.fetch("sources", src["id"])["live_status"] != "ended"
-    assert not [row for row in queue.jobs(worker="live_monitor") if row["kind"] == "post_live"]
+    assert not [row for row in queue.jobs(limit=1000) if row["kind"] == "post_live"]
     assert not live._captures
     project = db.fetch("sources", src["id"])["project_id"]
     saved = read_json(config.projects_dir() / project / "live" / "state.json", {})

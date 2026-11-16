@@ -31,6 +31,7 @@ class SubmissionIn(BaseModel):
     reuse_basis: str = ""
     reuse_statement: str = ""
     agreed: StrictBool = False
+    live: StrictBool = False  # added in Live streams (what the link really is is checked afterwards)
 
 
 @router.get("/submissions/setup", dependencies=READ)
@@ -52,9 +53,16 @@ def submit_link(body: SubmissionIn) -> dict:
     from . import submissions
 
     try:
-        return submissions.add_link(body.url, body.model_dump())
+        return submissions.add_link(body.url, body.model_dump(exclude={"live"}), live=body.live)
     except (ValueError, httpx.HTTPError) as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/submissions/live", dependencies=READ)
+def live_streams() -> list[dict]:
+    from . import submissions
+
+    return submissions.live_items()
 
 
 @router.post("/submissions/file", dependencies=WRITE)
@@ -563,8 +571,12 @@ def stop_all() -> dict:
 
 @router.post("/resume", dependencies=WRITE)
 def resume() -> dict:
+    from . import live
+
     state.put("emergency_stop", False)
-    state.event("resumed", "Jobs allowed again after Stop all jobs")
+    resumed = live.resume_held()  # live streams held by Stop all jobs continue with their saved minutes
+    state.event("resumed", "Jobs allowed again after Stop all jobs" + (f"; {resumed} live stream(s) continue"
+                                                                        if resumed else ""))
     return {"paused": False}
 
 

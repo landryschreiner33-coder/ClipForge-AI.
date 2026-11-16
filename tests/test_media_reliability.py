@@ -104,7 +104,7 @@ def test_entire_video_only_live_recording_is_saved_without_post_live_retry(data)
         live._finish_capture(sess, job)
     assert (sess.pdir / "source.mkv").is_file()
     assert db.fetch("sources", src["id"])["status"] == "failed"
-    assert not [j for j in queue.jobs(worker="live_monitor") if j["kind"] == "post_live"]
+    assert not [j for j in queue.jobs(limit=1000) if j["kind"] == "post_live"]
 
 
 def test_final_recording_preserves_returning_audio_after_a_silent_segment(data):

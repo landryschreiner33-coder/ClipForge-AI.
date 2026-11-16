@@ -141,6 +141,7 @@ class WorkerHost:
         self._wake = {n: threading.Event() for n in self.names}
         self._threads: list[threading.Thread] = []
         self._running: dict[str, Job] = {}
+        self._lane = threading.local()  # the job this worker thread is running (several lanes share a state row)
         self._lock = threading.Lock()
         self.host_lock = locks.named("worker-host")
         self.started = False
@@ -163,9 +164,11 @@ class WorkerHost:
             gate.recover_regenerations()
             for name in self.names:
                 self.set_state(name, "idle", message="Ready")
-                t = threading.Thread(target=self._loop, args=(name,), daemon=True, name=f"cf-worker-{name}")
-                self._threads.append(t)
-                t.start()
+                for lane in range(max(1, queue.WORKER_LANES.get(name, 1))):
+                    t = threading.Thread(target=self._loop, args=(name,), daemon=True,
+                                         name=f"cf-worker-{name}" + (f"-{lane + 1}" if lane else ""))
+                    self._threads.append(t)
+                    t.start()
             t = threading.Thread(target=self._supervise, daemon=True, name="cf-worker-supervisor")
             self._threads.append(t)
             t.start()
@@ -246,6 +249,14 @@ class WorkerHost:
     # -------------------------------------------------------------- state for the UI
     def set_state(self, name: str, status: str, job: Job | None = None, stage: str | None = None,
                   message: str | None = None, error: str | None = None) -> None:
+        if status != "working" and queue.WORKER_LANES.get(name, 1) > 1 and not self._stop.is_set():
+            # One state row per worker: a lane that goes idle or waits must not hide another lane's running job.
+            mine = {getattr(self._lane, "job_id", ""), job.id if job else ""}
+            with self._lock:
+                other = next((j for j in self._running.values() if j.worker == name and j.id not in mine), None)
+            if other is not None:
+                status, job, stage = "working", other, other.row["kind"]  # a failure still records last_error
+                message = other.row.get("message") or "Working"
         fields = {"name": name, "status": status, "host": self.owner, "pid": os.getpid(), "heartbeat": time.time(),
                   "job_id": job.id if job else "", "ref_type": (job.row.get("ref_type") if job else "") or "",
                   "ref_id": (job.row.get("ref_id") if job else "") or ""}
@@ -306,6 +317,10 @@ class WorkerHost:
                            manual_priority=MANUAL_PRIORITY)
 
     def _idle(self, name: str, message: str) -> None:
+        if queue.WORKER_LANES.get(name, 1) > 1:
+            with self._lock:
+                if any(j.worker == name for j in self._running.values()):
+                    return  # another lane of this worker is working; its state row stays "working"
         row = db.fetch("worker_state", name, "name") or {}
         now = time.time()
         # "Completed"/"Failed" stay visible for a while after the job ends, then the worker shows as idle
@@ -319,9 +334,17 @@ class WorkerHost:
     def _run(self, name: str, row: dict) -> None:
         token = row["lease_owner"]
         job = Job(row, token, self)
-        try:
-            with self._lock:
+        with self._lock:
+            # Another lane of this process may still be finishing an earlier turn of this job, after its lease was
+            # recovered and the job claimed again. One job never runs twice at once: this claim waits briefly.
+            twice = job.id in self._running
+            if not twice:
                 self._running[job.id] = job
+        if twice:
+            queue.wait(row, token, "busy", 2, "Still finishing its previous turn")
+            return
+        self._lane.job_id = job.id
+        try:
             self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
             fn = HANDLERS.get(row["kind"])
             if fn is None:
@@ -362,6 +385,7 @@ class WorkerHost:
         finally:
             with self._lock:
                 self._running.pop(job.id, None)
+            self._lane.job_id = ""
             outcome = queue.get(job.id) or {}
             if outcome.get("status") in ("failed", "canceled") and row["kind"] in ("hunt_source", "analyze_source"):
                 from . import scout

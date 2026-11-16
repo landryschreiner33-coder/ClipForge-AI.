@@ -48,16 +48,23 @@ REPLACE_MARGIN = 3.0          # a post-live clip replaces a live clip only if cl
 TURN_SECONDS = 2.0             # release the monitor between safe processing steps; captures keep recording
 ARCHIVE_MAX_ATTEMPTS = 8       # an ended broadcast's public recording may take time to become available
 ARCHIVE_MAX_WAIT_SECONDS = 6 * 3600
+GPU_WAIT_SECONDS = 45          # a live minute waits this long for the GPU, then the turn is given to another stream
+OFFLINE_GRACE_SECONDS = 300    # a channel that went offline mid-stream may come back (a dropped connection)
 
 
 class StreamEnded(Exception):
     """The platform confirmed this broadcast ended; finalize any previously captured minutes."""
 
 
+class StreamOffline(Exception):
+    """The channel is not live right now (not started yet, or gone offline)."""
+
+
 # ------------------------------------------------------------------ inputs
 def input_args(src: dict, settings: dict, public_relays: list | None = None,
-               byte_budget: int | None = None, on_retry=None) -> list[str]:
-    """ffmpeg input arguments for a live source (raises queue.Fail when it may not be captured)."""
+               byte_budget: int | None = None, on_retry=None, broadcast: dict | None = None) -> list[str]:
+    """ffmpeg input arguments for a live source (raises queue.Fail when it may not be captured). For a platform
+    stream, `broadcast` receives which broadcast the link points to right now."""
     timeout = ["-rw_timeout", str(STALL_SECONDS * 1_000_000)]
     if src.get("local_path"):
         path = Path(src["local_path"])
@@ -73,7 +80,7 @@ def input_args(src: dict, settings: dict, public_relays: list | None = None,
             if not ok:
                 raise queue.Fail(why, "Allow downloads of authorized sources in Settings, or record the stream "
                                       "yourself into a watch folder.")
-            resolved = _resolve_platform_stream(url)
+            resolved = _resolve_platform_stream(url, seen=broadcast)
             url, audio_url = resolved if isinstance(resolved, tuple) else (resolved, None)
         else:
             audio_url = None
@@ -96,7 +103,7 @@ def input_args(src: dict, settings: dict, public_relays: list | None = None,
                                                  "in Autopilot → Sources.") from exc
 
 
-def _resolve_platform_stream(url: str) -> str | tuple[str, str]:
+def _resolve_platform_stream(url: str, seen: dict | None = None) -> str | tuple[str, str]:
     """One combined HLS rendition or a synchronized video/audio pair; no logins, cookies or DRM."""
     from ..media_import import public_extractor, unavailable
 
@@ -107,6 +114,8 @@ def _resolve_platform_stream(url: str) -> str | tuple[str, str]:
         raise
     except Exception as exc:
         error = unavailable(exc)
+        if error.code == "not_live":
+            raise StreamOffline() from None
         if error.retry_after is not None:
             raise queue.Wait("server", error.retry_after, str(error)) from None
         if error.temporary:
@@ -119,7 +128,10 @@ def _resolve_platform_stream(url: str) -> str | tuple[str, str]:
     if not info.get("is_live"):
         if info.get("live_status") in ("was_live", "post_live") or info.get("was_live"):
             raise StreamEnded()
-        raise queue.Wait("offline", 300, "The stream is not live right now")
+        raise StreamOffline()
+    if seen is not None:
+        seen.update({"id": str(info.get("id") or ""), "title": str(info.get("title") or "")[:200],
+                     "url": str(info.get("webpage_url") or "")[:2000]})
     fmts = [f for f in info.get("formats") or [] if "m3u8" in str(f.get("protocol", "")) and
             (f.get("height") or 0) <= 1080 and not f.get("has_drm") and f.get("url")]
     if not fmts:
@@ -152,6 +164,13 @@ class Session:
                                         source_url=src.get("url", ""), status="processing",
                                         options=project_options(settings))
             db.update("sources", src["id"], project_id=project["id"])
+        from . import submissions
+
+        try:
+            # A live input submitted with "Make & upload" covers the clips of this one recording project.
+            submissions.bind_live(src, project)
+        except ValueError as exc:
+            raise queue.Fail(str(exc), "Add the stream again as a new live input.") from exc
         self.project = project
         self.pdir = config.projects_dir() / project["id"]
         self.segdir = self.pdir / "live"
@@ -172,6 +191,15 @@ class Session:
         self.capture_complete = bool(st.get("capture_complete"))
         self.limit_reached = bool(st.get("limit_reached"))
         self.archive_recovery: dict = st.get("archive_recovery") or {}
+        # Moments whose plan or render failed are not tried again on every later minute of the stream.
+        self.skipped: list[list[float]] = st.get("skipped", [])
+        self.stopped_by_owner = bool(st.get("stopped_by_owner"))
+        self.offline_since = float(st.get("offline_since") or 0)
+        # Which broadcast a channel link was recording, and when a recorder last ran (wall clock). A channel's
+        # later broadcast is never appended to this recording or covered by this input's upload request.
+        self.broadcast: dict = st.get("broadcast") or {}
+        self.alive_at = float(st.get("alive_at") or 0)
+        self.final: dict = st.get("final") or {}
         # A crash after the database render commit but before this checkpoint must not rediscover the same moment.
         known = {c["id"] for c in self.clips}
         for clip in db.list_clips(project["id"]):
@@ -193,7 +221,10 @@ class Session:
                                                 "missing_audio": self.missing_audio,
                                                 "capture_complete": self.capture_complete,
                                                 "archive_recovery": self.archive_recovery,
-                                                "limit_reached": self.limit_reached})
+                                                "limit_reached": self.limit_reached, "skipped": self.skipped,
+                                                "stopped_by_owner": self.stopped_by_owner,
+                                                "offline_since": self.offline_since, "broadcast": self.broadcast,
+                                                "alive_at": self.alive_at, "final": self.final})
         if not self.archive_recovery.get("complete"):
             write_json(self.pdir / "transcript.json", {**self.transcript, "duration": self.offset})
             write_json(self.pdir / "loudness.json", {"hop": 0.1, "db": self.env})
@@ -293,7 +324,13 @@ class Capture:
                 if self.host._stop.is_set():
                     self.stop("restart")
                     return
-                if state.paused() or (row and (row.get("cancel_requested") or row["status"] == "canceled")):
+                if state.paused():
+                    # Stop all jobs holds work: the recording is not canceled, and Resume continues it.
+                    self.stop("paused")
+                    if src:
+                        db.update("sources", src["id"], status="queued", status_note="Recording paused by Stop all jobs")
+                    return
+                if row and (row.get("cancel_requested") or row["status"] == "canceled"):
                     self.stop("canceled")
                     if src:
                         db.update("sources", src["id"], status="canceled", status_note="Canceled by you")
@@ -310,8 +347,11 @@ class Capture:
                 if not ok:
                     self.stop(why)
                     return
-                if _recorded_bytes(self.sess) >= max_source_bytes(settings):
+                if _recorded_bytes(self.sess) >= max_source_bytes(settings) or _relay_limit(getattr(self, "relays", [])):
                     self.stop("limit")
+                    return
+                if src and _finish_requested(src["id"]):
+                    self.stop("finish")  # "Stop recording": keep everything and finish like an ended stream
                     return
                 try:
                     require_disk_space(self.sess.segdir)
@@ -346,16 +386,42 @@ def _capture_key(source_id: str) -> tuple[str, str]:
     return str(config.data_dir()), source_id
 
 
+def _relay_limit(relays: list) -> bool:
+    return any(getattr(relay, "reached_limit", lambda: False)() for relay in relays)
+
+
 def _recorded_bytes(sess: Session) -> int:
     return sum(p.stat().st_size for p in sess.segdir.glob("r*_*.mkv"))
 
 
 def stop_captures(host=None) -> None:
-    """Host shutdown also stops recorders whose queue jobs are waiting between turns."""
+    """Host shutdown also stops recorders whose queue jobs are waiting between turns (all at once: each may take a
+    few seconds to close its file cleanly)."""
     with _capture_lock:
         captures = [c for c in _captures.values() if host is None or c.host is host]
-    for capture in captures:
-        capture.stop("restart")
+    stoppers = [threading.Thread(target=capture.stop, args=("restart",), daemon=True) for capture in captures]
+    for stopper in stoppers:
+        stopper.start()
+    for stopper in stoppers:
+        stopper.join(timeout=20)
+
+
+def resume_held() -> int:
+    """After Stop all jobs: continue the live inputs it held (recording, waiting for the stream, or finishing).
+    Their saved minutes are kept; a channel that moved on to another broadcast is finished, not continued."""
+    resumed = 0
+    for row in db.select("worker_jobs", "kind IN ('live_capture', 'identify_link') AND status = 'canceled' AND "
+                         "wait_reason = ?", (queue.STOP_ALL,), "updated_at DESC", 200):
+        src = db.fetch("sources", (row.get("payload") or {}).get("source_id") or "") or {}
+        meta = src.get("intake") or {}
+        if not src or meta.get("canceled") or meta.get("removed") or not meta.get("submitted") or \
+                not (src.get("kind") == "live" or meta.get("live_requested")):
+            continue
+        queue.enqueue(row["kind"], row.get("payload") or {}, idem_key=row["idem_key"], ref=(row["ref_type"], row["ref_id"]),
+                      priority=int(row.get("priority") or 0), max_attempts=int(row.get("max_attempts") or 5),
+                      timeout_s=float(row.get("timeout_s") or 3600))
+        resumed += 1
+    return resumed
 
 
 def _capture_worker(source_id: str) -> int:
@@ -410,14 +476,35 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     job.check()
     _check_local_permission(sess)
     path = sess.segdir / name
-    meta = probe(path, cancel=job.cancelled)  # audio may disappear or return between live segments
-    if not sess.meta or meta.get("has_audio"):
+    try:
+        meta = probe(path, cancel=job.cancelled)  # audio may disappear or return between live segments
+    except queue.Canceled:
+        raise
+    except Exception as exc:  # noqa: BLE001 - one unreadable minute must not stop the whole recording
+        log.warning("live minute %s could not be read: %s", name, exc)
+        meta = {"unreadable": True}
+    if not meta.get("unreadable") and (not sess.meta or meta.get("has_audio")):
         sess.meta = meta
     duration = duration or float(meta.get("duration") or 0)
     wav = sess.segdir / (Path(name).stem + ".wav")
     frames = int(round(duration / 0.1))
     ctx = JobContext(None, job.cancelled)
-    if not meta.get("has_audio"):
+    if not meta.get("unreadable") and meta.get("has_audio"):
+        try:
+            extract_audio(path, wav, duration, cancel=job.cancelled)
+        except queue.Canceled:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.warning("live minute %s audio could not be read: %s", name, exc)
+            meta = {**meta, "unreadable": True}
+    if meta.get("unreadable"):
+        # Kept on the timeline; the analysis of the full recording after the stream transcribes it again.
+        sess.untranscribed.append([sess.offset, sess.offset + duration])
+        env = [-60.0] * frames
+        t = {"segments": [], "language": ""}
+        job.log("live_unreadable_minute", f"Live minute {sess.offset / 60:.0f} could not be read; recording continues",
+                start=sess.offset, end=sess.offset + duration)
+    elif not meta.get("has_audio"):
         sess.missing_audio.append([sess.offset, sess.offset + duration])
         env = [-60.0] * frames
         t = {"segments": [], "language": "", "source": "no_audio"}
@@ -428,14 +515,18 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
                      "Check the stream or OBS audio track. Recording continues; silent minutes are not sent to "
                      "Whisper.", level="warning", ref_type="source", ref_id=sess.src["id"])
     else:
-        extract_audio(path, wav, duration, cancel=job.cancelled)
         env = loudness_envelope(wav)["db"]
         env = (env + [env[-1] if env else -60.0] * frames)[:frames]
         try:
             with gpu.manager.heavy("live transcription", sess.src.get("title", "")[:80], job.id, job.cancelled,
-                                   max_wait_s=600):
+                                   max_wait_s=GPU_WAIT_SECONDS):
                 t = transcribe.transcribe(wav, duration, sess.settings, ctx, allow_cpu_fallback=bool(
                     sess.settings.get("autopilot_allow_cpu_fallback")))
+        except gpu.GpuBusy as exc:
+            # Another stream or a long video is using the GPU. This minute stays waiting and is transcribed on a
+            # later turn; the recorder keeps recording, and another stream may use this turn meanwhile.
+            wav.unlink(missing_ok=True)
+            raise queue.Wait("gpu", 10, "Recording; waiting for the GPU to transcribe the next minute") from exc
         except transcribe.GpuTranscriptionFailed as exc:
             # Keep recording; the post-live pass transcribes these minutes with the same strict GPU policy.
             gpu_failed(exc, f"live “{sess.src.get('title', '')[:60]}”")
@@ -481,7 +572,7 @@ def detect(sess: Session, job: Job) -> dict | None:
         if c["end"] > edge - EDGE_MARGIN:
             continue  # still being said
         if any(min(c["end"], k["end"]) - max(c["start"], k["start"]) > 0.15 * (c["end"] - c["start"])
-               for k in sess.clips):
+               for k in [*sess.clips, *({"start": a, "end": b} for a, b in sess.skipped)]):
             continue
         local, used = knowledge.selection_options(
             {"title": sess.project.get("name") or "", "caption_text": " ".join(
@@ -538,38 +629,47 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
                           scores=virality.summary(r)["factors"], score_source="Live analysis",
                           reason=scoring.reason_text(r), analysis=virality.summary(r), post=post, edit={},
                           status="rendering", duration=round(end - start, 2))
-    window, shift = _window_file(sess, start, end, cancel=job.cancelled)
-    meta = probe(window, cancel=job.cancelled)
-    proj = {**sess.project, "source_path": str(window), "dir": str(sess.pdir), "width": meta["width"],
-            "height": meta["height"], "fps": meta["fps"], "duration": meta["duration"], "info": meta, "options": {}}
-    shifted = [{**w, "start": w["start"] - shift, "end": w["end"] - shift} for w in sess.words
-               if w["end"] > shift and w["start"] < shift + meta["duration"]]
-    # Engagement Strategist: the plan in recording time, stored before rendering; rendered on the window's time line
-    bp = blueprint.build(clip, sess.project, sess.words, sess.settings, source_id=sess.src["id"], selection=r,
-                         video_path=str(window), video_offset=shift)
-    issues = blueprint.validate(bp, sess.offset or None, sess.words)
-    blueprint.save(bp, issues)
-    if blueprint.errors(issues):
-        db.update_clip(clip["id"], status="error",
-                       error=("Plan rejected: " + "; ".join(blueprint.errors(issues)[:3]))[:500])
-        return clip
-    heard = blueprint.heard_fields(bp, sess.words, clip, sess.settings)  # weak middle parts cut out
-    if heard:
-        db.update_clip(clip["id"], **heard)
-        clip = {**clip, **heard}
     try:
+        window, shift = _window_file(sess, start, end, cancel=job.cancelled)
+        meta = probe(window, cancel=job.cancelled)
+        proj = {**sess.project, "source_path": str(window), "dir": str(sess.pdir), "width": meta["width"],
+                "height": meta["height"], "fps": meta["fps"], "duration": meta["duration"], "info": meta, "options": {}}
+        shifted = [{**w, "start": w["start"] - shift, "end": w["end"] - shift} for w in sess.words
+                   if w["end"] > shift and w["start"] < shift + meta["duration"]]
+        # Engagement Strategist: the plan in recording time, stored before rendering; rendered on the window's time line
+        bp = blueprint.build(clip, sess.project, sess.words, sess.settings, source_id=sess.src["id"], selection=r,
+                             video_path=str(window), video_offset=shift)
+        issues = blueprint.validate(bp, sess.offset or None, sess.words)
+        blueprint.save(bp, issues)
+        if blueprint.errors(issues):
+            db.update_clip(clip["id"], status="error",
+                           error=("Plan rejected: " + "; ".join(blueprint.errors(issues)[:3]))[:500])
+            _skip(sess, start, end)
+            return clip
+        heard = blueprint.heard_fields(bp, sess.words, clip, sess.settings)  # weak middle parts cut out
+        if heard:
+            db.update_clip(clip["id"], **heard)
+            clip = {**clip, **heard}
         out = render.render_clip(proj, {**clip, "start": start - shift, "end": end - shift, "edit": {}}, shifted,
                                  sess.settings, JobContext(None, job.cancelled),
                                  blueprint=blueprint.shifted(bp, -shift))
         db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
-    except queue.Canceled:
+    except (queue.Canceled, queue.Wait):
         raise
-    except Exception as exc:  # noqa: BLE001 - one failed render must not stop the live capture
-        log.exception("live clip render failed")
+    except Exception as exc:  # noqa: BLE001 - one failed moment (a bad segment, a render) must not stop the capture
+        log.exception("live clip failed")
         db.update_clip(clip["id"], status="error", error=str(exc)[:500])
+        if not job.cancelled():
+            _skip(sess, start, end)  # the full-recording analysis after the stream may still find this moment
         return clip
     clip = db.get_clip(clip["id"]) or clip
     return _store_live_clip(sess, clip, r, job)
+
+
+def _skip(sess: Session, start: float, end: float) -> None:
+    """The full-recording analysis after the stream may still find a better cut of this moment."""
+    sess.skipped.append([start, end])
+    sess.save()
 
 
 def _store_live_clip(sess: Session, clip: dict, r: dict, job: Job) -> dict:
@@ -658,7 +758,10 @@ def capture_allowed(src: dict, settings: dict) -> tuple[bool, str]:
         return Path(src["local_path"]).exists(), "Recording file"
     if rights.is_platform_url(src.get("url") or "") and not (settings.get("rights_allow_remote_download") or
                                                               settings.get("autopilot_public_videos")):
-        return False, "Platform live stream: allow downloads of authorized sources in Settings to capture it"
+        from . import submissions
+
+        if not submissions.for_source(src):  # a link you added in Live streams is recorded without that setting
+            return False, "Platform live stream: allow downloads of authorized sources in Settings to capture it"
     return bool(src.get("url")), "Stream URL"
 
 
@@ -678,9 +781,14 @@ def _recover_ended_stream(sess: Session, job: Job) -> Path:
         db.update("sources", src["id"], status="needs_file", status_note=message, error=message)
         raise queue.Fail(message, fix)
 
+    from .intake import channel_live_page
+
     if src.get("local_path") or not (rights.is_platform_url(src.get("url") or "") or
                                      (src.get("access") or {}).get("webpage")):
         fail("The ended stream has no saved minutes or public recording to recover.")
+    if channel_live_page(src.get("url") or ""):
+        # A channel page shows whatever the channel has now, not the broadcast that ended.
+        fail("The stream ended before ClipForge recorded any of it.")
     ok, why = rights.download_allowed(src, settings)
     if not ok:
         fail(why)
@@ -797,8 +905,56 @@ def live_watch(job: Job) -> dict:
     return {"started": started, "message": f"{len(started)} live source(s) started"}
 
 
+_turns: dict[tuple[str, str], threading.Lock] = {}
+
+
 @handler("live_capture")
 def live_capture(job: Job) -> dict:
+    """One turn of one stream. Several streams take turns at the same time (worker lanes); one stream never runs two
+    turns at once, even if its job were claimed again while an earlier turn is still finishing."""
+    with _capture_lock:
+        turn = _turns.setdefault(_capture_key(job.payload.get("source_id", "")), threading.Lock())
+    if not turn.acquire(blocking=False):
+        raise queue.Wait("live", TURN_SECONDS, "Watching live — listening for good moments")
+    try:
+        return _live_turn(job)
+    finally:
+        turn.release()
+
+
+def _finish_requested(source_id: str) -> bool:
+    from .intake import finish_requested
+
+    return finish_requested(source_id)
+
+
+def _stopped_empty(src: dict) -> dict:
+    reason = "Stopped by you before anything was recorded"
+    db.execute("UPDATE sources SET live_status = 'stopped', status = 'canceled', status_note = ?, updated_at = ?, "
+               "intake = json_set(COALESCE(intake, '{}'), '$.canceled', json('true')) WHERE id = ?",
+               (reason, time.time(), src["id"]))
+    return {"minutes": 0, "live_clips": 0, "message": reason}
+
+
+def _other_broadcast(sess: Session, src: dict, found: dict, recorded: float) -> bool:
+    """Is the channel now showing a different broadcast than the one recorded so far? A channel link stands for one
+    broadcast: a later one (a new broadcast id, or a long gap that cannot be shown to be the same broadcast) ends
+    this recording instead of being appended to it under the same upload request."""
+    if src.get("local_path"):
+        return False
+    known, current = sess.broadcast.get("id") or "", found.get("id") or ""
+    if recorded > 0:
+        if known and current and known != current:
+            return True
+        if not (known and current == known) and sess.alive_at and time.time() - sess.alive_at > OFFLINE_GRACE_SECONDS:
+            return True
+    if current and not known:
+        sess.broadcast = {**found, "first_seen": time.time()}
+        sess.save()
+    return False
+
+
+def _live_turn(job: Job) -> dict:
     settings = db.get_settings()
     src = db.fetch("sources", job.payload.get("source_id", ""))
     if not src:
@@ -824,6 +980,7 @@ def live_capture(job: Job) -> dict:
         db.update("sources", src["id"], status="needs_file", status_note=why[:300])
         raise queue.Fail(why)
     key = _capture_key(src["id"])
+    finishing = _finish_requested(src["id"])
     with _capture_lock:
         capture = _captures.get(key)
         if capture and (capture.job_id != job.id or capture.stopped_reason in ("restart", "paused", "disk")):
@@ -841,19 +998,25 @@ def live_capture(job: Job) -> dict:
         _resume_live_outputs(sess, job)
         retry_path = sess.segdir / "server-wait.json"
         retry_at = float((read_json(retry_path, {}) or {}).get("until") or 0)
-        if retry_at > time.time():
+        if retry_at > time.time() and not finishing:
             raise queue.Wait("server", retry_at - time.time(), "The video server asked to wait before recording")
         recorded = sess.offset + sum(d for _, d in finished_segments(sess))
         byte_budget = max_source_bytes(settings) - _recorded_bytes(sess)
         if recorded >= float(settings.get("autopilot_max_source_minutes") or 240) * 60 or byte_budget <= 0:
             src = {**src, "live_status": "ended"}
             sess.limit_reached = True
+        if finishing and not sess.capture_complete:
+            # "Stop recording" while no recorder runs (waiting for the stream, the GPU or a retry): finish now.
+            src = {**src, "live_status": "ended"}
+            sess.stopped_by_owner = True
         if src.get("live_status") == "ended":
             pending = finished_segments(sess)
             for name, dur in pending[:1] if job.host is not None else pending:
                 process_segment(sess, name, dur, job)
             if finished_segments(sess):
                 raise queue.Wait("live", TURN_SECONDS, "Recovering the final recorded minutes")
+            if not sess.segments and sess.stopped_by_owner:
+                return _stopped_empty(src)
             if not sess.segments:
                 return _finish_capture(sess, job, recording=_recover_ended_stream(sess, job))
             sess.capture_complete = True
@@ -863,26 +1026,51 @@ def live_capture(job: Job) -> dict:
             # configured budget reserved because neither their length nor their bitrate is trustworthy.
             expected = (min(byte_budget, Path(src["local_path"]).stat().st_size)
                         if src.get("local_path") else byte_budget)
-            require_disk_space(sess.segdir, max(1, expected))
+            # Streams recording at the same time share the disk: reserve what the others may still write, so a
+            # new stream waits to start rather than every stream stopping halfway when the disk fills up.
+            with _capture_lock:
+                others = [c for k, c in _captures.items() if k != key and c.proc.poll() is None]
+            reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
+            require_disk_space(sess.segdir, max(1, expected) + reserved)
             state.resolve("disk:space")
-            relays = []
+            relays: list = []
+            broadcast: dict = {}
             try:
                 args = input_args(src, settings, public_relays=relays, byte_budget=max(1, byte_budget),
-                                  on_retry=lambda until: write_json(retry_path, {"until": until}))
+                                  on_retry=lambda until: write_json(retry_path, {"until": until}), broadcast=broadcast)
             except StreamEnded:
+                from .intake import channel_live_page
+
+                if channel_live_page(src.get("url") or "") and recorded <= 0:
+                    _offline(sess, src, recorded)  # the page still shows an earlier broadcast: wait for the next
                 db.update("sources", src["id"], live_status="ended")
                 raise queue.Wait("live", TURN_SECONDS, "Stream ended — recovering the full recording")
+            except StreamOffline:
+                _offline(sess, src, recorded)
             except queue.Fail as exc:
                 db.update("sources", src["id"], status="needs_file", status_note=str(exc)[:300])
                 raise
+            if _other_broadcast(sess, src, broadcast, recorded):
+                for relay in relays:
+                    relay.close()
+                db.update("sources", src["id"], live_status="ended", status_note=(
+                    "The channel is showing a different broadcast now. The recorded one is being finished; add the "
+                    "link again to clip the new broadcast."))
+                raise queue.Wait("live", TURN_SECONDS, "Finishing the recorded broadcast")
             try:
                 capture = Capture(sess, job, args, relays=relays)
+                capture.recorded_at_start = recorded
             except BaseException:
                 for relay in relays:
                     relay.close()
                 raise
             with _capture_lock:
                 _captures[key] = capture
+            sess.offline_since = 0.0
+            sess.alive_at = time.time()
+            sess.save()
+            if src.get("live_status") != "live" or src.get("status") != "ingesting":
+                db.update("sources", src["id"], live_status="live", status="ingesting", status_note="Live: recording")
             job.log("capture_started", "Recording a permitted live source", run=sess.run)
         else:
             return _finish_capture(sess, job)
@@ -890,6 +1078,8 @@ def live_capture(job: Job) -> dict:
     sess.src, sess.settings = src, settings
     _resume_live_outputs(sess, job)
     proc = capture.proc
+    if finishing and not capture.stopped_reason:
+        capture.stop("finish")
     try:
         while True:
             job.check()
@@ -899,7 +1089,7 @@ def live_capture(job: Job) -> dict:
                 raise queue.Wait("disk", 1800, "Recording paused for disk space; saved minutes are kept")
             if capture.stopped_reason == "canceled":
                 raise queue.Canceled()
-            if capture.stopped_reason and capture.stopped_reason not in ("restart", "paused", "limit"):
+            if capture.stopped_reason and capture.stopped_reason not in ("restart", "paused", "limit", "finish"):
                 raise queue.Fail(capture.stopped_reason)
             pending = finished_segments(sess)
             for name, dur in pending[:1] if job.host is not None else pending:
@@ -908,6 +1098,8 @@ def live_capture(job: Job) -> dict:
                 found = detect(sess, job)
                 if found:
                     make_live_clip(sess, found, job)
+            if proc.poll() is None:
+                sess.alive_at = time.time()  # saved with the next minute's checkpoint
             if job.host is not None and (proc.poll() is None or finished_segments(sess)):
                 raise queue.Wait("live", TURN_SECONDS, "Watching live — listening for good moments")
             if proc.poll() is not None:
@@ -935,38 +1127,99 @@ def live_capture(job: Job) -> dict:
         # The app closed or Autopilot was paused during this turn: the broadcast did not end. The next turn starts
         # a new recorder after the saved minutes, without using an attempt or finishing the recording here.
         raise queue.Wait(capture.stopped_reason, TURN_SECONDS, "Recording paused; it continues when Autopilot runs")
+    if _relay_limit(getattr(capture, "relays", [])) and capture.stopped_reason != "finish":
+        capture.stopped_reason = "limit"  # the stream relay reached the recording size limit: finish normally
+    finished = capture.stopped_reason in ("limit", "finish")
     err = capture.error()
     retry_at = float((read_json(sess.segdir / "server-wait.json", {}) or {}).get("until") or 0)
-    if retry_at > time.time():
+    if retry_at > time.time() and not finished:
         raise queue.Wait("server", retry_at - time.time(), "The video server asked to wait before recording")
     relay_error = any(relay.error() for relay in getattr(capture, "relays", []))
     read_error = not src.get("local_path") and "Error during demuxing" in err
-    if (proc.returncode or relay_error or read_error) and capture.stopped_reason != "limit":
+    if (proc.returncode or relay_error or read_error) and not finished:
         if proc.returncode == 75:
             raise queue.Wait("recording", TURN_SECONDS, "Recovering the interrupted recording")
         message = f"The live recording was interrupted. {err[:200]}".strip()
         db.update("sources", src["id"], status="ingesting", status_note=message[:300])
-        if any(word in err for word in ("DASH", "Protected", "DRM", "safe public HTTP", "unsupported",
-                                       "download size limit", "safe download limit")):
+        fatal = any(word in err for word in ("DASH", "Protected", "DRM", "safe public HTTP", "unsupported",
+                                             "download size limit", "safe download limit"))
+        out_of_attempts = int(job.row.get("attempts") or 0) >= int(job.row.get("max_attempts") or 3)
+        if (fatal or out_of_attempts) and sess.segments and not src.get("local_path"):
+            # The minutes already recorded are kept and finished like an ended stream, never left unjoined.
+            db.update("sources", src["id"], live_status="ended", status_note=(
+                "The stream stopped responding; finishing what was recorded. " + message)[:300])
+            raise queue.Wait("live", TURN_SECONDS, "Finishing what was recorded")
+        if fatal:
             db.update("sources", src["id"], status="needs_file", status_note=message[:300])
             raise queue.Fail(message)
+        if sess.offset > getattr(capture, "recorded_at_start", sess.offset) + 5 and not src.get("local_path"):
+            # This recorder had been recording: a dropped connection mid-stream reconnects right away without
+            # using up an attempt. A recorder that keeps failing before it records anything still uses them.
+            db.update("sources", src["id"], status_note="The stream connection dropped; reconnecting. Saved "
+                                                       "minutes are kept.")
+            raise queue.Wait("reconnect", 3, "Reconnecting to the stream")
         if int(job.row.get("attempts") or 0) >= int(job.row.get("max_attempts") or 3):
             db.update("sources", src["id"], status="error", status_note=message[:300])
         raise queue.Retry(message)
+    if not sess.segments and capture.stopped_reason == "finish":
+        return _stopped_empty(src)
     if not sess.segments:
         message = "The live source ended without any usable recorded video"
         db.update("sources", src["id"], status="error", status_note=message)
         raise queue.Fail(message)
     sess.capture_complete = True
+    sess.stopped_by_owner = sess.stopped_by_owner or capture.stopped_reason == "finish"
     sess.limit_reached = capture.stopped_reason == "limit" or sess.offset >= \
         float(settings.get("autopilot_max_source_minutes") or 240) * 60 - 0.1
     sess.save()
     return _finish_capture(sess, job)
 
 
+def _offline(sess: Session, src: dict, recorded: float) -> None:
+    """The channel is not live. Before anything was recorded it has not started yet; after that, it ended, unless
+    it comes back within a few minutes (a streamer's dropped connection keeps one recording)."""
+    from .intake import UPCOMING_MAX_WAIT
+
+    now = time.time()
+    meta = src.get("intake") or {}
+    if recorded > 0:
+        if not sess.offline_since:
+            sess.offline_since = now
+            sess.save()
+        if now - sess.offline_since >= OFFLINE_GRACE_SECONDS:
+            db.update("sources", src["id"], live_status="ended")
+            raise queue.Wait("live", TURN_SECONDS, "The stream ended — finishing the recording")
+        db.update("sources", src["id"], status_note="The stream went offline; waiting a few minutes in case it "
+                                                   "comes back. Saved minutes are kept.")
+        raise queue.Wait("offline", 60, "The stream went offline; checking again in a minute")
+    if meta.get("submitted") and now - float(meta.get("added_at") or src.get("created_at") or now) > UPCOMING_MAX_WAIT:
+        db.update("sources", src["id"], status="failed", status_note="The stream did not start within a day.")
+        raise queue.Fail("The stream did not start within a day.",
+                         "Add the link again in Live streams when the streamer is live.")
+    db.update("sources", src["id"], live_status="upcoming", status="queued", status_note="Waiting for the stream to start")
+    raise queue.Wait("offline", 120, "Waiting for the stream to start")
+
+
+def _joined(sess: Session) -> Path | None:
+    """The recording joined by an earlier finishing turn, if it is still exactly that file. Joining again writes a
+    new container (new bytes) around the same minutes, which would change what later approvals were checked against."""
+    path = Path(sess.final.get("path") or "")
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    same = path.is_file() and [st.st_size, st.st_mtime_ns] == [sess.final.get("size"), sess.final.get("mtime_ns")] and \
+        sess.final.get("segments") == len(sess.segments)
+    return path if same else None
+
+
 def _finish_capture(sess: Session, job: Job, *, recording: Path | None = None) -> dict:
     src = sess.src
-    output = recording or finalize(sess, cancel=job.cancelled)
+    output = recording or _joined(sess) or finalize(sess, cancel=job.cancelled)
+    if output and not recording and Path(output).is_file() and not _joined(sess):
+        st = Path(output).stat()
+        sess.final = {"path": str(output), "size": st.st_size, "mtime_ns": st.st_mtime_ns, "segments": len(sess.segments)}
+        sess.save()
     no_audio = bool(sess.missing_audio) and all([s["start"], s["end"]] in sess.missing_audio for s in sess.segments)
     if output and Path(output).is_file():
         final_meta = probe(output, cancel=job.cancelled)
@@ -982,8 +1235,9 @@ def _finish_capture(sess: Session, job: Job, *, recording: Path | None = None) -
         db.update_project(sess.project["id"], status="error", stage="audio", error=reason, message=reason)
         raise queue.Fail(reason, "The recording is saved. Check the stream or OBS audio track before trying a "
                          "new recording; speech transcription cannot recover missing audio.")
-    detail = "Recording limit reached" if sess.limit_reached else "Live ended"
-    db.update("sources", src["id"], kind="live", live_status="stopped" if sess.limit_reached else "ended",
+    stopped = sess.limit_reached or sess.stopped_by_owner
+    detail = "Stopped by you" if sess.stopped_by_owner else "Recording limit reached" if sess.limit_reached else "Live ended"
+    db.update("sources", src["id"], kind="live", live_status="stopped" if stopped else "ended",
               status="analyzing", status_note=f"{detail} after {sess.offset / 60:.0f} min with "
               f"{len(sess.clips)} live clip(s); analyzing the full recording")
     queue.enqueue("post_live", {"source_id": src["id"], "project_id": sess.project["id"]},
@@ -993,6 +1247,13 @@ def _finish_capture(sess: Session, job: Job, *, recording: Path | None = None) -
                               f"{len(sess.clips)} live clip(s)", ref_type="source", ref_id=src["id"])
     return {"minutes": round(sess.offset / 60, 1), "live_clips": len(sess.clips),
             "message": f"Live capture ended after {sess.offset / 60:.0f} min"}
+
+
+def _kept(clip_id: str) -> bool:
+    """Published, being published, or approved to upload: a better post-live cut does not replace it."""
+    return _published(clip_id) or bool(db.scalar(
+        "SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND status IN ('approved', 'action_needed')",
+        (clip_id,)))
 
 
 def _published(clip_id: str) -> bool:
@@ -1006,8 +1267,10 @@ def supersede(clip: dict, reason: str) -> None:
     db.update_clip(clip["id"], status="superseded", error=reason)
     for item in db.select("scheduled_publications", "clip_id = ? AND status IN ('awaiting_approval', 'approved')",
                           (clip["id"],)):
-        db.update("scheduled_publications", item["id"], status="replaced", status_note=reason,
-                  audit=[*(item.get("audit") or []), {"at": time.time(), "event": "replaced", "detail": reason}])
+        audit = json.dumps([*(item.get("audit") or []), {"at": time.time(), "event": "replaced", "detail": reason}])
+        # Compare-and-set: a post the scheduler started publishing meanwhile keeps its status.
+        db.execute("UPDATE scheduled_publications SET status = 'replaced', status_note = ?, audit = ?, updated_at = ? "
+                   "WHERE id = ? AND status IN ('awaiting_approval', 'approved')", (reason, audit, time.time(), item["id"]))
     state.event("live_clip_replaced", reason, ref_type="clip", ref_id=clip["id"])
 
 
@@ -1023,6 +1286,16 @@ def post_live(job: Job) -> dict:
     r = rights.recheck(src, settings)
     if not rights.local_allowed(src, r, settings):
         return {"skipped": True, "message": f"Not used: {r['label']} ({r['basis']})"}
+    project = db.get_project(project_id) or {}
+    if project.get("source_path"):
+        from . import submissions
+
+        try:
+            # Clips cut from the full recording are covered by a live input's "Make & upload" request only
+            # against these exact recorded bytes, like a submitted video's original.
+            submissions.bind_live_recording(src, project, Path(project["source_path"]))
+        except ValueError as exc:
+            raise queue.Fail(str(exc), "The live clips made during the stream are kept.") from exc
     ctx = job.pipeline_ctx(0.0, 1.0)
     live_state_path = config.projects_dir() / project_id / "live" / "state.json"
     live_state = read_json(live_state_path, {}) or {}
@@ -1054,7 +1327,7 @@ def post_live(job: Job) -> dict:
                 keep.append(r)
                 continue
             old = over[0]
-            if _published(old["id"]) or r.get("clip_score", r["score"]) < (old.get("score") or 0) + REPLACE_MARGIN:
+            if _kept(old["id"]) or r.get("clip_score", r["score"]) < (old.get("score") or 0) + REPLACE_MARGIN:
                 continue
             replacements[str(len(keep))] = old["id"]
             live.remove(old)
@@ -1080,9 +1353,10 @@ def post_live(job: Job) -> dict:
         old = db.get_clip(old_id)
         if not old or not new or new["status"] != "ready":
             continue  # a failed replacement must leave the usable live clip available
-        if _published(old_id):
+        if _kept(old_id):
             if not _published(new["id"]):
-                db.update_clip(new["id"], status="superseded", error="The original live clip was already published")
+                db.update_clip(new["id"], status="superseded", error="The original live clip was already published "
+                                                                     "or approved to upload")
             continue
         if old["status"] != "superseded":
             r = keep[int(index)]
