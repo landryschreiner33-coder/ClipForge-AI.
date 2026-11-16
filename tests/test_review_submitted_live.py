@@ -6,6 +6,7 @@ YouTube are stand-ins; every rule under test is ClipForge's own.
 from __future__ import annotations
 
 import ipaddress
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -105,6 +106,7 @@ class FakeRecorder:
 
     def stop(self, reason=""):
         self.stopped_reason = self.stopped_reason or reason
+        self.stopped_at = getattr(self, "stopped_at", 0) or time.time()
         if self.returncode is None:
             self.exit(255)
 
@@ -296,7 +298,7 @@ def test_live_grant_binds_to_the_recording_project_then_to_the_joined_recording(
         submissions.bind_live(db.fetch("sources", file_src["id"]), project)
 
 
-def test_live_clip_is_approved_and_uploaded_while_the_stream_is_still_recording(env, monkeypatch):
+def test_live_clip_is_approved_and_uploaded_while_the_stream_is_still_recording(env, monkeypatch):  # noqa: F811
     from quality_stub import passed_report
     from test_autopilot_scheduler import make_clip
 
@@ -405,7 +407,7 @@ def test_stop_recording_is_refused_when_nothing_records(data):
 # ------------------------------------------------------------------ the next broadcast is a new input
 def test_channel_link_can_be_added_again_only_after_its_broadcast_finished(data, monkeypatch):
     from clipfoundry import db
-    from clipfoundry.autopilot import intake, queue, submissions
+    from clipfoundry.autopilot import intake, submissions
 
     first = add_live("https://www.twitch.tv/SomeStreamer")
     with pytest.raises(ValueError, match="already added"):
@@ -540,6 +542,88 @@ def test_a_long_gap_without_a_broadcast_id_is_not_assumed_to_be_the_same_broadca
     assert db.fetch("sources", src["id"])["live_status"] == "ended"
 
 
+def test_a_single_stream_link_is_not_ended_by_a_long_gap(data, recorder, monkeypatch):
+    """Only a channel page can show a later broadcast at the same link. An .m3u8 stream (no broadcast id) continues
+    after ClipForge was away for longer than the offline grace."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import live, queue
+
+    broadcasts(monkeypatch, None)
+    src = going_live(add_live("https://cdn.example.com/live/stream.m3u8"))
+    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
+    job = turn_job(src, host)
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(job)
+    rec = recorder.made[-1]
+    rec.minute()
+    rec.exit(1, "Connection reset by peer")
+    with pytest.raises(queue.Wait):
+        live.live_capture(job)
+    sess = live.Session(db.fetch("sources", src["id"]), db.get_settings())
+    sess.alive_at = time.time() - live.OFFLINE_GRACE_SECONDS - 600  # the app was closed for a while
+    sess.save()
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(job)
+    assert len(recorder.made) == 2 and db.fetch("sources", src["id"])["live_status"] == "live"
+
+
+def test_a_pause_counts_the_stream_as_live_until_clipforge_stopped_it(data, recorder, monkeypatch):
+    """A channel page without broadcast ids is finished after a gap longer than the offline grace. Time while
+    ClipForge itself had stopped the recorder (a pause, closing, disk space) starts when it stopped it, not at the
+    last saved minute."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import live, queue
+
+    broadcasts(monkeypatch, None)
+    src = going_live(add_live())
+    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
+    job = turn_job(src, host)
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(job)
+    rec = recorder.made[-1]
+    rec.minute()
+    with pytest.raises(queue.Wait):
+        live.live_capture(job)
+    rec.stop("paused")  # Autopilot was paused for four and a half minutes
+    rec.stopped_at = time.time() - live.OFFLINE_GRACE_SECONDS + 30
+    sess = live.Session(db.fetch("sources", src["id"]), db.get_settings())
+    sess.alive_at = rec.stopped_at - 60  # its last saved minute, a minute before the pause
+    sess.save()
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(job)
+    assert len(recorder.made) == 2 and db.fetch("sources", src["id"])["live_status"] == "live"
+
+
+def test_reconnecting_needs_only_its_own_room_on_the_disk(data, recorder, monkeypatch):
+    """Streams recording at once reserve each other's room when a stream starts. A stream that reconnects already
+    had its room reserved; asking for the others' room again would stop it on a disk that has space for all."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import hunter, live, queue
+
+    db.save_settings({"autopilot_max_source_gb": 1})
+    asked = []
+    monkeypatch.setattr(live, "require_disk_space", lambda path, need=0: asked.append(need))
+    broadcasts(monkeypatch, "b1")
+    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
+    first = turn_job(going_live(add_live()), host)
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(first)
+    second = turn_job(going_live(add_live("https://kick.com/otherstreamer")), host)
+    asked.clear()
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(second)
+    budget = hunter.max_source_bytes(db.get_settings())
+    assert asked == [2 * budget]  # its own room and the first stream's
+    rec = recorder.made[-1]
+    rec.minute()
+    rec.exit(1, "Connection reset by peer")
+    asked.clear()
+    while len(recorder.made) < 3:
+        with pytest.raises(queue.Wait):
+            live.live_capture(second)
+    assert asked == [budget]
+
+
 def test_relay_size_limit_and_running_out_of_attempts_finish_instead_of_failing(data, recorder, monkeypatch):
     from clipfoundry import db
     from clipfoundry.autopilot import live, queue
@@ -634,6 +718,85 @@ def test_unreadable_minute_is_kept_on_the_timeline_and_recording_continues(data,
     row = queue.enqueue("live_capture", {"source_id": src["id"]})
     live.process_segment(sess, seg.name, 60.0, Job(queue.get(row["id"]), "test"))
     assert sess.offset == 60.0 and sess.untranscribed == [[0.0, 60.0]]
+    assert live.Session(db.fetch("sources", src["id"]), db.get_settings()).unreadable == [seg.name]  # saved
+
+
+def _minutes(folder, count=3, seconds=3, audio=True):
+    """Real recorder output: FFmpeg's segment muxer, as the live recorder runs it."""
+    import subprocess
+
+    from clipfoundry.pipeline.ffmpeg_utils import ffmpeg_bin
+
+    args = [ffmpeg_bin(), "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=25"]
+    if audio:
+        args += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-c:a", "aac"]
+    subprocess.run(args + ["-t", str(count * seconds), "-c:v", "libx264", "-g", "25", "-f", "segment",
+                           "-segment_time", str(seconds), "-reset_timestamps", "1", str(folder / "r001_%05d.mkv")],
+                   check=True)
+    return [{"name": f"r001_{n:05d}.mkv", "start": n * seconds, "end": (n + 1) * seconds} for n in range(count)]
+
+
+def _video_times(path):
+    import subprocess
+
+    from clipfoundry.pipeline.ffmpeg_utils import ffprobe_bin
+
+    out = subprocess.run([ffprobe_bin(), "-v", "error", "-select_streams", "v", "-show_entries", "packet=pts_time",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True).stdout
+    return sorted(float(line) for line in out.split() if line.strip())
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
+def test_a_minute_ffmpeg_cannot_open_is_left_out_without_shortening_the_recording(data):
+    """FFmpeg skips a file it cannot open and still exits successfully. The joined recording must keep the later
+    minutes at their own times, or every saved clip and transcript time after it would point at the wrong moment."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import live, queue
+
+    src = going_live(add_live())
+    sess = live.Session(src, db.get_settings())
+    sess.segments = _minutes(sess.segdir)
+    sess.offset = 9.0
+    (sess.segdir / "r001_00001.mkv").write_bytes(b"\x01" * 5000)  # broken after it was transcribed
+    out = live.finalize(sess)
+    assert sess.unreadable == ["r001_00001.mkv"]
+    times = _video_times(out)
+    assert times[0] < 0.1 and max(t for t in times if t < 4) < 3.0
+    assert min(t for t in times if t > 3.1) >= 5.9 and times[-1] > 8.5  # the third minute stays at 6 s to 9 s
+    assert live.Session(db.fetch("sources", src["id"]), db.get_settings()).unreadable == ["r001_00001.mkv"]
+
+    # The same with a minute that had no sound (each minute's audio is rebuilt before joining).
+    sess.unreadable = []
+    sess.missing_audio = [[0, 3]]
+    out = live.finalize(sess)
+    assert sess.unreadable == ["r001_00001.mkv"] and min(t for t in _video_times(out) if t > 3.1) >= 5.9
+
+    # A broken first minute cannot be lined up with the live clips: the join stops with a clear reason.
+    (sess.segdir / "r001_00000.mkv").write_bytes(b"")
+    sess.unreadable, sess.missing_audio = [], []
+    with pytest.raises(queue.Fail, match="first recorded minute") as failed:
+        live.finalize(sess)
+    assert "live clips" in failed.value.fix
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
+def test_a_live_clip_never_uses_a_minute_that_cannot_be_read(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import live
+
+    src = going_live(add_live())
+    sess = live.Session(src, db.get_settings())
+    sess.segments = _minutes(sess.segdir)
+    sess.offset = 9.0
+    (sess.segdir / "r001_00001.mkv").write_bytes(b"")
+    sess.unreadable = ["r001_00001.mkv"]
+    window, shift = live._window_file(sess, 6.5, 8.5)  # the broken neighbour is left out
+    assert shift == 6.0 and _video_times(window)[-1] > 2.5
+    with pytest.raises(ValueError, match="could not be read"):
+        live._window_file(sess, 2.0, 4.0)
+    sess.unreadable = []  # not known yet: the cut-short join is refused instead of used
+    with pytest.raises(ValueError, match="could not be joined"):
+        live._window_file(sess, 1.0, 4.0)
 
 
 def test_failed_moment_is_skipped_on_later_minutes(data, monkeypatch):
@@ -754,7 +917,7 @@ def test_one_stream_never_runs_two_turns_at_once(data, monkeypatch):
 # ------------------------------------------------------------------ Stop all jobs is a hold
 def test_stop_all_holds_live_streams_and_resume_continues_them(data, monkeypatch):
     from clipfoundry import db
-    from clipfoundry.autopilot import live, queue, routes, state
+    from clipfoundry.autopilot import queue, routes, state
 
     recording = going_live(add_live())
     waiting = add_live("https://kick.com/otherstreamer")
@@ -786,7 +949,7 @@ def test_stop_all_holds_live_streams_and_resume_continues_them(data, monkeypatch
 def test_stop_all_during_a_running_turn_is_never_left_unclaimable(data, monkeypatch):
     """A turn that hands back its slot (a wait) after Stop all jobs was pressed is held, not parked forever."""
     from clipfoundry import db
-    from clipfoundry.autopilot import host, live, queue, routes
+    from clipfoundry.autopilot import host, queue, routes
 
     src = going_live(add_live())
     db.execute("UPDATE worker_jobs SET status = 'completed'")
@@ -818,6 +981,50 @@ def test_stop_all_during_a_running_turn_is_never_left_unclaimable(data, monkeypa
     assert queue.get(claim["id"])["status"] == "canceled"
 
 
+def test_resume_pressed_before_a_running_turn_ends_still_continues_the_stream(data, monkeypatch):
+    """Stop all jobs, then Resume, while a turn is still running: the turn ends held after Resume was handled, and
+    the worker supervisor continues it instead of leaving it canceled for good."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, live, queue, routes
+
+    src = going_live(add_live())
+    db.execute("UPDATE worker_jobs SET status = 'completed'")
+    monkeypatch.setattr("clipfoundry.jobs.worker.cancel_all", lambda: 0)
+    monkeypatch.setattr("clipfoundry.publish.jobs.worker.cancel_all", lambda: 0)
+
+    def turn(job):
+        routes.stop_all()
+        routes.resume()  # handled while this turn is still running: nothing held yet to continue
+        raise queue.Wait("live", 2, "Watching live")
+
+    monkeypatch.setitem(host.HANDLERS, "live_capture", turn)
+    queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}", priority=80)
+    worker_host = host.WorkerHost(workers=["live_monitor"], periodic=False, poll=0.05)
+    claim = queue.claim("live_monitor", "lane")
+    worker_host._run("live_monitor", claim)
+    assert queue.get(claim["id"])["status"] == "canceled"
+    supervisor = threading.Thread(target=worker_host._supervise, daemon=True)
+    supervisor.start()
+    try:
+        deadline = time.monotonic() + 10
+        while queue.get(claim["id"])["status"] != "queued" and time.monotonic() < deadline:
+            time.sleep(0.05)
+    finally:
+        worker_host._stop.set()
+        supervisor.join(10)
+    row = queue.get(claim["id"])
+    assert row["status"] == "queued" and not row["cancel_requested"]
+    assert db.fetch("sources", src["id"])["status"] != "canceled"
+
+    # A stream you canceled yourself is never continued by the supervisor.
+    queue.cancel(claim["id"])
+    db.execute("UPDATE worker_jobs SET wait_reason = ? WHERE id = ?", (queue.STOP_ALL, claim["id"]))
+    from clipfoundry.autopilot import intake
+
+    intake.action(src["id"], "cancel")
+    assert live.resume_held() == 0
+
+
 def test_watchdog_holds_the_recording_when_stop_all_is_pressed(data):
     from clipfoundry import db
     from clipfoundry.autopilot import live, state
@@ -838,7 +1045,24 @@ def test_watchdog_holds_the_recording_when_stop_all_is_pressed(data):
     after = db.fetch("sources", src["id"])
     assert after["status"] == "queued" and "Stop all jobs" in after["status_note"]
 
+    # Resume was pressed before the watchdog looked: the turn's own cancel marker still says Stop all jobs.
+    from clipfoundry.autopilot import queue
+
     state.put("emergency_stop", False)
+    db.update("sources", src["id"], status="ingesting", status_note="Live: recording")
+    db.execute("UPDATE worker_jobs SET status = 'running', cancel_requested = 1, wait_reason = ? WHERE id = ?",
+               (queue.STOP_ALL, job.id))
+    reasons.clear()
+    capture._watch()
+    assert reasons == ["paused"]
+    assert db.fetch("sources", src["id"])["status"] == "queued"
+    db.execute("UPDATE worker_jobs SET wait_reason = '' WHERE id = ?", (job.id,))  # your own Cancel
+    reasons.clear()
+    capture._watch()
+    assert reasons == ["canceled"] and db.fetch("sources", src["id"])["status"] == "canceled"
+
+    db.update("sources", src["id"], status="ingesting")
+    db.execute("UPDATE worker_jobs SET cancel_requested = 0 WHERE id = ?", (job.id,))
     state.put(f"live_finish:{src['id']}", {"at": time.time()})
     reasons.clear()
     capture.sess = SimpleNamespace(src=src, segdir=Path(data), settings={})
@@ -889,9 +1113,20 @@ def test_second_finishing_turn_reuses_the_joined_recording(data, recorder, monke
     live.live_capture(job)
     joined = Path(db.get_project(sess.project["id"])["source_path"])
     sha_before = joined.read_bytes()
+    state_file = sess.segdir / "state.json"
+    saved = state_file.read_bytes()
+    # The recording is being analyzed: another turn (a revived or repeated one) leaves its files alone.
+    assert live.live_capture(job)["minutes"] == 1.0
+    assert state_file.read_bytes() == saved and len(joins) == 1
+    analysis = post_live_jobs()[0]
+    for status in ("running", "completed"):
+        db.update("worker_jobs", analysis["id"], status=status)
+        assert "analyzed separately" in live.live_capture(job)["message"] and state_file.read_bytes() == saved
+    # Try again after the analysis failed: the finishing turn runs again and keeps the joined recording.
+    db.update("worker_jobs", analysis["id"], status="failed")
     live.live_capture(job)
     assert len(joins) == 1 and joined.read_bytes() == sha_before
-    assert len(post_live_jobs()) == 1
+    assert len(post_live_jobs()) == 1 and post_live_jobs()[0]["status"] == "queued"
     assert submissions.problem(db.fetch("sources", src["id"])) == ""
 
 

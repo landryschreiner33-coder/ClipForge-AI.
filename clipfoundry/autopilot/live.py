@@ -184,6 +184,8 @@ class Session:
         self.meta: dict = st.get("meta", {})
         self.untranscribed: list[list[float]] = st.get("untranscribed", [])  # strict GPU: minutes not transcribed
         self.missing_audio: list[list[float]] = st.get("missing_audio", [])
+        # Minute files FFmpeg cannot open. Joining skips them but keeps their time, so later times still line up.
+        self.unreadable: list[str] = st.get("unreadable", [])
         self.transcript = read_json(self.pdir / "transcript.json", None) or {"language": "", "source": "live",
                                                                              "segments": []}
         # One atomic checkpoint owns both the timeline and words. Separate convenience files can lag after a crash.
@@ -218,7 +220,7 @@ class Session:
         write_json(self.segdir / "state.json", {"run": self.run, "segments": self.segments, "offset": self.offset,
                                                 "env": self.env, "clips": self.clips, "meta": self.meta,
                                                 "untranscribed": self.untranscribed, "transcript": self.transcript,
-                                                "missing_audio": self.missing_audio,
+                                                "missing_audio": self.missing_audio, "unreadable": self.unreadable,
                                                 "capture_complete": self.capture_complete,
                                                 "archive_recovery": self.archive_recovery,
                                                 "limit_reached": self.limit_reached, "skipped": self.skipped,
@@ -277,6 +279,7 @@ class Capture:
         self.host = job.host
         self.started = time.monotonic()
         self.stopped_reason = ""
+        self.stopped_at = 0.0  # wall clock of the first stop: a hold (pause, closing, disk) knows it was live until then
         self.stopped = threading.Event()
         self._close_lock = threading.Lock()
         self.relays = relays or []
@@ -302,6 +305,7 @@ class Capture:
     def stop(self, reason: str = "") -> None:
         with self._close_lock:
             self.stopped_reason = self.stopped_reason or reason
+            self.stopped_at = self.stopped_at or time.time()
             self.stopped.set()
             if self.proc.stdin and not self.proc.stdin.closed:
                 self.proc.stdin.close()  # EOF tells the lock-owning wrapper to finish and reap ffmpeg
@@ -329,6 +333,15 @@ class Capture:
                     self.stop("paused")
                     if src:
                         db.update("sources", src["id"], status="queued", status_note="Recording paused by Stop all jobs")
+                    return
+                if row and (row.get("cancel_requested") or row["status"] == "canceled") and \
+                        row.get("wait_reason") == queue.STOP_ALL:
+                    # Stop all jobs, even when Resume was pressed before this turn ended: a hold, not a cancel.
+                    # The turn ends held and the supervisor continues it after Resume with the saved minutes.
+                    self.stop("paused")
+                    if src:
+                        db.update("sources", src["id"], status="queued",
+                                  status_note="Recording paused by Stop all jobs")
                     return
                 if row and (row.get("cancel_requested") or row["status"] == "canceled"):
                     self.stop("canceled")
@@ -484,6 +497,8 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     except Exception as exc:  # noqa: BLE001 - one unreadable minute must not stop the whole recording
         log.warning("live minute %s could not be read: %s", name, exc)
         meta = {"unreadable": True}
+        if name not in sess.unreadable:
+            sess.unreadable.append(name)  # saved with this minute's checkpoint below
     if not meta.get("unreadable") and (not sess.meta or meta.get("has_audio")):
         sess.meta = meta
     duration = duration or float(meta.get("duration") or 0)
@@ -595,16 +610,64 @@ def detect(sess: Session, job: Job) -> dict | None:
     return {"r": best[0], "sents": best[1], "loud": best[2]} if best else None
 
 
+# FFmpeg's concat reader skips a file it cannot open and still exits successfully: the joined file is then shorter
+# and every later moment is moved earlier. These lines in its log mean a file was skipped or cut short.
+JOIN_ERRORS = ("Impossible to open", "Error during demuxing", "Error retrieving a packet")
+KEPT = "The live clips made during the stream and their uploads are kept."
+
+
+def _join_problem(result) -> str:
+    err = result.stderr or ""
+    if isinstance(err, bytes):
+        err = err.decode("utf-8", "replace")
+    return next((line.strip() for line in err.splitlines() if any(word in line for word in JOIN_ERRORS)), "")
+
+
+def _concat_listing(sess: Session, segs: list[dict], paths: list[Path]) -> str:
+    """Concat reader lines for these minutes, without the ones that cannot be opened. A skipped minute keeps its
+    place on the timeline: the readable minute before it is declared long enough to cover it, so FFmpeg leaves a
+    gap there and the times in the joined file still match the live transcript and clips."""
+    bad = set(sess.unreadable)
+    keep = [(seg, path) for seg, path in zip(segs, paths) if seg["name"] not in bad]
+    lines = []
+    for index, (seg, path) in enumerate(keep):
+        lines.append(f"file '{path.as_posix()}'\n")
+        later = keep[index + 1][0]["start"] if index + 1 < len(keep) else None
+        if later is not None and later - float(seg["end"]) > 0.001:
+            lines.append(f"duration {later - float(seg['start']):.6f}\n")
+    return "".join(lines)
+
+
+def _opens(path: Path, cancel=None) -> bool:
+    try:
+        probe(path, cancel=cancel)
+        return True
+    except queue.Canceled:
+        raise
+    except Exception:  # noqa: BLE001 - only whether FFmpeg can open it matters here
+        return False
+
+
 def _window_file(sess: Session, start: float, end: float, *, cancel=None) -> tuple[Path, float]:
     """The segments around [start, end] joined into one file (stream copy) and the time where it starts."""
+    bad = set(sess.unreadable)
     segs = [s for s in sess.segments if s["end"] > start - 3 and s["start"] < end + 3]
-    require_disk_space(sess.segdir, sum((sess.segdir / s["name"]).stat().st_size for s in segs))
+    if any(s["name"] in bad and s["end"] > start and s["start"] < end for s in segs):
+        raise ValueError("Part of this moment was recorded in a minute that could not be read")
+    segs = [s for s in segs if s["name"] not in bad]  # a neighbour minute that cannot be read is left out
+    if not segs:
+        raise ValueError("The recorded minutes around this moment could not be read")
+    paths = [sess.segdir / s["name"] for s in segs]
+    require_disk_space(sess.segdir, sum(path.stat().st_size for path in paths))
     listing = sess.segdir / "window.txt"
-    listing.write_text("".join(f"file '{(sess.segdir / s['name']).as_posix()}'\n" for s in segs), encoding="utf-8")
+    listing.write_text(_concat_listing(sess, segs, paths), encoding="utf-8")
     out = sess.segdir / "window.mkv"
-    run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat", "-safe",
-                 "0", "-i", str(listing), "-c", "copy", str(out)], check=True, cancel=cancel,
-                timeout=max(600.0, end - start))
+    result = run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat",
+                          "-safe", "0", "-i", str(listing), "-c", "copy", str(out)], check=True, cancel=cancel,
+                         timeout=max(600.0, end - start))
+    problem = _join_problem(result)
+    if problem:
+        raise ValueError(f"The recorded minutes around this moment could not be joined: {problem[:200]}")
     return out, segs[0]["start"]
 
 
@@ -708,18 +771,45 @@ def finalize(sess: Session, *, cancel=None) -> Path | None:
     """Join the recording without dropping audio that returns after a video-only segment.
 
     Normal recordings keep stream copy. Mixed recordings copy video and normalize only their audio tracks,
-    inserting silence for known missing audio so later speech keeps its source timeline.
+    inserting silence for known missing audio so later speech keeps its source timeline. A minute FFmpeg cannot
+    open is left out with its time kept as a gap; a join that FFmpeg still cuts short is never used.
     """
     if not sess.segments:
         return None
+    problem = ""
+    for _ in range(3):
+        problem = _join_recording(sess, cancel)
+        if not problem:
+            out = sess.pdir / "source.mkv"
+            db.update_project(sess.project["id"], source_path=str(out), source_filename=out.name, duration=sess.offset)
+            return out
+        # Find the minutes FFmpeg cannot open now and join again without them.
+        bad = [s["name"] for s in sess.segments if s["name"] not in sess.unreadable and
+               not _opens(sess.segdir / s["name"], cancel)]
+        if not bad:
+            break
+        sess.unreadable += bad
+        sess.save()
+    raise queue.Fail(f"The recorded minutes could not be joined into one recording. {problem[:200]}".strip(), KEPT)
+
+
+def _join_recording(sess: Session, cancel=None) -> str:
+    """Write source.mkv from the readable minutes. Returns what went wrong, or "" when it was written."""
+    bad = set(sess.unreadable)
+    if sess.segments[0]["name"] in bad:
+        # The joined file would start later than the live timeline, so no saved time would match it any more.
+        raise queue.Fail("The first recorded minute could not be read, so the full recording cannot be lined up "
+                         "with the live clips.", KEPT)
+    segs = [s for s in sess.segments if s["name"] not in bad]
     temporary: list[Path] = []
     try:
-        paths = [sess.segdir / s["name"] for s in sess.segments]
-        mixed_audio = bool(sess.missing_audio) and len(sess.missing_audio) < len(sess.segments)
+        paths = [sess.segdir / s["name"] for s in segs]
+        mixed_audio = bool(sess.missing_audio) and \
+            sum([s["start"], s["end"]] not in sess.missing_audio for s in segs) > 0
         require_disk_space(sess.segdir, sum(path.stat().st_size for path in paths) * (2 if mixed_audio else 1))
-        if sess.missing_audio and len(sess.missing_audio) < len(sess.segments):
+        if mixed_audio:
             paths = []
-            for index, segment in enumerate(sess.segments):
+            for index, segment in enumerate(segs):
                 source = sess.segdir / segment["name"]
                 target = sess.segdir / f"joined-audio-{index:06d}.mkv"
                 duration = float(segment["end"]) - float(segment["start"])
@@ -731,20 +821,33 @@ def finalize(sess: Session, *, cancel=None) -> Path | None:
                          "-c:a", "aac", "-ac", "2", "-ar", "48000", "-af", "aresample=async=1:first_pts=0,apad",
                          "-t", f"{duration:.6f}", "-avoid_negative_ts", "make_zero", str(target)]
                 temporary.append(target)
-                run_process(args, check=True, cancel=cancel, timeout=max(600.0, duration * 20))
+                try:
+                    run_process(args, check=True, cancel=cancel, timeout=max(600.0, duration * 20))
+                except subprocess.CalledProcessError:
+                    if not _opens(source, cancel):
+                        return f"Impossible to open '{segment['name']}'"
+                    raise
                 paths.append(target)
         listing = sess.segdir / "all.txt"
-        listing.write_text("".join(f"file '{path.as_posix()}'\n" for path in paths),
-                           encoding="utf-8")
+        listing.write_text(_concat_listing(sess, segs, paths), encoding="utf-8")
         out = sess.pdir / "source.mkv"
         assembled = sess.pdir / "assembly.tmp.mkv"
         temporary.append(assembled)
-        run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat", "-safe",
-                     "0", "-i", str(listing), "-c", "copy", str(assembled)], check=True, cancel=cancel,
-                    timeout=max(600.0, min(7200.0, sess.offset * 2)))
+        try:
+            result = run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f",
+                                  "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(assembled)],
+                                 check=True, cancel=cancel, timeout=max(600.0, min(7200.0, sess.offset * 2)))
+        except subprocess.CalledProcessError as exc:
+            # A file FFmpeg cannot open at the start of the list stops the join with an error instead.
+            bad = next((s["name"] for s in segs if not _opens(sess.segdir / s["name"], cancel)), "")
+            if not bad:
+                raise
+            return _join_problem(exc) or f"Impossible to open '{bad}'"
+        problem = _join_problem(result)
+        if problem:
+            return problem
         os.replace(assembled, out)
-        db.update_project(sess.project["id"], source_path=str(out), source_filename=out.name, duration=sess.offset)
-        return out
+        return ""
     finally:
         for path in temporary:
             path.unlink(missing_ok=True)
@@ -941,13 +1044,18 @@ def _other_broadcast(sess: Session, src: dict, found: dict, recorded: float) -> 
     """Is the channel now showing a different broadcast than the one recorded so far? A channel link stands for one
     broadcast: a later one (a new broadcast id, or a long gap that cannot be shown to be the same broadcast) ends
     this recording instead of being appended to it under the same upload request."""
+    from .intake import channel_live_page
+
     if src.get("local_path"):
         return False
     known, current = sess.broadcast.get("id") or "", found.get("id") or ""
     if recorded > 0:
         if known and current and known != current:
             return True
-        if not (known and current == known) and sess.alive_at and time.time() - sess.alive_at > OFFLINE_GRACE_SECONDS:
+        # Only a channel page can show a later broadcast at the same link. A link to one stream (a live video, an
+        # .m3u8 address) is that stream, however long ClipForge was paused or waiting for disk space.
+        if channel_live_page(src.get("url") or "") and not (known and current == known) and sess.alive_at and \
+                time.time() - sess.alive_at > OFFLINE_GRACE_SECONDS:
             return True
     if current and not known:
         sess.broadcast = {**found, "first_seen": time.time()}
@@ -962,6 +1070,13 @@ def _live_turn(job: Job) -> dict:
         raise queue.Fail("The live source was deleted")
     if (src.get("intake") or {}).get("canceled") or (src.get("intake") or {}).get("removed"):
         raise queue.Canceled()
+    analysis = db.fetch("worker_jobs", f"post_live:{src['id']}:{src.get('project_id') or ''}", "idem_key")
+    if analysis and (analysis["status"] in queue.ACTIVE or analysis["status"] == "completed"):
+        # The recording was finished and joined. Opening its session again would rewrite the files the analysis
+        # reads; only Try again after a failed analysis whose joined file is gone comes back here.
+        saved = read_json(config.projects_dir() / src["project_id"] / "live" / "state.json", {}) or {}
+        return {"minutes": round(float(saved.get("offset") or 0) / 60, 1), "live_clips": len(saved.get("clips") or []),
+                "message": "The recording was finished; its full recording is analyzed separately"}
     r = rights.recheck(src, settings)
     if not rights.local_allowed(src, r, settings):
         key = _capture_key(src["id"])
@@ -996,6 +1111,11 @@ def _live_turn(job: Job) -> dict:
         if locks.named(f"live-capture-{src['id']}").held_elsewhere():
             raise queue.Wait("recording", TURN_SECONDS, "Recovering the interrupted recording")
         sess = Session(src, settings)
+        if old and old.stopped_reason in ("restart", "paused", "disk") and \
+                float(getattr(old, "stopped_at", 0) or 0) > sess.alive_at:
+            # ClipForge stopped that recorder (a pause, closing, disk space), not the stream: it was live until then.
+            sess.alive_at = float(old.stopped_at)
+            sess.save()
         _resume_live_outputs(sess, job)
         retry_path = sess.segdir / "server-wait.json"
         retry_at = float((read_json(retry_path, {}) or {}).get("until") or 0)
@@ -1029,9 +1149,12 @@ def _live_turn(job: Job) -> dict:
                         if src.get("local_path") else byte_budget)
             # Streams recording at the same time share the disk: reserve what the others may still write, so a
             # new stream waits to start rather than every stream stopping halfway when the disk fills up.
-            with _capture_lock:
-                others = [c for k, c in _captures.items() if k != key and c.proc.poll() is None]
-            reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
+            # A stream that already recorded had this reserved when it started; a reconnect needs only its own room.
+            reserved = 0
+            if recorded <= 0:
+                with _capture_lock:
+                    others = [c for k, c in _captures.items() if k != key and c.proc.poll() is None]
+                reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
             require_disk_space(sess.segdir, max(1, expected) + reserved)
             state.resolve("disk:space")
             relays: list = []
@@ -1087,6 +1210,7 @@ def _live_turn(job: Job) -> dict:
             if capture.stopped_reason == "disk":
                 with _capture_lock:
                     _captures.pop(key, None)
+                _seen_live(sess)
                 raise queue.Wait("disk", 1800, "Recording paused for disk space; saved minutes are kept")
             if capture.stopped_reason == "canceled":
                 raise queue.Canceled()
@@ -1118,10 +1242,14 @@ def _live_turn(job: Job) -> dict:
         capture.stop("restart" if job.host and job.host._stop.is_set() else "canceled")
         with _capture_lock:
             _captures.pop(key, None)
+        if capture.stopped_reason in ("restart", "paused", "disk"):
+            _seen_live(sess)  # held (closing, Stop all jobs): the stream was live until now
         raise
     capture.stop()
     with _capture_lock:
         _captures.pop(key, None)
+    if capture.stopped_reason in ("disk", "restart", "paused"):
+        _seen_live(sess)
     if capture.stopped_reason == "disk":
         raise queue.Wait("disk", 1800, "Recording paused for disk space; saved minutes are kept")
     if capture.stopped_reason in ("restart", "paused"):
@@ -1174,6 +1302,12 @@ def _live_turn(job: Job) -> dict:
         float(settings.get("autopilot_max_source_minutes") or 240) * 60 - 0.1
     sess.save()
     return _finish_capture(sess, job)
+
+
+def _seen_live(sess: Session) -> None:
+    """ClipForge stopped the recorder (closing, a pause, disk space), not the stream: it was live until now."""
+    sess.alive_at = time.time()
+    sess.save()
 
 
 def _offline(sess: Session, src: dict, recorded: float) -> None:

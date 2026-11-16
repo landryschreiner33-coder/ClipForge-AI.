@@ -428,6 +428,11 @@ class WorkerHost:
                     gate.recover_regenerations()
                     if scout.reconcile_sources(now):
                         scout.refill({"id": f"recovery:{int(now // 30)}"})
+                    if not state.paused():
+                        from . import live
+
+                        # A live turn still running when Resume was pressed ends held afterwards; continue it.
+                        live.resume_held()
                     last_recover = now
                 settings = db.get_settings()
                 if self.periodic and not state.paused():

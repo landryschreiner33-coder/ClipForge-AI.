@@ -131,19 +131,26 @@ It covers that one broadcast only, never the channel's later streams.
   analyzes it like an ended stream; the clips and uploads made so far stay. Before anything was recorded it ends the
   input. It works while Autopilot is paused, and never contacts the platform. **Cancel stream** still cancels.
 - **One broadcast per input.** A channel that goes offline after recording started gets 5 minutes' grace (a dropped
-  connection), then the recording is finished. If the channel shows a different broadcast (a new broadcast id, or a
-  gap of more than 5 minutes that cannot be shown to be the same broadcast), the recorded one is finished and not
-  extended. Add the link again for the next broadcast: once the earlier recording has finished, the same link makes a
+  connection), then the recording is finished. If a channel page shows a different broadcast (a new broadcast id, or
+  a gap of more than 5 minutes that cannot be shown to be the same broadcast), the recorded one is finished and not
+  extended. A gap while ClipForge itself had stopped the recorder (a pause, closing, disk space) counts from when it
+  stopped it. A link to one stream (a live video, an `.m3u8` address) is that stream however long the gap. Add the link again for the next broadcast: once the earlier recording has finished, the same link makes a
   new input with a new request (`external_id` ends in `:<previous input>`), and the earlier input can no longer be
   retried. Twitch and Kick links are compared in one spelling (`www.`, `m.`, case and a trailing slash ignored).
 - **Staying up.** A minute that waits more than 45 seconds for the GPU hands its turn to another stream and is
   transcribed on a later turn (`Wait("gpu")`); the recorder keeps recording. An unreadable minute stays on the
-  timeline and is transcribed in the full-recording pass. A moment whose plan or render failed is not tried again on
+  timeline and is transcribed in the full-recording pass; joining leaves out a minute FFmpeg cannot open and keeps
+  its time as a gap, so every later time still matches (FFmpeg would otherwise skip it and still report success). A
+  join that FFmpeg still cuts short, or a recording whose first minute cannot be read, stops with a clear reason and
+  keeps the live clips. A moment whose plan or render failed is not tried again on
   every later minute. The recording size limit (also through the stream relay) and a recorder that keeps failing
   after minutes were saved finish with what was recorded instead of failing. A dropped connection after recording
-  reconnects without using an attempt. Streams recording at the same time reserve each other's remaining recording
-  size on disk. **Stop all jobs** holds recordings (the recorder stops; nothing is canceled); **Resume** continues
-  them from their saved minutes, including a held full-recording analysis.
+  reconnects without using an attempt. A stream that starts reserves the remaining recording size of the streams
+  already recording on disk; a reconnect needs only its own. **Stop all jobs** holds recordings (the recorder stops;
+  nothing is canceled); **Resume** continues them from their saved minutes, including a held full-recording analysis.
+  A turn that was still running when Resume was pressed ends held and the worker supervisor continues it within
+  30 seconds. Once the full recording is queued for analysis, another turn of that stream never reopens or rewrites
+  the recording's files (only Try again after a failed analysis whose joined file is gone records the join again).
 
 What is not tested from the cloud: real Twitch, Kick and YouTube broadcasts (YouTube cannot be reached from the
 build machines), and whether CPU Whisper on a Mac keeps up with two or three streams at once. The tests use local
