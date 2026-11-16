@@ -875,7 +875,9 @@ def _beep_minutes(folder, seconds=40, cut=4, short=0.0):
                     "1", "-segment_list", str(folder / "run1.csv"), "-segment_list_type", "csv",
                     str(folder / "r001_%05d.mkv")], check=True)
     segments, heard = [], []
-    for name, start, end in csv.reader(open(folder / "run1.csv", encoding="utf-8")):
+    with open(folder / "run1.csv", encoding="utf-8") as listing:
+        rows = list(csv.reader(listing))
+    for name, start, end in rows:
         offset = segments[-1]["end"] if segments else 0.0
         length = float(end) - float(start) - short
         extract_audio(folder / name, folder / (name + ".wav"), length)  # as each minute is transcribed live
@@ -894,7 +896,7 @@ def _join_listing(folder, segments):
     (folder / "all.txt").write_text(listing, encoding="utf-8")
     result = subprocess.run([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat",
                              "-safe", "0", "-i", str(folder / "all.txt"), "-c", "copy", str(folder / "joined.mkv")],
-                            capture_output=True)
+                            capture_output=True, check=False)
     assert result.returncode == 0 and not live._join_problem(result), result.stderr
     extract_audio(folder / "joined.mkv", folder / "joined.wav", segments[-1]["end"])
     return listing, _beeps(folder / "joined.wav")

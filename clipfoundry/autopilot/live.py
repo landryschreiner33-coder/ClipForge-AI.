@@ -800,7 +800,7 @@ def finalize(sess: Session, *, cancel=None) -> Path | None:
                 # Its live words and loudness describe a part the joined file no longer has: the full-recording
                 # analysis transcribes again (the gap is silence there), and its loudness is silence.
                 sess.untranscribed.append([seg["start"], seg["end"]])
-                first, last = int(round(float(seg["start"]) / 0.1)), int(round(float(seg["end"]) / 0.1))
+                first, last = round(float(seg["start"]) / 0.1), round(float(seg["end"]) / 0.1)
                 sess.env[first:last] = [-60.0] * len(sess.env[first:last])
         sess.unreadable += bad
         sess.save()
