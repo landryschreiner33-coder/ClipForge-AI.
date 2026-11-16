@@ -265,3 +265,39 @@ Listed as ClipForge 2026.11.13.2, dated November 13 (Landry's local date).
   the company renting it charges by the hour). `index.html` is unchanged.
 
 Rollback: revert `6e5918b` on `gh-pages` with a normal commit. The 2026.11.13 files stay under All versions.
+
+## Clip live streams while they are live — ClipForge 2026.11.16, November 16, 2026 (Claude Code)
+
+Landry wrote "Make sure you release the new changes". The release line held, since 2026.11.13.2, PR #52 (clip live
+streams while they are live, several at once, with uploads during the stream) at `a187452`. PR #53 corrected the
+texts a fact-check found and added the Mac release notes, and was merged as `9d0be40`, whose tree equals that of its
+head `f3aea380648201cb39d3339fc39c45d021f9c84f`, which both downloads are built from and name as their source commit.
+Listed as ClipForge 2026.11.16, dated November 16.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-16-f3aea38/ClipForge-Mac-Apple-Silicon.dmg
+  (255,820,993 bytes, SHA-256 `815fe2d2755380d54bf5a8b5d7291ecee8cc07c41616c9b9b8aefd826e5b21b9`). Unsigned personal
+  preview, published unchanged from
+  [build and test run 43912561838](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43912561838)
+  (native build and bundled-app smoke passed; 2,721 fast tests passed, 2 skipped; 31 slow tests passed, 1
+  skipped) by [publish run 43921441880](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43921441880).
+  The native job's first four tries (run 43897847676 twice, run 43909484088, run 43912561838's first attempt) were
+  cancelled before starting because GitHub had no Apple-silicon Mac runner free.
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/26ef3a156b7b3a6fc6f122aa101cc15ad68fcb92/ClipForge-Windows-Setup.zip
+  (50,216,384 bytes, SHA-256 `e7a32c7c54551e37258f434da46dcf64e205d5760a15c0a8398f4e5d2bef09f9`).
+  [Windows setup check run 43898294309](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43898294309)
+  installed 2026.11.13.2 (78c0601, raw/dd6958b, now the check's previous release) with a synthetic setting on a
+  Windows Server 2025 runner, then this ZIP over it: same data folder and setting, this commit's page and icon, all
+  872 files, close and reopen. No FFmpeg on the runner, so no video was processed. Record commit `622dfef` on
+  `claude/clipforge-downloads`.
+- **Download page:** `gh-pages` commit `c68f266` (previous `6e5918b`), pushed directly. Seven changes (live streams,
+  the recording limits, uploads during the stream, several streams, Stop recording, the Cancel/Stop all fix, the legal
+  pages) with the checked / not checked lists. By hand: Make clips no longer says live links work like a file (the
+  app refuses them there) and points to Clip a live stream; "Nothing posts by surprise" and "Will it post without
+  asking?" name Make & upload clips; "Does ClipForge find videos for me?" names live streams. `build.py --check` and
+  `--verify` passed here and in Download page run 43927842607; Pages run 43927842275.
+- **Legal pages:** `index.html`, `privacy.html` and `terms.html` at the site root are the app's `docs/legal` copies at
+  f3aea38, effective November 16: live streams on the legal home page, in the privacy page (what is recorded and kept,
+  when the app contacts the stream's site, a channel link checked until it goes live) and in the Terms (a live
+  recording kept on cancel, deleted with its project).
+
+Rollback: revert `c68f266` on `gh-pages` with a normal commit. The 2026.11.13.2 files stay under All versions.
