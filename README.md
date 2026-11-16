@@ -11,10 +11,14 @@ It installs ClipForge from source commit `f3aea380648201cb39d3339fc39c45d021f9c8
 PR #52 (clip live streams while they are live, several at once, with Make & upload clips uploading passing clips to
 YouTube during the stream: Missions, Live streams) and PR #53 (the live-stream texts in the app, the privacy page and
 the Terms corrected, and the Mac release notes). The 77 setup tests passed, and all 872 app files were compared with
-that commit (six `.bat` files differ only by the declared CRLF export). The Windows install check for this ZIP is
-recorded here once it has run. FFmpeg is not installed on the check machine, so no video is processed on Windows
-there; Windows 10/11 desktops, Windows security acceptance, GPUs, the built-in model, ComfyUI and its models, a real
-live stream, a real rented cloud computer, the built-in voice, real AI keys on a PC and real uploads are not tested.
+that commit (six `.bat` files differ only by the declared CRLF export).
+[Windows setup check run 43898294309](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43898294309)
+installed the previous release (78c0601) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
+ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 872
+installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
+was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
+GPUs, the built-in model, ComfyUI and its models, a real live stream, a real rented cloud computer, the built-in
+voice, real AI keys on a PC and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
