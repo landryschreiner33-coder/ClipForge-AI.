@@ -437,6 +437,14 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Live streams continuation (2026-11-16):** Landry asked to clip streams while they are live, with Autopilot
+uploading the clips during the live, and to clip several streams at once. Missions → Live streams takes several
+links; each is its own input with its own Make & upload request, recorded and clipped while live and uploaded during
+the stream at the owner's posting pace (Minimum gap per account, shared by all streams). Keep: the request covers one
+broadcast only (a channel's next broadcast is a new input added by the owner), uploads stay bound to exact checked
+bytes, Stop recording keeps what was made, Stop all jobs holds recordings and Resume continues them. Live Monitor runs
+three lanes; post_live runs on the analyzer. Details: docs/AUTOPILOT.md, *Clip live streams*.
+
 **Confirmed upload-audio continuation (2026-10-29, America/Chicago):** The matching supplied media proves the
 local MP4 has a damaged AAC timing table that default FFmpeg parsing hides; Google's processed copy loses the
 opening sound. Preserve samples and source-clock repair; regenerate the FINAL audio clock after all filters.
