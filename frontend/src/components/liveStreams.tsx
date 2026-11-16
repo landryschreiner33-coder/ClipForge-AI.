@@ -13,10 +13,12 @@ const linesOf = (text: string) => text.split(/\r?\n/).map(line => line.trim()).f
 /**
  * Live streams (#/missions/live): add one or several stream links, each recorded and clipped while it is live, with
  * the same per-input "Make & upload" request as a video. Every stream keeps its own recording, clips and uploads;
- * "Stop recording" finishes what was recorded and keeps everything made so far.
+ * "Stop recording" finishes what was recorded and keeps the uploads made so far (the full-recording check may still
+ * swap a live clip nobody approved for a clearly better cut of the same moment).
  */
-export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, refreshStatus }: {
-  timezone: string; stopped: boolean; enabled: boolean; gapMinutes: number; refreshStatus: () => void;
+export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, maxGb, maxMinutes, refreshStatus }: {
+  timezone: string; stopped: boolean; enabled: boolean; gapMinutes: number; maxGb: number; maxMinutes: number;
+  refreshStatus: () => void;
 }) {
   const { data: setup, error: setupError, refresh: reloadSetup } = usePoll(submissions.setup, [], 30000, () => true);
   const { data, error, refresh } = usePoll(submissions.live, [], 3000, () => true);
@@ -107,7 +109,11 @@ export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, re
             onChange={event => { setText(event.target.value); choice.setAgreed(false); }} />
           <span className="hint" id={`${id}-links-help`}>A Twitch or Kick channel, a YouTube live video or a channel's
             live page (youtube.com/@name/live), or a public .m3u8 stream. A channel that is not live yet is recorded
-            when it starts (ClipForge waits up to a day). Login-only and protected streams cannot be recorded.</span>
+            when it starts (ClipForge waits up to a day). Login-only and protected streams cannot be recorded.
+            Each stream is recorded for at most {maxMinutes % 60 === 0 ? plural(maxMinutes / 60, "hour")
+              : plural(maxMinutes, "minute")} or {maxGb} GB, whichever comes first (Largest source in <a
+              className="textlink" href="#/settings/advanced">Settings → Advanced</a>); then ClipForge stops recording,
+            even if the stream is still live, and finishes the clips from what was recorded.</span>
           {bad.length > 0 && <span className="error-text">Use links starting with https:// or http://
             ({plural(bad.length, "line needs", "lines need")} fixing).</span>}
           {tooMany && <span className="error-text">Add at most {MAX_LINKS} streams at a time.</span>}
@@ -147,11 +153,18 @@ export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, re
     {confirmStop && <ConfirmDialog title="Stop recording this stream?" confirmLabel="Stop recording"
       onClose={() => setConfirmStop(null)} onConfirm={() => act(confirmStop, "finish")}>
       <p>ClipForge stops recording “{confirmStop.title || "this stream"}”, then checks the full recording for
-        moments it missed. The clips made so far{confirmStop.submission.auto_upload ? " and their uploads" : ""} stay.
-        This cannot be resumed: add the link again to record more.</p>
+        moments it missed. The clips made so far{confirmStop.submission.auto_upload ? " and their uploads" : ""} stay,
+        except that the check of the full recording may swap a live clip that is not approved, uploading or uploaded
+        for a clearly better cut of the same moment. {canAddAgain(confirmStop)
+          ? "This cannot be resumed: once it has stopped, add the link again to record from then on."
+          : "This cannot be resumed, and this video link cannot be added again."}</p>
     </ConfirmDialog>}
   </section>;
 }
+
+/** Only a channel page or a stream address can be added again for a later broadcast (submissions._finished_broadcast);
+ * a YouTube video link names one broadcast and is refused as already added. */
+const canAddAgain = (item: LiveStream) => item.platform === "url" || item.platform === "stream";
 
 function streamState(item: LiveStream): [Tone, IconName, string] {
   const live = item.live;
@@ -188,7 +201,7 @@ function StreamRow({ item, timezone, disabled, act }: {
             {p.posts_failed > 0 && ` · ${p.posts_failed} need attention`}</>}</p>
         <p className="tiny faint">Added {when(item.submission.created_at || item.added_at, timezone)}
           {item.submission.auto_upload ? ` · YouTube ${item.submission.privacy === "public" ? "Public" : "Private"}`
-            : " · Clips stay on this computer"}{ended && " · Add the link again for the channel's next stream"}</p>
+            : " · Clips stay on this computer"}{ended && canAddAgain(item) && " · Add the link again to record its next stream"}</p>
       </div>
       <Pill tone={tone} icon={icon} className={item.live.recording ? "pulse" : ""}>{word}</Pill>
     </div>

@@ -189,8 +189,10 @@
       ClipFoundry stores no list of viewers or followers</td><td>Until you delete the data folder</td></tr>
     <tr><td>Autopilot records</td><td>Your topics; the video links and files you add, their queue order,
       progress, cancellation and retry records; which videos it used or skipped and why. What an older version that
-      searched for videos recorded stays as it is (this version no longer searches or watches anything): the
-      folders, channels, live streams and lists you asked it to watch, the names and locations of video files it
+      searched for videos recorded stays as it is (this version no longer searches for videos or watches folders,
+      channels or lists for new ones; a stream link you add is checked until it goes live, every few minutes for up
+      to a day after you added it, and is recorded while it is live): the folders, channels, live streams and lists
+      you asked it to watch, the names and locations of video files it
       found in your folders, and the public titles, links, channel names and statistics of videos it found online.
       Also permissions and creator
       agreements you recorded; shortlist admission and hold/filter reasons; the automatic-publishing permission
@@ -563,13 +565,19 @@
       (https), with the key you saved if you set one, along with checks of its status, its graphics card and memory,
       and which model files it has. That computer is run by the company you rent it from (for example RunPod), and
       what it keeps stays there until you delete it (section 2)</td></tr>
-    <tr><td>YouTube, TikTok and other video sites</td><td>You explicitly submit a public video link</td><td>Requests
-      to identify and download the supplied media. These downloads use the guarded importer,
-      not the sites' official APIs, and do not use browser cookies or bypass login/protection</td></tr>
+    <tr><td>YouTube, TikTok and other video sites (including Twitch and Kick live streams)</td><td>You explicitly
+      submit a public video or stream link. For a live stream, while Autopilot is on, also by itself: every few
+      minutes until the stream starts (for up to a day after you added it), throughout the recording, including
+      reconnects and checks for a few minutes after the stream drops, and, for a link to a single broadcast that
+      ended before anything was recorded, up to 8 tries over up to 6 hours to download its public
+      recording</td><td>Requests to identify and download the supplied media, and for a live stream, to read the
+      stream for as long as it is recorded (up to the configured source length and size). Downloads use the guarded
+      importer and live streams from these sites go through ClipFoundry's own guarded local relay, not the sites'
+      official APIs; neither uses browser cookies or bypasses login/protection</td></tr>
     <tr><td>The Python Package Index and other download sites</td><td>When ClipFoundry is installed or updated</td>
       <td>Requests to download the software parts it needs</td></tr>
-    <tr><td>Addresses you give it</td><td>You import a video from a link</td><td>Requests to that address, to read
-      or download what you asked for</td></tr>
+    <tr><td>Addresses you give it</td><td>You import a video or record a live stream from a link (a stream for as
+      long as it is recorded)</td><td>Requests to that address, to read or download what you asked for</td></tr>
   </tbody>
 </table></div>
 <p>Nothing is sent to us. We don't sell, rent or share your information, and we don't use it for advertising.</p>
@@ -738,8 +746,11 @@
     ClipForge's own ComfyUI's <code>input</code> folder have no delete button; they go with the data folder. With
     the ComfyUI app (or a ComfyUI address you typed), the pictures it was given to animate and the pictures and clips
     it saved stay in that ComfyUI's folders until you delete them there.</li>
-  <li><b>Watched channels and permissions:</b> Autopilot no longer looks for any channel's new videos. You can
-    still remove a channel or its permission an older version recorded (Autopilot → Permissions &amp; sources).</li>
+  <li><b>Watched channels and permissions:</b> Autopilot no longer watches channels for new videos. A channel link
+    you add yourself (Missions → Live streams) stands for one broadcast: if the channel is not live yet, ClipFoundry
+    checks it every few minutes until it goes live, for up to a day after you added it, and records only that
+    broadcast; add the link again for a later one. You can still remove a channel or its permission an older version
+    recorded (Autopilot → Permissions &amp; sources).</li>
   <li><b>Optional services:</b> choose which Find media sources to use, or remove your Pexels key, in
     Settings → Media sources; set AI scoring back to "Local" in Settings → Advanced. Settings → Integrations → NVIDIA AI → Disconnect removes
     the NVIDIA key and your agreement and turns NVIDIA AI off.</li>

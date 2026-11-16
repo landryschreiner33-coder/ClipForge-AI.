@@ -90,7 +90,7 @@ export function UploadChoice({ choice, setup, id, what, count = 1 }: {
           <a className="textlink small" href="#/settings">Change account or audience<Icon name="chev" className="sm" /></a>
         </div>
         {!setup.can_upload && <Banner tone="warn" title="Finish YouTube setup first">
-          {setup.blocker || "Connect YouTube and confirm who may watch new uploads in Settings."}
+          {setup.blocker || "Connect YouTube and confirm who may watch new uploads in Settings."}{" "}
           <a className="textlink" href="#/settings">Open account settings</a>
         </Banner>}
       </>}
