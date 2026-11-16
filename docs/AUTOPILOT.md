@@ -128,8 +128,14 @@ It covers that one broadcast only, never the channel's later streams.
   it passes, and later ones at least **Minimum gap** apart (30 minutes by default) per YouTube account, shared by all
   streams. A live clip that is approved, uploading or uploaded is never replaced by a better post-live cut.
 - **Stop recording** (on the stream's card, with a confirmation) stops the recorder, joins what was recorded and
-  analyzes it like an ended stream; the clips and uploads made so far stay. Before anything was recorded it ends the
-  input. It works while Autopilot is paused, and never contacts the platform. **Cancel stream** still cancels.
+  analyzes it like an ended stream; the uploads made so far stay, and so do the live clips, except that the
+  full-recording check may swap one nobody approved for a clearly better cut of the same moment (see above). Before
+  anything was recorded it ends the input. It works while Autopilot is paused, and never contacts the platform.
+  **Cancel stream** still cancels. The dialog says that a YouTube video link cannot be added again; the stream's card
+  offers "Add the link again" only for channel pages and stream addresses (`submissions._finished_broadcast`).
+- **Recording limits.** Every live recording stops at **Largest source** (Settings → Advanced; 8 GB and 240 minutes
+  by default), even while the stream is still live, and is then finished like an ended stream (shown as Stopped).
+  The Live streams page names the owner's current limits under the link box.
 - **One broadcast per input.** A channel that goes offline after recording started gets 5 minutes' grace (a dropped
   connection), then the recording is finished. If a channel page shows a different broadcast (a new broadcast id, or
   a gap of more than 5 minutes that cannot be shown to be the same broadcast), the recorded one is finished and not

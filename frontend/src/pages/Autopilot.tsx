@@ -37,8 +37,9 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
     <div className="page">
       {/* Autopilot only works on the videos you add (discovery is retired); review mode decides what may upload. */}
       <PageHead title="Missions" sub={st.settings.autopilot_review_before_publish !== false
-        ? "Add a video link or file. Brain guides the edits; nothing uploads until you review and approve each post."
-        : "Add a video link or file. Brain guides the edits; passing clips can upload automatically to your chosen YouTube account."} />
+        ? "Add a video or a live stream. Brain guides the edits. With Make & upload clips, passing clips upload to "
+          + "YouTube automatically; every other post waits until you review and approve it."
+        : "Add a video or a live stream. Brain guides the edits; passing clips can upload automatically to your chosen YouTube account."} />
       {st.paused && <StoppedBanner refresh={refresh} />}
       <LinkTabs label="Missions sections" current={advanced ? "system" : slug || "overview"} tabs={[
         { id: "overview", href: "#/missions", label: "Overview" },
@@ -49,7 +50,9 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
       ]} />
       {advanced ? <AdvancedView which={slug} st={st} refresh={refresh} />
         : slug === "live" ? <LiveStreams timezone={st.timezone} stopped={st.paused} enabled={st.enabled}
-          gapMinutes={Number(st.settings.autopilot_min_gap_minutes ?? 30)} refreshStatus={refresh} />
+          gapMinutes={Number(st.settings.autopilot_min_gap_minutes ?? 30)}
+          maxGb={Number(st.settings.autopilot_max_source_gb || 8)}
+          maxMinutes={Number(st.settings.autopilot_max_source_minutes || 240)} refreshStatus={refresh} />
         : slug === "activity" ? <ActivityView st={st} refresh={refresh} />
           : slug === "sources" ? <SourcesView st={st} refreshStatus={refresh} />
             : <Overview st={st} lost={lost} since={since} refresh={refresh} setData={setData} />}

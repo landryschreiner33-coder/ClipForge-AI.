@@ -89,7 +89,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
             options={[{ value: "separate", label: "Own process" }, { value: "in_app", label: "Inside the app" }]} />
         </SettingRow>
         <SettingRow label="Largest source"
-          hint="Bounded file-size and duration checks for the videos you add."
+          hint="Bounded file-size and duration checks for the videos you add. A live stream stops recording when it reaches either limit."
           group>
           <div className="inline-fields small">
             <NumInput k="autopilot_max_source_gb" c={c} label="Largest source in GB" step={0.5} width={100} />
