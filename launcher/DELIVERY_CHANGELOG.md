@@ -1,5 +1,14 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-16: clip live streams while they are live (ClipForge 2026.11.16)
+
+The setup ZIP now installs source commit `f3aea380648201cb39d3339fc39c45d021f9c84f`: the 2026.11.13.2 release plus
+PR #52 (clip live streams while they are live, several at once, with uploads during the stream) and PR #53 (the
+live-stream texts in the app, the privacy page and the Terms corrected, and the Mac release notes). start.bat is
+unchanged, so its pin and upgrade fixtures are the same. 77 launcher tests passed. All 872 app files equal the Git
+tree except the six declared BAT CRLF exports. The Windows install check now installs the 2026.11.13.2 release
+(78c0601, raw/dd6958b) first, then this one over it.
+
 ## 2026-11-13, second build: pictures and video on a rented cloud computer (ClipForge 2026.11.13.2)
 
 The setup ZIP now installs source commit `78c060152d2004f860fabf31b90dafab78c390ba`: the 2026.11.13 release plus
