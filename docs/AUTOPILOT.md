@@ -141,15 +141,18 @@ It covers that one broadcast only, never the channel's later streams.
   transcribed on a later turn (`Wait("gpu")`); the recorder keeps recording. An unreadable minute stays on the
   timeline and is transcribed in the full-recording pass. Joining places every minute by its recorded length (the
   recorder's segment list), not its file's length, which with stream copy runs some 40-70 ms past each cut and would
-  add up to seconds over a long stream. It leaves out a minute FFmpeg cannot open and keeps its time as a gap, so
+  add up to seconds over a long stream; each minute but the last also ends there, so media past it (sound after a
+  stalled picture) never overlaps the next minute. When some minutes have no sound, the picture is still joined by
+  stream copy and the sound is rebuilt minute by minute exactly as each was heard live, then encoded once. It leaves
+  out a minute FFmpeg cannot open and keeps its time as a gap, so
   every later time still matches (FFmpeg would otherwise skip it and still report success); a minute found broken
   only then is transcribed again in the full-recording pass. A join that FFmpeg still cuts short, or a recording
   whose first minute cannot be read, stops with a clear reason and keeps the live clips. A moment whose plan or render failed is not tried again on
   every later minute. The recording size limit (also through the stream relay) and a recorder that keeps failing
   after minutes were saved finish with what was recorded instead of failing. A dropped connection after recording
-  reconnects without using an attempt. A stream that starts reserves the remaining recording size of the streams
-  already recording on disk; a reconnect skips only the streams whose room was checked together with it, so a stream
-  that started while it had no recorder is counted when it comes back. **Stop all jobs** holds recordings (the recorder stops;
+  reconnects without using an attempt. A stream that starts or reconnects reserves the remaining recording size of
+  the streams still recording on disk (room checked earlier may since have been taken, for example by a stream that
+  started while this one had no recorder). **Stop all jobs** holds recordings (the recorder stops;
   nothing is canceled); **Resume** continues them from their saved minutes, including a held full-recording analysis.
   A turn that was still running when Resume was pressed ends held and the worker supervisor continues it within
   30 seconds. A turn that ends with a retry or a crash after Stop all jobs (or Cancel, or its time limit) arrived is

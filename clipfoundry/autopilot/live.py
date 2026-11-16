@@ -393,8 +393,6 @@ class Capture:
 
 _captures: dict[tuple[str, str], Capture] = {}
 _capture_lock = threading.Lock()
-# Pairs of streams (capture keys) whose remaining recording room was checked together when one of them started.
-_room_shared: set[frozenset] = set()
 
 
 def _capture_key(source_id: str) -> tuple[str, str]:
@@ -630,16 +628,20 @@ def _concat_listing(sess: Session, segs: list[dict], paths: list[Path]) -> str:
 
     Every minute is placed by its recorded length (the recorder's segment list), which is the live timeline the
     transcript and clips use. Left to itself FFmpeg places each file by its container length, which with stream
-    copy runs some 40-70 ms past the cut, so a long recording would drift seconds away from its saved times. A
-    skipped minute keeps its place: the readable minute before it is declared long enough to cover it, and FFmpeg
-    leaves a gap there."""
+    copy runs some 40-70 ms past the cut, so a long recording would drift seconds away from its saved times. Each
+    minute but the last also ends at its recorded length: media a file holds past it (audio after a stalled
+    picture, encoder priming) would otherwise overlap the next minute, and FFmpeg squeezes the overlap without an
+    error. A skipped minute keeps its place: the readable minute before it is declared long enough to cover it,
+    and FFmpeg leaves a gap there."""
     bad = set(sess.unreadable)
     keep = [(seg, path) for seg, path in zip(segs, paths) if seg["name"] not in bad]
     lines = []
     for index, (seg, path) in enumerate(keep):
         quoted = path.as_posix().replace("'", "'\\''")  # the concat reader's quoting, as for filter paths
-        later = float(keep[index + 1][0]["start"]) if index + 1 < len(keep) else float(seg["end"])
-        lines.append(f"file '{quoted}'\nduration {later - float(seg['start']):.6f}\n")
+        last = index + 1 == len(keep)
+        later = float(seg["end"]) if last else float(keep[index + 1][0]["start"])
+        cut = "" if last else f"outpoint {float(seg['end']) - float(seg['start']):.6f}\n"
+        lines.append(f"file '{quoted}'\nduration {later - float(seg['start']):.6f}\n{cut}")
     return "".join(lines)
 
 
@@ -806,7 +808,12 @@ def finalize(sess: Session, *, cancel=None) -> Path | None:
 
 
 def _join_recording(sess: Session, cancel=None) -> str:
-    """Write source.mkv from the readable minutes. Returns what went wrong, or "" when it was written."""
+    """Write source.mkv from the readable minutes. Returns what went wrong, or "" when it was written.
+
+    When some minutes have no sound, the picture is still joined by stream copy, and the sound track is built
+    minute by minute exactly as each minute was heard live (the live transcription's own filter, padded or cut to
+    the minute's recorded length; silence for a minute without sound or one that cannot be read), then encoded
+    once. Sample-exact minutes never overlap or drift, which a per-minute AAC encode (with its priming) would."""
     bad = set(sess.unreadable)
     if sess.segments[0]["name"] in bad:
         # The joined file would start later than the live timeline, so no saved time would match it any more.
@@ -818,37 +825,45 @@ def _join_recording(sess: Session, cancel=None) -> str:
         paths = [sess.segdir / s["name"] for s in segs]
         mixed_audio = bool(sess.missing_audio) and \
             sum([s["start"], s["end"]] not in sess.missing_audio for s in segs) > 0
-        require_disk_space(sess.segdir, sum(path.stat().st_size for path in paths) * (2 if mixed_audio else 1))
+        # Mixed: each minute's sound as PCM (48 kHz stereo, 192 kB a second) until the whole is encoded once.
+        require_disk_space(sess.segdir, sum(path.stat().st_size for path in paths) +
+                           (int(192_000 * sess.offset) if mixed_audio else 0))
+        inputs = ["-f", "concat", "-safe", "0", "-i", str(sess.segdir / "all.txt")]
+        codecs = ["-c", "copy"]
         if mixed_audio:
-            paths = []
-            for index, segment in enumerate(segs):
+            sound = []
+            for index, segment in enumerate(sess.segments):
                 source = sess.segdir / segment["name"]
-                target = sess.segdir / f"joined-audio-{index:06d}.mkv"
-                duration = float(segment["end"]) - float(segment["start"])
-                missing = [segment["start"], segment["end"]] in sess.missing_audio
-                args = [ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-i", str(source)]
-                if missing:
-                    args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
-                args += ["-map", "0:v:0", "-map", "1:a:0" if missing else "0:a:0", "-c:v", "copy",
-                         "-c:a", "aac", "-ac", "2", "-ar", "48000", "-af", "aresample=async=1:first_pts=0,apad",
-                         "-t", f"{duration:.6f}", "-avoid_negative_ts", "make_zero", str(target)]
+                target = sess.segdir / f"joined-audio-{index:06d}.wav"
+                length = float(segment["end"]) - float(segment["start"])
                 temporary.append(target)
+                if segment["name"] in bad or [segment["start"], segment["end"]] in sess.missing_audio:
+                    args = ["-f", "lavfi", "-t", f"{length:.6f}", "-i",
+                            "anullsrc=channel_layout=stereo:sample_rate=48000"]
+                else:
+                    args = ["-i", str(source), "-map", "0:a:0", "-vn", "-sn", "-dn", "-af",
+                            f"aresample=48000:async=1:first_pts=0,apad=whole_dur={length:.6f},atrim=end={length:.6f}"]
                 try:
-                    run_process(args, check=True, cancel=cancel, timeout=max(600.0, duration * 20))
+                    run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", *args, "-ac",
+                                 "2", "-ar", "48000", "-c:a", "pcm_s16le", str(target)], check=True, cancel=cancel,
+                                timeout=max(600.0, length * 20))
                 except subprocess.CalledProcessError:
                     if not _opens(source, cancel):
                         return f"Impossible to open '{segment['name']}'"
                     raise
-                paths.append(target)
-        listing = sess.segdir / "all.txt"
-        listing.write_text(_concat_listing(sess, segs, paths), encoding="utf-8")
+                quoted = target.as_posix().replace("'", "'\\''")
+                sound.append(f"file '{quoted}'\n")
+            (sess.segdir / "sound.txt").write_text("".join(sound), encoding="utf-8")
+            inputs += ["-f", "concat", "-safe", "0", "-i", str(sess.segdir / "sound.txt")]
+            codecs = ["-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-ac", "2", "-ar", "48000"]
+        (sess.segdir / "all.txt").write_text(_concat_listing(sess, segs, paths), encoding="utf-8")
         out = sess.pdir / "source.mkv"
         assembled = sess.pdir / "assembly.tmp.mkv"
         temporary.append(assembled)
         try:
-            result = run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f",
-                                  "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(assembled)],
-                                 check=True, cancel=cancel, timeout=max(600.0, min(7200.0, sess.offset * 2)))
+            result = run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", *inputs,
+                                  *codecs, str(assembled)], check=True, cancel=cancel,
+                                 timeout=max(600.0, min(7200.0, sess.offset * 2)))
         except subprocess.CalledProcessError as exc:
             # A file FFmpeg cannot open at the start of the list stops the join with an error instead.
             bad = next((s["name"] for s in segs if not _opens(sess.segdir / s["name"], cancel)), "")
@@ -1161,13 +1176,12 @@ def _live_turn(job: Job) -> dict:
                         if src.get("local_path") else byte_budget)
             # Streams recording at the same time share the disk: reserve what the others may still write, so a
             # new stream waits to start rather than every stream stopping halfway when the disk fills up.
-            # A reconnect skips only the streams whose room was already checked together with this one (when either
-            # of them started). One that started while this stream had no recorder never counted it: count it now.
+            # A reconnect counts them too: what was checked when it started may since have been taken by a stream
+            # that started while it had no recorder (or by anything else on the disk). Their remaining room shrinks
+            # as they record, so a reconnect needs no more than its first start did.
             with _capture_lock:
-                others = [(k, c) for k, c in _captures.items() if k != key and c.proc.poll() is None]
-                if recorded > 0:
-                    others = [(k, c) for k, c in others if frozenset((k, key)) not in _room_shared]
-            reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for _, c in others)
+                others = [c for k, c in _captures.items() if k != key and c.proc.poll() is None]
+            reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
             require_disk_space(sess.segdir, max(1, expected) + reserved)
             state.resolve("disk:space")
             relays: list = []
@@ -1203,7 +1217,6 @@ def _live_turn(job: Job) -> dict:
                 raise
             with _capture_lock:
                 _captures[key] = capture
-                _room_shared.update(frozenset((k, key)) for k, _ in others)
             sess.offline_since = 0.0
             sess.alive_at = time.time()
             sess.save()

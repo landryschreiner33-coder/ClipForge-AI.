@@ -327,6 +327,10 @@ class WorkerHost:
         return False
 
     def _canceled(self, name: str, row: dict, token: str, job: Job) -> None:
+        if not job.timed_out:
+            # The time limit can be reached just before Stop all jobs; the heartbeat then passes on only the stop.
+            latest = queue.get(job.id) or {}
+            job.timed_out = latest.get("lease_owner") == token and latest.get("cancel_requested") == 2
         if job.timed_out:
             queue.fail(row, token, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
                        "It will run again on the next cycle; check the log if this repeats.")

@@ -256,7 +256,9 @@ def backoff(attempts: int, base: float = 30.0, cap: float = 3600.0) -> float:
 def retry_or_fail(job: dict, owner: str, error: str, fix: str = "", delay: float | None = None) -> str:
     """A transient failure: retry with backoff while attempts remain. Returns the new status."""
     if job["attempts"] >= job["max_attempts"]:
-        fail(job, owner, f"{error} (gave up after {job['attempts']} attempts)", fix)
+        # Cancel, Stop all jobs or the time limit win over running out of attempts, too: the caller cancels instead.
+        if not fail(job, owner, f"{error} (gave up after {job['attempts']} attempts)", fix, unless_canceled=True):
+            return ""
         return "failed"
     wait_s = backoff(job["attempts"]) if delay is None else delay
     # A retrying row with a cancel request could never be claimed again: refused, and the caller cancels instead.
@@ -268,8 +270,9 @@ def retry_or_fail(job: dict, owner: str, error: str, fix: str = "", delay: float
     return "retrying"
 
 
-def fail(job: dict, owner: str, error: str, fix: str = "") -> bool:
-    ok = _finish(job, owner, status="failed", error=error[:2000], fix=fix, message="Failed", finished_at=_now())
+def fail(job: dict, owner: str, error: str, fix: str = "", *, unless_canceled: bool = False) -> bool:
+    ok = _finish(job, owner, unless_canceled=unless_canceled, status="failed", error=error[:2000], fix=fix,
+                 message="Failed", finished_at=_now())
     if ok:
         log_line(job["id"], job["worker"], "error", "failed", error, fix=fix)
         latest = db.fetch("worker_jobs", job["id"]) or job

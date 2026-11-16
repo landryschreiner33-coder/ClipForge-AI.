@@ -637,39 +637,10 @@ def test_stop_all_reaching_the_turn_before_the_watchdog_is_still_a_hold(data, re
     assert recorder.made[-1].stopped_reason == "canceled"
 
 
-def test_reconnecting_needs_only_its_own_room_on_the_disk(data, recorder, monkeypatch):
-    """Streams recording at once reserve each other's room when a stream starts. A stream that reconnects already
-    had its room reserved; asking for the others' room again would stop it on a disk that has space for all."""
-    from clipfoundry import db
-    from clipfoundry.autopilot import hunter, live, queue
-
-    db.save_settings({"autopilot_max_source_gb": 1})
-    asked = []
-    monkeypatch.setattr(live, "require_disk_space", lambda path, need=0: asked.append(need))
-    broadcasts(monkeypatch, "b1")
-    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
-    first = turn_job(going_live(add_live()), host)
-    with pytest.raises(queue.Wait, match="Watching live"):
-        live.live_capture(first)
-    second = turn_job(going_live(add_live("https://kick.com/otherstreamer")), host)
-    asked.clear()
-    with pytest.raises(queue.Wait, match="Watching live"):
-        live.live_capture(second)
-    budget = hunter.max_source_bytes(db.get_settings())
-    assert asked == [2 * budget]  # its own room and the first stream's
-    rec = recorder.made[-1]
-    rec.minute()
-    rec.exit(1, "Connection reset by peer")
-    asked.clear()
-    while len(recorder.made) < 3:
-        with pytest.raises(queue.Wait):
-            live.live_capture(second)
-    assert asked == [budget]
-
-
 def test_a_stream_coming_back_counts_a_stream_that_started_while_it_was_away(data, recorder, monkeypatch):
     """A's connection drops (no recorder for a while); B starts meanwhile and reserves nothing for A. When A comes
-    back it must count B's remaining room, or both may stop halfway when the disk fills up."""
+    back it must count B's remaining room, or both may stop halfway when the disk fills up. Every reconnect counts
+    the streams still recording: room checked earlier may since have been taken."""
     from clipfoundry import db
     from clipfoundry.autopilot import hunter, live, queue
 
@@ -706,7 +677,7 @@ def test_a_stream_coming_back_counts_a_stream_that_started_while_it_was_away(dat
     while len(recorder.made) < 4:
         with pytest.raises(queue.Wait):
             live.live_capture(first)
-    assert asked == [budget]  # checked together once: a later reconnect needs only its own room
+    assert asked == [2 * budget]  # still counting the stream that is recording
 
 
 def test_relay_size_limit_and_running_out_of_attempts_finish_instead_of_failing(data, recorder, monkeypatch):
@@ -886,52 +857,104 @@ def _beeps(wav):
     return out
 
 
-@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
-def test_the_joined_recording_keeps_the_live_timeline_over_many_minutes(tmp_path):
-    """Stream copy leaves each minute file some 40-70 ms longer than its cut (B-frames, audio past the keyframe).
-    Placed by container length, every later moment of a long recording would drift away from the live transcript
-    and clip times. Placed by the recorder's own lengths, a beep heard live at a time is at that time in the join.
-    The folder name has an apostrophe, which the concat reader's quoting must survive."""
+def _beep_minutes(folder, seconds=40, cut=4, short=0.0):
+    """A stream with a beep every second (H.264 with B-frames, AAC), recorded the recorder's way: stream copy into
+    segments with a CSV list of their lengths. Returns the minutes on the live timeline (each `short` seconds
+    shorter than its file, as when a picture stalls) and the beep times as heard live, minute by minute."""
     import csv
+    import subprocess
+
+    from clipfoundry.pipeline.ffmpeg_utils import extract_audio, ffmpeg_bin
+
+    beep = "aevalsrc='if(lt(mod(t\\,1)\\,0.05)\\,0.8*sin(2*PI*1000*t)\\,0)':s=48000"
+    subprocess.run([ffmpeg_bin(), "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=30",
+                    "-f", "lavfi", "-i", beep, "-t", str(seconds), "-c:v", "libx264", "-g", "60", "-bf", "3",
+                    "-c:a", "aac", "-f", "mpegts", str(folder / "stream.ts")], check=True)
+    subprocess.run([ffmpeg_bin(), "-loglevel", "error", "-nostdin", "-i", str(folder / "stream.ts"), "-map", "0:v:0?",
+                    "-map", "0:a:0?", "-c", "copy", "-f", "segment", "-segment_time", str(cut), "-reset_timestamps",
+                    "1", "-segment_list", str(folder / "run1.csv"), "-segment_list_type", "csv",
+                    str(folder / "r001_%05d.mkv")], check=True)
+    segments, heard = [], []
+    for name, start, end in csv.reader(open(folder / "run1.csv", encoding="utf-8")):
+        offset = segments[-1]["end"] if segments else 0.0
+        length = float(end) - float(start) - short
+        extract_audio(folder / name, folder / (name + ".wav"), length)  # as each minute is transcribed live
+        heard.append([offset + t for t in _beeps(folder / (name + ".wav"))])
+        segments.append({"name": name, "start": offset, "end": offset + length})
+    return segments, heard
+
+
+def _join_listing(folder, segments):
     import subprocess
 
     from clipfoundry.autopilot import live
     from clipfoundry.pipeline.ffmpeg_utils import extract_audio, ffmpeg_bin
 
-    folder = tmp_path / "O'Neil's streams"
-    folder.mkdir()
-    beep = "aevalsrc='if(lt(mod(t\\,1)\\,0.05)\\,0.8*sin(2*PI*1000*t)\\,0)':s=48000"
-    subprocess.run([ffmpeg_bin(), "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=30",
-                    "-f", "lavfi", "-i", beep, "-t", "40", "-c:v", "libx264", "-g", "60", "-bf", "3", "-c:a", "aac",
-                    "-f", "mpegts", str(folder / "stream.ts")], check=True)
-    # The recorder's own command shape: stream copy into segments with a CSV list of their lengths.
-    subprocess.run([ffmpeg_bin(), "-loglevel", "error", "-nostdin", "-i", str(folder / "stream.ts"), "-map", "0:v:0?",
-                    "-map", "0:a:0?", "-c", "copy", "-f", "segment", "-segment_time", "4", "-reset_timestamps", "1",
-                    "-segment_list", str(folder / "run1.csv"), "-segment_list_type", "csv",
-                    str(folder / "r001_%05d.mkv")], check=True)
-    segments, heard = [], []
-    for name, start, end in csv.reader(open(folder / "run1.csv", encoding="utf-8")):
-        offset = segments[-1]["end"] if segments else 0.0
-        length = float(end) - float(start)
-        extract_audio(folder / name, folder / (name + ".wav"), length)  # as each minute is transcribed live
-        heard += [offset + t for t in _beeps(folder / (name + ".wav"))]
-        segments.append({"name": name, "start": offset, "end": offset + length})
-    assert len(segments) >= 9
     listing = live._concat_listing(SimpleNamespace(unreadable=[]), segments, [folder / s["name"] for s in segments])
-    assert listing.count("\nduration ") == len(segments) and "O'\\''Neil'\\''s" in listing
     (folder / "all.txt").write_text(listing, encoding="utf-8")
     result = subprocess.run([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat",
                              "-safe", "0", "-i", str(folder / "all.txt"), "-c", "copy", str(folder / "joined.mkv")],
                             capture_output=True)
     assert result.returncode == 0 and not live._join_problem(result), result.stderr
     extract_audio(folder / "joined.mkv", folder / "joined.wav", segments[-1]["end"])
-    joined = _beeps(folder / "joined.wav")
+    return listing, _beeps(folder / "joined.wav")
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
+def test_the_joined_recording_keeps_the_live_timeline_over_many_minutes(tmp_path):
+    """Stream copy leaves each minute file some 40-70 ms longer than its cut (B-frames, audio past the keyframe).
+    Placed by container length, every later moment of a long recording would drift away from the live transcript
+    and clip times. Placed by the recorder's own lengths, a beep heard live at a time is at that time in the join.
+    The folder name has an apostrophe, which the concat reader's quoting must survive."""
+    folder = tmp_path / "O'Neil's streams"
+    folder.mkdir()
+    segments, heard = _beep_minutes(folder)
+    heard = [t for minute in heard for t in minute]
+    assert len(segments) >= 9
+    listing, joined = _join_listing(folder, segments)
+    assert listing.count("\nduration ") == len(segments) and listing.count("\noutpoint ") == len(segments) - 1
+    assert "O'\\''Neil'\\''s" in listing
     assert len(joined) == len(heard) >= 35
     # A minute's own start can differ by a frame or a few audio packets; it must never add up. Placed by container
     # length, this recording was 0.4 s off by its tenth minute (about 45 ms more at every join).
     off = [b - a for a, b in zip(heard, joined)]
     assert max(abs(d) for d in off) < 0.15, off
     assert abs(off[-1] - off[8]) < 0.03, off  # the last minute is as close as the third
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
+def test_media_past_a_minutes_recorded_length_never_overlaps_the_next_minute(tmp_path):
+    """When the picture stalls, a minute file can hold more than its recorded length. That tail is not on the live
+    timeline; overlapping the next minute, FFmpeg would squeeze the next minute's start (without an error) and the
+    joined file would no longer play what the live transcript says is there."""
+    segments, heard = _beep_minutes(tmp_path, short=0.3)
+    heard = [t for minute in heard for t in minute]
+    _, joined = _join_listing(tmp_path, segments)
+    assert len(joined) == len(heard), (heard, joined)
+    assert max(abs(b - a) for a, b in zip(heard, joined)) < 0.15
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
+def test_a_recording_with_minutes_without_sound_keeps_every_minute_exact(data):
+    """Minutes without sound get silence, so every minute's sound is rebuilt before joining. Rebuilt as AAC, each
+    minute would carry the encoder's priming into the next, and the full-recording pass would hear chunks dropped."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import live
+    from clipfoundry.pipeline.ffmpeg_utils import extract_audio
+
+    src = going_live(add_live())
+    sess = live.Session(src, db.get_settings())
+    segments, heard = _beep_minutes(sess.segdir)
+    sess.segments, sess.offset = segments, segments[-1]["end"]
+    sess.missing_audio = [[segments[0]["start"], segments[0]["end"]]]  # the first minute had no sound
+    out = live.finalize(sess)
+    extract_audio(out, sess.segdir / "joined.wav", sess.offset)
+    joined = _beeps(sess.segdir / "joined.wav")
+    later = [t for minute in heard[1:] for t in minute]
+    assert len(joined) == len(later) >= 30, (later, joined)
+    off = [b - a for a, b in zip(later, joined)]
+    # One encode of the whole sound: its priming shifts every minute alike, by one AAC frame at most.
+    assert max(abs(d) for d in off) < 0.05 and max(off) - min(off) < 0.01, off
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
@@ -1180,7 +1203,7 @@ def test_resume_pressed_before_a_running_turn_ends_still_continues_the_stream(da
     assert live.resume_held() == 0
 
 
-@pytest.mark.parametrize("ending", ["retry", "crash", "time limit"])
+@pytest.mark.parametrize("ending", ["retry", "crash", "time limit", "last attempt", "time limit, then stop all"])
 def test_a_turn_that_ends_in_a_retry_or_crash_after_stop_all_is_held_not_parked(data, monkeypatch, ending):
     """Stop all jobs (or the time limit) arrives while a turn is starting a recorder, and the turn then ends with a
     retry or a crash instead of noticing it. The job must not be left retrying with a stop request: no worker could
@@ -1194,21 +1217,24 @@ def test_a_turn_that_ends_in_a_retry_or_crash_after_stop_all_is_held_not_parked(
     monkeypatch.setattr("clipfoundry.publish.jobs.worker.cancel_all", lambda: 0)
 
     def turn(job):
-        if ending == "time limit":
+        if ending.startswith("time limit"):
             db.execute("UPDATE worker_jobs SET cancel_requested = 2 WHERE id = ?", (job.id,))
-        else:
+        if ending != "time limit":
             routes.stop_all()  # pressed while the stream address is being looked up
         if ending == "crash":
             raise OSError("the stream address lookup crashed")
+        if ending == "time limit, then stop all":
+            raise queue.Canceled()  # the heartbeat passes on Stop all, not the time limit
         raise queue.Retry("The platform answered with a temporary error")
 
     monkeypatch.setitem(host.HANDLERS, "live_capture", turn)
-    queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}", priority=80)
+    queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}", priority=80,
+                  max_attempts=1 if ending == "last attempt" else 5)
     worker_host = host.WorkerHost(workers=["live_monitor"], periodic=False)
     claim = queue.claim("live_monitor", "lane")
     worker_host._run("live_monitor", claim)
     row = queue.get(claim["id"])
-    if ending == "time limit":
+    if ending.startswith("time limit"):
         assert row["status"] == "failed" and "time limit" in row["error"]
         return
     assert row["status"] == "canceled" and row["wait_reason"] == queue.STOP_ALL
