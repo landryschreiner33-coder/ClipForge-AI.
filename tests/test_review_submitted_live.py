@@ -1406,3 +1406,125 @@ def test_live_streams_list_shows_each_stream_with_its_progress(data, recorder, m
     assert rows[one["id"]]["live"]["minutes"] == 1.0 and rows[one["id"]]["can_finish"]
     assert rows[one["id"]]["submission"]["auto_upload"] and not rows[two["id"]]["submission"]["auto_upload"]
     assert not rows[two["id"]]["live"]["recording"]
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
+def test_a_live_clip_right_after_a_minute_without_sound_keeps_its_sound(data):
+    """A live clip's window starts up to 3 s before the moment, so it can begin with a minute that had no sound.
+    Joined by stream copy, FFmpeg keeps only the tracks of the first file: the clip would be rendered silent."""
+    import subprocess
+
+    from clipfoundry import db
+    from clipfoundry.autopilot import live
+    from clipfoundry.pipeline.ffmpeg_utils import extract_audio, ffmpeg_bin, probe
+
+    src = going_live(add_live())
+    sess = live.Session(src, db.get_settings())
+    segments, heard = _beep_minutes(sess.segdir, seconds=16)
+    first = sess.segdir / segments[0]["name"]
+    subprocess.run([ffmpeg_bin(), "-y", "-loglevel", "error", "-i", str(first), "-map", "0:v", "-c", "copy",
+                    str(sess.segdir / "silent.mkv")], check=True)
+    (sess.segdir / "silent.mkv").replace(first)  # the first minute arrived without sound
+    assert not probe(first)["has_audio"]
+    sess.segments, sess.offset = segments, segments[-1]["end"]
+    sess.missing_audio = [[segments[0]["start"], segments[0]["end"]]]
+    start = segments[1]["start"] + 1.0
+    window, shift = live._window_file(sess, start, start + 2.0)
+    assert shift == 0.0 and probe(window)["has_audio"]
+    extract_audio(window, sess.segdir / "window.wav", segments[2]["end"])
+    joined = _beeps(sess.segdir / "window.wav")
+    later = [t for minute in heard[1:3] for t in minute]
+    assert len(joined) == len(later) >= 7, (later, joined)
+    assert max(abs(b - a) for a, b in zip(later, joined)) < 0.05
+    assert not list(sess.segdir.glob("window-audio-*")) and not (sess.segdir / "window.tmp.mkv").exists()
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
+def test_a_minute_with_other_sound_settings_is_joined_at_the_right_speed(data):
+    """A reconnect can bring other sound settings (sample rate, channels). A stream copy keeps the first minute's
+    settings for the whole recording, so that minute would play too fast and its words would no longer match."""
+    import subprocess
+
+    from clipfoundry import db
+    from clipfoundry.autopilot import live
+    from clipfoundry.pipeline.ffmpeg_utils import extract_audio, ffmpeg_bin
+
+    src = going_live(add_live())
+    sess = live.Session(src, db.get_settings())
+    segments, heard = _beep_minutes(sess.segdir, seconds=16)
+    other = sess.segdir / segments[2]["name"]
+    subprocess.run([ffmpeg_bin(), "-y", "-loglevel", "error", "-i", str(other), "-map", "0", "-c:v", "copy", "-c:a",
+                    "aac", "-ar", "44100", "-ac", "1", str(sess.segdir / "other.mkv")], check=True)
+    (sess.segdir / "other.mkv").replace(other)
+    length = segments[2]["end"] - segments[2]["start"]
+    extract_audio(other, sess.segdir / "other.wav", length)  # as this minute was heard live
+    heard[2] = [segments[2]["start"] + t for t in _beeps(sess.segdir / "other.wav")]
+    sess.segments = [{**s, "sound": live._sound_of(sess.segdir / s["name"])} for s in segments]
+    assert {s["sound"] for s in sess.segments} == {"aac,48000,1", "aac,44100,1"}
+    sess.offset = segments[-1]["end"]
+    out = live.finalize(sess)
+    extract_audio(out, sess.segdir / "joined.wav", sess.offset)
+    joined = _beeps(sess.segdir / "joined.wav")
+    every = [t for minute in heard for t in minute]
+    assert len(joined) == len(every) >= 14, (every, joined)
+    assert max(abs(b - a) for a, b in zip(every, joined)) < 0.05
+
+
+def test_two_streams_starting_together_count_each_other(data, recorder, monkeypatch):
+    """Two streams added together start on two live lanes at the same moment. While one looks up its stream
+    address it has no recorder yet; the other must still count its room, or both start on a disk with room for one
+    and both stop halfway when it fills up. A start that gives up frees its room."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import hunter, live, queue
+
+    db.save_settings({"autopilot_max_source_gb": 1})
+    asked = []
+    monkeypatch.setattr(live, "require_disk_space", lambda path, need=0: asked.append(need))
+    broadcasts(monkeypatch, "b1")
+    looked_up = live.input_args
+    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
+    first = turn_job(going_live(add_live()), host)
+    second = turn_job(going_live(add_live("https://kick.com/otherstreamer")), host)
+    third = turn_job(going_live(add_live("https://kick.com/thirdstreamer")), host)
+    budget = hunter.max_source_bytes(db.get_settings())
+
+    def lookup(src, settings, **kw):
+        if src["id"] == first.payload["source_id"] and len(asked) == 1:
+            with pytest.raises(queue.Wait, match="Watching live"):
+                live.live_capture(second)  # the other lane starts while this one is still looking up its stream
+            assert asked == [budget, 2 * budget]
+        if src["id"] == third.payload["source_id"]:
+            raise queue.Fail("The stream address could not be found")
+        return looked_up(src, settings, **kw)
+
+    monkeypatch.setattr(live, "input_args", lookup)
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(first)
+    assert asked == [budget, 2 * budget] and not live._starting
+    asked.clear()
+    with pytest.raises(queue.Fail):
+        live.live_capture(third)
+    assert asked == [3 * budget] and not live._starting  # the two recording, then nothing held for the failed start
+
+
+def test_your_cancel_after_the_time_limit_was_noticed_stays_a_cancel(data, monkeypatch):
+    """The heartbeat passed on the time limit, then you pressed Cancel before the turn stopped. A time-limit failure
+    would be run again later; your Cancel is final."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue
+
+    src = going_live(add_live())
+    db.execute("UPDATE worker_jobs SET status = 'completed'")
+
+    def turn(job):
+        db.execute("UPDATE worker_jobs SET cancel_requested = 2 WHERE id = ?", (job.id,))
+        job.timed_out = True  # what the heartbeat passed on
+        queue.cancel(job.id)
+        raise queue.Canceled()
+
+    monkeypatch.setitem(host.HANDLERS, "live_capture", turn)
+    queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}", priority=80)
+    worker_host = host.WorkerHost(workers=["live_monitor"], periodic=False)
+    claim = queue.claim("live_monitor", "lane")
+    worker_host._run("live_monitor", claim)
+    assert queue.get(claim["id"])["status"] == "canceled"

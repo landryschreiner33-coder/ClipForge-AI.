@@ -32,7 +32,7 @@ from ..pipeline import candidates as cand_mod
 from ..pipeline import blueprint, deep, hooks, postpack, process, render, scoring, transcribe, virality
 from ..pipeline.audio import Loudness, loudness_envelope
 from ..pipeline.common import JobContext, log, read_json, write_json
-from ..pipeline.ffmpeg_utils import NO_WINDOW, extract_audio, ffmpeg_bin, probe, run_process
+from ..pipeline.ffmpeg_utils import NO_WINDOW, extract_audio, ffmpeg_bin, ffprobe_bin, probe, run_process
 from ..pipeline.text_utils import build_sentences
 from . import queue, rights, state
 from .host import Job, handler
@@ -392,6 +392,7 @@ class Capture:
 
 
 _captures: dict[tuple[str, str], Capture] = {}
+_starting: dict[tuple[str, str], int] = {}  # disk room a stream reserved while its recorder is being started
 _capture_lock = threading.Lock()
 
 
@@ -513,6 +514,7 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
         except Exception as exc:  # noqa: BLE001
             log.warning("live minute %s audio could not be read: %s", name, exc)
             meta = {**meta, "unreadable": True}
+    sound = "" if meta.get("unreadable") or not meta.get("has_audio") else _sound_of(path, job.cancelled)
     if meta.get("unreadable"):
         # Kept on the timeline; the analysis of the full recording after the stream transcribes it again.
         sess.untranscribed.append([sess.offset, sess.offset + duration])
@@ -556,7 +558,8 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
                              for w in seg.get("words", [])]}
         sess.transcript["segments"].append(shifted)
     sess.transcript["language"] = sess.transcript.get("language") or t.get("language", "")
-    sess.segments.append({"name": name, "start": sess.offset, "end": sess.offset + duration})
+    sess.segments.append({"name": name, "start": sess.offset, "end": sess.offset + duration,
+                          **({"sound": sound} if sound else {})})
     sess.offset += duration
     sess.env += env
     sess.words = transcribe.flatten_words(sess.transcript)
@@ -567,6 +570,22 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     db.update_project(sess.project["id"], duration=sess.offset, message=message,
                       info={**(db.get_project(sess.project["id"]) or {}).get("info", {}), **sess.meta,
                             "missing_audio": sess.missing_audio})
+
+
+def _sound_of(path: Path, cancel=None) -> str:
+    """The minute's first sound track as "codec,sample rate,channels" ("" when unknown). A stream copy keeps the
+    first minute's sound settings for the whole join, so a minute recorded with other settings (a reconnect can
+    bring them) would play at the wrong speed there."""
+    try:
+        out = run_process([ffprobe_bin(), "-v", "error", "-select_streams", "a:0", "-show_entries",
+                           "stream=codec_name,sample_rate,channels", "-of", "csv=p=0", str(path)],
+                          timeout=60.0, cancel=cancel)
+    except queue.Canceled:
+        raise
+    except Exception:  # noqa: BLE001 - unknown settings only mean the join does not compare them
+        return ""
+    text = out.stdout.decode("utf-8", "replace") if isinstance(out.stdout, bytes) else (out.stdout or "")
+    return text.strip().splitlines()[0].strip() if out.returncode == 0 and text.strip() else ""
 
 
 def detect(sess: Session, job: Job) -> dict | None:
@@ -656,7 +675,8 @@ def _opens(path: Path, cancel=None) -> bool:
 
 
 def _window_file(sess: Session, start: float, end: float, *, cancel=None) -> tuple[Path, float]:
-    """The segments around [start, end] joined into one file (stream copy) and the time where it starts."""
+    """The segments around [start, end] joined into one file and the time where it starts (the full recording's
+    join: a silent neighbour minute first must not drop the moment's sound)."""
     bad = set(sess.unreadable)
     segs = [s for s in sess.segments if s["end"] > start - 3 and s["start"] < end + 3]
     if any(s["name"] in bad and s["end"] > start and s["start"] < end for s in segs):
@@ -664,15 +684,12 @@ def _window_file(sess: Session, start: float, end: float, *, cancel=None) -> tup
     segs = [s for s in segs if s["name"] not in bad]  # a neighbour minute that cannot be read is left out
     if not segs:
         raise ValueError("The recorded minutes around this moment could not be read")
-    paths = [sess.segdir / s["name"] for s in segs]
-    require_disk_space(sess.segdir, sum(path.stat().st_size for path in paths))
-    listing = sess.segdir / "window.txt"
-    listing.write_text(_concat_listing(sess, segs, paths), encoding="utf-8")
+    first, last = (next(i for i, s in enumerate(sess.segments) if s["name"] == seg["name"])
+                   for seg in (segs[0], segs[-1]))
     out = sess.segdir / "window.mkv"
-    result = run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat",
-                          "-safe", "0", "-i", str(listing), "-c", "copy", str(out)], check=True, cancel=cancel,
-                         timeout=max(600.0, end - start))
-    problem = _join_problem(result)
+    problem = _assemble(sess, segs, sess.segments[first:last + 1], out, cancel=cancel,
+                        timeout=max(600.0, end - start), listing="window.txt", sounds="window-sound.txt",
+                        audio="window-audio", assembled=sess.segdir / "window.tmp.mkv")
     if problem:
         raise ValueError(f"The recorded minutes around this moment could not be joined: {problem[:200]}")
     return out, segs[0]["start"]
@@ -808,33 +825,50 @@ def finalize(sess: Session, *, cancel=None) -> Path | None:
 
 
 def _join_recording(sess: Session, cancel=None) -> str:
-    """Write source.mkv from the readable minutes. Returns what went wrong, or "" when it was written.
-
-    When some minutes have no sound, the picture is still joined by stream copy, and the sound track is built
-    minute by minute exactly as each minute was heard live (the live transcription's own filter, padded or cut to
-    the minute's recorded length; silence for a minute without sound or one that cannot be read), then encoded
-    once. Sample-exact minutes never overlap or drift, which a per-minute AAC encode (with its priming) would."""
+    """Write source.mkv from the readable minutes. Returns what went wrong, or "" when it was written."""
     bad = set(sess.unreadable)
     if sess.segments[0]["name"] in bad:
         # The joined file would start later than the live timeline, so no saved time would match it any more.
         raise queue.Fail("The first recorded minute could not be read, so the full recording cannot be lined up "
                          "with the live clips.", KEPT)
     segs = [s for s in sess.segments if s["name"] not in bad]
-    temporary: list[Path] = []
+    return _assemble(sess, segs, sess.segments, sess.pdir / "source.mkv", cancel=cancel,
+                     timeout=max(600.0, min(7200.0, sess.offset * 2)))
+
+
+def _assemble(sess: Session, segs: list[dict], span: list[dict], out: Path, *, cancel=None, timeout: float,
+              listing: str = "all.txt", sounds: str = "sound.txt", audio: str = "joined-audio",
+              assembled: Path | None = None) -> str:
+    """Join the readable minutes `segs` of the recorded minutes `span` into `out`. Returns what went wrong, or ""
+    when it was written.
+
+    The picture is joined by stream copy, each minute placed by its recorded length. So is the sound, unless the
+    minutes do not share one sound: some had none (a stream copy keeps only the tracks of its first file, so sound
+    after a silent first minute would be dropped), or a reconnect changed its settings (the first minute's settings
+    would be used for all, playing the others at the wrong speed). Then the sound track is built minute by minute
+    exactly as each minute was heard live (the live transcription's own filter, padded or cut to the minute's
+    recorded length; silence for a minute without sound or one that cannot be read), and encoded once.
+    Sample-exact minutes never overlap or drift, which a per-minute AAC encode (with its priming) would."""
+    bad = set(sess.unreadable)
+    assembled = assembled or sess.pdir / "assembly.tmp.mkv"
+    temporary: list[Path] = [assembled]
     try:
         paths = [sess.segdir / s["name"] for s in segs]
-        mixed_audio = bool(sess.missing_audio) and \
-            sum([s["start"], s["end"]] not in sess.missing_audio for s in segs) > 0
+        readable = [s for s in span if s["name"] not in bad]
+        heard = [s for s in readable if [s["start"], s["end"]] not in sess.missing_audio]
+        mixed_audio = bool(heard) and (len(heard) < len(readable) or
+                                       len({s.get("sound") for s in heard} - {None, ""}) > 1)
         # Mixed: each minute's sound as PCM (48 kHz stereo, 192 kB a second) until the whole is encoded once.
+        length = float(span[-1]["end"]) - float(span[0]["start"])
         require_disk_space(sess.segdir, sum(path.stat().st_size for path in paths) +
-                           (int(192_000 * sess.offset) if mixed_audio else 0))
-        inputs = ["-f", "concat", "-safe", "0", "-i", str(sess.segdir / "all.txt")]
+                           (int(192_000 * length) if mixed_audio else 0))
+        inputs = ["-f", "concat", "-safe", "0", "-i", str(sess.segdir / listing)]
         codecs = ["-c", "copy"]
         if mixed_audio:
             sound = []
-            for index, segment in enumerate(sess.segments):
+            for index, segment in enumerate(span):
                 source = sess.segdir / segment["name"]
-                target = sess.segdir / f"joined-audio-{index:06d}.wav"
+                target = sess.segdir / f"{audio}-{index:06d}.wav"
                 length = float(segment["end"]) - float(segment["start"])
                 temporary.append(target)
                 if segment["name"] in bad or [segment["start"], segment["end"]] in sess.missing_audio:
@@ -853,17 +887,13 @@ def _join_recording(sess: Session, cancel=None) -> str:
                     raise
                 quoted = target.as_posix().replace("'", "'\\''")
                 sound.append(f"file '{quoted}'\n")
-            (sess.segdir / "sound.txt").write_text("".join(sound), encoding="utf-8")
-            inputs += ["-f", "concat", "-safe", "0", "-i", str(sess.segdir / "sound.txt")]
+            (sess.segdir / sounds).write_text("".join(sound), encoding="utf-8")
+            inputs += ["-f", "concat", "-safe", "0", "-i", str(sess.segdir / sounds)]
             codecs = ["-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-ac", "2", "-ar", "48000"]
-        (sess.segdir / "all.txt").write_text(_concat_listing(sess, segs, paths), encoding="utf-8")
-        out = sess.pdir / "source.mkv"
-        assembled = sess.pdir / "assembly.tmp.mkv"
-        temporary.append(assembled)
+        (sess.segdir / listing).write_text(_concat_listing(sess, segs, paths), encoding="utf-8")
         try:
             result = run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", *inputs,
-                                  *codecs, str(assembled)], check=True, cancel=cancel,
-                                 timeout=max(600.0, min(7200.0, sess.offset * 2)))
+                                  *codecs, str(assembled)], check=True, cancel=cancel, timeout=timeout)
         except subprocess.CalledProcessError as exc:
             # A file FFmpeg cannot open at the start of the list stops the join with an error instead.
             bad = next((s["name"] for s in segs if not _opens(sess.segdir / s["name"], cancel)), "")
@@ -1178,45 +1208,55 @@ def _live_turn(job: Job) -> dict:
             # new stream waits to start rather than every stream stopping halfway when the disk fills up.
             # A reconnect counts them too: what was checked when it started may since have been taken by a stream
             # that started while it had no recorder (or by anything else on the disk). Their remaining room shrinks
-            # as they record, so a reconnect needs no more than its first start did.
+            # as they record, so a reconnect needs no more than its first start did. Streams starting at the same
+            # moment (one per live lane) count each other as well: the check and this stream's reservation happen
+            # together, and the reservation lasts until its recorder is listed or the start gives up.
             with _capture_lock:
                 others = [c for k, c in _captures.items() if k != key and c.proc.poll() is None]
-            reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
-            require_disk_space(sess.segdir, max(1, expected) + reserved)
-            state.resolve("disk:space")
-            relays: list = []
-            broadcast: dict = {}
+                reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
+                reserved += sum(room for k, room in _starting.items() if k != key)
+                require_disk_space(sess.segdir, max(1, expected) + reserved)
+                _starting[key] = max(1, expected)
             try:
-                args = input_args(src, settings, public_relays=relays, byte_budget=max(1, byte_budget),
-                                  on_retry=lambda until: write_json(retry_path, {"until": until}), broadcast=broadcast)
-            except StreamEnded:
-                from .intake import channel_live_page
+                state.resolve("disk:space")
+                relays: list = []
+                broadcast: dict = {}
+                try:
+                    args = input_args(src, settings, public_relays=relays, byte_budget=max(1, byte_budget),
+                                      on_retry=lambda until: write_json(retry_path, {"until": until}),
+                                      broadcast=broadcast)
+                except StreamEnded:
+                    from .intake import channel_live_page
 
-                if channel_live_page(src.get("url") or "") and recorded <= 0:
-                    _offline(sess, src, recorded)  # the page still shows an earlier broadcast: wait for the next
-                db.update("sources", src["id"], live_status="ended")
-                raise queue.Wait("live", TURN_SECONDS, "Stream ended — recovering the full recording")
-            except StreamOffline:
-                _offline(sess, src, recorded)
-            except queue.Fail as exc:
-                db.update("sources", src["id"], status="needs_file", status_note=str(exc)[:300])
-                raise
-            if _other_broadcast(sess, src, broadcast, recorded):
-                for relay in relays:
-                    relay.close()
-                db.update("sources", src["id"], live_status="ended", status_note=(
-                    "The channel is showing a different broadcast now. The recorded one is being finished; add the "
-                    "link again to clip the new broadcast."))
-                raise queue.Wait("live", TURN_SECONDS, "Finishing the recorded broadcast")
-            try:
-                capture = Capture(sess, job, args, relays=relays)
-                capture.recorded_at_start = recorded
-            except BaseException:
-                for relay in relays:
-                    relay.close()
-                raise
-            with _capture_lock:
-                _captures[key] = capture
+                    if channel_live_page(src.get("url") or "") and recorded <= 0:
+                        _offline(sess, src, recorded)  # the page still shows an earlier broadcast: wait for the next
+                    db.update("sources", src["id"], live_status="ended")
+                    raise queue.Wait("live", TURN_SECONDS, "Stream ended — recovering the full recording")
+                except StreamOffline:
+                    _offline(sess, src, recorded)
+                except queue.Fail as exc:
+                    db.update("sources", src["id"], status="needs_file", status_note=str(exc)[:300])
+                    raise
+                if _other_broadcast(sess, src, broadcast, recorded):
+                    for relay in relays:
+                        relay.close()
+                    db.update("sources", src["id"], live_status="ended", status_note=(
+                        "The channel is showing a different broadcast now. The recorded one is being finished; add the "
+                        "link again to clip the new broadcast."))
+                    raise queue.Wait("live", TURN_SECONDS, "Finishing the recorded broadcast")
+                try:
+                    capture = Capture(sess, job, args, relays=relays)
+                    capture.recorded_at_start = recorded
+                except BaseException:
+                    for relay in relays:
+                        relay.close()
+                    raise
+                with _capture_lock:
+                    _captures[key] = capture
+                    _starting.pop(key, None)
+            finally:
+                with _capture_lock:
+                    _starting.pop(key, None)
             sess.offline_since = 0.0
             sess.alive_at = time.time()
             sess.save()

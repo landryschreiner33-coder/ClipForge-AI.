@@ -84,6 +84,8 @@ def test_live_skips_video_only_minute_and_transcribes_later_audio_once(data, mon
     assert not calls and not locks and sess.missing_audio == [[0, 1]] and sess.offset == 1
     live.process_segment(sess, "talk.mkv", 1.0, job)
     assert calls == [True] and locks == ["live transcription"] and sess.words[0]["start"] == pytest.approx(1.1)
+    # Each minute's sound settings are kept, so the final join notices a change (a reconnect can bring one).
+    assert "sound" not in sess.segments[0] and sess.segments[1]["sound"] == "aac,44100,1"
     again = live.Session(db.fetch("sources", src["id"]), db.get_settings())
     assert again.missing_audio == [[0, 1]] and again.done_names() == {"silent.mkv", "talk.mkv"}
     assert db.get_project(sess.project["id"])["info"]["has_audio"] is True
