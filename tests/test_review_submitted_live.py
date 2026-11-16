@@ -594,6 +594,49 @@ def test_a_pause_counts_the_stream_as_live_until_clipforge_stopped_it(data, reco
     assert len(recorder.made) == 2 and db.fetch("sources", src["id"])["live_status"] == "live"
 
 
+def test_stop_all_reaching_the_turn_before_the_watchdog_is_still_a_hold(data, recorder, monkeypatch):
+    """The supervisor's heartbeat can stop a turn (it raises Canceled while a minute is transcribed) before the
+    recorder's watchdog sees Stop all jobs. The recording is still held: paused, live until now, not canceled."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import live, queue, state
+
+    broadcasts(monkeypatch, "b1")
+    src = going_live(add_live())
+    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
+    job = turn_job(src, host)
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(job)
+    rec = recorder.made[-1]
+    rec.minute()
+
+    def stopped_by_the_heartbeat(sess, name, duration, turn):
+        raise queue.Canceled()
+
+    monkeypatch.setattr(live, "process_segment", stopped_by_the_heartbeat)
+    state.put("emergency_stop", True)
+    db.execute("UPDATE worker_jobs SET cancel_requested = 1, wait_reason = ? WHERE id = ?", (queue.STOP_ALL, job.id))
+    before = time.time()
+    with pytest.raises(queue.Canceled):
+        live.live_capture(job)
+    assert rec.stopped_reason == "paused"
+    after = db.fetch("sources", src["id"])
+    assert after["status"] == "queued" and "Stop all jobs" in after["status_note"]
+    assert live.Session(after, db.get_settings()).alive_at >= before
+
+    # Your own Cancel of the turn stays a cancel.
+    state.put("emergency_stop", False)
+    monkeypatch.setattr(live, "process_segment", record_segment)
+    db.execute("UPDATE worker_jobs SET cancel_requested = 0, wait_reason = '' WHERE id = ?", (job.id,))
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(job)
+    recorder.made[-1].minute()
+    monkeypatch.setattr(live, "process_segment", stopped_by_the_heartbeat)
+    db.execute("UPDATE worker_jobs SET cancel_requested = 1 WHERE id = ?", (job.id,))
+    with pytest.raises(queue.Canceled):
+        live.live_capture(job)
+    assert recorder.made[-1].stopped_reason == "canceled"
+
+
 def test_reconnecting_needs_only_its_own_room_on_the_disk(data, recorder, monkeypatch):
     """Streams recording at once reserve each other's room when a stream starts. A stream that reconnects already
     had its room reserved; asking for the others' room again would stop it on a disk that has space for all."""
@@ -622,6 +665,48 @@ def test_reconnecting_needs_only_its_own_room_on_the_disk(data, recorder, monkey
         with pytest.raises(queue.Wait):
             live.live_capture(second)
     assert asked == [budget]
+
+
+def test_a_stream_coming_back_counts_a_stream_that_started_while_it_was_away(data, recorder, monkeypatch):
+    """A's connection drops (no recorder for a while); B starts meanwhile and reserves nothing for A. When A comes
+    back it must count B's remaining room, or both may stop halfway when the disk fills up."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import hunter, live, queue
+
+    db.save_settings({"autopilot_max_source_gb": 1})
+    asked = []
+    monkeypatch.setattr(live, "require_disk_space", lambda path, need=0: asked.append(need))
+    broadcasts(monkeypatch, "b1")
+    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
+    first = turn_job(going_live(add_live()), host)
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(first)
+    rec = recorder.made[-1]
+    rec.minute()
+    rec.exit(1, "Connection reset by peer")
+    for _ in range(3):  # the minute is saved, the recorder is gone, the turn waits to reconnect
+        with pytest.raises(queue.Wait) as waiting:
+            live.live_capture(first)
+        if waiting.value.reason == "reconnect":
+            break
+    assert waiting.value.reason == "reconnect" and len(recorder.made) == 1
+    second = turn_job(going_live(add_live("https://kick.com/otherstreamer")), host)
+    asked.clear()
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(second)
+    budget = hunter.max_source_bytes(db.get_settings())
+    assert asked == [budget]  # the first stream had no recorder: nothing was reserved for it
+    asked.clear()
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(first)
+    assert asked == [2 * budget]  # its own room and the room the second stream may still use
+    recorder.made[-1].minute()
+    recorder.made[-1].exit(1, "Connection reset by peer")
+    asked.clear()
+    while len(recorder.made) < 4:
+        with pytest.raises(queue.Wait):
+            live.live_capture(first)
+    assert asked == [budget]  # checked together once: a later reconnect needs only its own room
 
 
 def test_relay_size_limit_and_running_out_of_attempts_finish_instead_of_failing(data, recorder, monkeypatch):
@@ -757,9 +842,12 @@ def test_a_minute_ffmpeg_cannot_open_is_left_out_without_shortening_the_recordin
     sess = live.Session(src, db.get_settings())
     sess.segments = _minutes(sess.segdir)
     sess.offset = 9.0
+    sess.env, sess.untranscribed = [-20.0] * 90, []
     (sess.segdir / "r001_00001.mkv").write_bytes(b"\x01" * 5000)  # broken after it was transcribed
     out = live.finalize(sess)
     assert sess.unreadable == ["r001_00001.mkv"]
+    # Its live words describe a part the joined file no longer has: the full-recording pass transcribes again.
+    assert sess.untranscribed == [[3, 6]] and sess.env[30:60] == [-60.0] * 30 and sess.env[:30] == [-20.0] * 30
     times = _video_times(out)
     assert times[0] < 0.1 and max(t for t in times if t < 4) < 3.0
     assert min(t for t in times if t > 3.1) >= 5.9 and times[-1] > 8.5  # the third minute stays at 6 s to 9 s
@@ -777,6 +865,73 @@ def test_a_minute_ffmpeg_cannot_open_is_left_out_without_shortening_the_recordin
     with pytest.raises(queue.Fail, match="first recorded minute") as failed:
         live.finalize(sess)
     assert "live clips" in failed.value.fix
+
+
+def _beeps(wav):
+    """Times (s) where a beep starts in a 16 kHz mono WAV."""
+    import struct
+    import wave
+
+    with wave.open(str(wav)) as fh:
+        rate, frames = fh.getframerate(), fh.getnframes()
+        samples = struct.unpack(f"<{frames}h", fh.readframes(frames))
+    out, on = [], False
+    for i in range(0, frames - 16, 16):
+        level = max(abs(x) for x in samples[i:i + 16])
+        if level > 3000 and not on:
+            out.append(i / rate)
+            on = True
+        elif level < 300 and on:
+            on = False
+    return out
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
+def test_the_joined_recording_keeps_the_live_timeline_over_many_minutes(tmp_path):
+    """Stream copy leaves each minute file some 40-70 ms longer than its cut (B-frames, audio past the keyframe).
+    Placed by container length, every later moment of a long recording would drift away from the live transcript
+    and clip times. Placed by the recorder's own lengths, a beep heard live at a time is at that time in the join.
+    The folder name has an apostrophe, which the concat reader's quoting must survive."""
+    import csv
+    import subprocess
+
+    from clipfoundry.autopilot import live
+    from clipfoundry.pipeline.ffmpeg_utils import extract_audio, ffmpeg_bin
+
+    folder = tmp_path / "O'Neil's streams"
+    folder.mkdir()
+    beep = "aevalsrc='if(lt(mod(t\\,1)\\,0.05)\\,0.8*sin(2*PI*1000*t)\\,0)':s=48000"
+    subprocess.run([ffmpeg_bin(), "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=30",
+                    "-f", "lavfi", "-i", beep, "-t", "40", "-c:v", "libx264", "-g", "60", "-bf", "3", "-c:a", "aac",
+                    "-f", "mpegts", str(folder / "stream.ts")], check=True)
+    # The recorder's own command shape: stream copy into segments with a CSV list of their lengths.
+    subprocess.run([ffmpeg_bin(), "-loglevel", "error", "-nostdin", "-i", str(folder / "stream.ts"), "-map", "0:v:0?",
+                    "-map", "0:a:0?", "-c", "copy", "-f", "segment", "-segment_time", "4", "-reset_timestamps", "1",
+                    "-segment_list", str(folder / "run1.csv"), "-segment_list_type", "csv",
+                    str(folder / "r001_%05d.mkv")], check=True)
+    segments, heard = [], []
+    for name, start, end in csv.reader(open(folder / "run1.csv", encoding="utf-8")):
+        offset = segments[-1]["end"] if segments else 0.0
+        length = float(end) - float(start)
+        extract_audio(folder / name, folder / (name + ".wav"), length)  # as each minute is transcribed live
+        heard += [offset + t for t in _beeps(folder / (name + ".wav"))]
+        segments.append({"name": name, "start": offset, "end": offset + length})
+    assert len(segments) >= 9
+    listing = live._concat_listing(SimpleNamespace(unreadable=[]), segments, [folder / s["name"] for s in segments])
+    assert listing.count("\nduration ") == len(segments) and "O'\\''Neil'\\''s" in listing
+    (folder / "all.txt").write_text(listing, encoding="utf-8")
+    result = subprocess.run([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat",
+                             "-safe", "0", "-i", str(folder / "all.txt"), "-c", "copy", str(folder / "joined.mkv")],
+                            capture_output=True)
+    assert result.returncode == 0 and not live._join_problem(result), result.stderr
+    extract_audio(folder / "joined.mkv", folder / "joined.wav", segments[-1]["end"])
+    joined = _beeps(folder / "joined.wav")
+    assert len(joined) == len(heard) >= 35
+    # A minute's own start can differ by a frame or a few audio packets; it must never add up. Placed by container
+    # length, this recording was 0.4 s off by its tenth minute (about 45 ms more at every join).
+    off = [b - a for a, b in zip(heard, joined)]
+    assert max(abs(d) for d in off) < 0.15, off
+    assert abs(off[-1] - off[8]) < 0.03, off  # the last minute is as close as the third
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="joins real recorder files")
@@ -1023,6 +1178,68 @@ def test_resume_pressed_before_a_running_turn_ends_still_continues_the_stream(da
 
     intake.action(src["id"], "cancel")
     assert live.resume_held() == 0
+
+
+@pytest.mark.parametrize("ending", ["retry", "crash", "time limit"])
+def test_a_turn_that_ends_in_a_retry_or_crash_after_stop_all_is_held_not_parked(data, monkeypatch, ending):
+    """Stop all jobs (or the time limit) arrives while a turn is starting a recorder, and the turn then ends with a
+    retry or a crash instead of noticing it. The job must not be left retrying with a stop request: no worker could
+    ever take it again and Resume would not see it."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue, routes
+
+    src = going_live(add_live())
+    db.execute("UPDATE worker_jobs SET status = 'completed'")
+    monkeypatch.setattr("clipfoundry.jobs.worker.cancel_all", lambda: 0)
+    monkeypatch.setattr("clipfoundry.publish.jobs.worker.cancel_all", lambda: 0)
+
+    def turn(job):
+        if ending == "time limit":
+            db.execute("UPDATE worker_jobs SET cancel_requested = 2 WHERE id = ?", (job.id,))
+        else:
+            routes.stop_all()  # pressed while the stream address is being looked up
+        if ending == "crash":
+            raise OSError("the stream address lookup crashed")
+        raise queue.Retry("The platform answered with a temporary error")
+
+    monkeypatch.setitem(host.HANDLERS, "live_capture", turn)
+    queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}", priority=80)
+    worker_host = host.WorkerHost(workers=["live_monitor"], periodic=False)
+    claim = queue.claim("live_monitor", "lane")
+    worker_host._run("live_monitor", claim)
+    row = queue.get(claim["id"])
+    if ending == "time limit":
+        assert row["status"] == "failed" and "time limit" in row["error"]
+        return
+    assert row["status"] == "canceled" and row["wait_reason"] == queue.STOP_ALL
+    routes.resume()
+    row = queue.get(claim["id"])
+    assert row["status"] == "queued" and not row["cancel_requested"]
+
+
+def test_stop_all_never_turns_your_own_cancel_of_a_running_job_into_a_hold(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, live, queue, routes
+
+    src = going_live(add_live())
+    db.execute("UPDATE worker_jobs SET status = 'completed'")
+    monkeypatch.setattr("clipfoundry.jobs.worker.cancel_all", lambda: 0)
+    monkeypatch.setattr("clipfoundry.publish.jobs.worker.cancel_all", lambda: 0)
+
+    def turn(job):
+        queue.cancel(job.id)  # you cancel this turn ...
+        routes.stop_all()  # ... and then press Stop all jobs before it ends
+        raise queue.Canceled()
+
+    monkeypatch.setitem(host.HANDLERS, "live_capture", turn)
+    queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}", priority=80)
+    worker_host = host.WorkerHost(workers=["live_monitor"], periodic=False)
+    claim = queue.claim("live_monitor", "lane")
+    worker_host._run("live_monitor", claim)
+    row = queue.get(claim["id"])
+    assert row["status"] == "canceled" and row["wait_reason"] == ""
+    routes.resume()
+    assert live.resume_held() == 0 and queue.get(claim["id"])["status"] == "canceled"
 
 
 def test_watchdog_holds_the_recording_when_stop_all_is_pressed(data):

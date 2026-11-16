@@ -316,6 +316,16 @@ class WorkerHost:
         return queue.claim(name, self._token(name), min_priority=min_priority if min_priority > 0 else None,
                            manual_priority=MANUAL_PRIORITY)
 
+    def _cancel_won(self, name: str, row: dict, token: str, job: Job) -> bool:
+        """Cancel, Stop all jobs or the time limit arrived while this turn ran: the request wins over the turn's own
+        wait, retry or crash (Stop all keeps its hold marker, so Resume can continue the job)."""
+        latest = queue.get(job.id) or {}
+        if latest.get("status") == "running" and latest.get("lease_owner") == token and latest.get("cancel_requested"):
+            job.timed_out = latest["cancel_requested"] == 2
+            self._canceled(name, row, token, job)
+            return True
+        return False
+
     def _canceled(self, name: str, row: dict, token: str, job: Job) -> None:
         if job.timed_out:
             queue.fail(row, token, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
@@ -371,19 +381,14 @@ class WorkerHost:
             if queue.wait(row, token, w.reason, w.seconds, w.message):
                 self.set_state(name, "waiting", job, message=w.message)
             else:
-                latest = queue.get(job.id) or {}
-                if latest.get("status") == "running" and latest.get("lease_owner") == token and \
-                        latest.get("cancel_requested"):
-                    # Cancel or Stop all jobs arrived while this turn ran: the request wins over the turn's wait
-                    # (Stop all keeps its hold marker, so Resume can continue the job).
-                    job.timed_out = latest["cancel_requested"] == 2
-                    self._canceled(name, row, token, job)
+                self._cancel_won(name, row, token, job)
         except queue.Canceled:
             self._canceled(name, row, token, job)
         except queue.Retry as exc:
             status = queue.retry_or_fail(row, token, str(exc), exc.fix, exc.delay)
-            self.set_state(name, "failed" if status == "failed" else "waiting", None, message=str(exc),
-                           error=str(exc))
+            if status or not self._cancel_won(name, row, token, job):
+                self.set_state(name, "failed" if status == "failed" else "waiting", None, message=str(exc),
+                               error=str(exc))
         except queue.Fail as exc:
             queue.fail(row, token, str(exc), exc.fix)
             self.set_state(name, "failed", None, message=str(exc), error=str(exc))
@@ -392,7 +397,9 @@ class WorkerHost:
             log.error("job %s (%s) crashed: %s\n%s", row["id"], row["kind"], detail, traceback.format_exc())
             job.log("crash", detail, "error", trace=traceback.format_exc()[-4000:])
             status = queue.retry_or_fail(row, token, detail)
-            self.set_state(name, "failed" if status == "failed" else "waiting", None, message=detail, error=detail)
+            if status or not self._cancel_won(name, row, token, job):
+                self.set_state(name, "failed" if status == "failed" else "waiting", None, message=detail,
+                               error=detail)
         finally:
             with self._lock:
                 self._running.pop(job.id, None)

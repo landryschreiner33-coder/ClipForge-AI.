@@ -393,6 +393,8 @@ class Capture:
 
 _captures: dict[tuple[str, str], Capture] = {}
 _capture_lock = threading.Lock()
+# Pairs of streams (capture keys) whose remaining recording room was checked together when one of them started.
+_room_shared: set[frozenset] = set()
 
 
 def _capture_key(source_id: str) -> tuple[str, str]:
@@ -624,17 +626,20 @@ def _join_problem(result) -> str:
 
 
 def _concat_listing(sess: Session, segs: list[dict], paths: list[Path]) -> str:
-    """Concat reader lines for these minutes, without the ones that cannot be opened. A skipped minute keeps its
-    place on the timeline: the readable minute before it is declared long enough to cover it, so FFmpeg leaves a
-    gap there and the times in the joined file still match the live transcript and clips."""
+    """Concat reader lines for these minutes, without the ones that cannot be opened.
+
+    Every minute is placed by its recorded length (the recorder's segment list), which is the live timeline the
+    transcript and clips use. Left to itself FFmpeg places each file by its container length, which with stream
+    copy runs some 40-70 ms past the cut, so a long recording would drift seconds away from its saved times. A
+    skipped minute keeps its place: the readable minute before it is declared long enough to cover it, and FFmpeg
+    leaves a gap there."""
     bad = set(sess.unreadable)
     keep = [(seg, path) for seg, path in zip(segs, paths) if seg["name"] not in bad]
     lines = []
     for index, (seg, path) in enumerate(keep):
-        lines.append(f"file '{path.as_posix()}'\n")
-        later = keep[index + 1][0]["start"] if index + 1 < len(keep) else None
-        if later is not None and later - float(seg["end"]) > 0.001:
-            lines.append(f"duration {later - float(seg['start']):.6f}\n")
+        quoted = path.as_posix().replace("'", "'\\''")  # the concat reader's quoting, as for filter paths
+        later = float(keep[index + 1][0]["start"]) if index + 1 < len(keep) else float(seg["end"])
+        lines.append(f"file '{quoted}'\nduration {later - float(seg['start']):.6f}\n")
     return "".join(lines)
 
 
@@ -788,6 +793,13 @@ def finalize(sess: Session, *, cancel=None) -> Path | None:
                not _opens(sess.segdir / s["name"], cancel)]
         if not bad:
             break
+        for seg in sess.segments:
+            if seg["name"] in bad:
+                # Its live words and loudness describe a part the joined file no longer has: the full-recording
+                # analysis transcribes again (the gap is silence there), and its loudness is silence.
+                sess.untranscribed.append([seg["start"], seg["end"]])
+                first, last = int(round(float(seg["start"]) / 0.1)), int(round(float(seg["end"]) / 0.1))
+                sess.env[first:last] = [-60.0] * len(sess.env[first:last])
         sess.unreadable += bad
         sess.save()
     raise queue.Fail(f"The recorded minutes could not be joined into one recording. {problem[:200]}".strip(), KEPT)
@@ -1149,12 +1161,13 @@ def _live_turn(job: Job) -> dict:
                         if src.get("local_path") else byte_budget)
             # Streams recording at the same time share the disk: reserve what the others may still write, so a
             # new stream waits to start rather than every stream stopping halfway when the disk fills up.
-            # A stream that already recorded had this reserved when it started; a reconnect needs only its own room.
-            reserved = 0
-            if recorded <= 0:
-                with _capture_lock:
-                    others = [c for k, c in _captures.items() if k != key and c.proc.poll() is None]
-                reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for c in others)
+            # A reconnect skips only the streams whose room was already checked together with this one (when either
+            # of them started). One that started while this stream had no recorder never counted it: count it now.
+            with _capture_lock:
+                others = [(k, c) for k, c in _captures.items() if k != key and c.proc.poll() is None]
+                if recorded > 0:
+                    others = [(k, c) for k, c in others if frozenset((k, key)) not in _room_shared]
+            reserved = sum(max(0, max_source_bytes(c.sess.settings) - _recorded_bytes(c.sess)) for _, c in others)
             require_disk_space(sess.segdir, max(1, expected) + reserved)
             state.resolve("disk:space")
             relays: list = []
@@ -1190,6 +1203,7 @@ def _live_turn(job: Job) -> dict:
                 raise
             with _capture_lock:
                 _captures[key] = capture
+                _room_shared.update(frozenset((k, key)) for k, _ in others)
             sess.offline_since = 0.0
             sess.alive_at = time.time()
             sess.save()
@@ -1239,11 +1253,13 @@ def _live_turn(job: Job) -> dict:
     except queue.Wait:
         raise  # the recorder owns the source lock and keeps writing while another stream gets a turn
     except BaseException:
-        capture.stop("restart" if job.host and job.host._stop.is_set() else "canceled")
+        capture.stop(_stop_reason(job))
         with _capture_lock:
             _captures.pop(key, None)
         if capture.stopped_reason in ("restart", "paused", "disk"):
             _seen_live(sess)  # held (closing, Stop all jobs): the stream was live until now
+        if capture.stopped_reason == "paused" and _stop_reason(job) == "paused":
+            db.update("sources", src["id"], status="queued", status_note="Recording paused by Stop all jobs")
         raise
     capture.stop()
     with _capture_lock:
@@ -1302,6 +1318,20 @@ def _live_turn(job: Job) -> dict:
         float(settings.get("autopilot_max_source_minutes") or 240) * 60 - 0.1
     sess.save()
     return _finish_capture(sess, job)
+
+
+def _stop_reason(job: Job) -> str:
+    """Why a turn that ends with an exception stops its recorder. Stop all jobs (even when it reached this turn
+    before the recorder's watchdog, or Resume was pressed meanwhile) is a hold, not a cancel."""
+    if job.host and job.host._stop.is_set():
+        return "restart"
+    try:
+        row = queue.get(job.id) or {}
+        if row.get("wait_reason") == queue.STOP_ALL or (state.paused() and not row.get("cancel_requested")):
+            return "paused"
+    except Exception:  # noqa: BLE001 - never hide the turn's own exception
+        log.exception("could not read why the live turn stopped")
+    return "canceled"
 
 
 def _seen_live(sess: Session) -> None:

@@ -259,10 +259,12 @@ def retry_or_fail(job: dict, owner: str, error: str, fix: str = "", delay: float
         fail(job, owner, f"{error} (gave up after {job['attempts']} attempts)", fix)
         return "failed"
     wait_s = backoff(job["attempts"]) if delay is None else delay
-    if _finish(job, owner, status="retrying", error=error[:2000], fix=fix, run_after=_now() + wait_s,
-               message=f"Retrying in {int(wait_s // 60)} min {int(wait_s % 60)} s"):
-        log_line(job["id"], job["worker"], "warning", "retry", error, fix=fix, delay=round(wait_s, 1))
-        feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_retry", error[:300], delay=round(wait_s, 1))
+    # A retrying row with a cancel request could never be claimed again: refused, and the caller cancels instead.
+    if not _finish(job, owner, unless_canceled=True, status="retrying", error=error[:2000], fix=fix,
+                   run_after=_now() + wait_s, message=f"Retrying in {int(wait_s // 60)} min {int(wait_s % 60)} s"):
+        return ""  # Cancel, Stop all jobs or the time limit arrived during the turn (or the lease was lost)
+    log_line(job["id"], job["worker"], "warning", "retry", error, fix=fix, delay=round(wait_s, 1))
+    feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_retry", error[:300], delay=round(wait_s, 1))
     return "retrying"
 
 
@@ -355,8 +357,10 @@ def cancel_all(message: str = "Stopped with Stop all jobs", workers: tuple[str, 
                                "updated_at = ?, wait_reason = ? WHERE status IN ('queued', 'retrying', 'waiting')"
                                + scope, [message, now, now, STOP_ALL, *args]).rowcount
         # The marker survives the running job's own cancel (mark_canceled keeps wait_reason)
+        # A running job already stopping (your own Cancel, or its time limit) keeps that reason: it stays final.
         running = conn.execute("UPDATE worker_jobs SET cancel_requested = 1, message = 'Stopping...', updated_at = ?, "
-                               "wait_reason = ? WHERE status = 'running'" + scope, [now, STOP_ALL, *args]).rowcount
+                               "wait_reason = ? WHERE status = 'running' AND cancel_requested = 0" + scope,
+                               [now, STOP_ALL, *args]).rowcount
     log_line("", "", "warning", "cancel_all", message, pending=pending, running=running)
     return {"canceled": pending, "stopping": running}
 
