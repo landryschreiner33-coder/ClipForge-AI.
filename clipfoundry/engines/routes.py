@@ -1,5 +1,5 @@
-"""Settings → Pictures, video, voice: what is set up, setting it up, removing it, a cloud computer to use instead, and
-a quick try of each maker.
+"""Settings → Pictures, video, voice (and Settings → Cloud computer): what is set up, setting it up, removing it, a
+cloud computer to use instead, and a quick try of each maker.
 
 Set-up, removal, tries and the cloud computer change this computer (downloads, a program started, where the words
 go), so they only come from ClipForge's own page on this computer (publish.common.app_request). The online studio

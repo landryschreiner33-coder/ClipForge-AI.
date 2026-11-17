@@ -46,6 +46,7 @@ const PATHS = {
   sliders: "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4",
   zip: "M6 3h9l4 4v14H6zM11 3v2M11 7v2M11 11v2M10 15h2v3h-2z",
   copy: "M8 8h12v12H8zM4 16V4h12",
+  cloud: "M7 18a4 4 0 0 1-.5-8 6 6 0 0 1 11.5 1.5A3.5 3.5 0 0 1 17.5 18z",
   // older names, kept so existing parts keep working
   dashboard: "M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-6h4v6",
   create: "M12 5v14M5 12h14",

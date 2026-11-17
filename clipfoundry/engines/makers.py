@@ -188,7 +188,7 @@ def status(role: str, settings: dict) -> dict:
         if not model:
             return {"ready": False, "engine": label, "remote": True,
                     "why": f"Your cloud computer has none of the models ClipForge uses for {what} yet: put one on it "
-                           "(Settings, Pictures, video, voice)."}
+                           "(Settings, Cloud computer)."}
         return {"ready": True, "engine": f"{label} · {model.name}", "why": "", "model": model.id, "remote": True}
     if m == "clipforge":
         if not comfy_server.installed():

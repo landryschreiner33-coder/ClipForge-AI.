@@ -77,6 +77,13 @@ export default function SettingsPage({ tab }: { tab?: string }) {
       </SettingsFrame>
     );
   }
+  if (tab === "cloud") {
+    return (
+      <SettingsFrame current="cloud" sub="Make pictures and video clips on a computer with a fast graphics card that you rent by the hour, instead of on this one.">
+        <LocalMakersSettings part="cloud" />
+      </SettingsFrame>
+    );
+  }
   if (tab === "appearance") {
     return (
       <SettingsFrame current="appearance" wide sub="How ClipForge looks. Customize studio changes it and says where each choice is kept.">
@@ -93,6 +100,7 @@ const SETTINGS_TABS = [
   { id: "ai", href: "#/settings/ai", label: "ClipForge AI" },
   { id: "apps", href: "#/settings/apps", label: "Editing apps" },
   { id: "makers", href: "#/settings/makers", label: "Pictures, video, voice" },
+  { id: "cloud", href: "#/settings/cloud", label: "Cloud computer" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
   { id: "integrations", href: "#/settings/integrations", label: "Integrations" },

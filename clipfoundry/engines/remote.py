@@ -1,11 +1,11 @@
 """A ComfyUI on a rented cloud computer: for a computer that is too slow to make pictures and clips itself
 (docs/clipforge/CLOUD_GPU.md).
 
-Settings → Pictures, video, voice → "A cloud computer": the person rents a computer with a fast graphics card (a RunPod
-"pod" with RunPod's ComfyUI template), pastes its web address (https://<pod id>-8188.proxy.runpod.net) and, only if
-their server asks for one, a key. ClipForge then sends each picture or clip there the way it does to a ComfyUI on this
-computer (comfy.py): the words, the graph and a picture to animate go up; the finished file comes back into
-<data>/engines/made with its note, like any other.
+Settings → Cloud computer (also Settings → Pictures, video, voice → "A cloud computer"): the person rents a computer
+with a fast graphics card (a RunPod "pod" with RunPod's ComfyUI template), pastes its web address
+(https://<pod id>-8188.proxy.runpod.net) and, only if their server asks for one, a key. ClipForge then sends each
+picture or clip there the way it does to a ComfyUI on this computer (comfy.py): the words, the graph and a picture to
+animate go up; the finished file comes back into <data>/engines/made with its note, like any other.
 
 What differs from a ComfyUI on this computer:
 * the address is https (the key and the words cross the internet); plain http only to this computer (a tunnel)
@@ -135,7 +135,7 @@ def check(settings: dict, max_age: float = CACHE_S) -> dict:
     view = {"base": None, "url": url, "host": host(url) if url else "", "why": "", "gpu": "", "vram_mb": 0,
             "ram_mb": 0, "version": "", "device": "", "key_set": bool(key)}
     if not url:
-        view["why"] = "Paste your cloud computer's web address (Settings, Pictures, video, voice)."
+        view["why"] = "Paste your cloud computer's web address (Settings, Cloud computer)."
         return view
     ident = (url, key)
     with _cache_lock:
