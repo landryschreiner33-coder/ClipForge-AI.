@@ -73,14 +73,14 @@ export default function SettingsPage({ tab }: { tab?: string }) {
   if (tab === "makers") {
     return (
       <SettingsFrame current="makers" sub="Pictures, short video clips and voice-overs made by free, open-source tools: on this computer, or on a cloud computer you rent.">
-        <LocalMakersSettings />
+        <LocalMakersSettings key="makers" />
       </SettingsFrame>
     );
   }
   if (tab === "cloud") {
     return (
       <SettingsFrame current="cloud" sub="Make pictures and video clips on a computer with a fast graphics card that you rent by the hour, instead of on this one.">
-        <LocalMakersSettings part="cloud" />
+        <LocalMakersSettings key="cloud" part="cloud" />
       </SettingsFrame>
     );
   }

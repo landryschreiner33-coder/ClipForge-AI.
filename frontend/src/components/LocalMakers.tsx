@@ -386,8 +386,9 @@ export default function LocalMakersSettings({ part = "all" }: { part?: "all" | "
                   "Saved. Follow the steps below to connect your cloud computer.")}>
                 <Icon name="cloud" />Use a cloud computer</button>
             </div>
-            {setupRunning && <p className="small muted">ComfyUI is being set up on this computer. Wait until that finishes in
-              {" "}<a className="textlink" href="#/settings/makers">Pictures, video, voice</a>, then come back.</p>}
+            {setupRunning && <div><ProgressBar value={t.total ? t.done / t.total : 0} label={t.what} />
+              <p className="small muted">{t.what || "A download"} is running on this computer. You can choose the cloud
+                computer when it has finished.</p></div>}
             <p className="small muted">This only changes where pictures and video are made. ClipForge&apos;s own ComfyUI and
               the models on this computer stay, and you can go back to them in
               {" "}<a className="textlink" href="#/settings/makers">Pictures, video, voice</a>.</p>
