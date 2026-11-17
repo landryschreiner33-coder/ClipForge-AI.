@@ -1,5 +1,27 @@
 # AI handoff
 
+## Release 2026.11.16.2 published — 2026-11-16 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry could not find where to connect a cloud computer. It was there, but hidden as one
+button in the ComfyUI box on Settings → Pictures, video, voice. ClipForge 2026.11.16.2 gives it its own entry,
+**Settings → Cloud computer**, and the Pictures page points to it (PR #55). Nothing else changed.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `77eaa99` (PR #55), whose
+  tree equals that of `fa5e139`, the source commit of both downloads; Mac release
+  `clipforge-mac-2026-11-16-2-fa5e139`; Windows ZIP at `raw/eceeeb1` on `claude/clipforge-downloads` (record commit
+  `649817e`); `gh-pages` `3166005`; every URL, size, hash and run in
+  [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 44018676801 on fa5e139 (macOS 15 native build and bundled-app
+  smoke; 2,721 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped); the cloud session's fast suite on
+  fa5e139 (2,721 passed); `npm run build` reproduces `frontend/dist`; browser checks of Settings → Cloud computer and
+  Pictures, video, voice; Windows setup check 44020274850; `build.py --check` and `--verify`.
+- **Not verified (needs Landry's computer):** a real RunPod pod and the page in the Mac window itself; everything
+  listed as untested for 2026.11.16.
+- **Next release:** new work starts from `claude/project-thread-x72wkd` at 77eaa99 (or the records merge after it). A
+  third release on November 16 would be `2026.11.16.3`; on November 17, `2026.11.17`. The native Mac job and the
+  publish job both got a runner at once this time; if either is cancelled after 15 minutes with "The job was not
+  acquired by Runner of type hosted", re-run failed jobs once the run's Linux jobs finish.
+
 ## Release 2026.11.16 published — 2026-11-16 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry wrote "Make sure you release the new changes". ClipForge 2026.11.16 is on the
