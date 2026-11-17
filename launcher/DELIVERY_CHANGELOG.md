@@ -1,5 +1,13 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-17 (Nov 16 in Chicago): the cloud computer gets its own section in Settings (ClipForge 2026.11.16.2)
+
+The setup ZIP now installs source commit `fa5e1396eaec78387b5ab22432926e9fed4e0773`: the 2026.11.16 release plus
+PR #55 (Settings, Cloud computer: the rented cloud computer for pictures and video has its own place in the Settings
+list, and Settings, Pictures, video, voice points to it). start.bat is unchanged, so its pin and upgrade fixtures are
+the same. 77 launcher tests passed. All 872 app files equal the Git tree except the six declared BAT CRLF exports.
+The Windows install check now installs the 2026.11.16 release (f3aea38, raw/26ef3a1) first, then this one over it.
+
 ## 2026-11-16: clip live streams while they are live (ClipForge 2026.11.16)
 
 The setup ZIP now installs source commit `f3aea380648201cb39d3339fc39c45d021f9c84f`: the 2026.11.13.2 release plus
