@@ -25,6 +25,8 @@ PAGES = {
     "make_video": ("Make a YouTube video", "#/create/video"), "from_link": ("Make clips from a link", "#/create/link"),
     "memory": ("Brain → Memory", "#/brain/memory"), "agents": ("Brain → Agents", "#/brain/agents"),
     "talk": ("Talk to ClipForge AI", "#/brain/talk"), "ai_settings": ("Settings → ClipForge AI", "#/settings/ai"),
+    "makers_settings": ("Settings → Pictures, video, voice", "#/settings/makers"),
+    "cloud_computer": ("Settings → Cloud computer", "#/settings/cloud"),
     "publishing": ("Publishing", "#/publishing/review"), "missions": ("Missions", "#/missions"),
     "office": ("Office", "#/office"), "accounts": ("Accounts", "#/accounts"),
 }

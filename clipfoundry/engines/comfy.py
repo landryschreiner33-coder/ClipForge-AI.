@@ -158,7 +158,7 @@ class Comfy:
                     "may be stopping or starting. Check in RunPod that it is on, then try again.")
         if r.status_code in (401, 403):
             return (f"Your cloud computer said no (it answered {r.status_code}). Check the key in Settings, "
-                    "Pictures, video, voice.")
+                    "Cloud computer.")
         return ""
 
     # ------------------------------------------------------------------ plain requests

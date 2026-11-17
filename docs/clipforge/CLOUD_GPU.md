@@ -10,7 +10,7 @@ that's not on my computer so it runs faster", then "Do step 4" (connect ClipForg
 ## The short version
 
 1. Rent a RunPod "pod" with an RTX 5090 (or a cheaper RTX 4090) and a 100 GB disk, using RunPod's ComfyUI template.
-2. Copy its address into ClipForge: Settings, Pictures, video, voice, "A cloud computer".
+2. Copy its address into ClipForge: **Settings → Cloud computer**, press **Use a cloud computer**, paste the address.
 3. Put the models on it with the command ClipForge gives you (copy, paste, Enter).
 4. Make your shorts as usual. Pictures and clips now come from the cloud computer.
 5. **Press Stop in RunPod when you finish.** A pod that is on costs money every hour, even when nobody uses it.
@@ -29,8 +29,10 @@ that's not on my computer so it runs faster", then "Do step 4" (connect ClipForg
 6. Press **Deploy On-Demand**. Wait until your pod says **Running** (a few minutes the first time).
 7. Press **Connect**, then the button for port **8188**. ComfyUI opens in a new tab. Copy that tab's address from the
    top of your browser. It looks like `https://abc123xyz-8188.proxy.runpod.net`.
-8. In ClipForge: **Settings**, **Pictures, video, voice**, choose **A cloud computer**, paste the address and press
-   **Save and check**. It should say **Connected** and name the graphics card.
+8. In ClipForge: **Settings**, then **Cloud computer** in the list of sections. Press **Use a cloud computer**, paste
+   the address and press **Save and check**. It should say **Connected** and name the graphics card. (The same choice
+   is also under **Settings → Pictures, video, voice**, as **A cloud computer** in the ComfyUI box; that page points to
+   the Cloud computer section too.)
 9. Put the models on it. Under **Pictures** and **Video clips**, press **Put it on your cloud computer** next to a
    model. ClipForge shows a command:
    - In RunPod, press **Connect** on your pod, turn on the **Web Terminal** and open it (or open **JupyterLab**, then
@@ -39,7 +41,7 @@ that's not on my computer so it runs faster", then "Do step 4" (connect ClipForg
    - Wait until it says **Done**. The cloud computer downloads the files itself, so your own internet is not used.
    - Back in ClipForge, press **I ran it: check again**.
    With an RTX 5090 or 4090, ClipForge recommends Z-Image Turbo for pictures, and Wan 2.2 makes the clips.
-10. Make a test picture in the same Settings page. Then use the animated-shorts maker as usual.
+10. Make a test picture on the same Settings page. Then use the animated-shorts maker as usual.
 
 **When you finish, press Stop on your pod in RunPod.** Start it again next time: its address stays the same and the
 models are still there. A stopped pod's 100 GB disk still costs a little (RunPod charges about $0.20 per GB a month
@@ -123,8 +125,14 @@ it yet").
   computer's disk; the routes refuse with what to do instead). The voice always runs on this computer.
 - **Routes:** `POST /api/engines/remote` `{url, key?}` (app header; a missing key keeps the kept one, `""` removes
   it), `GET /api/engines/remote/command?model=&agreed=` (this computer only). Both 404 in the online studio.
-- **Pages:** Settings shows the cloud panel, the cost warning, the guide and the command dialog; the shorts maker says
-  "on your cloud computer" instead of "on this computer" (`status()` returns `remote: true`).
+- **Pages:** Settings → Cloud computer (`#/settings/cloud`, `LocalMakers.tsx` with `part="cloud"`, its own entry in
+  the Settings list since Nov 17 2026 because Landry could not find the choice inside the ComfyUI box) shows a "Use a
+  cloud computer" button until it is chosen, then the cloud panel, the cost warning, the guide, the Pictures and Video
+  clips models and the command dialog. Settings → Pictures, video, voice keeps the same choice ("A cloud computer" in
+  the ComfyUI box, the same panel) and, while it is not chosen, a "Faster: a cloud computer" note that links to the
+  section. Messages about the cloud computer point to "Settings, Cloud computer"; ClipForge AI's `go_to` tool can open
+  it (`cloud_computer`). The shorts maker says "on your cloud computer" instead of "on this computer" (`status()`
+  returns `remote: true`).
 
 ## How it was checked
 

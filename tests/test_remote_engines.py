@@ -818,7 +818,7 @@ def test_choosing_this_computer_again_forgets_the_cloud_computer(client, cloud, 
     assert not c.remote and "Authorization" not in c.headers and comfy.remote_key(cloud.url) is None
     assert db.get_settings()["engines_remote_key"] == KEY  # kept for when the cloud computer is chosen again
     r = client.get("/api/engines/remote/command", params={"model": "flux2-klein-4b"})
-    assert r.status_code == 409 and "A cloud computer" in r.json()["detail"]
+    assert r.status_code == 409 and "Settings, Cloud computer" in r.json()["detail"]
     assert comfy.remote_key(cloud.url) is None
 
 

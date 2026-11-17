@@ -13,8 +13,11 @@ const ROLE_NAME: Record<EngineRole, string> = { image: "Pictures", video: "Video
  * licences allow commercial use; the voice runs inside ClipForge. Every download is pinned and checked. On this computer
  * nothing made here leaves it; a cloud computer gets the words (and the picture a clip starts from) and sends back what
  * it made. The animated-shorts maker and the AI use them.
+ *
+ * `part="cloud"` is Settings → Cloud computer: only the cloud computer (turning it on, its address and key, the RunPod
+ * steps) and the picture and video models on it, so the person finds it without knowing it is one of ComfyUI's choices.
  */
-export default function LocalMakersSettings() {
+export default function LocalMakersSettings({ part = "all" }: { part?: "all" | "cloud" }) {
   const [st, setSt] = useState<EnginesView | null>(null);
   const [problem, setProblem] = useState("");
   const [busy, setBusy] = useState(false);
@@ -77,8 +80,8 @@ export default function LocalMakersSettings() {
     : c.mode === "remote" ? Boolean(cloud?.found) : false;
   const cloudName = cloud ? cloud.gpu || cloud.host || "your cloud computer" : "";
 
-  // the reasons name this page for other pages (the shorts maker); here that hint is redundant
-  const why = (role: EngineRole) => st.roles[role].why.replace(/ \(Settings, Pictures, video, voice\)/, "");
+  // the reasons name this page (or Cloud computer) for other pages (the shorts maker); here that hint is redundant
+  const why = (role: EngineRole) => st.roles[role].why.replace(/ \(Settings, (Pictures, video, voice|Cloud computer)\)/, "");
 
   const fitNote = (m: EngineModel) => {
     if (cloud) {  // the fit is the cloud computer's (its graphics card), not this one's
@@ -209,6 +212,196 @@ export default function LocalMakersSettings() {
     );
   };
 
+  // ------------------------------------------------------------------ the cloud computer, on both pages
+  const runpodSteps = (
+    <ol className="steps-list">
+      <li>Go to <a href="https://www.runpod.io" target="_blank" rel="noreferrer">runpod.io</a> and make an account.
+        In Billing, add some credit ($10 is plenty to try it).</li>
+      <li>Press <b>Pods</b>, then <b>Deploy</b>. Choose <b>Community Cloud</b> (it is cheaper).</li>
+      <li>Pick an <b>RTX 5090</b>: it is the fastest. An <b>RTX 4090</b> costs less and works well too. Any card with
+        at least 24 GB is fine. RunPod shows the price per hour next to each one.</li>
+      <li>Press <b>Change Template</b>. For an RTX 5090 pick <b>ComfyUI Blackwell Edition</b>. For an RTX 4090 pick
+        {" "}<b>ComfyUI</b>.</li>
+      <li>Press <b>Edit Template</b> and set the <b>Volume Disk</b> to <b>100 GB</b>, so the models fit and stay there.
+        Save it.</li>
+      <li>Press <b>Deploy On-Demand</b>. Wait until your pod says <b>Running</b> (a few minutes the first time).</li>
+      <li>Press <b>Connect</b>, then the button for port <b>8188</b>. ComfyUI opens in a new tab. Copy that tab&apos;s
+        address from the top of your browser. It looks like <span className="mono">https://abc123xyz-8188.proxy.runpod.net</span>.</li>
+      <li>Paste it in the box above and press <b>Save and check</b>.</li>
+      <li>Put the models on it: in Pictures and in Video clips below, press <b>Put it on your cloud computer</b> and
+        follow the steps.</li>
+      <li>When you finish, press <b>Stop</b> on your pod in RunPod. It stops costing money for the graphics card.
+        Its 100 GB disk still costs a little while it is stopped (about $20 a month). If you will not use it for a
+        long time, press <b>Terminate</b> instead: that costs nothing, but the models are deleted and you put them
+        back next time.</li>
+    </ol>
+  );
+  const cloudBlock = cloud && <>
+    <p className="small muted">Rent a computer with a fast graphics card by the hour (RunPod is one place that does
+      this), start ComfyUI on it, and paste its address here. ClipForge sends it the words for each picture or clip,
+      and the picture a clip starts from, and gets back what it made. The voice still runs on this computer.</p>
+    <p className="small">{cloud.found ? <><Pill tone="good" icon="check">Connected</Pill> {cloudName}
+      {cloud.version ? ` · ComfyUI ${cloud.version}` : ""}{cloud.vram_mb ? ` · ${Math.round(cloud.vram_mb / 1024)} GB of graphics memory` : ""}</>
+      : <><Pill>{cloud.url ? "Not connected yet" : "Not connected"}</Pill> {cloud.url ? cloud.why : "Follow the steps below, then paste its address."}</>}</p>
+    {cloud.found && <Banner tone="warn" title="It costs money every hour it is on">Your cloud computer costs money for
+      every hour it is on, even when ClipForge is not using it. When you finish, open RunPod and press Stop on your pod.
+      Start it again next time (its address stays the same).</Banner>}
+    <div className="row-actions" style={{ alignItems: "flex-end" }}>
+      <label className="field grow"><span>Your cloud computer&apos;s address</span><input value={cloudUrl}
+        placeholder="https://abc123xyz-8188.proxy.runpod.net" spellCheck={false} autoComplete="off"
+        onChange={(e) => setCloudUrl(e.target.value)} /></label>
+      <button type="button" className="btn btn-small" disabled={busy || !cloudUrl.trim()} onClick={() => void connect()}>
+        Save and check</button>
+      <button type="button" className="btn btn-small btn-quiet" disabled={busy || !cloud.url}
+        onClick={() => void act(() => engines.connectCloud(cloud.url))}><Icon name="refresh" />Check again</button>
+    </div>
+    <Disclosure summary={cloud.key_set ? "Key: kept on this computer" : "Does it need a password? (Most don't.)"}>
+      <p className="small">Only if you put a password in front of your ComfyUI yourself. ClipForge keeps it locked on this
+        computer and sends it only to the address above. For a user name and a password, type them as
+        {" "}<span className="mono">name:password</span>.</p>
+      <div className="row-actions" style={{ alignItems: "flex-end" }}>
+        <label className="field grow"><span>{cloud.key_set ? "A new key" : "Key or password"}</span>
+          <input type="password" value={cloudKey} autoComplete="off" onChange={(e) => setCloudKey(e.target.value)} /></label>
+        <button type="button" className="btn btn-small" disabled={busy || !cloudKey.trim() || !(cloudUrl.trim() || cloud.url)}
+          onClick={() => void connect(cloudKey.trim()).then(() => setCloudKey(""))}>Save key</button>
+        {cloud.key_set && <button type="button" className="btn btn-small btn-quiet" disabled={busy || !(cloudUrl.trim() || cloud.url)}
+          onClick={() => void connect("")}><Icon name="trash" />Remove key</button>}
+      </div>
+    </Disclosure>
+    <Disclosure summary="How to get a cloud computer on RunPod, step by step" open={!cloud.url}>
+      {runpodSteps}
+      <p className="small">Keep the address to yourself: anyone who has it can use your cloud computer while it is on.</p>
+    </Disclosure>
+  </>;
+
+  const modelPanel = (role: EngineRole) => (
+    <section key={role} className="panel" aria-labelledby={`lm-${role}`}>
+      <h2 id={`lm-${role}`}>{ROLE_NAME[role]}</h2>
+      {byRole(role).length ? <ul className="file-list">{byRole(role).map(modelRow)}</ul> :
+        <p className="small muted">No model for this yet.</p>}
+      {c.mode !== "off" && !comfyReady && <p className="small muted">{cloud ? "Connect your cloud computer above first."
+        : "Set up ComfyUI above first."}</p>}
+      {c.mode === "app" && c.app_found && byRole(role).some((m) => !m.can_download) &&
+        <p className="small muted">That ComfyUI is on another computer: download the model in it yourself.</p>}
+      {tryRow(role)}
+      {trialResult(role)}
+    </section>
+  );
+  const keptNote = (
+    <Disclosure summary="Where everything is kept, and what each part is">
+      <ul className="small">
+        <li>ComfyUI and its Python: ClipForge&apos;s data folder, tools/comfy. Models: the models folder, comfy (pictures and
+          video) and voice. Everything made here: engines/made, with a note next to each file saying which model made it,
+          its licence, the words and the seed. What an animated short uses is kept with that short instead, with its
+          note, and goes when the short is deleted.</li>
+        {cloud && <li>On your cloud computer: the models are in ComfyUI&apos;s models folder there. ComfyUI also keeps a copy
+          of each picture and clip it made, and of each picture a clip started from, in its output and input folders
+          there, until you delete them or terminate the pod. ClipForge keeps what it gets back in engines/made here.</li>}
+        <li>ComfyUI {c.version} is GPL-3.0 open source (<a href={c.source} target="_blank" rel="noreferrer">its source</a>). It
+          runs as a separate program that ClipForge talks to{cloud ? ": on your cloud computer, over the internet at the address you saved (the one ClipForge sets up on this computer is not used then)"
+            : " on this computer only"}.</li>
+        <li>Each model, the voice and ComfyUI itself have a fixed address, size and checksum: a file that does not match
+          is deleted and never used. The parts ComfyUI runs on (its Python, PyTorch and their packages) are fixed
+          versions that uv checks as it downloads them.</li>
+      </ul>
+    </Disclosure>
+  );
+  const dialogs = <>
+    {confirm && <ConfirmDialog title={confirm.what === "comfyui" ? "Set up ComfyUI?" : `Download ${confirm.model?.name}?`}
+      confirmLabel={confirm.what === "comfyui" ? `Set up (${gb(c.download_bytes)})`
+        : `${confirm.model?.rule ? "Agree and download" : "Download"} (${gb(confirm.model?.download_bytes || 0)})`}
+      onClose={() => setConfirm(null)} disabled={busy}
+      onConfirm={async () => {
+        // the button the person pressed shows the model's use rules, so pressing it is agreeing to them
+        await engines.setUp(confirm.what, confirm.model?.id || "", Boolean(confirm.model?.rule));
+        await load();
+      }}>
+      {confirm.what === "comfyui" ? <p>ClipForge downloads ComfyUI {c.version}, a Python for it and PyTorch for
+        {" "}{c.flavor_label || "this computer"}: about {gb(c.download_bytes)}, {gb(c.disk_bytes)} on disk. It can take a while;
+        you can keep working, and a stopped download resumes.</p> :
+        <><p>{confirm.model?.about} {confirm.model?.name} is made by {confirm.model?.maker} and comes under
+          {" "}<a href={confirm.model?.licence_url} target="_blank" rel="noreferrer">{confirm.model?.licence}</a>.</p>
+          {confirm.model?.rule && <p><b>Its use rules:</b> {confirm.model.rule}</p>}
+          <p>About {gb(confirm.model?.download_bytes || 0)} to download.</p></>}
+    </ConfirmDialog>}
+
+    {command && <Dialog wide title={`Put ${command.model.name} on your cloud computer`} onClose={closeCommand}
+      actions={command.view?.command ? <>
+        <button type="button" className="btn btn-quiet" onClick={closeCommand}>Close</button>
+        <button type="button" className="btn" onClick={() => void copyCommand(command.view?.command || "")}><Icon name="copy" />Copy the command</button>
+        <button type="button" className="btn" disabled={busy} onClick={() => void checkCommand(command.model)}>
+          <Icon name="refresh" />I ran it: check again</button>
+      </> : !command.view && !command.error && !command.asking && command.model.rule ? <>
+        <button type="button" className="btn btn-quiet" onClick={closeCommand}>Cancel</button>
+        <button type="button" className="btn" onClick={() => void fetchCommand(command.model, true)}>Agree and show the command</button>
+      </> : <button type="button" className="btn" onClick={closeCommand}>{command.asking ? "Cancel" : "Close"}</button>}>
+      {command.error ? <Banner tone="bad" title="No command">{command.error}</Banner>
+        : !command.view && !command.asking && command.model.rule ? <>
+          <p>{command.model.about} {command.model.name} is made by {command.model.maker} and comes under
+            {" "}<a href={command.model.licence_url} target="_blank" rel="noreferrer">{command.model.licence}</a>.</p>
+          <p><b>Its use rules:</b> {command.model.rule}</p>
+        </>
+        : !command.view ? <p className="small muted">Asking your cloud computer what it has…</p>
+        : !command.view.command ? <p>Your cloud computer already has everything {command.view.name} needs. Press Close, then
+          Check again at the top.</p>
+        : <>
+          <ol className="steps-list">
+            <li>In RunPod, press <b>Connect</b> on your pod. Turn on the <b>Web Terminal</b> and open it (or open
+              {" "}<b>JupyterLab</b>, then File, New, Terminal).</li>
+            <li>Press <b>Copy the command</b> below. Click in the terminal, paste it, and press Enter.</li>
+            <li>Wait until it says <b>Done</b>. It downloads {gb(command.view.bytes)} on the cloud computer, which usually
+              takes a few minutes, sometimes longer. Your own internet is not used.</li>
+            <li>Come back here and press <b>I ran it: check again</b>.</li>
+          </ol>
+          {!command.view.asked && <Banner tone="info" title="Your cloud computer did not answer just now">The command finds
+            ComfyUI&apos;s models folder by itself. {command.view.why}</Banner>}
+          <pre className="command-box" aria-label="The command">{command.view.command}</pre>
+          <p className="small muted">{command.view.files.length === 1 ? "1 file" : `${command.view.files.length} files`}
+            {command.view.where ? ` go into ${command.view.where}` : ""}. Each one is checked when it arrives; a damaged
+            one is deleted. If it stops, paste the same command again: it goes on where it stopped.</p>
+        </>}
+    </Dialog>}
+  </>;
+
+  // ------------------------------------------------------------------ Settings → Cloud computer
+  if (part === "cloud") {
+    const now = c.mode === "off" ? "Pictures and video are turned off right now."
+      : c.mode === "app" ? "Right now the ComfyUI app on this computer makes pictures and video."
+      : c.installed ? "Right now ClipForge's own ComfyUI makes pictures and video on this computer."
+      : "Right now pictures and video are made on this computer, by ClipForge's own ComfyUI once it is set up.";
+    return (
+      <>
+        <section className="panel" aria-labelledby="lm-cloud"><h2 id="lm-cloud">Your cloud computer</h2>
+          {cloudBlock || <>
+            <p className="small">Rent a computer with a fast graphics card by the hour (RunPod is one place that does this)
+              and ClipForge makes pictures and short video clips on it, much faster than most computers. ClipForge sends it
+              the words for each picture or clip, and the picture a clip starts from, and gets back what it made. Your
+              videos, projects, the voice and ClipForge AI stay on this computer.</p>
+            <p className="small"><Pill>Not in use</Pill> {now}</p>
+            <p className="small muted">A cloud computer costs money for every hour it is on: RunPod shows the price per hour
+              before you rent one. You rent and pay for it on RunPod, not in ClipForge.</p>
+            <div className="row-actions">
+              <button type="button" className="btn btn-primary" disabled={busy || setupRunning}
+                onClick={() => void act(() => api.saveSettings({ engines_comfyui: "remote" }),
+                  "Saved. Follow the steps below to connect your cloud computer.")}>
+                <Icon name="cloud" />Use a cloud computer</button>
+            </div>
+            {setupRunning && <div><ProgressBar value={t.total ? t.done / t.total : 0} label={t.what} />
+              <p className="small muted">{t.what || "A download"} is running on this computer. You can choose the cloud
+                computer when it has finished.</p></div>}
+            <p className="small muted">This only changes where pictures and video are made. ClipForge&apos;s own ComfyUI and
+              the models on this computer stay, and you can go back to them in
+              {" "}<a className="textlink" href="#/settings/makers">Pictures, video, voice</a>.</p>
+          </>}
+        </section>
+        {cloud && (["image", "video"] as EngineRole[]).map(modelPanel)}
+        {cloud && <p className="small muted">To make pictures and video on this computer again, choose another option under
+          ComfyUI in <a className="textlink" href="#/settings/makers">Pictures, video, voice</a>.</p>}
+        {dialogs}
+      </>
+    );
+  }
+
   return (
     <>
       <section className="panel" aria-labelledby="lm-what"><h2 id="lm-what">{cloud ? "Pictures, video and voice"
@@ -226,6 +419,9 @@ export default function LocalMakersSettings() {
           <p key={r} className="small">{st.roles[r].ready ? <Pill tone="good" icon="check">{ROLE_NAME[r]}</Pill> :
             <Pill>{ROLE_NAME[r]}</Pill>} {st.roles[r].ready ? st.roles[r].engine : why(r)}</p>
         ))}
+        {!cloud && <Banner tone="info" icon="cloud" title="Faster: a cloud computer" actions={<a className="btn btn-small"
+          href="#/settings/cloud"><Icon name="cloud" />Set up a cloud computer</a>}>Rent a computer with a fast graphics card by
+          the hour and ClipForge makes pictures and video on it instead, much faster than most computers.</Banner>}
       </section>
 
       <section className="panel" aria-labelledby="lm-comfy"><h2 id="lm-comfy">ComfyUI (pictures and video)</h2>
@@ -271,63 +467,7 @@ export default function LocalMakersSettings() {
               <Icon name="refresh" />Check again</button>
           </div>
         </>}
-        {cloud && <>
-          <p className="small muted">Rent a computer with a fast graphics card by the hour (RunPod is one place that does
-            this), start ComfyUI on it, and paste its address here. ClipForge sends it the words for each picture or clip,
-            and the picture a clip starts from, and gets back what it made. The voice still runs on this computer.</p>
-          <p className="small">{cloud.found ? <><Pill tone="good" icon="check">Connected</Pill> {cloudName}
-            {cloud.version ? ` · ComfyUI ${cloud.version}` : ""}{cloud.vram_mb ? ` · ${Math.round(cloud.vram_mb / 1024)} GB of graphics memory` : ""}</>
-            : <><Pill>{cloud.url ? "Not connected yet" : "Not connected"}</Pill> {cloud.url ? cloud.why : "Follow the steps below, then paste its address."}</>}</p>
-          {cloud.found && <Banner tone="warn" title="It costs money every hour it is on">Your cloud computer costs money for
-            every hour it is on, even when ClipForge is not using it. When you finish, open RunPod and press Stop on your pod.
-            Start it again next time (its address stays the same).</Banner>}
-          <div className="row-actions" style={{ alignItems: "flex-end" }}>
-            <label className="field grow"><span>Your cloud computer&apos;s address</span><input value={cloudUrl}
-              placeholder="https://abc123xyz-8188.proxy.runpod.net" spellCheck={false} autoComplete="off"
-              onChange={(e) => setCloudUrl(e.target.value)} /></label>
-            <button type="button" className="btn btn-small" disabled={busy || !cloudUrl.trim()} onClick={() => void connect()}>
-              Save and check</button>
-            <button type="button" className="btn btn-small btn-quiet" disabled={busy || !cloud.url}
-              onClick={() => void act(() => engines.connectCloud(cloud.url))}><Icon name="refresh" />Check again</button>
-          </div>
-          <Disclosure summary={cloud.key_set ? "Key: kept on this computer" : "Does it need a password? (Most don't.)"}>
-            <p className="small">Only if you put a password in front of your ComfyUI yourself. ClipForge keeps it locked on this
-              computer and sends it only to the address above. For a user name and a password, type them as
-              {" "}<span className="mono">name:password</span>.</p>
-            <div className="row-actions" style={{ alignItems: "flex-end" }}>
-              <label className="field grow"><span>{cloud.key_set ? "A new key" : "Key or password"}</span>
-                <input type="password" value={cloudKey} autoComplete="off" onChange={(e) => setCloudKey(e.target.value)} /></label>
-              <button type="button" className="btn btn-small" disabled={busy || !cloudKey.trim() || !(cloudUrl.trim() || cloud.url)}
-                onClick={() => void connect(cloudKey.trim()).then(() => setCloudKey(""))}>Save key</button>
-              {cloud.key_set && <button type="button" className="btn btn-small btn-quiet" disabled={busy || !(cloudUrl.trim() || cloud.url)}
-                onClick={() => void connect("")}><Icon name="trash" />Remove key</button>}
-            </div>
-          </Disclosure>
-          <Disclosure summary="How to get a cloud computer on RunPod, step by step" open={!cloud.url}>
-            <ol className="steps-list">
-              <li>Go to <a href="https://www.runpod.io" target="_blank" rel="noreferrer">runpod.io</a> and make an account.
-                In Billing, add some credit ($10 is plenty to try it).</li>
-              <li>Press <b>Pods</b>, then <b>Deploy</b>. Choose <b>Community Cloud</b> (it is cheaper).</li>
-              <li>Pick an <b>RTX 5090</b>: it is the fastest. An <b>RTX 4090</b> costs less and works well too. Any card with
-                at least 24 GB is fine. RunPod shows the price per hour next to each one.</li>
-              <li>Press <b>Change Template</b>. For an RTX 5090 pick <b>ComfyUI Blackwell Edition</b>. For an RTX 4090 pick
-                {" "}<b>ComfyUI</b>.</li>
-              <li>Press <b>Edit Template</b> and set the <b>Volume Disk</b> to <b>100 GB</b>, so the models fit and stay there.
-                Save it.</li>
-              <li>Press <b>Deploy On-Demand</b>. Wait until your pod says <b>Running</b> (a few minutes the first time).</li>
-              <li>Press <b>Connect</b>, then the button for port <b>8188</b>. ComfyUI opens in a new tab. Copy that tab&apos;s
-                address from the top of your browser. It looks like <span className="mono">https://abc123xyz-8188.proxy.runpod.net</span>.</li>
-              <li>Paste it in the box above and press <b>Save and check</b>.</li>
-              <li>Put the models on it: in Pictures and in Video clips below, press <b>Put it on your cloud computer</b> and
-                follow the steps.</li>
-              <li>When you finish, press <b>Stop</b> on your pod in RunPod. It stops costing money for the graphics card.
-                Its 100 GB disk still costs a little while it is stopped (about $20 a month). If you will not use it for a
-                long time, press <b>Terminate</b> instead: that costs nothing, but the models are deleted and you put them
-                back next time.</li>
-            </ol>
-            <p className="small">Keep the address to yourself: anyone who has it can use your cloud computer while it is on.</p>
-          </Disclosure>
-        </>}
+        {cloudBlock}
         {c.mode === "off" && <p className="small muted">ClipForge makes no pictures or clips. The shorts maker uses your own
           pictures and video, and plain coloured scenes.</p>}
         {setupRunning && <div><ProgressBar value={t.total ? t.done / t.total : 0} label={t.what} />
@@ -339,19 +479,7 @@ export default function LocalMakersSettings() {
         {t.state === "canceled" && <p className="small muted">Stopped. Downloads resume where they stopped.</p>}
       </section>
 
-      {(["image", "video"] as EngineRole[]).map((role) => (
-        <section key={role} className="panel" aria-labelledby={`lm-${role}`}>
-          <h2 id={`lm-${role}`}>{ROLE_NAME[role]}</h2>
-          {byRole(role).length ? <ul className="file-list">{byRole(role).map(modelRow)}</ul> :
-            <p className="small muted">No model for this yet.</p>}
-          {c.mode !== "off" && !comfyReady && <p className="small muted">{cloud ? "Connect your cloud computer above first."
-            : "Set up ComfyUI above first."}</p>}
-          {c.mode === "app" && c.app_found && byRole(role).some((m) => !m.can_download) &&
-            <p className="small muted">That ComfyUI is on another computer: download the model in it yourself.</p>}
-          {tryRow(role)}
-          {trialResult(role)}
-        </section>
-      ))}
+      {(["image", "video"] as EngineRole[]).map(modelPanel)}
 
       <section className="panel" aria-labelledby="lm-voice"><h2 id="lm-voice">Voice</h2>
         {voiceModel && <ul className="file-list">{modelRow(voiceModel)}</ul>}
@@ -367,78 +495,9 @@ export default function LocalMakersSettings() {
         {trialResult("voice")}
       </section>
 
-      <Disclosure summary="Where everything is kept, and what each part is">
-        <ul className="small">
-          <li>ComfyUI and its Python: ClipForge&apos;s data folder, tools/comfy. Models: the models folder, comfy (pictures and
-            video) and voice. Everything made here: engines/made, with a note next to each file saying which model made it,
-            its licence, the words and the seed. What an animated short uses is kept with that short instead, with its
-            note, and goes when the short is deleted.</li>
-          {cloud && <li>On your cloud computer: the models are in ComfyUI&apos;s models folder there. ComfyUI also keeps a copy
-            of each picture and clip it made, and of each picture a clip started from, in its output and input folders
-            there, until you delete them or terminate the pod. ClipForge keeps what it gets back in engines/made here.</li>}
-          <li>ComfyUI {c.version} is GPL-3.0 open source (<a href={c.source} target="_blank" rel="noreferrer">its source</a>). It
-            runs as a separate program that ClipForge talks to{cloud ? ": on your cloud computer, over the internet at the address you saved (the one ClipForge sets up on this computer is not used then)"
-              : " on this computer only"}.</li>
-          <li>Each model, the voice and ComfyUI itself have a fixed address, size and checksum: a file that does not match
-            is deleted and never used. The parts ComfyUI runs on (its Python, PyTorch and their packages) are fixed
-            versions that uv checks as it downloads them.</li>
-        </ul>
-      </Disclosure>
+      {keptNote}
 
-      {confirm && <ConfirmDialog title={confirm.what === "comfyui" ? "Set up ComfyUI?" : `Download ${confirm.model?.name}?`}
-        confirmLabel={confirm.what === "comfyui" ? `Set up (${gb(c.download_bytes)})`
-          : `${confirm.model?.rule ? "Agree and download" : "Download"} (${gb(confirm.model?.download_bytes || 0)})`}
-        onClose={() => setConfirm(null)} disabled={busy}
-        onConfirm={async () => {
-          // the button the person pressed shows the model's use rules, so pressing it is agreeing to them
-          await engines.setUp(confirm.what, confirm.model?.id || "", Boolean(confirm.model?.rule));
-          await load();
-        }}>
-        {confirm.what === "comfyui" ? <p>ClipForge downloads ComfyUI {c.version}, a Python for it and PyTorch for
-          {" "}{c.flavor_label || "this computer"}: about {gb(c.download_bytes)}, {gb(c.disk_bytes)} on disk. It can take a while;
-          you can keep working, and a stopped download resumes.</p> :
-          <><p>{confirm.model?.about} {confirm.model?.name} is made by {confirm.model?.maker} and comes under
-            {" "}<a href={confirm.model?.licence_url} target="_blank" rel="noreferrer">{confirm.model?.licence}</a>.</p>
-            {confirm.model?.rule && <p><b>Its use rules:</b> {confirm.model.rule}</p>}
-            <p>About {gb(confirm.model?.download_bytes || 0)} to download.</p></>}
-      </ConfirmDialog>}
-
-      {command && <Dialog wide title={`Put ${command.model.name} on your cloud computer`} onClose={closeCommand}
-        actions={command.view?.command ? <>
-          <button type="button" className="btn btn-quiet" onClick={closeCommand}>Close</button>
-          <button type="button" className="btn" onClick={() => void copyCommand(command.view?.command || "")}><Icon name="copy" />Copy the command</button>
-          <button type="button" className="btn" disabled={busy} onClick={() => void checkCommand(command.model)}>
-            <Icon name="refresh" />I ran it: check again</button>
-        </> : !command.view && !command.error && !command.asking && command.model.rule ? <>
-          <button type="button" className="btn btn-quiet" onClick={closeCommand}>Cancel</button>
-          <button type="button" className="btn" onClick={() => void fetchCommand(command.model, true)}>Agree and show the command</button>
-        </> : <button type="button" className="btn" onClick={closeCommand}>{command.asking ? "Cancel" : "Close"}</button>}>
-        {command.error ? <Banner tone="bad" title="No command">{command.error}</Banner>
-          : !command.view && !command.asking && command.model.rule ? <>
-            <p>{command.model.about} {command.model.name} is made by {command.model.maker} and comes under
-              {" "}<a href={command.model.licence_url} target="_blank" rel="noreferrer">{command.model.licence}</a>.</p>
-            <p><b>Its use rules:</b> {command.model.rule}</p>
-          </>
-          : !command.view ? <p className="small muted">Asking your cloud computer what it has…</p>
-          : !command.view.command ? <p>Your cloud computer already has everything {command.view.name} needs. Press Close, then
-            Check again at the top.</p>
-          : <>
-            <ol className="steps-list">
-              <li>In RunPod, press <b>Connect</b> on your pod. Turn on the <b>Web Terminal</b> and open it (or open
-                {" "}<b>JupyterLab</b>, then File, New, Terminal).</li>
-              <li>Press <b>Copy the command</b> below. Click in the terminal, paste it, and press Enter.</li>
-              <li>Wait until it says <b>Done</b>. It downloads {gb(command.view.bytes)} on the cloud computer, which usually
-                takes a few minutes, sometimes longer. Your own internet is not used.</li>
-              <li>Come back here and press <b>I ran it: check again</b>.</li>
-            </ol>
-            {!command.view.asked && <Banner tone="info" title="Your cloud computer did not answer just now">The command finds
-              ComfyUI&apos;s models folder by itself. {command.view.why}</Banner>}
-            <pre className="command-box" aria-label="The command">{command.view.command}</pre>
-            <p className="small muted">{command.view.files.length === 1 ? "1 file" : `${command.view.files.length} files`}
-              {command.view.where ? ` go into ${command.view.where}` : ""}. Each one is checked when it arrives; a damaged
-              one is deleted. If it stops, paste the same command again: it goes on where it stopped.</p>
-          </>}
-      </Dialog>}
+      {dialogs}
     </>
   );
 }

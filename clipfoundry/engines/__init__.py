@@ -213,7 +213,7 @@ def remote_command(model_id: str, agreed: bool = False) -> dict:
 
     settings = _settings()
     if makers.mode(settings) != "remote":
-        raise EngineError("Choose \"A cloud computer\" in Settings, Pictures, video, voice first.")
+        raise EngineError("Press \"Use a cloud computer\" in Settings, Cloud computer first.")
     return remote.command_for(model_id, settings, agreed=agreed)
 
 
