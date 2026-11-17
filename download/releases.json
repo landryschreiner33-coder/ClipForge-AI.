@@ -2,79 +2,112 @@
   "schema": 2,
   "current": {
     "name": "ClipForge",
-    "version": "2026.11.16",
+    "version": "2026.11.16.2",
     "date": "2026-11-16",
-    "source_commit": "f3aea380648201cb39d3339fc39c45d021f9c84f",
-    "summary": "Clip live streams while they are live, several at once, and let Make & upload clips post the best moments to YouTube during the stream.",
+    "source_commit": "fa5e1396eaec78387b5ab22432926e9fed4e0773",
+    "summary": "The cloud computer for pictures and video now has its own place in Settings, so it is easy to find.",
     "changes": [
       {
-        "title": "Clip live streams while they are live",
-        "text": "**Missions › Live streams** (also **Make › Clip a live stream**) takes the links of the streams you want to clip, one per line and up to 10 at a time: a Twitch or Kick channel, a YouTube live video or a channel’s live page (`youtube.com/@name/live`), or a public `.m3u8` stream address. ClipForge records each stream on your computer in one-minute pieces while it is live, without signing in or using your browser’s cookies, and turns strong moments from the last 15 minutes into vertical, captioned clips as the stream goes on. A channel that is not live yet is checked again until it starts, for up to a day. When the stream ends, ClipForge joins the whole recording and looks through it once more. It adds moments the live pass missed only up to **Clips per source** (Settings › Advanced, 5 unless you changed it), counting the live clips, so a stream that already made that many live clips usually gets none added."
-      },
-      {
-        "title": "Long streams: raise Largest source first",
-        "text": "A recording stops when it reaches the **Largest source** limits in Settings › Advanced (8 GB or 240 minutes unless you changed them; a 1080p stream can reach 8 GB in roughly three to four hours) and is then finished like an ended stream, shown as Stopped. To clip longer streams, raise both numbers first; each stream sets aside that much disk room before it starts recording. The Live streams page shows your current limits under the link box."
-      },
-      {
-        "title": "Uploads during the stream",
-        "text": "Each stream link gets its own **Make & upload clips** choice, with the same YouTube account, audience and made-for-kids answer you would give for a video. Clips that pass the final checks upload while the stream is still live, at your posting pace: with the usual settings the first goes out as soon as it is ready and later ones at least **Minimum gap** apart (30 minutes unless you changed it), per YouTube account and shared by all your streams. A clip that is already uploading or uploaded is never swapped for a later cut. The choice covers that one broadcast only, never the channel’s later streams. With **Make clips** instead, the clips stay on your computer."
-      },
-      {
-        "title": "Several streams at once",
-        "text": "Add several links together, or more while others are recording. Up to three streams are worked on at the same time. Their recorded minutes are turned into text one minute at a time, taking turns with each other (and with any other transcription), and more streams keep recording and wait for their turn. Before a stream starts recording, ClipForge sets aside disk room for the streams already recording, so two streams never both start on a disk with room for only one."
-      },
-      {
-        "title": "Stop recording, and one broadcast per link",
-        "text": "Each stream’s card has **Stop recording**: ClipForge stops the recorder, joins what it has and finishes the stream as if it had ended. Uploads made so far, and live clips already approved for upload, stay as they are; another live clip may still be replaced by a clearly better cut of the same moment from the full recording. If a channel goes offline, ClipForge waits 5 minutes in case the connection only dropped; a new broadcast on the same channel is never added to the old recording. To clip the channel’s next stream, paste its link again. **Stop all jobs** pauses the recordings (nothing is recorded meanwhile) and **Resume** continues them."
-      },
-      {
-        "title": "Fixed: Cancel and Stop all jobs while a job is running",
-        "text": "If you pressed **Cancel** or **Stop all jobs** while a job was running, and that job then paused to wait, scheduled another try or crashed, it could be left waiting (or retrying) with nothing to pick it up, and after Stop all jobs it did not continue after **Resume** either. It now ends canceled (after Stop all jobs: held, like the other work Stop all jobs stopped), and your own Cancel of a running job stays final even if Stop all jobs comes after it."
-      },
-      {
-        "title": "The privacy page and Terms describe live streams",
-        "text": "The privacy page (inside the app and linked at the bottom of this page) now describes live streams: what is recorded and kept on your computer, and that clips upload only to the YouTube account you chose for that stream. The Terms and the legal home page now also mention live streams you add."
+        "title": "Settings › Cloud computer",
+        "text": "The cloud computer you can rent by the hour to make pictures and video clips (added in 2026.11.13.2) now has its own entry in the Settings list. Open **Settings › Cloud computer** and press **Use a cloud computer** to see the box for your cloud computer’s web address and the step-by-step RunPod guide. **Settings › Pictures, video, voice** points to it too, and messages about the cloud computer now name it. Nothing else changed."
       }
     ],
     "checked": [
-      "2,721 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code, including 47 new ones for live streams: each kind of link, waiting for a channel to go live, one broadcast per link, a dropped connection, Stop recording, Stop all jobs and Resume, disk room for several streams, and the sound, clips and uploads made while live. The 31 checks that render real video and audio ran on GitHub’s Linux machine, including two live streams played in real time from files, which made clips and uploaded them to a stand-in YouTube while they were still live.",
-      "An animated short was made from a pasted script and rendered on GitHub’s Mac, Windows and Linux machines.",
+      "2,721 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code. The 31 checks that render real video and audio ran on GitHub’s Linux machine.",
+      "The new Settings page was opened in a browser with the cloud computer off and on, on a phone-sized window, and while switching between Settings pages.",
       "The Mac app was built, opened and tested with its own video tools, Keychain and window on an Apple-silicon Mac with macOS 15 in GitHub’s test service. The DMG on this page is that exact build.",
       "The Windows setup was installed in GitHub’s test service over the previous version: it kept the same data folder and settings, opened the app, and closed and reopened cleanly. Every installed file was compared with the exact source."
     ],
     "not_checked": [
-      "A real Twitch, Kick or YouTube broadcast: the streams in the checks were played from files on the same computer, and YouTube asks test machines to sign in. The first stream you add checks the whole path.",
-      "Whether your computer keeps up with transcribing two or three streams, one minute at a time (on a Mac, on the processor). If clips fall behind, clip fewer streams at a time.",
+      "A real rented cloud computer: it is on your RunPod account and costs money while it is on. The first test picture you make in Settings › Cloud computer checks the whole path.",
       "Your own computer, its graphics card, and real uploads to your accounts.",
       "ClipForge AI and the picture, video and voice makers with your own projects and footage on your computer.",
-      "A real YouTube download: YouTube asks test machines to sign in, so links were tested with a stand-in video page.",
       "Whether Windows security accepts the setup without asking. If it reports a threat, stop and read what it found; do not turn protection off.",
       "Apple’s notarization. macOS will ask once before opening the app."
     ],
     "files": {
       "windows": {
         "file": "ClipForge-Windows-Setup.zip",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/26ef3a156b7b3a6fc6f122aa101cc15ad68fcb92/ClipForge-Windows-Setup.zip",
-        "bytes": 50216384,
-        "sha256": "e7a32c7c54551e37258f434da46dcf64e205d5760a15c0a8398f4e5d2bef09f9",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/eceeeb15fe63eb892cfe375adfda532e135925f4/ClipForge-Windows-Setup.zip",
+        "bytes": 50221270,
+        "sha256": "e6f0c8014cb44f38fe98e5807dea5674c875ab4a339e164dc28bd31a32aea859",
         "kind": "ZIP",
         "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43898294309",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44020274850",
         "tested_label": "Windows install check"
       },
       "mac": {
         "file": "ClipForge-Mac-Apple-Silicon.dmg",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-16-f3aea38/ClipForge-Mac-Apple-Silicon.dmg",
-        "bytes": 255820993,
-        "sha256": "815fe2d2755380d54bf5a8b5d7291ecee8cc07c41616c9b9b8aefd826e5b21b9",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-16-2-fa5e139/ClipForge-Mac-Apple-Silicon.dmg",
+        "bytes": 255828420,
+        "sha256": "d8b6ba86d1d38d75e30e3c7f9f922470dfbf82f2156f836e513d56ec80c6d530",
         "kind": "DMG",
         "requires": "Apple silicon, macOS 15 or newer",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43912561838",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44018676801",
         "tested_label": "Mac build and test run"
       }
     }
   },
   "previous": [
+    {
+      "name": "ClipForge",
+      "version": "2026.11.16",
+      "date": "2026-11-16",
+      "source_commit": "f3aea380648201cb39d3339fc39c45d021f9c84f",
+      "summary": "Clip live streams while they are live, several at once, and let Make & upload clips post the best moments to YouTube during the stream.",
+      "changes": [
+        {
+          "title": "Clip live streams while they are live",
+          "text": "**Missions › Live streams** (also **Make › Clip a live stream**) takes the links of the streams you want to clip, one per line and up to 10 at a time: a Twitch or Kick channel, a YouTube live video or a channel’s live page (`youtube.com/@name/live`), or a public `.m3u8` stream address. ClipForge records each stream on your computer in one-minute pieces while it is live, without signing in or using your browser’s cookies, and turns strong moments from the last 15 minutes into vertical, captioned clips as the stream goes on. A channel that is not live yet is checked again until it starts, for up to a day. When the stream ends, ClipForge joins the whole recording and looks through it once more. It adds moments the live pass missed only up to **Clips per source** (Settings › Advanced, 5 unless you changed it), counting the live clips, so a stream that already made that many live clips usually gets none added."
+        },
+        {
+          "title": "Long streams: raise Largest source first",
+          "text": "A recording stops when it reaches the **Largest source** limits in Settings › Advanced (8 GB or 240 minutes unless you changed them; a 1080p stream can reach 8 GB in roughly three to four hours) and is then finished like an ended stream, shown as Stopped. To clip longer streams, raise both numbers first; each stream sets aside that much disk room before it starts recording. The Live streams page shows your current limits under the link box."
+        },
+        {
+          "title": "Uploads during the stream",
+          "text": "Each stream link gets its own **Make & upload clips** choice, with the same YouTube account, audience and made-for-kids answer you would give for a video. Clips that pass the final checks upload while the stream is still live, at your posting pace: with the usual settings the first goes out as soon as it is ready and later ones at least **Minimum gap** apart (30 minutes unless you changed it), per YouTube account and shared by all your streams. A clip that is already uploading or uploaded is never swapped for a later cut. The choice covers that one broadcast only, never the channel’s later streams. With **Make clips** instead, the clips stay on your computer."
+        },
+        {
+          "title": "Several streams at once",
+          "text": "Add several links together, or more while others are recording. Up to three streams are worked on at the same time. Their recorded minutes are turned into text one minute at a time, taking turns with each other (and with any other transcription), and more streams keep recording and wait for their turn. Before a stream starts recording, ClipForge sets aside disk room for the streams already recording, so two streams never both start on a disk with room for only one."
+        },
+        {
+          "title": "Stop recording, and one broadcast per link",
+          "text": "Each stream’s card has **Stop recording**: ClipForge stops the recorder, joins what it has and finishes the stream as if it had ended. Uploads made so far, and live clips already approved for upload, stay as they are; another live clip may still be replaced by a clearly better cut of the same moment from the full recording. If a channel goes offline, ClipForge waits 5 minutes in case the connection only dropped; a new broadcast on the same channel is never added to the old recording. To clip the channel’s next stream, paste its link again. **Stop all jobs** pauses the recordings (nothing is recorded meanwhile) and **Resume** continues them."
+        },
+        {
+          "title": "Fixed: Cancel and Stop all jobs while a job is running",
+          "text": "If you pressed **Cancel** or **Stop all jobs** while a job was running, and that job then paused to wait, scheduled another try or crashed, it could be left waiting (or retrying) with nothing to pick it up, and after Stop all jobs it did not continue after **Resume** either. It now ends canceled (after Stop all jobs: held, like the other work Stop all jobs stopped), and your own Cancel of a running job stays final even if Stop all jobs comes after it."
+        },
+        {
+          "title": "The privacy page and Terms describe live streams",
+          "text": "The privacy page (inside the app and linked at the bottom of this page) now describes live streams: what is recorded and kept on your computer, and that clips upload only to the YouTube account you chose for that stream. The Terms and the legal home page now also mention live streams you add."
+        }
+      ],
+      "files": {
+        "windows": {
+          "file": "ClipForge-Windows-Setup.zip",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/26ef3a156b7b3a6fc6f122aa101cc15ad68fcb92/ClipForge-Windows-Setup.zip",
+          "bytes": 50216384,
+          "sha256": "e7a32c7c54551e37258f434da46dcf64e205d5760a15c0a8398f4e5d2bef09f9",
+          "kind": "ZIP",
+          "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43898294309",
+          "tested_label": "Windows install check"
+        },
+        "mac": {
+          "file": "ClipForge-Mac-Apple-Silicon.dmg",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-16-f3aea38/ClipForge-Mac-Apple-Silicon.dmg",
+          "bytes": 255820993,
+          "sha256": "815fe2d2755380d54bf5a8b5d7291ecee8cc07c41616c9b9b8aefd826e5b21b9",
+          "kind": "DMG",
+          "requires": "Apple silicon, macOS 15 or newer",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/43912561838",
+          "tested_label": "Mac build and test run"
+        }
+      }
+    },
     {
       "name": "ClipForge",
       "version": "2026.11.13.2",
