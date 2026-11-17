@@ -301,3 +301,32 @@ Listed as ClipForge 2026.11.16, dated November 16.
   recording kept on cancel, deleted with its project).
 
 Rollback: revert `c68f266` on `gh-pages` with a normal commit. The 2026.11.13.2 files stay under All versions.
+
+## The cloud computer gets its own section in Settings — ClipForge 2026.11.16.2, November 16, 2026 (Claude Code)
+
+Landry could not find where to connect a cloud computer and asked that it be merged and released. It was (PR #49 in
+2026.11.13.2 and 2026.11.16), but only as one button in the ComfyUI box on Settings → Pictures, video, voice. PR #55
+gives it its own section, **Settings → Cloud computer**, and was merged as `77eaa99`, whose tree equals that of its
+head `fa5e1396eaec78387b5ab22432926e9fed4e0773`, which both downloads are built from and name as their source commit.
+Listed as ClipForge 2026.11.16.2, dated November 16 (Landry's evening; 2026-11-17 UTC).
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-16-2-fa5e139/ClipForge-Mac-Apple-Silicon.dmg
+  (255,828,420 bytes, SHA-256 `d8b6ba86d1d38d75e30e3c7f9f922470dfbf82f2156f836e513d56ec80c6d530`). Unsigned personal
+  preview, published unchanged from
+  [build and test run 44018676801](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44018676801)
+  (native build and bundled-app smoke passed; 2,721 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped) by
+  [publish run 44022165510](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44022165510).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/eceeeb15fe63eb892cfe375adfda532e135925f4/ClipForge-Windows-Setup.zip
+  (50,221,270 bytes, SHA-256 `e6f0c8014cb44f38fe98e5807dea5674c875ab4a339e164dc28bd31a32aea859`).
+  [Windows setup check run 44020274850](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44020274850)
+  installed 2026.11.16 (f3aea38, raw/26ef3a1, now the check's previous release) with a synthetic setting on a Windows
+  Server 2025 runner, then this ZIP over it: same data folder and setting, this commit's page and icon, all 872 files,
+  close and reopen. No FFmpeg on the runner, so no video was processed. Record commit `649817e` on
+  `claude/clipforge-downloads`.
+- **Download page:** `gh-pages` commit `3166005` (previous `c68f266`), pushed directly. One change with the checked /
+  not checked lists; "Do I need an AI subscription?" now names Settings › Cloud computer. `build.py --check` and
+  `--verify` passed here and in Download page run 44023075391; Pages run 44023075193.
+- **Legal pages:** unchanged. The privacy page's "A cloud computer in Settings → Pictures, video, voice" is still where
+  that choice is (it is now on both pages).
+
+Rollback: revert `3166005` on `gh-pages` with a normal commit. The 2026.11.16 files stay under All versions.

@@ -1,5 +1,34 @@
 # AI changelog
 
+## Release 2026.11.16.2: the cloud computer gets its own section in Settings — 2026-11-16 (Claude Code)
+
+Landry asked where the app lets you connect a cloud computer and wrote "i dont see a section with that make sure its
+merged and actualy released". It was merged (PR #49, `0716ba4`), released (2026.11.13.2 and 2026.11.16) and installed
+on their Mac (2026.11.16, `f3aea38`), but only as one of four buttons in the ComfyUI box on Settings → Pictures, video,
+voice, with its address box shown only after choosing it. Landry chose its own section and a release. PR #55
+(`fa5e139`) was merged as `77eaa99` (same tree); both downloads are built from fa5e139. Every URL, size, hash and run:
+[docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+
+- **Settings → Cloud computer** (`#/settings/cloud`, after Pictures, video, voice in the Settings list): what it does,
+  what makes pictures and video now, the cost note and **Use a cloud computer**; once chosen, the same address box,
+  Save and check, key, RunPod steps and the Pictures / Video clips models as before. `LocalMakers.tsx` takes
+  `part="all" | "cloud"` and shares the cloud block, steps, model panels and dialogs between both pages; each page has
+  its own component key. While a set-up task runs, the cloud page names that task and shows its progress (a review
+  finding: it said "ComfyUI is being set up" during any download).
+- **Settings → Pictures, video, voice** keeps the same choice and shows **Faster: a cloud computer** with *Set up a
+  cloud computer* while it is not chosen. Messages about the cloud computer say "Settings, Cloud computer"
+  (`engines/remote.py`, `makers.py`, `comfy.py`, `engines/__init__.py`); ClipForge AI's `go_to` can open
+  `cloud_computer` and `makers_settings`; `router.ts` accepts the tab; a `cloud` icon.
+- **Checks:** Native Mac desktop app run 44018676801 on fa5e139 (native build and bundled-app smoke; fast 2,721 passed,
+  2 skipped; slow 31 passed, 1 skipped); the cloud session's fast suite on fa5e139 (2,721 passed, 2 skipped); `npm run
+  build` reproduces the committed `frontend/dist`; browser checks of both pages (off and on, phone width, switching
+  pages, no page errors); three reviewers plus a verifier per finding.
+- **Mac:** release `clipforge-mac-2026-11-16-2-fa5e139`, the unchanged DMG from run 44018676801, published by run
+  44022165510. **Windows:** `raw/eceeeb1` on `claude/clipforge-downloads` (Windows setup check 44020274850 installed
+  2026.11.16 first; record commit `649817e`). **Download page:** `gh-pages` `3166005`.
+- **Not verified:** a real RunPod pod (Landry's account; costs money) and the new page in the Mac window on Landry's
+  computer.
+
 ## Release 2026.11.16: clip live streams while they are live — 2026-11-16 (Claude Code)
 
 Landry wrote "Make sure you release the new changes". Everything merged into the release line since 2026.11.13.2 is in
