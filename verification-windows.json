@@ -12,7 +12,7 @@
   "app_files": 872,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
-  "native_windows_verified": false,
+  "native_windows_verified": true,
   "file": "ClipForge-Windows-Setup.zip",
   "date": "2026-11-17",
   "timezone": "UTC",
@@ -28,15 +28,32 @@
   "payload_review": "All 872 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
-    "status": "pending",
-    "note": "runs on this push; the result is recorded here once it has passed"
+    "status": "passed",
+    "run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44020274850",
+    "commit": "eceeeb15fe63eb892cfe375adfda532e135925f4",
+    "runner": "GitHub windows-2025 (Windows Server 2025), CPython 3.12.10 64-bit",
+    "downloaded_from": "this branch's public raw URL; SHA-256 matched",
+    "steps": [
+      "previous release (f3aea38, raw/26ef3a1) installed with a synthetic setting, then closed",
+      "this ZIP installed over it, keeping the previous data folder and the setting",
+      "marker records source commit fa5e139; all 872 installed app files equal app.zip",
+      "the running app served this commit's index.html and app-icon.png byte for byte",
+      "closed and reopened: same folder, no second extraction, setting still there"
+    ],
+    "not_covered": [
+      "FFmpeg is not installed on the runner, so no video was processed on Windows",
+      "Windows 10/11 desktop, Defender/SmartScreen acceptance, GPUs, the built-in model, ComfyUI and its models, a real live stream, a real rented cloud computer, the built-in voice and real AI keys on a PC, real accounts and uploads"
+    ]
   },
   "app_tests": {
-    "branch": "claude/project-thread-nt5u6q at fa5e139 (PR #55), to be merged into claude/project-thread-x72wkd with the same tree: the 2026.11.16 release line (b511a2a) plus Settings, Cloud computer and the Mac release notes for 2026.11.16.2",
-    "github_run": "pending: the Native Mac desktop app run 44018676801 on fa5e139 is recorded here once it has passed",
+    "branch": "claude/project-thread-nt5u6q at fa5e139 (PR #55), merged into claude/project-thread-x72wkd as 77eaa99 with the same tree: the 2026.11.16 release line (b511a2a) plus Settings, Cloud computer and the Mac release notes for 2026.11.16.2",
+    "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44018676801",
+    "github_run_result": "native Mac build and bundled-app smoke passed; fast suite 2,721 passed (2 skipped); slow suite 31 passed (1 skipped)",
+    "github_fast": 2721,
+    "github_slow": 31,
     "local": {
       "commit": "fa5e139",
-      "note": "recorded once the local fast and slow suites have finished"
+      "note": "python -m pytest -m 'not slow' on Linux: 2,721 passed, 2 skipped; npm run build reproduces the committed frontend/dist; browser checks of Settings, Cloud computer (off and on, phone width, switching pages)"
     }
   }
 }

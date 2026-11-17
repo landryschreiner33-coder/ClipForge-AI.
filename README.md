@@ -10,11 +10,14 @@ needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details b
 It installs ClipForge from source commit `fa5e1396eaec78387b5ab22432926e9fed4e0773`: the 2026.11.16 release plus
 PR #55 (Settings, Cloud computer: the rented cloud computer for pictures and video has its own place in the Settings
 list, and Settings, Pictures, video, voice points to it). The 77 setup tests passed, and all 872 app files were
-compared with that commit (six `.bat` files differ only by the declared CRLF export). The Windows install check for
-this ZIP is recorded here once it has run. FFmpeg is not installed on the check machine, so no video is processed on
-Windows there; Windows 10/11 desktops, Windows security acceptance, GPUs, the built-in model, ComfyUI and its models,
-a real live stream, a real rented cloud computer, the built-in voice, real AI keys on a PC and real uploads are not
-tested.
+compared with that commit (six `.bat` files differ only by the declared CRLF export).
+[Windows setup check run 44020274850](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44020274850)
+installed the previous release (f3aea38) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
+ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 872
+installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
+was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
+GPUs, the built-in model, ComfyUI and its models, a real live stream, a real rented cloud computer, the built-in
+voice, real AI keys on a PC and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
