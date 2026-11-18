@@ -18,15 +18,19 @@ function postOf(c: Clip) {
 
 type Outcome = { key: string; clip: string; channel: string; ok: boolean; text: string };
 
-// An upload that is on the channel, on its way there, or whose outcome YouTube never confirmed.
-const HELD = ["done", "queued", "uploading", "processing", "action_needed"];
-const onChannel = (p: Publication) => HELD.includes(p.status) || !!p.info?.outcome_unknown
+// An upload that is still on its way to the channel, or whose outcome YouTube never confirmed: the server starts
+// no other upload of that clip to that channel until it is settled, so it is never sent again from here.
+const UNDER_WAY = ["queued", "uploading", "processing"];
+const unsettled = (p: Publication) => UNDER_WAY.includes(p.status) || !!p.info?.outcome_unknown
   || p.info?.code === "outcome_unknown";
+// An upload that is on the channel: sent again only when the owner asks for it.
+const landed = (p: Publication) => p.status === "done" || p.status === "action_needed";
 
 /**
  * Post several clips at once, to YouTube only: each selected clip goes to each ticked channel as its own upload, one
  * after another, with the clip's saved post text and your confirmed audience. A clip a channel already has is left out
- * unless you ask for it again. TikTok asks for a check of every post, so it stays on Prepare post.
+ * unless you ask for it again; one whose upload there is still under way or unconfirmed is always left out. TikTok
+ * asks for a check of every post, so it stays on Prepare post.
  */
 export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () => void }) {
   const hid = useId();
@@ -61,15 +65,22 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
   const privacy = yt?.intent === "PUBLIC" ? "public" : "private";
   // An old upload names no account: it went to the platform's default account.
   const fallback = rows?.find((r) => r.platform === "youtube" && r.is_default)?.id || "";
-  const has = (clipId: string, c: Connection) => !!history?.[clipId]?.some(
-    (p) => p.platform === "youtube" && (p.connection_id || fallback) === c.id && onChannel(p));
+  const has = (clipId: string, c: Connection, test: (p: Publication) => boolean, unbound: string) =>
+    !!history?.[clipId]?.some((p) => p.platform === "youtube" && (p.connection_id || unbound) === c.id && test(p));
   const posts = clips.map((c) => {
-    const there = chosen.filter((ch) => has(c.id, ch));
-    return { clip: c, ...postOf(c), there, to: again ? chosen : chosen.filter((ch) => !there.includes(ch)) };
+    // As the server counts them: an unsettled old upload that names no account holds every channel.
+    const busy = chosen.filter((ch) => has(c.id, ch, unsettled, ch.id));
+    const there = chosen.filter((ch) => !busy.includes(ch) && has(c.id, ch, landed, fallback));
+    const to = chosen.filter((ch) => !busy.includes(ch) && (again || !there.includes(ch)));
+    return { clip: c, ...postOf(c), busy, there, to };
   });
   const longTitles = posts.filter((p) => p.title.length > 100).length;
   const total = posts.reduce((n, p) => n + p.to.length, 0);
   const repeats = posts.reduce((n, p) => n + p.there.length, 0);
+  const waiting = posts.reduce((n, p) => n + p.busy.length, 0);
+  // What the count leaves out, in words: "already has", "is still receiving", or both.
+  const leftOut = [repeats > 0 && !again && "already has", waiting > 0 && "is still receiving"]
+    .filter(Boolean).join(" or ");
   const missing = [
     !audience && !audienceError && "wait for your audience settings to load",
     !!audienceError && "reload the audience settings",
@@ -78,7 +89,9 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
     !history && !historyError && "wait while ClipForge reads where these clips were already posted",
     !!historyError && "close this and try again (the clips' earlier uploads could not be read)",
     !chosen.length && "choose at least one channel",
-    chosen.length > 0 && !!history && !total && "tick another channel, or tick “Post them there again”",
+    chosen.length > 0 && !!history && !total && (repeats > 0
+      ? "tick another channel, or tick “Post them there again”"
+      : "tick another channel, or wait until the uploads under way are settled"),
     !kids && "answer “made for kids”",
     posts.some((p) => !p.title) && "give every clip a title in Prepare post",
     longTitles > 0 && "shorten the titles marked below to 100 characters in Prepare post",
@@ -182,6 +195,9 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
                       {p.there.length > 0 && <span className="block small muted">
                         Already on {nameList(p.there.map(accountName))}:{" "}
                         {again ? "posted there again" : "left out there"}</span>}
+                      {p.busy.length > 0 && <span className="block small muted">
+                        An upload to {nameList(p.busy.map(accountName))} is still under way or unconfirmed: left
+                        out there</span>}
                     </span>
                     {(long || big || !p.title) && (
                       <a className="textlink small" href={`#/publish/${p.clip.id}`}>
@@ -199,16 +215,19 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
               <label className="choice">
                 <input type="checkbox" checked={again} onChange={(e) => setAgain(e.target.checked)} />
                 <span>Post them there again <span className="hint block">
-                  {repeats === 1 ? "1 upload is" : `${repeats} uploads are`} left out because the channel already has
-                  that clip, or an upload of it is still under way. Tick this to upload {repeats === 1 ? "it" : "them"}
-                  {" "}again anyway.</span></span>
+                  {again
+                    ? `${repeats === 1 ? "1 upload repeats" : `${repeats} uploads repeat`} a clip its channel already
+                      has. Untick this to leave ${repeats === 1 ? "it" : "them"} out.`
+                    : `${repeats === 1 ? "1 upload is" : `${repeats} uploads are`} left out because the channel
+                      already has that clip. Tick this to upload ${repeats === 1 ? "it" : "them"} again anyway.`}
+                </span></span>
               </label>
             )}
           </div>
           <div className="consequence">
             <span>
               {total > 0 ? `This starts ${total === 1 ? "1 upload" : `${total} uploads`}`
-                + (repeats > 0 && !again ? " (clips a channel already has are left out)" : ": each clip")
+                + (leftOut ? ` (clips a channel ${leftOut} are left out)` : ": each clip")
                 + ` to ${nameList(chosen.map(accountName))}, as ${privacy === "public" ? "Public" : "Private"}, `
                 + "right away. "
                 : ""}

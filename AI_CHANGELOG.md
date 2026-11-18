@@ -35,13 +35,37 @@ Branch `claude/project-thread-rxehvi` from the release line at 56d2cbd. **Not re
 - **Not built (no way to post these exists yet):** animated shorts and full YouTube videos have no publish path, so
   they have no channel choice. The standing automatic-publishing permission and TikTok keep their own rules: the
   permission covers the default channel only, and TikTok asks for your OK on every post.
+- **Second review (two independent reviewers, each finding checked by a skeptic): four confirmed, all fixed, none
+  could send a post to a wrong channel.** (1) A post to a chosen channel whose sign-in YouTube refused during the
+  upload is held with no job left to try it again; "Needs you" hid its Reconnect notice as soon as the account
+  looked connected. The notice now stays until the post is retried (`home._held_for_owner`), the same as for a post
+  without a channel. (2) The cooldown after a dynamic replacement was kept per platform and time, so a replacement
+  on one channel held the same time on every other channel; it is per account now
+  (`scheduler.replacement_blocked`). (3) A TikTok package you post yourself could not be approved on its page while
+  TikTok was signed out ("Another account is connected now"): the page named the signed-out account; it now names
+  an account only while it is connected. (4) The post page and the approve check used two definitions of "the
+  account of a post without a channel". There is one now (`autopilot/targets.py`): the post follows the default
+  account until its upload has begun, then it belongs to the account that upload began on (`begun_on`), so an
+  upload interrupted by a platform wait finishes where it started with its approval intact, and an upload record
+  that never started is cancelled and started fresh on the account the post is approved for (it used to upload to
+  the old default). Smaller points from the same review: Post selected never re-sends an upload that is still
+  under way or unconfirmed; TikTok "How to post" returns to Post directly when the account without Direct Post is
+  unticked; a TikTok inbox draft already sent is noted before sending it again; a video's status names the one
+  chosen channel that is held; the post page retries reading the accounts.
+- **Known limits, unchanged:** a platform's "wait" or daily upload limit still holds the posts of all channels of
+  that platform until it passes (`platform_limits` is per platform). With "Make & upload" and dynamic replacement,
+  a replaced post and its replacement can both stay approved (it was so before this change, with one channel too).
 - **Checks:** the cloud session's fast suite on d9cb7c9 (2,743 passed, 2 skipped; `test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, a 2.5-second timing test in code this change does
   not touch, failed once at the start of the run and passed 3 of 3 times alone); 23 new tests in
   `tests/test_post_to_channels.py`; `npm run build` reproduces the committed `frontend/dist`; a real-app browser
   check against a throwaway app with three fake YouTube channels and one TikTok account (16 of 16 steps: one clip
   to two channels, three clips to two channels with the repeat left out, each channel got each clip exactly once,
-  the channel that needs Reconnect can't be ticked, Missions sends the ticked channels, no page errors). The slow
-  suite and the Native Mac desktop app run are recorded on the pull request.
+  the channel that needs Reconnect can't be ticked, Missions sends the ticked channels, no page errors). GitHub on
+  6d51ff0 (run 44320764673): fast suite, slow suite and the Native Mac desktop app build all passed. After the
+  second review's fixes: 31 tests in `tests/test_post_to_channels.py` (8 new; 6 of them fail on the code before the
+  fixes), the 50 test files that touch the changed modules (880 passed), `tsc --noEmit`, `npm run build`, and the
+  browser check extended to 27 steps (TikTok mode switch, repeats and an upload under way in Post selected, the
+  TikTok package approved while signed out). The full suites on the final commit are on the pull request.
 - **Not verified:** real YouTube channels or TikTok accounts (fake platforms only); the screens in the Mac window on
   Landry's computer.
 

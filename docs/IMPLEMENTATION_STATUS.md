@@ -12,9 +12,14 @@ All; Autopilot plans one post per chosen channel. Details: [AI_CHANGELOG.md](../
 | 2026-11-18, on d9cb7c9 | `python -m pytest tests/test_post_to_channels.py -q` | 23 passed |
 | 2026-11-18 | `cd frontend && npm run build` | passed; `frontend/dist` rebuilt and committed |
 | 2026-11-18 | browser check against a throwaway app with fake channels | 16 of 16 steps passed, no page errors |
+| 2026-11-18, on 6d51ff0 | GitHub run 44320764673: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | all three passed |
+| 2026-11-18, after the second review's fixes | `python -m pytest tests/test_post_to_channels.py -q` | 31 passed (8 new; 6 fail on the code before the fixes) |
+| 2026-11-18, after the second review's fixes | `python -m pytest -m "not slow"` on the 50 test files that touch the changed modules | 880 passed, 12 deselected |
+| 2026-11-18, after the second review's fixes | `npx tsc --noEmit`, `npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-18, after the second review's fixes | browser check against a throwaway app with fake channels | 27 of 27 steps passed, no page errors |
 
-The slow suite and the Native Mac desktop app run are on the pull request. Not verified: real YouTube channels and
-TikTok accounts; the screens in the Mac window.
+The full suites and the Native Mac desktop app run on the final commit are on the pull request. Not verified: real
+YouTube channels and TikTok accounts; the screens in the Mac window.
 
 ## Clip live streams while they are live, several at once — 2026-11-16 (Claude Code)
 

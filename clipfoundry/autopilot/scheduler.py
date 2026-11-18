@@ -32,7 +32,7 @@ from ..pipeline import artifact, fingerprint
 from ..publish import audience
 from . import autopublish, gate, learner, queue, rights, state
 from .host import Job, handler
-from .targets import effective_connection_id, item_account, same_account
+from .targets import begun_on, effective_connection_id, item_account, same_account
 from .scout import local_day, tz
 
 PLATFORMS = ("youtube", "tiktok")
@@ -296,6 +296,7 @@ class Plan:
         self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 30))
         self.held = 0  # replacements held back by the cooldown
         self.defaults = {p: db.default_connection_id(p) for p in PLATFORMS}
+        self._began: dict[str, str] = {}  # post id -> the account its upload already went to ("" when none)
 
     def account(self, platform: str, connection_id: str = "") -> tuple[str, str]:
         """The (platform, connection) a post's slot belongs to."""
@@ -305,7 +306,15 @@ class Plan:
         return platform, connection_id
 
     def _of(self, item: dict) -> tuple[str, str]:
-        return self.account(item["platform"], item.get("connection_id") or "")
+        """The account a stored post counts for: its own, else the one its upload went to, else the default (the
+        same rule as targets.effective_connection_id, read once per post)."""
+        own = item.get("connection_id") or ""
+        if not own and item.get("publication_id"):
+            key = item.get("id") or ""
+            if key not in self._began:
+                self._began[key] = begun_on(item)
+            own = self._began[key]
+        return self.account(item["platform"], own)
 
     def occupies(self, item: dict) -> bool:
         """A pending swap shares its slot with the item it would replace, so it takes no slot of its own."""
@@ -481,9 +490,15 @@ def replacement_blocked(weak: dict, clip_id: str, settings: dict, now: float) ->
     if db.scalar("SELECT COUNT(*) FROM slot_replacements WHERE replaced_id = ? AND clip_id = ?", (weak["id"], clip_id)):
         return "this clip was already proposed for this slot"
     hours = cooldown_hours(settings)
-    last = db.scalar("SELECT MAX(created_at) FROM slot_replacements WHERE platform = ? AND (ABS(slot_at - ?) < 60 OR "
-                     "replaced_id = ? OR replacement_id = ?)", (weak["platform"], weak["planned_at"], weak["id"],
-                                                                weak["id"]))
+    last = float(db.scalar("SELECT MAX(created_at) FROM slot_replacements WHERE platform = ? AND (replaced_id = ? OR "
+                           "replacement_id = ?)", (weak["platform"], weak["id"], weak["id"])) or 0)
+    # A slot is one account's time: the same time on another chosen channel is another slot, with its own cooldown.
+    mine = effective_connection_id(weak)
+    for row in db.select("slot_replacements", "platform = ? AND ABS(slot_at - ?) < 60",
+                         (weak["platform"], weak["planned_at"])):
+        other = db.fetch("scheduled_publications", row["replaced_id"])
+        if other is None or effective_connection_id(other) == mine:  # a deleted post counts, as before
+            last = max(last, float(row["created_at"] or 0))
     if hours and last and now - float(last) < hours * 3600:
         return f"its slot was part of a replacement less than {hours:g} hours ago"
     return ""

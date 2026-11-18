@@ -14,6 +14,17 @@ videos and live streams. Accounts has **Tick for new posts** to say which accoun
   non-empty one is the owner's chosen account and everything (approval, pacing, duplicate check, Reconnect notice,
   upload) follows it. New code that plans or posts uses `clipfoundry/autopilot/targets.py`, not
   `db.get_account(platform)`, for a bound post.
+- **One definition of a post's account** (`targets.py`): its own connection; else the connection its upload
+  already began on (`begun_on`: finished, transfer started, or outcome unknown); else today's default.
+  `effective_connection_id`, `item_account`, `account_view` (the post page and bulk preview), the planner
+  (`Plan._of`) and the replacement cooldown all use it. The approve call compares `expected_account_id` with
+  `item_account`; the page names an account only while it is connected. A never-started upload record on another
+  account than the post goes to now is cancelled in `publisher._publication`, never reused.
+- **Home:** `connect:<connection id>` is hidden only when the account is usable and no post to it is held without
+  a live `publish:<post id>` job (`home._held_for_owner`).
+- **Known limits:** `platform_limits` (a platform's wait or daily cap) is per platform, so it holds every channel
+  of that platform. With submission approval, a replaced post and its replacement can both stay approved
+  (`submissions.auto_approve` does not take the slot); this was so before channel choice.
 - **Building on it:** the thread "Improve live stream clipping quality" (`claude/project-thread-82eyed`) adds
   "split between channels" by filtering the destinations per clip in `scheduler.candidates()`.
 - **Not built:** animated shorts and full YouTube videos cannot be posted from the app at all yet, so they have no

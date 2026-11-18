@@ -434,7 +434,8 @@ def test_bulk_review_checks_each_posts_own_channel(chans):
     on_b = bound_draft(chans["tmp"], b["id"])
     shown = bulk_review.preview([on_b["id"]])
     assert shown["account"] == {"id": "UCchanA", "display_name": "Channel A"}  # the default, as before
-    assert shown["items"][0]["account"] == {"connection_id": b["id"], "name": "Channel B", "account_id": "UCchanB"}
+    assert shown["items"][0]["account"] == {"connection_id": b["id"], "name": "Channel B", "account_id": "UCchanB",
+                                            "bound": True}
     assert shown["eligible_ids"] == [on_b["id"]], shown["items"][0]["reason"]
     db.disconnect_connection(a["id"])  # the default channel needing Reconnect does not hold B's post
     assert db.get_connection(a["id"])["is_default"] and db.get_account("youtube") is None
@@ -634,3 +635,217 @@ def test_the_permission_statement_covers_each_chosen_channel(chans):
     shown = {row["id"]: row for row in submissions.setup()["reuse_bases"]}
     assert shown["permission"]["text_many"].endswith("each YouTube channel I chose.")
     assert "text_many" not in shown["owned"]
+
+
+# ------------------------------------------------------------------ what the second review found
+def host_publish(item_id: str) -> str:
+    """Run a post's upload job and record its end the way the job host does: a refusal ends the job for good, a
+    wait parks it to run again later."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+
+    try:
+        run_publish(item_id)
+        end = "completed"
+    except queue.Fail:
+        end = "failed"
+    except queue.Wait:
+        end = "waiting"
+    db.execute("UPDATE worker_jobs SET status = ? WHERE idem_key = ?", (end, f"publish:{item_id}"))
+    return end
+
+
+def home_keys() -> list[str]:
+    from clipfoundry import db
+    from clipfoundry.autopilot import home
+    from clipfoundry.publish.routes import _youtube_state
+
+    settings = db.get_settings()
+    return [i["key"] for i in home.needs_you(settings, {"youtube": _youtube_state(settings)})]
+
+
+def test_a_reconnect_notice_stays_while_its_post_still_waits_for_the_owner(chans, api):  # noqa: F811
+    """YouTube refuses the sign-in during the upload: the post is held and no job tries it again, so "Needs you"
+    keeps saying so even though the account still looks connected (the same as for a post without a channel)."""
+    from clipfoundry import db
+
+    b = chans["b"]
+    db.save_settings({"autopilot_review_before_publish": False})
+    item = owner_item(chans["tmp"], b["id"], "Build what they asked for")
+    tokens = db.connection_tokens(b["id"])
+    db.update_connection(b["id"], tokens={**tokens, "expires_at": 0, "refresh_token": ""})  # cannot be renewed
+    assert host_publish(item["id"]) == "failed"
+    assert post(item["id"])["status"] == "action_needed" and db.get_connection(b["id"])["status"] == "connected"
+    assert f"connect:{b['id']}" in home_keys()
+    add_channel(chans["google"], "UCchanB", "Channel B")  # the owner signs in again
+    assert f"connect:{b['id']}" in home_keys()  # still shown: the post needs Retry, nothing tries it by itself
+    assert api.post(f"/api/autopilot/scheduled/{item['id']}/retry", headers=H).status_code == 200
+    assert post(item["id"])["status"] == "approved" and f"connect:{b['id']}" not in home_keys()
+
+
+def test_a_reconnect_notice_goes_once_the_account_is_back_and_the_post_tries_again_itself(chans):
+    from clipfoundry import db
+
+    b = chans["b"]
+    db.save_settings({"autopilot_review_before_publish": False})
+    item = owner_item(chans["tmp"], b["id"], "Build what they asked for")
+    db.disconnect_connection(b["id"])
+    assert host_publish(item["id"]) == "waiting"  # found signed out before uploading: the job waits and tries again
+    assert post(item["id"])["status"] == "action_needed" and f"connect:{b['id']}" in home_keys()
+    add_channel(chans["google"], "UCchanB", "Channel B")
+    assert f"connect:{b['id']}" not in home_keys()
+    assert host_publish(item["id"]) == "completed" and post(item["id"])["status"] == "published"
+    assert len(chans["google"].uploads_to("UCchanB")) == 1 and chans["google"].uploads_to("UCchanA") == []
+
+
+def test_a_replaced_slot_on_one_channel_does_not_hold_the_same_time_on_another(chans):
+    from clipfoundry import db
+    from clipfoundry.autopilot import scheduler
+
+    a, b = chans["a"], chans["b"]
+    now, at = time.time(), time.time() + 6 * 3600
+    settings = db.get_settings()
+    rows = {}
+    for name, cid in (("a", a["id"]), ("a2", a["id"]), ("b", b["id"]), ("old", "")):
+        rows[name] = db.insert("scheduled_publications", {
+            "clip_id": f"clip-{name}", "platform": "youtube", "title": "Weak", "connection_id": cid,
+            "planned_at": at, "status": "awaiting_approval", "final_score": 10})
+    db.insert("slot_replacements", {"replacement_id": "new-on-a", "replaced_id": rows["a"]["id"],
+                                    "platform": "youtube", "slot_at": at, "clip_id": "strong", "status": "replaced",
+                                    "created_at": now, "updated_at": now}, key="replacement_id")
+    assert scheduler.replacement_blocked(rows["b"], "another", settings, now) == ""  # channel B's own slot
+    assert "replacement" in scheduler.replacement_blocked(rows["a"], "another", settings, now)
+    assert "replacement" in scheduler.replacement_blocked(rows["a2"], "another", settings, now)  # A's slot, same time
+    assert "replacement" in scheduler.replacement_blocked(rows["old"], "another", settings, now)  # default is A
+    db.execute("DELETE FROM scheduled_publications WHERE id = ?", (rows["a"]["id"],))
+    assert "replacement" in scheduler.replacement_blocked(rows["b"], "another", settings, now)  # unknown: as before
+
+
+def test_an_upload_that_began_finishes_on_its_account_when_the_default_changes(chans, api):  # noqa: F811
+    """A post without a channel of its own that is already uploading belongs to the account that upload began on:
+    its page names that account, its approval stays valid and it finishes there."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, targets
+    from test_autopilot_publish import make_item
+
+    a, b, google = chans["a"], chans["b"], chans["google"]
+    db.save_settings({"autopilot_review_before_publish": False})
+    google.rate_limit_puts, google.retry_after = 1, "7200"  # YouTube asks to wait in the middle of the upload
+    item = make_item(chans["tmp"], approve={"options": {"made_for_kids": False}})
+    assert not item.get("connection_id") and item["approval"]["account"] == "UCchanA"
+    with pytest.raises(queue.Wait):
+        run_publish(item["id"])
+    db.set_default_connection(b["id"])
+    db.execute("DELETE FROM platform_limits")
+    held = post(item["id"])
+    assert targets.begun_on(held) == a["id"] and targets.item_account(held) == "UCchanA"
+    shown = api.get(f"/api/autopilot/scheduled/{item['id']}").json()["item"]["account"]
+    assert shown == {"connection_id": a["id"], "name": "Channel A", "account_id": "UCchanA", "bound": True}
+    run_publish(item["id"])  # the wait is over: the same upload continues, with the approval it had
+    done = post(item["id"])
+    assert done["status"] == "published" and done["approval"]["account"] == "UCchanA"
+    assert len(google.uploads_to("UCchanA")) == 1 and google.uploads_to("UCchanB") == []
+
+
+def test_an_upload_that_never_started_follows_the_default_and_is_not_sent_to_the_old_one(chans, api):  # noqa: F811
+    from clipfoundry import db
+    from clipfoundry.autopilot import targets
+    from test_autopilot_publish import make_item
+
+    a, b, google = chans["a"], chans["b"], chans["google"]
+    db.save_settings({"autopilot_review_before_publish": False})
+    item = make_item(chans["tmp"], approve={"options": {"made_for_kids": False}})
+    clip = db.get_clip(item["clip_id"])
+    stale = db.create_publication(item["clip_id"], "youtube", project_id=clip["project_id"], status="queued",
+                                  title=item["title"], scheduled_id=item["id"])
+    assert stale["connection_id"] == a["id"]  # made while A was the default; nothing was sent
+    db.update("scheduled_publications", item["id"], status="awaiting_approval", approval={},
+              publication_id=stale["id"])
+    db.set_default_connection(b["id"])
+    held = post(item["id"])
+    assert targets.begun_on(held) == "" and targets.item_account(held) == "UCchanB"
+    shown = api.get(f"/api/autopilot/scheduled/{item['id']}").json()["item"]["account"]
+    assert shown == {"connection_id": b["id"], "name": "Channel B", "account_id": "UCchanB", "bound": False}
+    body = {"confirm": True, "made_for_kids": False}
+    wrong = api.post(f"/api/autopilot/scheduled/{item['id']}/approve", headers=H,
+                     json={**body, "expected_account_id": "UCchanA"})
+    assert wrong.status_code == 409
+    ok = api.post(f"/api/autopilot/scheduled/{item['id']}/approve", headers=H,
+                  json={**body, "expected_account_id": shown["account_id"]})
+    assert ok.status_code == 200 and ok.json()["approval"]["account"] == "UCchanB"
+    run_publish(item["id"])
+    done = post(item["id"])
+    assert done["status"] == "published" and done["publication_id"] != stale["id"]
+    assert db.get_publication(stale["id"])["status"] == "cancelled"
+    assert len(google.uploads_to("UCchanB")) == 1 and google.uploads_to("UCchanA") == []
+
+
+def test_a_package_you_post_yourself_can_be_approved_while_tiktok_is_signed_out(chans, api):  # noqa: F811
+    """The page names the post's account only while it is connected (PostReview.tsx): a signed-out account is not
+    one the server can compare, and a TikTok package the owner posts himself needs no account at all."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import targets
+
+    creator = add_tiktok(chans["tiktok"], "open-a", "Creator A")
+    video = chans["tmp"] / "package.mp4"
+    video.write_bytes(os.urandom(4096))
+    project = db.create_project("talk", status="ready", origin="autopilot")
+    clip = db.create_clip(project["id"], start=0, end=20, title="Talk", status="ready", output_path=str(video),
+                          duration=20.0, caption_text="Talk to customers first.", score=72.0)
+    passed_report(clip)
+    item = db.insert("scheduled_publications", {
+        "clip_id": clip["id"], "platform": "tiktok", "title": "Talk", "description": "Talk to customers first.",
+        "tags": [], "privacy": "", "options": {"mode": "manual"}, "connection_id": "",
+        "planned_at": time.time() + 7200, "status": "awaiting_approval", "final_score": 70})
+    assert api.post(f"/api/connections/{creator['id']}/disconnect", headers=H).status_code == 200
+    shown = api.get(f"/api/autopilot/scheduled/{item['id']}").json()["item"]["account"]
+    assert (shown["name"], shown["account_id"], shown["bound"]) == ("Creator A", "open-a", False)
+    assert targets.item_account(post(item["id"])) == ""  # nothing is connected to compare with
+    row = [c for c in api.get("/api/connections").json()["connections"] if c["id"] == creator["id"]][0]
+    assert row["health"]["state"] == "disconnected" and row["postable"] is False  # the page reads "not connected"
+    body = {"title": "Talk", "description": "Talk to customers first.", "mode": "manual", "privacy": "",
+            "allow_comment": False, "allow_duet": False, "allow_stitch": False, "disclose": False,
+            "brand_organic": False, "brand_content": False, "confirm": True, "reuse_confirmed": True,
+            "reuse_kind": "owned"}
+    ok = api.post(f"/api/autopilot/scheduled/{item['id']}/approve", headers=H, json=body)
+    assert ok.status_code == 200 and post(item["id"])["status"] == "approved"
+
+
+def test_a_videos_status_names_the_one_chosen_channel_that_is_held(chans):
+    from clipfoundry import db
+    from clipfoundry.autopilot import home, submissions
+
+    a, b = chans["a"], chans["b"]
+    source = add_file(a, b)
+    old = add_file(account_id="UCchanA")  # a request from before channels could be chosen
+    assert submissions.held_channels(source) == []
+    db.disconnect_connection(b["id"])
+    assert submissions.held_channels(source) == ["Channel B needs Reconnect. Other channels continue."]
+    row = [s for s in home.activity() if s["id"] == source["id"]][0]
+    assert row["posting"].startswith("Qualifying YouTube clips upload automatically")
+    assert row["posting"].endswith("Channel B needs Reconnect. Other channels continue.")
+    db.disconnect_connection(a["id"])
+    assert submissions.held_channels(source) == []  # every channel is held: the request itself says why
+    row = [s for s in home.activity() if s["id"] == source["id"]][0]
+    assert row["posting"].startswith("Uploads held: ")
+    assert submissions.held_channels(old) == []
+
+
+def test_the_plan_counts_a_post_for_the_account_it_went_to(chans):
+    from clipfoundry import db
+    from clipfoundry.autopilot import scheduler, targets
+
+    a, b = chans["a"], chans["b"]
+    item = owner_item(chans["tmp"], "", "Sent before the default changed")
+    run_publish(item["id"])
+    assert post(item["id"])["status"] == "published"
+    db.set_default_connection(b["id"])
+    plan = scheduler.Plan(db.get_settings(), time.time())
+    sent = [row for row in plan.items if row["id"] == item["id"]][0]
+    assert plan._of(sent) == ("youtube", a["id"]) == ("youtube", targets.effective_connection_id(sent))
+    waiting = db.insert("scheduled_publications", {
+        "clip_id": "clip-later", "platform": "youtube", "title": "Later", "planned_at": time.time() + 7200,
+        "status": "awaiting_approval", "final_score": 10})
+    assert plan._of(waiting) == ("youtube", b["id"])  # nothing sent yet: it follows today's default
+    flagged = {**db.get_connection(b["id"]), "info": {"needs_reconnect": True}}
+    assert targets.usable(db.get_connection(b["id"])) and not targets.usable(flagged)

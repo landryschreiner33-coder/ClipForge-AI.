@@ -96,7 +96,17 @@ export default function PostReview({ id }: { id: string }) {
   // Every connected account, so a post bound to one shows that account's own state (not just the default's).
   const [conns, setConns] = useState<Connection[] | null>(null);
   useEffect(() => {
-    studio.connections().then((r) => setConns(r.connections)).catch(() => setConns(null));
+    let alive = true;
+    let timer: number | undefined;
+    // A failed read is tried again: without the accounts, a post to another channel than the default would keep
+    // showing its account as unknown until the page is reloaded.
+    const load = () => studio.connections().then((r) => alive && setConns(r.connections))
+      .catch(() => { if (alive) timer = window.setTimeout(load, 5000); });
+    load();
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
   }, [id]);
   const update = (p: Post) => {
     setData((d) => d && { ...d, items: d.items.map((x) => (x.id === p.id ? p : x)) });
@@ -261,8 +271,10 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     }
     setBusy(true);
     try {
+      // Name the account only while it is connected: with none connected the server has no account to compare
+      // (a TikTok package you post yourself needs none), and naming a signed-out one would be refused.
       const body: Record<string, unknown> = { title: yt ? f.title.trim() : p.title, description: f.text.trim(),
-        expected_account_id: account?.account_id };
+        expected_account_id: account?.connected ? account.account_id : undefined };
       if (needsReuseCheck) Object.assign(body, { reuse_confirmed: agree, reuse_kind: reuseKind,
         ...(reuseKind === "custom" ? { reuse_basis: reuseBasis.trim() } : {}) });
       if (yt) Object.assign(body, { tags: tagList(f.tags), privacy: f.privacy, made_for_kids: f.kids === "yes" });
