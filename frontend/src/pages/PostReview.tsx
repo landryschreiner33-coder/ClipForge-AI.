@@ -1,6 +1,8 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, ClipVersion, errorText, fmtTime, PlatformAccount, Publication, TikTokCreator } from "../api";
 import { ap, ScheduledItem } from "../autopilot";
+import { accountName, isPostable } from "../components/channelPicker";
+import { Connection, studio } from "../studio";
 import { plural, when } from "../format";
 import { useLeaveGuard } from "../router";
 import { useStatus } from "../status";
@@ -49,6 +51,35 @@ function formOf(p: Post): Form {
     disclose: !!o.disclose, brandOrganic: !!o.brand_organic, brandContent: !!o.brand_content,
   };
 }
+
+/**
+ * The account this post goes to, with what is known about it now: the post's own account (p.account), else the
+ * platform's default (a post from before posts recorded their account). Until the accounts load, a post bound to
+ * another account than the default shows it as unknown rather than borrowing the default's state.
+ */
+function postAccount(p: Post, fallback?: PlatformAccount, conns?: Connection[] | null): PlatformAccount | undefined {
+  const own = p.account;
+  if (!own?.connection_id) return fallback;
+  if (!conns) {
+    // Not loaded (yet): the default's state serves only when the post goes to that same account.
+    return fallback && fallback.account_id === own.account_id ? { ...fallback, name: own.name || fallback.name }
+      : undefined;
+  }
+  const row = conns.find((c) => c.id === own.connection_id);
+  const base: PlatformAccount = { configured: true, restriction: "", setup: "", ...fallback, name: own.name,
+    account_id: own.account_id, avatar: "", scopes: [], connected: false, needs_reconnect: false, connected_at: null,
+    can_direct_post: false, can_inbox: false };
+  if (!row) return base;  // the account is gone: nothing can go to it
+  // ok: connected; needs_reconnect: signed in once, sign-in expired; disconnected: no sign-in at all.
+  const state = isPostable(row) ? "ok" : row.health?.state || "needs_reconnect";
+  return {
+    ...base, name: own.name || accountName(row), account_id: row.account_id, avatar: row.avatar, scopes: row.scopes,
+    connected: state !== "disconnected", needs_reconnect: state !== "ok" && state !== "disconnected",
+    connected_at: row.connected_at, can_direct_post: row.can_direct_post ?? row.scopes.includes("video.publish"),
+    can_inbox: row.can_inbox ?? row.scopes.includes("video.upload"),
+  };
+}
+
 const serverKey = (p: Post) =>
   JSON.stringify([p.status, p.title, p.description, p.tags, p.privacy, p.options, p.approval?.hash || "",
     p.reuse_review, p.source?.rights_status]);
@@ -62,6 +93,11 @@ export default function PostReview({ id }: { id: string }) {
   const { st } = useStatus();
   const { data, error, refresh, setData } = usePoll(() => loadPost(id), [id], 6000, () => true);
   const post = data?.items.find((p) => p.id === id) || null;
+  // Every connected account, so a post bound to one shows that account's own state (not just the default's).
+  const [conns, setConns] = useState<Connection[] | null>(null);
+  useEffect(() => {
+    studio.connections().then((r) => setConns(r.connections)).catch(() => setConns(null));
+  }, [id]);
   const update = (p: Post) => {
     setData((d) => d && { ...d, items: d.items.map((x) => (x.id === p.id ? p : x)) });
     refresh();
@@ -94,7 +130,7 @@ export default function PostReview({ id }: { id: string }) {
   }
   return (
     <Review key={post.id} p={post} tz={data.timezone || st?.timezone} autoPublish={data.autoPublish}
-      account={st?.platforms?.[post.platform]} onChanged={update} />
+      account={postAccount(post, st?.platforms?.[post.platform], conns)} onChanged={update} />
   );
 }
 
@@ -147,12 +183,14 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
   // TikTok's creator info is read fresh from TikTok before posting (its sharing guidelines).
   const [creator, setCreator] = useState<TikTokCreator | null>(null);
   const [creatorError, setCreatorError] = useState("");
+  const connectionId = p.account?.connection_id || "";
   useEffect(() => {
     if (yt || !editable || !account?.connected) return;
     setCreator(null);
     setCreatorError("");
-    api.tiktokCreator().then(setCreator).catch((e) => setCreatorError(errorText(e)));
-  }, [yt, editable, account?.connected, account?.connected_at]);
+    // This post's own TikTok account (the default for a post from before posts recorded their account).
+    api.tiktokCreator(connectionId || undefined).then(setCreator).catch((e) => setCreatorError(errorText(e)));
+  }, [yt, editable, account?.connected, account?.connected_at, connectionId]);
 
   // The file that would be posted: the clip's posting version (its label and a cache key for this render).
   const [version, setVersion] = useState<ClipVersion | null>(null);

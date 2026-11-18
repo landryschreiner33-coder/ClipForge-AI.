@@ -1,5 +1,5 @@
 import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Connection, ExampleVideo, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
+import { ExampleVideo, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
 import { Icon } from "./ui";
 
 export type Picked = { key: string; file: File; progress: UploadProgress | null; asset: Asset | null; error: string;
@@ -154,41 +154,6 @@ export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry?: () =
         {extra}
       </div>
     </div>
-  );
-}
-
-/** The exact accounts a project may upload to (names and pictures, never just a platform icon). */
-export function DestinationPicker({ value, onChange, platforms = ["youtube", "tiktok"] }: { value: string[];
-  onChange: (ids: string[], accounts: Connection[]) => void; platforms?: string[] }) {
-  const [rows, setRows] = useState<Connection[] | null>(null);
-  useEffect(() => {
-    studio.connections().then((r) => setRows(r.connections)).catch(() => setRows([]));
-  }, []);
-  if (rows === null) return <p className="muted small">Loading accounts…</p>;
-  const usable = rows.filter((r) => platforms.includes(r.platform));
-  if (!usable.length) return <p className="small">No account connected yet. <a href="#/accounts">Connect YouTube or TikTok</a> to upload from here.</p>;
-  return (
-    <fieldset className="dest-list">
-      <legend className="sr-only">Accounts to upload to</legend>
-      {usable.map((r) => {
-        const ok = r.health.state === "ok";
-        const on = value.includes(r.id);
-        return (
-          <label key={r.id} className="dest">
-            <input type="checkbox" checked={on} disabled={!ok} onChange={() => {
-              const next = on ? value.filter((v) => v !== r.id) : [...value, r.id];
-              onChange(next, rows.filter((x) => next.includes(x.id)));
-            }} />
-            {r.avatar ? <img src={r.avatar} alt="" className="avatar" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.removeAttribute("src"); }} /> : <span className="avatar" aria-hidden="true" />}
-            <span>
-              <span className="who-name">{r.nickname || r.display_name || r.account_id}</span>{" "}
-              <span className="small muted">{r.label}{r.is_default ? " · default" : ""}</span>
-              {!ok && <span className="block small error-text">{r.health.text}</span>}
-            </span>
-          </label>
-        );
-      })}
-    </fieldset>
   );
 }
 

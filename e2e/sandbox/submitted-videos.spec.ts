@@ -3,8 +3,10 @@ import { expect, Page, test } from "@playwright/test";
 // Disposable sandbox only. Every mutation is intercepted, including multipart files; no upload reaches an account.
 const account = { configured: true, connected: true, needs_reconnect: false, name: "Submitted video test channel",
   account_id: "submitted-test-channel", verified: true, scopes: [], restriction: "" };
+const channel = { id: "submitted-test-connection", account_id: account.account_id, name: account.name, avatar: "",
+  is_default: true, post_by_default: true, ok: true, text: "Connected" };
 const setup = (changes: Record<string, unknown> = {}) => ({
-  account_id: account.account_id, account_name: account.name, connected: true,
+  account_id: account.account_id, account_name: account.name, connected: true, channels: [channel],
   audience: { confirmed: true, group_version: 9, label: "Only you", detail: "Uploaded as Private." },
   privacy: "private", can_upload: true, blocker: "", input_mode: "submitted",
   reuse_bases: [
@@ -61,14 +63,17 @@ async function controlled(page: Page, config: { setup?: ReturnType<typeof setup>
   const panel = page.getByRole("region", { name: "Add a video", exact: true });
   await expect(panel.getByText(account.name, { exact: true }).first()).toBeVisible();
   const submit = panel.getByRole("button", { name: "Make & upload clips", exact: true });
-  const agree = panel.getByRole("checkbox");
+  const agree = agreement(panel);
   return { state, panel, submit, agree };
 }
+
+const agreement = (panel: ReturnType<Page["getByRole"]>) =>
+  panel.getByRole("checkbox", { name: /^I checked that I can use/ });
 
 async function allowSource(panel: ReturnType<Page["getByRole"]>) {
   await panel.getByRole("radio", { name: "No, not made for kids", exact: true }).check();
   await panel.getByRole("radio", { name: "My original video", exact: true }).check();
-  await panel.getByRole("checkbox").check();
+  await agreement(panel).check();
 }
 
 async function capture(page: Page, name: string) {
@@ -97,7 +102,9 @@ test("a new link uses explicit source-only upload choices without changing revie
   await expect.poll(() => state.writes.length).toBe(1);
   expect(state.writes).toEqual([{ path: "/api/autopilot/submissions/link", header: "1", body: {
     url: "https://example.com/my-video", auto_upload: true, account_id: account.account_id,
+    connections: [{ id: channel.id, account_id: account.account_id }],
     privacy: "private", made_for_kids: false, audience_version: 9, reuse_basis: "owned", reuse_statement: "", agreed: true,
+    live: false,
   } }]);
   await expect(panel.getByRole("article", { name: "My submitted source", exact: true })).toContainText("Waiting to upload");
   await expect(panel.getByRole("textbox", { name: "Video link", exact: true })).toBeEmpty();
@@ -144,6 +151,36 @@ test("create-only file submission needs no publishing agreement or kids answer",
   expect(write.body).toContain('"account_id":""');
   expect(write.body).toContain('"agreed":false');
   await expect(panel).toContainText("without uploading them");
+  expect(state.errors).toEqual([]);
+});
+
+test("several channels: All ticks every usable one, the request names each and a broken channel can't be chosen",
+async ({ page }) => {
+  const second = { ...channel, id: "second-connection", account_id: "second-channel", name: "Second test channel",
+    is_default: false, post_by_default: false };
+  const broken = { ...channel, id: "broken-connection", account_id: "broken-channel", name: "Broken test channel",
+    is_default: false, post_by_default: true, ok: false,
+    text: "Sign-in expired or was revoked. Reconnect this account." };
+  const { state, panel, submit, agree } = await controlled(page,
+    { setup: setup({ channels: [channel, second, broken] }) });
+  // Anchored: the agreement checkbox names the chosen channels too.
+  const first = panel.getByRole("checkbox", { name: new RegExp(`^${account.name}`) });
+  const other = panel.getByRole("checkbox", { name: /^Second test channel/ });
+  await expect(first).toBeChecked();  // ticked for new posts
+  await expect(other).not.toBeChecked();
+  await expect(panel.getByRole("checkbox", { name: /^Broken test channel/ })).toBeDisabled();
+  await expect(panel).toContainText("Sign-in expired or was revoked.");
+  await panel.getByRole("textbox", { name: "Video link", exact: true }).fill("https://example.com/my-video");
+  await allowSource(panel);
+  await panel.getByRole("checkbox", { name: "All (2) YouTube channels" }).check();
+  await expect(other).toBeChecked();
+  await expect(agree).not.toBeChecked();  // a different set of channels needs a fresh confirmation
+  await expect(panel).toContainText(`to ${account.name} and Second test channel as Private`);
+  await agree.check();
+  await submit.click();
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.writes[0].body).toMatchObject({ account_id: account.account_id, connections: [
+    { id: channel.id, account_id: account.account_id }, { id: second.id, account_id: second.account_id }] });
   expect(state.errors).toEqual([]);
 });
 

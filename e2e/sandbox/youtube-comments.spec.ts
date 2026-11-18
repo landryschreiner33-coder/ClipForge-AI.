@@ -3,6 +3,11 @@ import { expect, Page, test } from "@playwright/test";
 // Only the disposable sandbox is used. Every write is intercepted: no audience answer or upload reaches an account.
 const account = { configured: true, connected: true, needs_reconnect: false, name: "Comments test channel",
   account_id: "controlled-comments-channel", verified: true, scopes: [], restriction: "" };
+// The one connected channel (GET /api/connections): Prepare post ticks it and uploads to it by its id.
+const connection = { id: "comments-connection", platform: "youtube", label: "YouTube", account_id: account.account_id,
+  display_name: account.name, nickname: "", avatar: "", scopes: [], is_default: true, status: "connected",
+  health: { state: "ok", text: "Connected", action: "" }, connected_at: 1, active_uploads: 0, post_by_default: true,
+  postable: true, can_direct_post: false, can_inbox: false };
 const clip = { id: "comments-clip", project_id: "comments-project", status: "ready", has_video: true,
   title: "A complete story", duration: 30, start: 0, end: 30, score: 85, version: 1, hashtags: [],
   post: { title: "A complete story", caption: "A complete story with a clear ending", hashtags: [] } };
@@ -46,6 +51,7 @@ async function controlled(page: Page, options: { private?: boolean; posts?: any[
     if (path === "/api/autopilot/status") return route.fulfill({ json: {
       ...baseline, platforms: { ...baseline.platforms, youtube: account },
     } });
+    if (path === "/api/connections") return route.fulfill({ json: { protection: "", connections: [connection] } });
     if (path === "/api/publish/accounts") return route.fulfill({ json: { youtube: account,
       tiktok: { configured: false, connected: false, needs_reconnect: false, name: "", scopes: [] } } });
     if (path === "/api/audience") return route.fulfill({ json: {
@@ -100,7 +106,7 @@ async ({ page }) => {
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].path).toBe(`/api/clips/${clip.id}/publish/youtube`);
   expect(writes[0].body).toMatchObject({ privacy: "public", made_for_kids: false, confirm: true,
-    expected_account_id: account.account_id });
+    connection_id: "comments-connection", expected_account_id: account.account_id });
   expect(writes[0].body).not.toHaveProperty("comments_enabled");
   expect(errors).toEqual([]);
 });

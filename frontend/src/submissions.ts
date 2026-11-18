@@ -1,10 +1,26 @@
 import { ApiError, req } from "./api";
 import type { AutopilotLink } from "./autopilot";
+import type { Connection } from "./studio";
+
+/** A connected YouTube channel a submitted video or stream can upload to. */
+export interface SubmissionChannel {
+  id: string;
+  account_id: string;
+  name: string;
+  avatar: string;
+  is_default: boolean;
+  post_by_default: boolean;
+  /** Connected and signed in; otherwise `text` says why it can't be chosen. */
+  ok: boolean;
+  text: string;
+}
 
 export interface SubmissionSetup {
+  /** The default channel (kept for older screens); `channels` lists every connected channel. */
   account_id: string;
   account_name: string;
   connected: boolean;
+  channels: SubmissionChannel[];
   audience: { group_version: number; label: string; detail: string; confirmed: boolean };
   privacy: "private" | "public";
   can_upload: boolean;
@@ -15,7 +31,10 @@ export interface SubmissionSetup {
 
 export interface SubmissionOptions {
   auto_upload: boolean;
+  /** The first chosen channel (older servers read only this one). */
   account_id: string;
+  /** Every chosen channel, in the owner's order, each with the account behind it when it was chosen. */
+  connections: { id: string; account_id: string }[];
   privacy: "private" | "public";
   made_for_kids: boolean | null;
   audience_version: number;
@@ -28,6 +47,8 @@ export interface Submission {
   id: string;
   auto_upload: boolean;
   account_id: string;
+  /** The channels this request uploads to (one for a request made before channels could be chosen). */
+  channels?: { id: string; name: string; account_id: string }[];
   privacy: "private" | "public";
   made_for_kids: boolean | null;
   created_at: number;
@@ -45,6 +66,17 @@ export interface LiveStream extends SubmittedVideo {
     stopped: boolean };
 }
 export interface SubmissionResult { item: SubmittedVideo; already_added: boolean; submission: Submission }
+
+/** The setup's channels in the shape the channel picker takes. */
+export const channelRows = (setup: SubmissionSetup | null): Connection[] => (setup?.channels || []).map((c) => ({
+  id: c.id, platform: "youtube", label: "YouTube", account_id: c.account_id, display_name: c.name, nickname: "",
+  avatar: c.avatar, scopes: [], is_default: c.is_default, status: c.ok ? "connected" : "needs_reconnect",
+  health: { state: c.ok ? "ok" : "needs_reconnect", text: c.text, action: c.ok ? "" : "reconnect" }, connected_at: 0,
+  active_uploads: 0, post_by_default: c.post_by_default, postable: c.ok, can_direct_post: false, can_inbox: false,
+}));
+
+/** "A and B": the names of the channels a request uploads to. */
+export const channelNames = (s: Submission) => (s.channels || []).map((c) => c.name || c.account_id);
 
 const ROOT = "/api/autopilot/submissions";
 export const submissions = {

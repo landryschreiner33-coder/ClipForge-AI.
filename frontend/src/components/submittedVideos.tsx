@@ -3,7 +3,8 @@ import { errorText } from "../api";
 import { ap } from "../autopilot";
 import { plural, when } from "../format";
 import { useLeaveGuard } from "../router";
-import { SubmittedVideo, submissions } from "../submissions";
+import { channelNames, SubmittedVideo, submissions } from "../submissions";
+import { nameList } from "./channelPicker";
 import { Banner, Icon, Pill, ProgressBar, Segmented, Skel, toast, Tone, usePoll } from "./ui";
 import { UploadChoice, useUploadChoice } from "./uploadChoice";
 
@@ -195,7 +196,9 @@ function SubmittedRow({ item, timezone, disabled, act }: {
           {source.auto_upload && <> · {p.posts_waiting} waiting · {p.posts_uploading} uploading
             · {p.posts_uploaded} uploaded{p.posts_failed > 0 && ` · ${p.posts_failed} need attention`}</>}</p>}
         <p className="tiny faint">Added {when(source.created_at || item.added_at, timezone)}
-          {source.auto_upload ? ` · YouTube ${source.privacy === "public" ? "Public" : "Private"}` : " · Stays on this PC"}</p>
+          {source.auto_upload ? ` · YouTube ${source.privacy === "public" ? "Public" : "Private"}`
+            : " · Stays on this PC"}
+          {source.auto_upload && channelNames(source).length > 0 && ` to ${nameList(channelNames(source))}`}</p>
       </div>
       <Pill tone={tone}>{label}</Pill>
     </div>

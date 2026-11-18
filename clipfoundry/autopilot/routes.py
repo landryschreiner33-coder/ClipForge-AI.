@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel, Field, StrictBool, StrictInt
+from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
@@ -21,10 +21,16 @@ READ = [Depends(local_only)]
 WRITE = [Depends(app_request)]
 
 
+class SubmissionChannel(BaseModel):
+    id: StrictStr                  # the connection (Accounts row) ticked for this video
+    account_id: StrictStr          # its channel ID as shown when the owner confirmed
+
+
 class SubmissionIn(BaseModel):
     url: str = ""
     auto_upload: StrictBool
-    account_id: str = ""
+    account_id: str = ""           # the first chosen channel (older pages: the default channel)
+    connections: list[SubmissionChannel] | None = None  # every chosen YouTube channel, in the owner's order
     privacy: str = ""
     made_for_kids: StrictBool | None = None
     audience_version: StrictInt = 0
@@ -901,13 +907,17 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
 
     if not body.confirm:
         raise PublishError("Approving needs your explicit confirmation.", "Review the post and press Approve.")
+    from .targets import item_account
+
     item = _item_or_404(item_id)
-    if body.expected_account_id and body.expected_account_id != autopublish.account_id(item["platform"]):
+    # The post's own account (an unbound post goes to the platform's default account, as before).
+    if body.expected_account_id and body.expected_account_id != item_account(item):
         raise HTTPException(409, "Another account is connected now. Review the destination and approve again")
     fields = _fields(item, body)
     creator = None
     if item["platform"] == "tiktok" and (fields["options"].get("mode") or "direct") == "direct":
-        creator = tiktok.creator_info(tiktok.Token(db.get_settings()))  # read fresh before every approval
+        # read fresh before every approval, for the account this post goes to
+        creator = tiktok.creator_info(tiktok.Token(db.get_settings(), item.get("connection_id") or None))
     try:
         basis = bulk_review.resolve_reuse_basis(body.reuse_kind or "custom", body.reuse_basis)
         out = scheduler.approve(item_id, fields, creator, reuse_confirmed=body.reuse_confirmed,
@@ -1053,7 +1063,8 @@ def _manual_publication(item: dict) -> str:
                                 requested_privacy=(item.get("audience") or {}).get("visibility") or "",
                                 video_path=video, version_id=version, options=item.get("options") or {},
                                 scheduled_id=item["id"], audience=item.get("audience") or {},
-                                delivery=item.get("delivery") or {})
+                                delivery=item.get("delivery") or {},
+                                connection_id=item.get("connection_id") or "")  # "": the default account
     db.update("scheduled_publications", item["id"], publication_id=pub["id"])
     return pub["id"]
 

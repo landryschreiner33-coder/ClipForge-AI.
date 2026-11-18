@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorText } from "../api";
 import { Banner, ConfirmDialog, EmptyState, Icon, PageHead, Pill, TextPromptDialog, toast } from "../components/ui";
+import { accountName, isPostable } from "../components/channelPicker";
 import { Connection, studio } from "../studio";
 
 /** Several YouTube channels and TikTok accounts at once. Adding one never replaces another. */
@@ -10,6 +11,7 @@ export default function Accounts() {
   const [problem, setProblem] = useState("");
   const [confirm, setConfirm] = useState<Connection | null>(null);
   const [renaming, setRenaming] = useState<Connection | null>(null);
+  const [ticking, setTicking] = useState("");
   const load = useCallback(() => studio.connections().then((r) => { setRows(r.connections); setProtection(r.protection); })
     .catch((e) => setProblem(errorText(e))), []);
   useEffect(() => {
@@ -31,6 +33,19 @@ export default function Accounts() {
       toast(errorText(e), true);
     }
   };
+  /** "Tick for new posts": whether this account starts ticked where you choose accounts. */
+  const tick = async (r: Connection, on: boolean) => {
+    setTicking(r.id);
+    setRows((list) => list && list.map((x) => (x.id === r.id ? { ...x, post_by_default: on } : x)));
+    try {
+      await studio.patchConnection(r.id, { post_by_default: on });
+      toast(on ? `${accountName(r)} starts ticked for new posts` : `${accountName(r)} starts unticked for new posts`);
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setTicking("");
+    await load();
+  };
   const groups: [string, string][] = [["youtube", "YouTube channels"], ["tiktok", "TikTok accounts"]];
   return (
     <div className="page">
@@ -39,6 +54,8 @@ export default function Accounts() {
           <button type="button" className="btn" onClick={() => open(studio.addConnection("tiktok"))}><Icon name="plus" />Add TikTok account</button></>} />
       {problem && <Banner tone="bad" title="Accounts could not be loaded">{problem}</Banner>}
       {protection && <p className="small muted">Sign-in tokens are {protection}. ClipForge never sees your passwords.</p>}
+      <p className="small">Ticked accounts start ticked on Prepare post, Make clips and Missions. You can change it
+        each time, or pick All.</p>
       {groups.map(([platform, title]) => {
         const list = (rows || []).filter((r) => r.platform === platform);
         return (
@@ -57,6 +74,12 @@ export default function Accounts() {
                     {r.is_default && <Pill tone="accent">Default</Pill>}
                     {r.active_uploads > 0 && <Pill tone="info">{r.active_uploads} uploading</Pill>}
                   </div>
+                  <label className="choice small">
+                    <input type="checkbox" checked={r.post_by_default ?? r.is_default}
+                      disabled={!isPostable(r) || ticking === r.id} onChange={(e) => void tick(r, e.target.checked)} />
+                    <span>Tick for new posts
+                      {!isPostable(r) && <span className="muted"> (reconnect it to post again)</span>}</span>
+                  </label>
                   <div className="row-actions" style={{ justifyContent: "flex-start" }}>
                     <button type="button" className="btn btn-small" onClick={() => open(studio.reconnect(r.id))}><Icon name="refresh" />Reconnect</button>
                     {!r.is_default && r.health.state === "ok" && <button type="button" className="btn btn-small" onClick={async () => {
