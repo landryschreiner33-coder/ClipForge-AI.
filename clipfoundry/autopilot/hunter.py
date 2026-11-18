@@ -532,12 +532,15 @@ def screen_stories(p: process.Prepared, chosen: list[dict], settings: dict) -> l
 
 
 def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobContext, job: Job, src: dict,
-                             *, handoff: bool = False) -> None:
+                             *, handoff: bool = False, stop=None) -> None:
     """Finish one safe render at a time, preserving completed files before giving higher-priority work its turn.
-    The durable selection and stable clip IDs let this handler resume only the remaining renders."""
+    The durable selection and stable clip IDs let this handler resume only the remaining renders. `stop` (a
+    callable) is asked before each clip: when it says yes, the remaining clips are not made."""
     total = max(1, len(planned))
     for index, row in enumerate(planned):
         job.check()
+        if stop is not None and stop():
+            return
         current = db.get_clip(row["id"]) or row
         if current["status"] == "ready" and Path(current.get("output_path") or "").is_file():
             if handoff:

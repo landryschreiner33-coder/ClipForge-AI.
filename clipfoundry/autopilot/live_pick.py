@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from .. import config
 from ..pipeline import deep, semantic
 
 # How picky a stream is, by the owner's choice for that stream. Times are in recorded minutes.
@@ -49,10 +50,32 @@ LIVELY_USUAL = 0.2   # the liveliness of an ordinary minute: neither helps nor h
 OVERLAP = 0.15       # a moment sharing more than this of its length with a clip is that clip again
 
 
+FRAMING_LABELS = {"auto": "Split view when there is a face cam", "split": "Always split view",
+                  "off": "No split view"}
+
+
 def rule(name: str | None) -> dict:
     """The pace and bars of one pickiness, with its name."""
     name = name if name in PICKS else DEFAULT_PICK
     return {"name": name, **PICKS[name]}
+
+
+def choices(src: dict, settings: dict) -> dict:
+    """How this stream's clips are framed and how picky it is: what the owner chose when adding the stream, else
+    the Settings. Stored with the stream's project, so a later change of the Settings never changes a stream that
+    is already being clipped. A split-view choice is the clips' layout; "off" leaves the layout to Settings."""
+    chosen = (src.get("intake") or {}).get("live_choices") or {}
+    framing = chosen.get("framing") if chosen.get("framing") in config.LIVE_FRAMINGS else \
+        settings.get("autopilot_live_framing")
+    framing = framing if framing in config.LIVE_FRAMINGS else "auto"
+    pick = chosen.get("pick") if chosen.get("pick") in PICKS else settings.get("autopilot_live_pick")
+    return {"live_framing": framing, "live_pick": pick if pick in PICKS else DEFAULT_PICK,
+            **({"layout": framing} if framing != "off" else {})}
+
+
+def pace(project: dict | None, settings: dict) -> dict:
+    """The pace and bars of a stream (`rule`). A stream started before it had choices uses the Settings."""
+    return rule(((project or {}).get("options") or {}).get("live_pick") or settings.get("autopilot_live_pick"))
 
 
 def liveliness(audio: dict, voice: dict | None) -> tuple[float, list[str]]:

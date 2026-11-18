@@ -157,26 +157,6 @@ def _resolve_platform_stream(url: str, seen: dict | None = None) -> str | tuple[
                      "Use a stream with sound or add your own recording; no transcription was attempted.")
 
 
-# ------------------------------------------------------------------ each stream's own choices
-def stream_choices(src: dict, settings: dict) -> dict:
-    """How this stream's clips are framed and how picky it is: what the owner chose when adding the stream, else
-    the Settings. Stored with the stream's project, so a later change of the Settings never changes a stream that
-    is already being clipped. A split-view choice is the clips' layout; "off" leaves the layout to Settings."""
-    chosen = (src.get("intake") or {}).get("live_choices") or {}
-    framing = chosen.get("framing") if chosen.get("framing") in config.LIVE_FRAMINGS else \
-        settings.get("autopilot_live_framing")
-    framing = framing if framing in config.LIVE_FRAMINGS else "auto"
-    pick = chosen.get("pick") if chosen.get("pick") in live_pick.PICKS else settings.get("autopilot_live_pick")
-    return {"live_framing": framing, "live_pick": pick if pick in live_pick.PICKS else live_pick.DEFAULT_PICK,
-            **({"layout": framing} if framing != "off" else {})}
-
-
-def stream_pace(project: dict | None, settings: dict) -> dict:
-    """The pace and bars of a stream (live_pick.rule). A stream started before it had choices uses the Settings."""
-    return live_pick.rule(((project or {}).get("options") or {}).get("live_pick")
-                          or settings.get("autopilot_live_pick"))
-
-
 # ------------------------------------------------------------------ session state (on disk, survives restarts)
 class Session:
     def __init__(self, src: dict, settings: dict):
@@ -186,7 +166,7 @@ class Session:
         if project is None:
             project = db.create_project((src.get("title") or "Live")[:120], origin="live", source_id=src["id"],
                                         source_url=src.get("url", ""), status="processing",
-                                        options={**project_options(settings), **stream_choices(src, settings)})
+                                        options={**project_options(settings), **live_pick.choices(src, settings)})
             db.update("sources", src["id"], project_id=project["id"])
         from . import submissions
 
@@ -666,7 +646,7 @@ def detect(sess: Session, job: Job) -> dict | None:
     from . import knowledge
     from .scout import clip_reason
 
-    pace = stream_pace(sess.project, sess.settings)
+    pace = live_pick.pace(sess.project, sess.settings)
     edge = sess.offset
     words = [w for w in sess.words if w["start"] >= edge - WINDOW_SECONDS]
     sents = build_sentences(words)
@@ -718,6 +698,8 @@ def _listening(sess: Session, why: str) -> None:
     note = live_pick.NOTES.get(why, "")
     if note != sess.note:
         sess.note = note
+        db.update_project(sess.project["id"], info={**(db.get_project(sess.project["id"]) or {}).get("info", {}),
+                                                  "live_note": note})
     sess.save()  # with the minute's ratings
     return None
 
@@ -863,7 +845,7 @@ def _store_live_clip(sess: Session, clip: dict, r: dict, job: Job) -> dict:
     sub = virality.summary(r)["subscores"]
     score = _live_score(r)
     why = [str(line) for line in r.get("explanation") or [f"Viral Potential {r['viral_potential']:.0f}"]]
-    pace = stream_pace(sess.project, sess.settings)
+    pace = live_pick.pace(sess.project, sess.settings)
     db.insert("clip_scores", {"clip_id": clip["id"], "clip": score, "retention": sub.get("retention"),
                               "source": sess.src.get("source_score"),
                               "components": {"live": True, "pick": pace["name"],
@@ -1199,6 +1181,23 @@ def _finish_requested(source_id: str) -> bool:
     return finish_requested(source_id)
 
 
+def _clipping_stopped(source_id: str) -> bool:
+    from .intake import clipping_stopped
+
+    return clipping_stopped(source_id)
+
+
+def _clip_minute(sess: Session, job: Job) -> None:
+    """After a minute was heard: make a clip when a moment is ready. Not after "Stop clipping": the minute is
+    still kept for the recording, and the clips already made go on to their checks and uploads."""
+    if _clipping_stopped(sess.src["id"]):
+        _listening(sess, "stopped")
+        return
+    found = detect(sess, job)
+    if found:
+        make_live_clip(sess, found, job)
+
+
 def _stopped_empty(src: dict) -> dict:
     reason = "Stopped by you before anything was recorded"
     db.execute("UPDATE sources SET live_status = 'stopped', status = 'canceled', status_note = ?, updated_at = ?, "
@@ -1403,9 +1402,7 @@ def _live_turn(job: Job) -> dict:
             for name, dur in pending[:1] if job.host is not None else pending:
                 job.progress(None, f"Live: transcribing minute {sess.offset / 60:.0f}", stage="live")
                 process_segment(sess, name, dur, job)
-                found = detect(sess, job)
-                if found:
-                    make_live_clip(sess, found, job)
+                _clip_minute(sess, job)
             if proc.poll() is None:
                 sess.alive_at = time.time()  # saved with the next minute's checkpoint
             if job.host is not None and (proc.poll() is None or finished_segments(sess)):
@@ -1414,9 +1411,7 @@ def _live_turn(job: Job) -> dict:
                 if job.host is None:  # EOF can append the final CSV row between the earlier read and this poll
                     for name, dur in finished_segments(sess):
                         process_segment(sess, name, dur, job)
-                        found = detect(sess, job)
-                        if found:
-                            make_live_clip(sess, found, job)
+                        _clip_minute(sess, job)
                 break
             job.cancel_event.wait(2.0)
     except queue.Wait:
@@ -1572,9 +1567,11 @@ def _finish_capture(sess: Session, job: Job, *, recording: Path | None = None) -
                          "new recording; speech transcription cannot recover missing audio.")
     stopped = sess.limit_reached or sess.stopped_by_owner
     detail = "Stopped by you" if sess.stopped_by_owner else "Recording limit reached" if sess.limit_reached else "Live ended"
+    after = "no more clips are made; the ones already made still upload" if _clipping_stopped(src["id"]) else \
+        "analyzing the full recording"
     db.update("sources", src["id"], kind="live", live_status="stopped" if stopped else "ended",
               status="analyzing", status_note=f"{detail} after {sess.offset / 60:.0f} min with "
-              f"{len(sess.clips)} live clip(s); analyzing the full recording")
+              f"{len(sess.clips)} live clip(s); {after}")
     queue.enqueue("post_live", {"source_id": src["id"], "project_id": sess.project["id"]},
                   idem_key=f"post_live:{src['id']}:{sess.project['id']}", ref=("source", src["id"]),
                   timeout_s=6 * 3600, priority=queue.source_priority(src, job.row.get("priority") or 0))
@@ -1634,6 +1631,14 @@ def post_live(job: Job) -> dict:
     ctx = job.pipeline_ctx(0.0, 1.0)
     live_state_path = config.projects_dir() / project_id / "live" / "state.json"
     live_state = read_json(live_state_path, {}) or {}
+
+    def stopped() -> bool:
+        return _clipping_stopped(src["id"])
+
+    if stopped() and read_json(live_state_path.parent / "post-live-selection.json", None) is None:
+        # "Stop clipping" before anything was chosen from the full recording: nothing is transcribed, searched or
+        # rendered. The recording is saved, and the clips made live keep going.
+        return _close_stopped(src, project_id, job)
     if live_state.get("untranscribed"):  # parts were not transcribed live: transcribe the whole recording
         (live_state_path.parent.parent / "transcript.json").unlink(missing_ok=True)
     try:
@@ -1653,7 +1658,7 @@ def post_live(job: Job) -> dict:
         chosen = screen_stories(p, chosen, settings)
         # Quality over quantity holds after the stream too: a moment found in the full recording must clear the
         # same bar as a live one, and the whole stream gets no more clips than its pace over its length.
-        pace = stream_pace(project, settings)
+        pace = live_pick.pace(project, settings)
         floor = max(float(settings.get("autopilot_min_quality") or 0), float(p.opts.get("min_score", 50))) \
             + pace["above"]
         chosen = [r for r in chosen if r.get("clip_score", r["score"]) >= floor]
@@ -1679,14 +1684,20 @@ def post_live(job: Job) -> dict:
         selection = {"chosen": keep, "replacements": replacements}
         write_json(selection_path, selection)  # retry the exact selected moments, regardless of new fingerprints
     keep = selection["chosen"]
-    rows = process.create_clips(p, keep, ctx, replace_existing=False, durable=True)
-    planned = plan_clips(p, rows, keep, src["id"])
+    rows: list[dict] = []
+    if "rows" in selection or not stopped():  # "Stop clipping" before a chosen moment had its clip: none is made
+        rows = process.create_clips(p, keep, ctx, replace_existing=False, durable=True)
+        if selection.get("rows") != [r["id"] for r in rows]:
+            selection = {**selection, "rows": [r["id"] for r in rows]}
+            write_json(selection_path, selection)
+    planned = [] if stopped() else plan_clips(p, rows, keep, src["id"])
     fresh = db.fetch("sources", src["id"])
     if not fresh or not rights.local_allowed(fresh, settings=db.get_settings()):
         raise queue.Fail("The recording's content permission changed before rendering")
     if (fresh.get("intake") or {}).get("canceled") or (fresh.get("intake") or {}).get("removed"):
         raise queue.Canceled()
-    render_in_priority_order(p, planned, ctx, job, src)
+    render_in_priority_order(p, planned, ctx, job, src, stop=stopped)
+    halted = stopped()
     replaced = 0
     for index, old_id in selection.get("replacements", {}).items():
         if int(index) >= len(rows):
@@ -1695,6 +1706,13 @@ def post_live(job: Job) -> dict:
         old = db.get_clip(old_id)
         if not old or not new or new["status"] != "ready":
             continue  # a failed replacement must leave the usable live clip available
+        if halted:
+            # "Stop clipping": the live clip and its upload stay as they are; the second cut of the same moment
+            # is not kept next to it.
+            if not _published(new["id"]):
+                db.update_clip(new["id"], status="superseded", error="Clipping was stopped by you; the live clip "
+                                                                     "of this moment is kept")
+            continue
         if _kept(old_id):
             if not _published(new["id"]):
                 db.update_clip(new["id"], status="superseded", error="The original live clip was already published "
@@ -1705,18 +1723,47 @@ def post_live(job: Job) -> dict:
             supersede(old, f"Replaced by the post-live analysis: a better cut of the same moment "
                            f"({r.get('clip_score', r['score']):.0f} vs {old['score']:.0f})")
         replaced += 1
+    if halted:
+        for row in rows:  # chosen from the full recording but not made before the stop: never made
+            clip = db.get_clip(row["id"])
+            if clip and clip["status"] not in ("ready", "superseded"):
+                db.update_clip(clip["id"], status="superseded", error="Not made: clipping was stopped by you")
     added = [c for c in (db.get_clip(r["id"]) for r in rows) if c and c["status"] == "ready"]
     for clip in added:
         store_fingerprint(clip, src)
         queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": src["id"]},
                       idem_key=f"package:{clip['id']}", ref=("clip", clip["id"]),
                       priority=queue.source_priority(src, job.row.get("priority") or 0))
+    if halted:
+        return _close_stopped(src, p.id, job, added=len(added))
     total = sum(1 for c in db.list_clips(p.id) if c["status"] == "ready")
     db.update_project(p.id, status="ready", progress=1.0, stage="done", message=f"{total} clip(s) ready")
     db.update("sources", src["id"], status="analyzed" if total else "weak", clips_selected=total,
               status_note=f"Post-live: {len(added)} clip(s) added, {replaced} live clip(s) replaced by better cuts")
     return {"added": len(added), "replaced": replaced, "message": f"Post-live analysis: {len(added)} added, "
                                                                   f"{replaced} replaced"}
+
+
+def _close_stopped(src: dict, project_id: str, job: Job, *, added: int = 0) -> dict:
+    """The end of a stream whose clipping was stopped by the owner: the recording is saved and nothing more is
+    made from it. Every clip that was made is handed to its checks (again, if a hand-over was interrupted), so
+    it still reaches its place in the plan and its upload."""
+    ready = [c for c in db.list_clips(project_id) if c["status"] == "ready"
+             and Path(c.get("output_path") or "").is_file()]
+    for clip in ready:
+        if not db.fetch("clip_fingerprints", clip["id"], "clip_id"):
+            store_fingerprint(clip, src)
+        queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": src["id"]},
+                      idem_key=f"package:{clip['id']}", ref=("clip", clip["id"]),
+                      priority=queue.source_priority(src, job.row.get("priority") or 0))
+    note = (f"Clipping stopped by you: {len(ready)} clip(s) were made and still upload" if ready else
+            "Clipping stopped by you before a clip was made")
+    db.update_project(project_id, status="ready", progress=1.0, stage="done", message=f"{len(ready)} clip(s) ready")
+    db.update("sources", src["id"], status="analyzed" if ready else "weak", clips_selected=len(ready),
+              status_note=note)
+    state.event("live_clipping_stopped", f"“{src.get('title', '')[:60]}”: {note[0].lower()}{note[1:]}",
+                ref_type="source", ref_id=src["id"])
+    return {"added": added, "replaced": 0, "stopped": True, "message": note}
 
 
 if __name__ == "__main__":

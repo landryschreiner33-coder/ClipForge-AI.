@@ -199,8 +199,16 @@ def _inspect(url: str) -> dict:
 
 
 def finish_requested(source_id: str) -> bool:
-    """"Stop recording" was pressed. Kept apart from the source's intake fields, which other steps rewrite."""
-    return bool(state.get(f"live_finish:{source_id}"))
+    """"Stop recording" (or "Stop clipping", which stops the recording too) was pressed. Kept apart from the
+    source's intake fields, which other steps rewrite."""
+    return bool(state.get(f"live_finish:{source_id}")) or clipping_stopped(source_id)
+
+
+def clipping_stopped(source_id: str) -> bool:
+    """"Stop clipping" was pressed: the recording stops and no more clips are made from this stream, neither
+    live nor from the full recording. The clips already made keep their checks, their places in the plan and
+    their uploads. It is never taken back for this input: to clip the stream again, add its link again."""
+    return bool(state.get(f"live_stop_clips:{source_id}"))
 
 
 def identify(source: dict, settings: dict) -> dict:
@@ -441,7 +449,9 @@ def item(source: dict) -> dict:
             status = "final_check"
         elif kind == "package_clip":
             status = "making_clips"
-        if kind == "post_live":
+        if kind in ("post_live", "live_capture") and clipping_stopped(source["id"]):
+            detail = "Clipping stopped by you — finishing up. Clips already made still upload."
+        elif kind == "post_live":
             detail = "Stream ended — checking the full recording"
         elif kind == "live_capture":
             detail = ("Found a strong moment — making clip" if stage == "render" else
@@ -469,7 +479,19 @@ def item(source: dict) -> dict:
             "can_prioritize": bool(active) and status != "canceled",
             "can_finish": _can_finish(source, status, active, jobs),
             "finishing": source.get("kind") == "live" and finish_requested(source["id"]) and
-            any(j["kind"] == "live_capture" for j in active)}
+            any(j["kind"] == "live_capture" for j in active),
+            "can_stop_clipping": _can_stop_clipping(source, status, active, jobs),
+            "clipping_stopped": source.get("kind") == "live" and clipping_stopped(source["id"])}
+
+
+def _can_stop_clipping(source: dict, status: str, active: list[dict], jobs: list[dict]) -> bool:
+    """Clips are being made or may still be added: the stream is recorded (or waited for), or its full recording
+    is being analyzed, or a stopped recording still holds minutes that were never analyzed."""
+    meta = source.get("intake") or {}
+    if source.get("kind") != "live" or status in ("canceled", "removed") or meta.get("canceled") or \
+            meta.get("superseded_by") or clipping_stopped(source["id"]):
+        return False
+    return any(j["kind"] in ("live_capture", "post_live") for j in active) or _can_finish(source, status, active, jobs)
 
 
 def _can_finish(source: dict, status: str, active: list[dict], jobs: list[dict]) -> bool:
@@ -545,6 +567,22 @@ def action(source_id: str, operation: str) -> dict:
         db.execute("UPDATE worker_jobs SET priority = ? WHERE id = ? AND status IN ('queued', 'waiting', 'retrying', "
                    "'running')", (MANUAL_PRIORITY, capture["id"]))
         queue.wake(capture["id"])
+    elif operation == "stop_clipping":
+        if not view["can_stop_clipping"]:
+            raise ValueError("No clips are being made from this input right now.")
+        # Nothing here touches a clip, a clip's job or a post: what was made keeps going to its checks and
+        # uploads. The flag only stops the recorder and keeps the live picker and the full-recording analysis
+        # from making more. Like Stop recording, the closing turn runs even while Autopilot is paused.
+        state.put(f"live_stop_clips:{source_id}", {"at": time.time()})
+        db.update("sources", source_id, status_note="Clipping stopped by you; clips already made still upload")
+        closing = next((j for j in _jobs(source) if j["kind"] == "post_live" and j["status"] in queue.ACTIVE), None)
+        if closing is None:
+            closing = queue.enqueue("live_capture", {"source_id": source_id}, idem_key=f"live:{source_id}",
+                                    ref=("source", source_id), max_attempts=5, timeout_s=24 * 3600,
+                                    priority=MANUAL_PRIORITY, revive=True, revive_canceled=True)
+        db.execute("UPDATE worker_jobs SET priority = ? WHERE id = ? AND status IN ('queued', 'waiting', 'retrying', "
+                   "'running')", (MANUAL_PRIORITY, closing["id"]))
+        queue.wake(closing["id"])
     elif operation == "prioritize":
         if not view["can_prioritize"]:
             raise ValueError("Only waiting or active videos can be moved to the top.")

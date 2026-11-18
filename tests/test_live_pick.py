@@ -210,7 +210,7 @@ def test_live_picker_waits_instead_of_taking_the_weaker_moment(stream):
     from clipfoundry.autopilot import live
 
     sess, job = stream(10, [(200, 70.0), (500, 90.0)])
-    assert live.stream_pace(sess.project, sess.settings)["name"] == "best"
+    assert live_pick.pace(sess.project, sess.settings)["name"] == "best"
     assert live.detect(sess, job) is None
     assert sess.note == live_pick.NOTES["settling"]
     from clipfoundry import db
@@ -232,7 +232,7 @@ def test_live_picker_makes_few_clips_from_a_long_ordinary_stream(stream, monkeyp
     made = {}
     for name in ("best", "most"):
         sess, job = stream(0, moments, url=f"https://www.twitch.tv/{name}streamer", autopilot_live_pick=name)
-        assert live.stream_pace(sess.project, sess.settings)["name"] == name
+        assert live_pick.pace(sess.project, sess.settings)["name"] == name
         for minute in range(1, 31):
             sess.offset = minute * 60.0
             sess.env = [-25.0] * int(sess.offset * 10)
@@ -261,14 +261,14 @@ def test_a_stream_keeps_the_choices_it_was_added_with(data):  # noqa: F811
     db.save_settings({"autopilot_live_pick": "most", "autopilot_live_framing": "split"})
     again = live.Session(db.fetch("sources", src["id"]), db.get_settings())
     assert "layout" not in again.project["options"] and again.project["options"]["live_framing"] == "off"
-    assert live.stream_pace(again.project, db.get_settings())["name"] == "balanced"
+    assert live_pick.pace(again.project, db.get_settings())["name"] == "balanced"
     later = live.Session(going_live(add_live("https://kick.com/another")), db.get_settings())
     assert later.project["options"]["layout"] == "split" and later.project["options"]["live_pick"] == "most"
     # a wrong value never reaches a stream
     db.save_settings({"autopilot_live_pick": "everything", "autopilot_live_framing": "sideways"})
     assert db.get_settings()["autopilot_live_pick"] == "most" and db.get_settings()["autopilot_live_framing"] == "split"
-    assert live.stream_choices({"intake": {"live_choices": {"framing": "sideways", "pick": "all"}}},
+    assert live_pick.choices({"intake": {"live_choices": {"framing": "sideways", "pick": "all"}}},
                                {"autopilot_live_pick": "?", "autopilot_live_framing": "?"}) == \
         {"layout": "auto", "live_framing": "auto", "live_pick": "best"}
-    assert live.stream_choices({"intake": {"live_choices": {"framing": "auto", "pick": "best"}}},
+    assert live_pick.choices({"intake": {"live_choices": {"framing": "auto", "pick": "best"}}},
                                db.get_settings()) == {"layout": "auto", "live_framing": "auto", "live_pick": "best"}

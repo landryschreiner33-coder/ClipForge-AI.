@@ -210,7 +210,22 @@ def _finished_broadcast(source: dict) -> bool:
                          "json_extract(payload, '$.source_id') = ?", (source["id"],))
 
 
-def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", live: bool = False) -> dict:
+def _live_choices(options: dict) -> dict:
+    """What the owner chose for this stream in Live streams: how picky it is and whether its clips get a split
+    view. A choice left out follows Settings; a wrong one is refused, never guessed."""
+    out = {}
+    for key, name, allowed in (("live_pick", "pick", config.LIVE_PICKS), ("live_framing", "framing",
+                                                                       config.LIVE_FRAMINGS)):
+        value = options.get(key) or ""
+        if value and value not in allowed:
+            raise ValueError("Choose how this stream is clipped again, then add it.")
+        if value:
+            out[name] = value
+    return out
+
+
+def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", live: bool = False,
+            live_choices: dict | None = None) -> dict:
     # Earlier broadcasts of the same channel link carry ":<id>" after the link's identity.
     same_identity = db.select("sources", "platform = ? AND (external_id = ? OR external_id LIKE ?)",
                               (fields["platform"], fields["external_id"], fields["external_id"] + ":%"), "created_at DESC")
@@ -243,7 +258,8 @@ def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", l
     source = {**fields, "id": source_id, "user_added": 1, "status": "queued", "status_note": "Waiting to make clips",
               "created_at": now, "updated_at": now,
               "intake": {"submitted": True, "submission_id": submission_id, "original_url": original_url,
-                         "added_at": now, "priority": intake.LINK_PRIORITY, "live_requested": bool(live)}}
+                         "added_at": now, "priority": intake.LINK_PRIORITY, "live_requested": bool(live),
+                         **({"live_choices": live_choices} if live_choices else {})}}
     cfg = {**cfg, "source_identity": _identity(source), "source_sha256": sha,
            "source_path": fields.get("local_path") or "", "bound_project_id": "", "terms_sha256": ""}
     where, others = f"YouTube channel {cfg.get('account_id')}", "other inputs"
@@ -324,7 +340,8 @@ def add_link(url: str, options: dict, *, live: bool = False) -> dict:
         # The recorder reads typed links only through the guarded public HTTP relay (live.input_args).
         raise ValueError("Use the stream's web page or an https:// stream link. RTMP, SRT and RTSP addresses "
                          "cannot be recorded safely.")
-    return _create(fields, cfg, original_url=url.strip(), live=live)
+    return _create(fields, cfg, original_url=url.strip(), live=live,
+                   live_choices=_live_choices(options) if live else None)
 
 
 def add_file(file: BinaryIO, filename: str, options: dict) -> dict:
@@ -705,10 +722,22 @@ def _live_view(source: dict, view: dict) -> dict:
     project = db.get_project(source.get("project_id") or "") or {}
     clips = db.select("clips", "project_id = ?", (project.get("id") or "",)) if project else []
     recording = view["status"] == "watching_live" and source.get("live_status") == "live"
+    from . import live_pick
+
+    # The stream's own choices: saved with its project once it records, before that as it was added.
+    chosen = {**live_pick.choices(source, db.get_settings()), **{k: v for k, v in (project.get("options") or {}).items()
+                                                                 if k in ("live_pick", "live_framing")}}
+    if project and "live_framing" not in (project.get("options") or {}):
+        chosen["live_framing"] = "off"  # a stream that was being recorded before streams had this choice
     return {"recording": recording, "finishing": view.get("finishing", False),
             "minutes": round(float(project.get("duration") or 0) / 60, 1) if project.get("origin") == "live" else 0.0,
             "live_clips": sum(c["status"] == "ready" and c.get("score_source") == "Live analysis" for c in clips),
-            "ended": source.get("live_status") in ("ended", "stopped"), "stopped": source.get("live_status") == "stopped"}
+            "ended": source.get("live_status") in ("ended", "stopped"), "stopped": source.get("live_status") == "stopped",
+            "clipping_stopped": bool(view.get("clipping_stopped")),
+            "pick": chosen["live_pick"], "pick_label": live_pick.LABELS[chosen["live_pick"]],
+            "framing": chosen["live_framing"], "framing_label": live_pick.FRAMING_LABELS[chosen["live_framing"]],
+            # why no clip is being made right now, while the stream is recorded
+            "note": ((project.get("info") or {}).get("live_note") or "") if recording else ""}
 
 
 def live_items() -> list[dict]:
