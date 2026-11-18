@@ -16,9 +16,16 @@ to stop clipping while the clips already made still upload. All four are in Miss
 - **Tests that hold them:** `tests/test_live_pick.py`, `test_split_view.py`, `test_split_between_channels.py`,
   `test_live_stop_clipping.py`. Slow live tests set `autopilot_live_pick: "most"` because their streams last a
   minute and the default listens for six.
+- **Added later the same day (Landry: "see the full gamplay and face cam", "clips arent so short ... longer and more
+  engaging"):** split view keeps the whole picture under the face cam (Settings → Defaults → *Under the face cam*
+  switches to the zoomed look) and is used for any clip with a face cam whose layout nobody chose (Settings →
+  Defaults → *Split view* → Off stops that; `render.cam_layout`, `render.layout_chosen`). A live clip keeps its
+  moment's build-up and ending when the fuller version is about as strong (`live_pick.fuller`, `ranked`; numbers
+  `FULL_*` in `live_pick.py`). Live clips have no lengths of their own: they read the clip length Settings, whose
+  new defaults (25/45/90) belong to the thread "Make ClipForge AI smarter in chat".
 - **Not verified (needs Landry's computer):** real Twitch, Kick and YouTube streams, real face cams and overlays,
-  real uploads to two channels, the screens in the Mac window. The pick levels' numbers are first guesses from a
-  stand-in stream; expect to tune them after real streams.
+  real uploads to two channels, the screens in the Mac window. The pick levels' numbers and the fuller-clip numbers
+  are first guesses from stand-in streams; expect to tune them after real streams.
 
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code, cloud session)
 

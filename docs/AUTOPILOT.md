@@ -144,12 +144,27 @@ It covers that one broadcast only, never the channel's later streams.
   each recorded minute's sound is kept as a small file for the rolling 15 minutes and deleted afterwards. The
   stream's card says in a line why nothing is being made right now. The full-recording check afterwards keeps the
   same minimum and the same pace over the whole stream (`autopilot/live_pick.py`). All scores are estimates.
+- **The whole moment, not its strongest lines.** A moment is found as its strongest few sentences, which used to
+  make clips near the shortest length allowed: the punchline without what led up to it. For each moment the picker
+  now also looks at fuller versions (more of what was said before it and after it, never across a change of subject
+  or a silence of more than three seconds, never over your longest clip length) and clips the fuller one when its
+  live score is about as strong: every second a version is short of the length you aim for (Settings → clip length)
+  counts like 0.15 points, so the build-up and the ending are kept unless they cost more than about four points. A
+  moment that falls apart when it is made longer stays as it was found, and so does one whose fuller version is
+  under the stream's minimum. The clip's reasons then say *Kept the build-up and the ending: 79 s instead of 45 s*
+  (`live_pick.fuller`, `live_pick.ranked`, used in `live.detect`). Live clips follow the same clip length settings
+  as every other clip; there are no separate live lengths.
 - **Split view.** Each stream also has a **Split view** choice: *when there is a face cam* (the default), *always*,
   or *no split view*. When ClipForge finds a face cam laid over the picture (`pipeline/reframe.find_cam`), the clip
-  shows the face cam across the top part and the rest of the picture below it, with the captions on the line between
-  them. Without a face cam the clip uses the layout from Settings. This also fixes clips that used to park on the
-  corner holding the face cam. In the clip editor, Layout offers **Split view** and **Split if face cam** for any
-  clip.
+  shows the face cam across the top, a strip for the headline and the captions under it, and below that the
+  **whole picture** at full width, nothing cut off, over a blurred fill (`reframe.split_panels`). Settings →
+  Defaults → **Under the face cam** switches every split view to *Zoomed in* (the picture's middle fills
+  everything under the cam, captions on the line between), and the clip editor has the same choice for one clip.
+  Without a face cam the clip uses the layout from Settings. This also fixes clips that used to park on the corner
+  holding the face cam. Split view is not only for streams: any clip whose layout nobody chose (no choice in the
+  clip editor or for the video, no Brain note, style or skill that decides the layout) looks for a face cam and
+  uses split view when it finds one. Settings → Defaults → **Split view** → *Off* stops that. In the clip editor,
+  Layout offers **Split view** and **Split if face cam** for any clip.
 - **Split the clips between channels.** With two or more YouTube channels ticked, the request asks how the clips are
   shared: **Every channel gets every clip**, or **Split the clips between the channels**. Split means each clip is
   uploaded to one channel only; the channels take turns (the one with the fewest of this stream's clips goes next,

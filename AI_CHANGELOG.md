@@ -40,6 +40,33 @@ clips". Branch `claude/project-thread-82eyed` (PR #57) from the release line, wi
 - **Checks:** see the test log in `docs/IMPLEMENTATION_STATUS.md`. **Not verified (needs Landry's Mac):** real
   streams and real face cams (the tests draw their own), real uploads to two channels, the screens in the Mac window.
 
+**Later the same day, three more messages from Landry, in the same pull request:**
+
+- *"fix the fraiming for clips esspecially live stream clips i want to be able to see the full gamplay and face cam
+  like a split veiw or how other apps have it"* and *"make sure the clips fraiming is fixed and you can see the
+  gameplay and face cam"*. **Split view now keeps the whole picture** (`reframe.split_panels`, `render._split_whole`):
+  the face cam across the top (28-36% of the height), a strip for the headline and the captions, then the whole
+  source picture at full width over a blurred, darkened fill. The earlier look (the picture's middle filling
+  everything under the cam) stays as *Zoomed in*. **Split view is the default for every clip with a face cam**, not
+  only live clips: `render.cam_layout` turns a layout that nobody chose into `auto`, and `render.layout_chosen` says
+  who chose (a clip edit, the video's own option, a blueprint, or a guidance decision above the Settings level).
+  New Settings (Defaults): `split_view` (`auto` | `off`) and `split_game` (`whole` | `zoom`); the clip editor has
+  *Under the face cam* for one clip (`edit.split_game`). `render_info` gains `layout_asked` and `split_game`. A
+  stream whose split view is *off* stores `split_view: "off"` in its project options.
+- *"make it so the clips arent so short and they are actually longer and more engaging"*. Measured first: on a
+  stand-in stream of minute-long stories a live clip was only the strongest 12 to 25 seconds of a story, and longer
+  length settings moved that by a few seconds only, because a moment is found as its strongest sentences and sits
+  near the shortest length allowed. **Live clips now keep the build-up and the ending** (`live_pick.fuller`,
+  `live_pick.ranked`, `live.detect`): fuller versions of each moment are analysed (never across a transition
+  phrase, a topic boundary or more than three seconds of silence, never over `max_duration`), the best few get the
+  full live rating, and the version with the best "live score minus 0.15 per second short of `target_duration`"
+  is clipped. A fuller version under the stream's floor leaves the moment as found; one that overlaps a clip
+  already made is not considered. The reasons say *Kept the build-up and the ending: 79 s instead of 45 s*. On the
+  stand-in the three best clips went from 12-17 s to 35-40 s with today's lengths and to 35-73 s at 25/45/90.
+  The clip length defaults themselves (25/45/90) and ordinary clips are the thread "Make ClipForge AI smarter in
+  chat" (branch `claude/project-thread-dwz7vo`); live reads the same Settings and has no lengths of its own.
+- The release line with the merged channel picker (PR #58, 3bb861f) is merged in.
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
 Landry wrote "make it so you can choose what clips or stuff goes to what channle or if it goes to all or just a few".
