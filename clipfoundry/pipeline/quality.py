@@ -377,6 +377,11 @@ def framing_checks(render_info: dict) -> list[dict]:
         return [check("framing", "Framing", HEURISTIC, SKIP, "No framing record for this render.")]
     if float(crop) >= 0.999 or render_info.get("layout") == "fit":
         return [check("framing", "Framing", HEURISTIC, PASS, "The whole picture is kept (no crop).")]
+    if mode == "split":
+        cam = (render_info.get("framing_evidence") or {}).get("cam") or {}
+        found = "its rectangle was found" if cam.get("kind") == "border" else "framed around the face"
+        return [check("framing", "Framing", HEURISTIC, PASS,
+                      f"Split view: the face cam on top ({found}) and the rest of the picture below (estimate).")]
     if mode in ("face", "speaker"):
         n = int(render_info.get("faces") or 0)
         return [check("framing", "Framing", HEURISTIC, PASS, f"Follows {n} face{'s' if n != 1 else ''} (estimate).")]

@@ -632,7 +632,8 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
                 if not finite:
                     raise HTTPException(400, f"The clip's {k} must be a time in seconds.")
         for k, v in body.edit.items():
-            if k not in EDIT_KEYS or (k == "clean_sound" and v is not None and v not in config.CLEAN_SOUND_MODES):
+            if k not in EDIT_KEYS or (k == "clean_sound" and v is not None and v not in config.CLEAN_SOUND_MODES) \
+                    or (k == "layout" and v is not None and v not in config.CLIP_LAYOUTS):
                 continue
             if v is None:
                 edit.pop(k, None)

@@ -22,6 +22,10 @@ OUTPUT_W, OUTPUT_H = 1080, 1920
 CAPTION_STYLES = ["clean", "bold", "high_energy", "minimal"]
 TRACKING_MODES = ["auto", "center", "face", "speaker", "screen", "manual"]
 LAYOUTS = ["fill", "fit"]
+# What one clip can be framed as: the two above, plus split view (the face cam on top, the rest of the picture
+# below). "auto" makes a split view only when a face cam is found, "split" whenever a face is. They are chosen
+# per live stream and per clip, not in Settings: the full-video editor and saved styles know only LAYOUTS.
+CLIP_LAYOUTS = LAYOUTS + ["auto", "split"]
 SILENCE_MODES = ["off", "light", "aggressive"]
 CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
 AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]

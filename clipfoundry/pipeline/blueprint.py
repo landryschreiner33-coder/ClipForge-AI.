@@ -207,7 +207,7 @@ def validate(bp: Blueprint, source_duration: float | None, words: list[dict]) ->
     f, c, a = bp.framing, bp.captions, bp.audio
     if f.mode not in config.TRACKING_MODES:
         err(f"unknown framing mode {f.mode!r}")
-    if f.layout not in config.LAYOUTS:
+    if f.layout not in config.CLIP_LAYOUTS:
         err(f"unknown layout {f.layout!r}")
     if not 0.0 <= f.crop_x <= 1.0:
         err(f"crop position {f.crop_x} is outside 0-1")
