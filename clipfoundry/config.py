@@ -26,6 +26,10 @@ LAYOUTS = ["fill", "fit"]
 # below). "auto" makes a split view only when a face cam is found, "split" whenever a face is. They are chosen
 # per live stream and per clip, not in Settings: the full-video editor and saved styles know only LAYOUTS.
 CLIP_LAYOUTS = LAYOUTS + ["auto", "split"]
+LIVE_PICKS = ["best", "balanced", "most"]   # how picky a live stream is (autopilot/live_pick.py)
+# How a live stream's clips are framed: "auto" and "split" as above (without a face cam the clip gets the layout
+# from Settings), "off" never makes a split view.
+LIVE_FRAMINGS = ["auto", "split", "off"]
 SILENCE_MODES = ["off", "light", "aggressive"]
 CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
 AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]
@@ -172,6 +176,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # swap a day per slot keeps the plan, and the approvals it needs, from changing back and forth
     "autopilot_replacement_cooldown_hours": 24.0,
     "autopilot_live_monitoring": True,  # authorized live sources only (the rights gate applies as always)
+    # Live streams: what a new stream starts with; each stream keeps the choice made when it was added.
+    "autopilot_live_pick": "best",      # how picky: best (few, strongest), balanced, most (every good moment)
+    "autopilot_live_framing": "auto",   # split view: auto (when a face cam is found), split (always), off
     "autopilot_learning": True,
     # Brain (autopilot/brain.py): the guards on audience-driven strategy changes (section 14 of the build brief)
     "brain_paused": False,              # keep collecting results, change no strategy
@@ -364,6 +371,10 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
         elif key == "autopilot_input_mode" and v not in ({"submitted"} if DISCOVERY_RETIRED else
                                                           {"submitted", "discovery"}):
             continue  # discovery is retired: an old client asking for it keeps the submitted-input mode
+        elif key == "autopilot_live_pick" and v not in LIVE_PICKS:
+            continue
+        elif key == "autopilot_live_framing" and v not in LIVE_FRAMINGS:
+            continue
         elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:
             continue
         elif key in ("audience_youtube", "audience_tiktok") and v not in AUDIENCE_INTENTS:

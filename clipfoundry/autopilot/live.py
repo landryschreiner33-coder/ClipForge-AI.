@@ -5,7 +5,9 @@ Live clipping
     being written (OBS in a watch folder), a stream URL you may use (HLS/RTMP/SRT), or - only when the rights pass
     and downloads of authorized platform sources are allowed in Settings - a platform live stream. Each segment is
     transcribed as it completes (one heavy GPU job at a time), the last 15 minutes are searched for complete
-    moments, and a moment that passes the quality bar and has finished being said becomes a clip right away.
+    moments, and the strongest one becomes a clip when it is strong enough for this stream and the stream's pace
+    allows a clip now (quality over quantity: live_pick.py). Each stream has its own choices: how picky it is and
+    how its clips are framed (split view when a face cam is found).
 
 Post-live analysis
     When the stream ends, the segments are joined into the full recording and analyzed like any other source (deep
@@ -27,14 +29,16 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import numpy as np
+
 from .. import config, db, gpu, locks, netguard
 from ..pipeline import candidates as cand_mod
-from ..pipeline import blueprint, deep, hooks, postpack, process, render, scoring, transcribe, virality
-from ..pipeline.audio import Loudness, loudness_envelope
+from ..pipeline import blueprint, deep, ears, hooks, postpack, process, render, scoring, semantic, transcribe, virality
+from ..pipeline.audio import Loudness, loudness_envelope, read_samples
 from ..pipeline.common import JobContext, log, read_json, write_json
 from ..pipeline.ffmpeg_utils import NO_WINDOW, extract_audio, ffmpeg_bin, ffprobe_bin, probe, run_process
 from ..pipeline.text_utils import build_sentences
-from . import queue, rights, state
+from . import live_pick, queue, rights, state
 from .host import Job, handler
 from .stream_access import StreamRefused
 from .hunter import (gpu_failed, gpu_policy, max_source_bytes, plan_clips, prior_fingerprints, project_options,
@@ -153,6 +157,26 @@ def _resolve_platform_stream(url: str, seen: dict | None = None) -> str | tuple[
                      "Use a stream with sound or add your own recording; no transcription was attempted.")
 
 
+# ------------------------------------------------------------------ each stream's own choices
+def stream_choices(src: dict, settings: dict) -> dict:
+    """How this stream's clips are framed and how picky it is: what the owner chose when adding the stream, else
+    the Settings. Stored with the stream's project, so a later change of the Settings never changes a stream that
+    is already being clipped. A split-view choice is the clips' layout; "off" leaves the layout to Settings."""
+    chosen = (src.get("intake") or {}).get("live_choices") or {}
+    framing = chosen.get("framing") if chosen.get("framing") in config.LIVE_FRAMINGS else \
+        settings.get("autopilot_live_framing")
+    framing = framing if framing in config.LIVE_FRAMINGS else "auto"
+    pick = chosen.get("pick") if chosen.get("pick") in live_pick.PICKS else settings.get("autopilot_live_pick")
+    return {"live_framing": framing, "live_pick": pick if pick in live_pick.PICKS else live_pick.DEFAULT_PICK,
+            **({"layout": framing} if framing != "off" else {})}
+
+
+def stream_pace(project: dict | None, settings: dict) -> dict:
+    """The pace and bars of a stream (live_pick.rule). A stream started before it had choices uses the Settings."""
+    return live_pick.rule(((project or {}).get("options") or {}).get("live_pick")
+                          or settings.get("autopilot_live_pick"))
+
+
 # ------------------------------------------------------------------ session state (on disk, survives restarts)
 class Session:
     def __init__(self, src: dict, settings: dict):
@@ -162,7 +186,7 @@ class Session:
         if project is None:
             project = db.create_project((src.get("title") or "Live")[:120], origin="live", source_id=src["id"],
                                         source_url=src.get("url", ""), status="processing",
-                                        options=project_options(settings))
+                                        options={**project_options(settings), **stream_choices(src, settings)})
             db.update("sources", src["id"], project_id=project["id"])
         from . import submissions
 
@@ -202,6 +226,10 @@ class Session:
         self.broadcast: dict = st.get("broadcast") or {}
         self.alive_at = float(st.get("alive_at") or 0)
         self.final: dict = st.get("final") or {}
+        # The best score heard in each recorded minute: the stream's own measure of what a strong moment is.
+        self.minute_best: dict[str, float] = st.get("minute_best") or {}
+        self.note: str = st.get("note") or ""  # why no clip is being made right now, in plain words
+        self.voices: dict[tuple[float, float], dict | None] = {}  # this run's voice readings, by moment
         # A crash after the database render commit but before this checkpoint must not rediscover the same moment.
         known = {c["id"] for c in self.clips}
         for clip in db.list_clips(project["id"]):
@@ -226,7 +254,8 @@ class Session:
                                                 "limit_reached": self.limit_reached, "skipped": self.skipped,
                                                 "stopped_by_owner": self.stopped_by_owner,
                                                 "offline_since": self.offline_since, "broadcast": self.broadcast,
-                                                "alive_at": self.alive_at, "final": self.final})
+                                                "alive_at": self.alive_at, "final": self.final,
+                                                "minute_best": self.minute_best, "note": self.note})
         if not self.archive_recovery.get("complete"):
             write_json(self.pdir / "transcript.json", {**self.transcript, "duration": self.offset})
             write_json(self.pdir / "loudness.json", {"hop": 0.1, "db": self.env})
@@ -503,7 +532,7 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     if not meta.get("unreadable") and (not sess.meta or meta.get("has_audio")):
         sess.meta = meta
     duration = duration or float(meta.get("duration") or 0)
-    wav = sess.segdir / (Path(name).stem + ".wav")
+    wav = _minute_sound(sess, {"name": name})
     frames = int(round(duration / 0.1))
     ctx = JobContext(None, job.cancelled)
     if not meta.get("unreadable") and meta.get("has_audio"):
@@ -563,7 +592,11 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     sess.offset += duration
     sess.env += env
     sess.words = transcribe.flatten_words(sess.transcript)
-    wav.unlink(missing_ok=True)
+    # The minute's sound stays while it is inside the rolling window: a moment's voice (pitch, emphasis, laughter)
+    # is part of how strong it is. Older minutes' files go; the recording itself keeps their sound.
+    for old in sess.segments:
+        if old["end"] < sess.offset - WINDOW_SECONDS - SEGMENT_SECONDS:
+            _minute_sound(sess, old).unlink(missing_ok=True)
     sess.save()
     message = (f"Live: {sess.offset / 60:.0f} min recorded, {len(sess.clips)} clip(s)"
                + ("; this minute has no audio" if not meta.get("has_audio") else ""))
@@ -588,26 +621,68 @@ def _sound_of(path: Path, cancel=None) -> str:
     return text.strip().splitlines()[0].strip() if out.returncode == 0 and text.strip() else ""
 
 
-def detect(sess: Session, job: Job) -> dict | None:
-    """The best complete, strong moment in the rolling window that is not already a clip."""
-    from . import knowledge
+def _minute_sound(sess: Session, seg: dict) -> Path:
+    """The 16 kHz sound file of one recorded minute (kept only while the minute is in the rolling window)."""
+    return sess.segdir / (Path(seg["name"]).stem + ".wav")
 
+
+def _drop_minute_sounds(sess: Session) -> None:
+    for seg in sess.segments:
+        _minute_sound(sess, seg).unlink(missing_ok=True)
+
+
+def _voice(sess: Session, start: float, end: float) -> dict | None:
+    """How the voice sounds over a moment (ears.analyze: pitch, emphasis, laughter), from the minutes' kept sound
+    files. None when a minute of it has no sound file (no audio, unreadable, or older than the window)."""
+    key = (round(start, 2), round(end, 2))
+    if key in sess.voices:
+        return sess.voices[key]
+    parts = []
+    for seg in sess.segments:
+        if seg["end"] <= start or seg["start"] >= end:
+            continue
+        try:
+            parts.append(read_samples(_minute_sound(sess, seg), max(0.0, start - seg["start"]),
+                                      min(seg["end"], end) - seg["start"]))
+        except (OSError, ValueError, EOFError):
+            parts = []
+            break
+    voice = None
+    if parts:
+        try:
+            voice = ears.analyze(np.concatenate(parts), start,
+                                 [w for w in sess.words if w["end"] > start and w["start"] < end])
+        except Exception:  # noqa: BLE001 - the voice is a bonus; a moment is still rated by its words and loudness
+            log.exception("live voice reading failed")
+    if len(sess.voices) > 400:
+        sess.voices.clear()
+    sess.voices[key] = voice
+    return voice
+
+
+def detect(sess: Session, job: Job) -> dict | None:
+    """The strongest complete moment in the rolling window that is not already a clip, when it is strong enough
+    for this stream and the stream's pace allows a clip now (live_pick: quality over quantity)."""
+    from . import knowledge
+    from .scout import clip_reason
+
+    pace = stream_pace(sess.project, sess.settings)
     edge = sess.offset
     words = [w for w in sess.words if w["start"] >= edge - WINDOW_SECONDS]
     sents = build_sentences(words)
     if len(sents) < 3:
-        return None
+        return _listening(sess, "nothing")
     opts = process._options(sess.project, sess.settings, words=words)  # noqa: SLF001 - the project's clip options
     loud = Loudness({"hop": 0.1, "db": sess.env})
     feats = cand_mod.sentence_features(sents, words)
-    min_quality = float(sess.settings.get("autopilot_min_quality") or 0)
-    best = None
-    for c in cand_mod.find_candidates(words, sents, loud, opts, pool_size=12):
+    emb = semantic.embed_sentences(sents, opts)
+    floor = max(float(sess.settings.get("autopilot_min_quality") or 0), float(opts.get("min_score", 50))) \
+        + pace["above"]
+    taken = [*sess.clips, *({"start": a, "end": b} for a, b in sess.skipped)]
+    rated: list[dict] = []
+    for c in cand_mod.find_candidates(words, sents, loud, opts, pool_size=live_pick.POOL):
         job.check()
-        if c["end"] > edge - EDGE_MARGIN:
-            continue  # still being said
-        if any(min(c["end"], k["end"]) - max(c["start"], k["start"]) > 0.15 * (c["end"] - c["start"])
-               for k in [*sess.clips, *({"start": a, "end": b} for a, b in sess.skipped)]):
+        if any(live_pick.overlaps(c, k) for k in taken):
             continue
         local, used = knowledge.selection_options(
             {"title": sess.project.get("name") or "", "caption_text": " ".join(
@@ -616,17 +691,35 @@ def detect(sess: Session, job: Job) -> dict | None:
             used += opts.get("brain_duration_knowledge") or []
         r = max((virality.analyze(a, b, sents, feats, words, loud, local)
                  for a, b in virality.variants(c["s0"], c["s1"], sents, local, feats)), key=lambda x: x["raw"])
-        if r["blocked"] or r["viral_potential"] < max(min_quality, float(opts.get("min_score", 50))) or \
-                r["end"] > edge - EDGE_MARGIN:
+        if r["blocked"] or clip_reason(r, sess.settings):
             continue
-        from .scout import clip_reason
+        r["brain_knowledge"] = used
+        r["live"] = live_pick.rate(r, sents, words, loud, emb)
+        rated.append(r)
+    # The voice is read for the few strongest only: it costs the most, and it can only decide between them.
+    for r in sorted(rated, key=lambda item: item["live"]["score"], reverse=True)[:live_pick.VOICE_TOP]:
+        job.check()
+        voice = _voice(sess, r["start"], r["end"])
+        if voice:
+            r["live"] = live_pick.rate(r, sents, words, loud, emb, voice)
+    for r in rated:
+        r["live_score"], r["explanation"] = r["live"]["score"], r["live"]["why"]
+        if r["end"] <= edge - EDGE_MARGIN:  # a moment still being said is rated again when it is complete
+            minute = str(int(r["start"] // SEGMENT_SECONDS))
+            sess.minute_best[minute] = max(float(sess.minute_best.get(minute) or 0.0), r["live_score"])
+    found, why = live_pick.choose(rated, clips=sess.clips, edge=edge, unit=SEGMENT_SECONDS, floor=floor, pace=pace,
+                                  minute_best=sess.minute_best, edge_margin=EDGE_MARGIN)
+    _listening(sess, why)
+    return {"r": found, "sents": sents, "loud": loud} if found else None
 
-        if clip_reason(r, sess.settings):
-            continue
-        if best is None or r["viral_potential"] > best[0]["viral_potential"]:
-            r["brain_knowledge"] = used
-            best = (r, sents, loud)
-    return {"r": best[0], "sents": best[1], "loud": best[2]} if best else None
+
+def _listening(sess: Session, why: str) -> None:
+    """Remember, in plain words, why no clip is being made right now (shown with the stream)."""
+    note = live_pick.NOTES.get(why, "")
+    if note != sess.note:
+        sess.note = note
+    sess.save()  # with the minute's ratings
+    return None
 
 
 # FFmpeg's concat reader skips a file it cannot open and still exits successfully: the joined file is then shorter
@@ -713,7 +806,7 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
     clip = clip or db.create_clip(sess.project["id"], id=clip_id, rank=len(sess.clips),
                           start=start, end=end, title=post["title"],
                           hook=hook, hooks_alt=alts, caption_text=" ".join(texts), hashtags=post["hashtags"],
-                          category=hooks.categorize(" ".join(texts)), score=r["viral_potential"],
+                          category=hooks.categorize(" ".join(texts)), score=_live_score(r),
                           scores=virality.summary(r)["factors"], score_source="Live analysis",
                           reason=scoring.reason_text(r), analysis=virality.summary(r), post=post, edit={},
                           status="rendering", duration=round(end - start, 2))
@@ -760,22 +853,34 @@ def _skip(sess: Session, start: float, end: float) -> None:
     sess.save()
 
 
+def _live_score(r: dict) -> float:
+    """The moment's Clip Score from the live analysis (its Viral Potential when it was not rated live)."""
+    return float(r.get("live_score", r["viral_potential"]))
+
+
 def _store_live_clip(sess: Session, clip: dict, r: dict, job: Job) -> dict:
     start, end = clip["start"], clip["end"]
     sub = virality.summary(r)["subscores"]
-    db.insert("clip_scores", {"clip_id": clip["id"], "clip": r["viral_potential"], "retention": sub.get("retention"),
-                              "source": sess.src.get("source_score"), "components": {"live": True},
-                              "explanation": [f"Viral Potential {r['viral_potential']:.0f} (live analysis of the last "
-                                              f"{WINDOW_SECONDS // 60} minutes)"]}, key="clip_id", replace=True)
+    score = _live_score(r)
+    why = [str(line) for line in r.get("explanation") or [f"Viral Potential {r['viral_potential']:.0f}"]]
+    pace = stream_pace(sess.project, sess.settings)
+    db.insert("clip_scores", {"clip_id": clip["id"], "clip": score, "retention": sub.get("retention"),
+                              "source": sess.src.get("source_score"),
+                              "components": {"live": True, "pick": pace["name"],
+                                             "viral_potential": r["viral_potential"],
+                                             **({"lively": r["live"]["lively"]} if r.get("live") else {})},
+                              "explanation": [*why, f"Live analysis of the last {WINDOW_SECONDS // 60} minutes "
+                                                    f"(estimate). This stream keeps: {live_pick.LABELS[pace['name']]}"
+                                              ]}, key="clip_id", replace=True)
     store_fingerprint(clip, sess.src)
     if not any(c["id"] == clip["id"] for c in sess.clips):
-        sess.clips.append({"id": clip["id"], "start": start, "end": end, "score": r["viral_potential"]})
+        sess.clips.append({"id": clip["id"], "start": start, "end": end, "score": score})
     sess.save()
     queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": sess.src["id"]},
                   idem_key=f"package:{clip['id']}",
                   ref=("clip", clip["id"]), priority=queue.source_priority(sess.src, job.row.get("priority") or 0))
     state.event("live_clip", f"Live clip from “{sess.src.get('title', '')[:60]}” at {start / 60:.1f} min "
-                             f"(Viral Potential {r['viral_potential']:.0f})", ref_type="clip", ref_id=clip["id"])
+                             f"(Clip Score {score:.0f}, live estimate)", ref_type="clip", ref_id=clip["id"])
     return clip
 
 
@@ -1444,6 +1549,7 @@ def _joined(sess: Session) -> Path | None:
 
 def _finish_capture(sess: Session, job: Job, *, recording: Path | None = None) -> dict:
     src = sess.src
+    _drop_minute_sounds(sess)  # only the live picking read them; the recording keeps the sound
     output = recording or _joined(sess) or finalize(sess, cancel=job.cancelled)
     if output and not recording and Path(output).is_file() and not _joined(sess):
         st = Path(output).stat()
@@ -1545,6 +1651,12 @@ def post_live(job: Job) -> dict:
         cands = process.candidate_pool(p, ctx)
         chosen = process.evaluate_select(p, cands, ctx, prior=prior_fingerprints(p.id))
         chosen = screen_stories(p, chosen, settings)
+        # Quality over quantity holds after the stream too: a moment found in the full recording must clear the
+        # same bar as a live one, and the whole stream gets no more clips than its pace over its length.
+        pace = stream_pace(project, settings)
+        floor = max(float(settings.get("autopilot_min_quality") or 0), float(p.opts.get("min_score", 50))) \
+            + pace["above"]
+        chosen = [r for r in chosen if r.get("clip_score", r["score"]) >= floor]
         live = [c for c in db.list_clips(p.id) if c["status"] in ("ready", "rendering", "queued")]
         keep: list[dict] = []
         replacements = {}
@@ -1561,7 +1673,8 @@ def post_live(job: Job) -> dict:
             replacements[str(len(keep))] = old["id"]
             live.remove(old)
             keep.append(r)
-        cps = int(settings.get("autopilot_clips_per_source") or 5)
+        cps = live_pick.total_cap(pace, int(settings.get("autopilot_clips_per_source") or 5),
+                                  float(live_state.get("offset") or p.meta.get("duration") or 0))
         keep = keep[:max(0, cps - len(live))] if len(live) + len(keep) > cps else keep
         selection = {"chosen": keep, "replacements": replacements}
         write_json(selection_path, selection)  # retry the exact selected moments, regardless of new fingerprints

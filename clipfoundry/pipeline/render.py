@@ -434,7 +434,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         _remember_cam(cam_path, plan)
     split = plan.info.get("split") if plan.mode == "split" else None
     if layout in reframe.SPLIT_LAYOUTS:
-        layout = "split" if split else "fill"  # what this clip is, now that the picture has been looked at
+        # What this clip is, now that the picture has been looked at. Without a face cam it gets the layout the
+        # owner uses for every other clip.
+        layout = "split" if split else settings.get("layout") if settings.get("layout") in config.LAYOUTS else "fill"
 
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
     ctx.progress(0.03, CAPTIONS_STEP)

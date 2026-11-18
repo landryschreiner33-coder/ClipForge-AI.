@@ -337,7 +337,7 @@ def test_post_live_retry_keeps_selection_and_completed_output(data, monkeypatch,
     project = db.create_project("Live", origin="live", source_id=src["id"])
     pdir = data / "prepared"
     pdir.mkdir()
-    prepared = SimpleNamespace(id=project["id"], pdir=pdir)
+    prepared = SimpleNamespace(id=project["id"], pdir=pdir, opts={}, meta={})
     story = {"structure": {"hook": True, "context": True, "payoff": True}}
     chosen = [{"start": 20, "end": 40, "score": 75, "analysis": story},
               {"start": 50, "end": 70, "score": 80, "analysis": story}]
