@@ -594,7 +594,12 @@ export default function ClipEditor({ id }: { id: string }) {
         <div className="field">
           <span className="label" id={`${uid}-lay`}>Layout</span>
           <Segmented labelledBy={`${uid}-lay`} value={str("layout")} onChange={(v) => set({ layout: v })}
-            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" }]} />
+            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" },
+              { value: "split", label: "Split view" }, { value: "auto", label: "Split if face cam" }]} />
+          {(str("layout") === "split" || str("layout") === "auto") && <p className="hint">Split view shows the face
+            cam on the top part and the rest of the picture below it, with the captions on the line between them.
+            {str("layout") === "auto" ? " It is used only when a face cam is found in this clip;"
+              : " If no small face is found in this clip,"} otherwise the clip uses the layout from Settings.</p>}
         </div>
         <div className="field">
           <label htmlFor={`${uid}-zoom`}>Zoom <span className="faint tnum">{num("zoom").toFixed(2)}×</span></label>

@@ -17,6 +17,7 @@ export function useUploadChoice(setup: SubmissionSetup | null) {
   const [statement, setStatement] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [channelIds, setChannelIds] = useState<string[]>([]);
+  const [share, setShare] = useState<"each" | "turns">("each");
   const rows = useMemo(() => channelRows(setup), [setup]);
   // The chosen channels in the order they were ticked; one that left the list is never sent.
   const chosen = channelIds.map((cid) => rows.find((r) => r.id === cid)).filter((r): r is Connection => !!r);
@@ -31,6 +32,12 @@ export function useUploadChoice(setup: SubmissionSetup | null) {
     setChannelIds(ids);
     setAgreed(false);
   };
+  /** Taking turns only means something with two or more channels; it changes what is agreed to. */
+  const turns = autoUpload && chosen.length > 1 && share === "turns";
+  const setSplit = (value: "each" | "turns") => {
+    setShare(value);
+    setAgreed(false);
+  };
   const complete = !autoUpload || (!!setup?.can_upload && chosen.length > 0 && !!kids && !!basis &&
     (basis !== "legal_exception" || !!statement.trim()) && agreed);
   const options = (): SubmissionOptions => {
@@ -40,6 +47,7 @@ export function useUploadChoice(setup: SubmissionSetup | null) {
       privacy: setup?.privacy || "private", made_for_kids: autoUpload ? kids === "yes" : null,
       audience_version: setup?.audience.group_version || 0, reuse_basis: autoUpload ? basis : "",
       reuse_statement: autoUpload ? statement.trim() : "", agreed: autoUpload && agreed,
+      ...(turns ? { split: "turns" as const } : {}),
     };
   };
   const reset = () => {
@@ -49,7 +57,7 @@ export function useUploadChoice(setup: SubmissionSetup | null) {
     setKids("");
   };
   return { autoUpload, setAutoUpload, kids, setKids, basis, setBasis, statement, setStatement, agreed, setAgreed,
-    rows, channelIds, chosen, setChannels, complete, options, reset };
+    rows, channelIds, chosen, setChannels, share, setSplit, turns, complete, options, reset };
 }
 
 export type UploadChoiceState = ReturnType<typeof useUploadChoice>;
@@ -84,9 +92,10 @@ export function UploadChoice({ choice, setup, id, what, count = 1 }: {
   choice: UploadChoiceState; setup: SubmissionSetup | null; id: string; what: "video" | "stream"; count?: number;
 }) {
   const { autoUpload, setAutoUpload, kids, setKids, basis, setBasis, statement, setStatement, agreed, setAgreed,
-    rows, channelIds, chosen, setChannels } = choice;
+    rows, channelIds, chosen, setChannels, share, setSplit, turns } = choice;
   const words = WORDS[what];
-  const account = <b>{nameList(chosen.map(accountName)) || "the YouTube channels you tick above"}</b>;
+  const account = <>{<b>{nameList(chosen.map(accountName)) || "the YouTube channels you tick above"}</b>}
+    {turns && " (each clip to one of them, taking turns)"}</>;
   const visibility = <b>{setup?.privacy === "public" ? "Public" : "Private"}</b>;
   const these = what === "video" ? "this video" : count > 1 ? "these streams" : "this stream";
   return <>
@@ -105,6 +114,19 @@ export function UploadChoice({ choice, setup, id, what, count = 1 }: {
         <ChannelPicker platforms={["youtube"]} rows={rows} value={channelIds} idPrefix={`${id}-channels`}
           legend="YouTube channels to upload to" onChange={(ids) => setChannels(ids)} />
         {rows.length > 0 && !chosen.length && <p className="small warn-text">Tick at least one YouTube channel.</p>}
+        {chosen.length > 1 && <fieldset className="stack" role="group" aria-labelledby={`${id}-share`}>
+          <legend className="small strong" id={`${id}-share`}>How the clips are shared between these channels</legend>
+          <label className="choice"><input type="radio" name={`${id}-share`} checked={share === "each"}
+            onChange={() => setSplit("each")} />
+            <span><b>Every channel gets every clip</b>
+              <span className="hint block">Each clip is uploaded to all {chosen.length} channels.</span></span></label>
+          <label className="choice"><input type="radio" name={`${id}-share`} checked={share === "turns"}
+            onChange={() => setSplit("turns")} />
+            <span><b>Split the clips between the channels</b>
+              <span className="hint block">Each clip is uploaded to one channel only. The channels take turns, so
+                they end up with about the same number of clips, and no clip appears on two of them.</span>
+            </span></label>
+        </fieldset>}
         <div className="submitted-destination">
           <div className="stack"><span className="small muted">Visibility for these clips</span>
             <b>{setup.privacy === "public" ? "Public · anyone can watch" : `Private · ${setup.audience.label}`}</b>

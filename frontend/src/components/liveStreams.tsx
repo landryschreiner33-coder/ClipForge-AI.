@@ -2,7 +2,9 @@ import { FormEvent, useId, useState } from "react";
 import { errorText } from "../api";
 import { ap } from "../autopilot";
 import { plural, when } from "../format";
-import { channelNames, LiveStream, submissions } from "../submissions";
+import {
+  channelNames, LIVE_FRAMINGS, LIVE_PICKS, LiveFraming, LivePick, LiveStream, submissions,
+} from "../submissions";
 import { nameList } from "./channelPicker";
 import { Banner, ConfirmDialog, Icon, IconName, Pill, Skel, toast, Tone, usePoll } from "./ui";
 import { UploadChoice, useUploadChoice } from "./uploadChoice";
@@ -11,14 +13,25 @@ const MAX_LINKS = 10;
 const isLink = (value: string) => /^https?:\/\/\S+$/i.test(value.trim());
 const linesOf = (text: string) => text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 
+type StreamAction = "cancel" | "retry" | "finish" | "stop_clipping";
+const oneOf = <T extends string>(value: string, all: { value: T }[], fallback: T): T =>
+  all.some(o => o.value === value) ? value as T : fallback;
+
 /**
  * Live streams (#/missions/live): add one or several stream links, each recorded and clipped while it is live, with
- * the same per-input "Make & upload" request as a video. Every stream keeps its own recording, clips and uploads;
- * "Stop recording" finishes what was recorded and keeps the uploads made so far (the full-recording check may still
- * swap a live clip nobody approved for a clearly better cut of the same moment).
+ * the same per-input "Make & upload" request as a video. Every stream keeps its own recording, clips and uploads,
+ * and its own choices: how picky it is (few strong clips, or every good moment) and whether its clips get a split
+ * view (face cam on top, the rest of the picture below).
+ *
+ * Two ways to stop: "Stop recording" finishes what was recorded and still checks the full recording for missed
+ * moments (which may swap a live clip nobody approved for a clearly better cut). "Stop clipping" stops the recording
+ * and makes nothing more; the clips already made keep their checks and uploads.
  */
-export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, maxGb, maxMinutes, refreshStatus }: {
+export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, maxGb, maxMinutes, livePick, liveFraming,
+  refreshStatus }: {
   timezone: string; stopped: boolean; enabled: boolean; gapMinutes: number; maxGb: number; maxMinutes: number;
+  /** What a new stream starts with (Settings); each stream keeps the choice it was added with. */
+  livePick: string; liveFraming: string;
   refreshStatus: () => void;
 }) {
   const { data: setup, error: setupError, refresh: reloadSetup } = usePoll(submissions.setup, [], 30000, () => true);
@@ -30,6 +43,9 @@ export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, ma
   const [notice, setNotice] = useState("");
   const [acting, setActing] = useState("");
   const [confirmStop, setConfirmStop] = useState<LiveStream | null>(null);
+  const [confirmNoClips, setConfirmNoClips] = useState<LiveStream | null>(null);
+  const [pick, setPick] = useState<LivePick>(oneOf(livePick, LIVE_PICKS, "best"));
+  const [framing, setFraming] = useState<LiveFraming>(oneOf(liveFraming, LIVE_FRAMINGS, "auto"));
   const id = useId();
 
   const links = linesOf(text);
@@ -43,7 +59,7 @@ export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, ma
     setBusy(true);
     setProblems([]);
     setNotice("");
-    const options = choice.options();
+    const options = { ...choice.options(), live_pick: pick, live_framing: framing };
     const failed: string[] = [];
     const kept: string[] = [];
     let added = 0;
@@ -70,12 +86,14 @@ export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, ma
     setBusy(false);
   };
 
-  const act = async (item: LiveStream, action: "cancel" | "retry" | "finish") => {
+  const act = async (item: LiveStream, action: StreamAction) => {
     if (acting) return;
     setActing(item.id);
     try {
       await ap.linkAction(item.id, action);
       toast(action === "finish" ? "Stopping the recording. ClipForge finishes the clips from what was recorded."
+        : action === "stop_clipping" ? (item.submission.auto_upload
+          ? "Clipping stopped. The clips already made still upload." : "Clipping stopped. The clips already made are kept.")
         : action === "cancel" ? "Stream canceled" : "Stream queued for another try");
       refresh();
       refreshStatus();
@@ -119,6 +137,27 @@ export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, ma
             ({plural(bad.length, "line needs", "lines need")} fixing).</span>}
           {tooMany && <span className="error-text">Add at most {MAX_LINKS} streams at a time.</span>}
         </label>
+        <fieldset className="stack live-choices">
+          <legend className="small strong">How {links.length > 1 ? "these streams are" : "this stream is"} clipped</legend>
+          <div className="row wrap top live-choice-row">
+            <label className="stack small grow" htmlFor={`${id}-pick`}>
+              <span>How picky</span>
+              <select id={`${id}-pick`} value={pick} aria-describedby={`${id}-pick-hint`}
+                onChange={event => setPick(event.target.value as LivePick)}>
+                {LIVE_PICKS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <span className="hint" id={`${id}-pick-hint`}>{LIVE_PICKS.find(o => o.value === pick)?.hint}</span>
+            </label>
+            <label className="stack small grow" htmlFor={`${id}-framing`}>
+              <span>Split view</span>
+              <select id={`${id}-framing`} value={framing} aria-describedby={`${id}-framing-hint`}
+                onChange={event => setFraming(event.target.value as LiveFraming)}>
+                {LIVE_FRAMINGS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <span className="hint" id={`${id}-framing-hint`}>{LIVE_FRAMINGS.find(o => o.value === framing)?.hint}</span>
+            </label>
+          </div>
+        </fieldset>
         <UploadChoice choice={choice} setup={setup} id={id} what="stream" count={Math.max(1, links.length)} />
       </fieldset>
       {setupError && <Banner tone="warn" title="Upload setup could not refresh">{setupError}
@@ -150,7 +189,8 @@ export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, ma
     {data === null ? <Skel className="skel-block" /> : !data.length ? <p className="small muted">
       Streams you add appear here with what was recorded, the clips made so far and their uploads.</p>
       : <div className="rows" aria-labelledby={`${id}-streams`}>{data.map(item => <StreamRow key={item.id} item={item}
-        timezone={timezone} disabled={!!acting} act={action => action === "finish" ? setConfirmStop(item) : act(item, action)} />)}</div>}
+        timezone={timezone} disabled={!!acting} act={action => action === "finish" ? setConfirmStop(item)
+          : action === "stop_clipping" ? setConfirmNoClips(item) : act(item, action)} />)}</div>}
     {confirmStop && <ConfirmDialog title="Stop recording this stream?" confirmLabel="Stop recording"
       onClose={() => setConfirmStop(null)} onConfirm={() => act(confirmStop, "finish")}>
       <p>ClipForge stops recording “{confirmStop.title || "this stream"}”, then checks the full recording for
@@ -160,7 +200,25 @@ export default function LiveStreams({ timezone, stopped, enabled, gapMinutes, ma
           ? "This cannot be resumed: once it has stopped, add the link again to record from then on."
           : "This cannot be resumed, and this video link cannot be added again."}</p>
     </ConfirmDialog>}
+    {confirmNoClips && <ConfirmDialog title="Stop clipping this stream?" confirmLabel="Stop clipping"
+      onClose={() => setConfirmNoClips(null)} onConfirm={() => act(confirmNoClips, "stop_clipping")}>
+      <p>ClipForge stops recording “{confirmNoClips.title || "this stream"}” and makes no more clips from it,
+        neither now nor from the full recording. {made(confirmNoClips)} {canAddAgain(confirmNoClips)
+          ? "This cannot be undone for this stream: add the link again to clip it from then on."
+          : "This cannot be undone, and this video link cannot be added again."}</p>
+    </ConfirmDialog>}
   </section>;
+}
+
+/** What "Stop clipping" keeps, in the dialog's words. */
+function made(item: LiveStream): string {
+  const clips = item.submission.progress?.clips_ready || item.live.live_clips;
+  if (!clips) return "No clip has been made yet, so none will be.";
+  const these = clips === 1 ? "The clip already made stays" : `The ${clips} clips already made stay`;
+  return item.submission.auto_upload
+    ? `${these}: ${clips === 1 ? "it still goes" : "they still go"} through the final checks and `
+      + `${clips === 1 ? "uploads" : "upload"} at ${clips === 1 ? "its" : "their"} planned times.`
+    : `${these} on this computer.`;
 }
 
 /** Only a channel page or a stream address can be added again for a later broadcast (submissions._finished_broadcast);
@@ -172,18 +230,19 @@ function streamState(item: LiveStream): [Tone, IconName, string] {
   if (item.status === "canceled" || item.status === "removed") return ["neutral", "x", "Canceled"];
   if (["failed", "inaccessible"].includes(item.status) || item.submission.status === "needs_attention")
     return ["warn", "alert", "Needs attention"];
-  if (live.finishing) return ["info", "clock", "Stopping the recording"];
+  if (live.finishing) return ["info", "clock", live.clipping_stopped ? "Stopping" : "Stopping the recording"];
   if (live.recording) return ["info", "dot", "Recording live"];
   if (item.status === "waiting_stream") return ["neutral", "clock", "Waiting for the stream to start"];
   if (item.status === "finding_clips" || item.status === "making_clips" || item.status === "final_check")
     return ["info", "clock", live.ended ? "Checking the full recording" : "Making clips"];
-  if (live.ended && ["ready", "finished"].includes(item.status)) return ["good", "check", live.stopped ? "Stopped" : "Ended"];
+  if (live.ended && ["ready", "finished"].includes(item.status))
+    return ["good", "check", live.clipping_stopped ? "Clipping stopped" : live.stopped ? "Stopped" : "Ended"];
   if (item.status === "watching_live" || item.status === "waiting") return ["neutral", "clock", "Waiting for its turn"];
   return ["neutral", "clock", item.status_label];
 }
 
 function StreamRow({ item, timezone, disabled, act }: {
-  item: LiveStream; timezone: string; disabled: boolean; act: (action: "cancel" | "retry" | "finish") => void;
+  item: LiveStream; timezone: string; disabled: boolean; act: (action: StreamAction) => void;
 }) {
   const [tone, icon, word] = streamState(item);
   const p = item.submission.progress;
@@ -194,6 +253,7 @@ function StreamRow({ item, timezone, disabled, act }: {
       <div className="stack grow">
         <h4 className="post-title">{item.project_id ? <a href={`#/project/${item.project_id}`}>{title}</a> : title}</h4>
         {item.detail && <span className="small muted break">{item.detail}</span>}
+        {item.live.note && !item.live.finishing && <span className="small muted">{item.live.note}</span>}
         {item.submission.hold_reason && <span className="small bad-text">{item.submission.hold_reason}</span>}
         <p className="small">{item.live.minutes > 0 ? `${plural(Math.round(item.live.minutes), "minute")} recorded`
           : "Nothing recorded yet"} · {plural(item.live.live_clips, "live clip")}
@@ -205,6 +265,8 @@ function StreamRow({ item, timezone, disabled, act }: {
             : " · Clips stay on this computer"}
           {item.submission.auto_upload && channelNames(item.submission).length > 0
             && ` to ${nameList(channelNames(item.submission))}`}
+          {item.submission.split === "turns" && ", taking turns"}
+          {` · ${item.live.pick_label} · ${item.live.framing_label}`}
           {ended && canAddAgain(item) && " · Add the link again to record its next stream"}</p>
       </div>
       <Pill tone={tone} icon={icon} className={item.live.recording ? "pulse" : ""}>{word}</Pill>
@@ -214,6 +276,8 @@ function StreamRow({ item, timezone, disabled, act }: {
       {item.submission.auto_upload && p?.posts_failed > 0 && <a className="btn btn-small" href="#/publishing/problems">Review upload issue</a>}
       {item.can_finish && <button type="button" className="btn btn-small" disabled={disabled}
         onClick={() => act("finish")}><Icon name="stop" />Stop recording</button>}
+      {item.can_stop_clipping && <button type="button" className="btn btn-small" disabled={disabled}
+        onClick={() => act("stop_clipping")}><Icon name="scissors" />Stop clipping</button>}
       {item.can_retry && <button type="button" className="btn btn-small" disabled={disabled} onClick={() => act("retry")}>Try again</button>}
       {item.can_cancel && <button type="button" className="btn btn-small btn-quiet" disabled={disabled}
         onClick={() => act("cancel")}>Cancel stream</button>}
