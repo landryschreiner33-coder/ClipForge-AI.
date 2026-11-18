@@ -2,7 +2,8 @@ import { FormEvent, useId, useState } from "react";
 import { errorText } from "../api";
 import { ap } from "../autopilot";
 import { plural, when } from "../format";
-import { LiveStream, submissions } from "../submissions";
+import { channelNames, LiveStream, submissions } from "../submissions";
+import { nameList } from "./channelPicker";
 import { Banner, ConfirmDialog, Icon, IconName, Pill, Skel, toast, Tone, usePoll } from "./ui";
 import { UploadChoice, useUploadChoice } from "./uploadChoice";
 
@@ -201,7 +202,10 @@ function StreamRow({ item, timezone, disabled, act }: {
             {p.posts_failed > 0 && ` · ${p.posts_failed} need attention`}</>}</p>
         <p className="tiny faint">Added {when(item.submission.created_at || item.added_at, timezone)}
           {item.submission.auto_upload ? ` · YouTube ${item.submission.privacy === "public" ? "Public" : "Private"}`
-            : " · Clips stay on this computer"}{ended && canAddAgain(item) && " · Add the link again to record its next stream"}</p>
+            : " · Clips stay on this computer"}
+          {item.submission.auto_upload && channelNames(item.submission).length > 0
+            && ` to ${nameList(channelNames(item.submission))}`}
+          {ended && canAddAgain(item) && " · Add the link again to record its next stream"}</p>
       </div>
       <Pill tone={tone} icon={icon} className={item.live.recording ? "pulse" : ""}>{word}</Pill>
     </div>

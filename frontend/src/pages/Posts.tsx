@@ -64,10 +64,9 @@ export default function Posts({ view }: { view?: string }) {
   const [bulkIds, setBulkIds] = useState<string[] | null>(null);
   const [acct, setAcct] = useState("");
   const all = data?.items || [];
-  type WithAccount = { account?: { connection_id: string; name: string } };
-  const accounts = Array.from(new Map(all.map((p) => (p as WithAccount).account).filter((a) => a?.connection_id)
+  const accounts = Array.from(new Map(all.map((p) => p.account).filter((a) => a?.connection_id)
     .map((a) => [a!.connection_id, a!])).values());
-  const items = acct ? all.filter((p) => (p as WithAccount).account?.connection_id === acct) : all;
+  const items = acct ? all.filter((p) => p.account?.connection_id === acct) : all;
   const tz = data?.timezone || st?.timezone;
   const selectable = items.filter((p) => VIEW_OF.review(p) && p.platform === "youtube");
   const selectableKey = selectable.map((p) => p.id).join("|");
@@ -139,7 +138,8 @@ export default function Posts({ view }: { view?: string }) {
       )}
       {dialog && (
         <PostActionDialog action={dialog.action} post={dialog.post} tz={tz}
-          account={st?.platforms?.[dialog.post.platform]?.name} onClose={() => setDialog(null)} onDone={replace} />
+          account={dialog.post.account?.name || st?.platforms?.[dialog.post.platform]?.name}
+          onClose={() => setDialog(null)} onDone={replace} />
       )}
       {bulkIds && <BulkApproval ids={bulkIds} autoPublish={!!data?.autoPublish} tz={tz}
         onClose={() => setBulkIds(null)} onApproved={(ids) => {
@@ -268,7 +268,7 @@ function PostRow({ p, tz, reviewing, selected, selectionFull, onSelect, onApprov
   const { st } = useStatus();
   const s = postStatus(p);
   const name = PLATFORM_LABEL[p.platform] || p.platform;
-  const account = (p as typeof p & { account?: { name: string } }).account?.name || st?.platforms?.[p.platform]?.name;
+  const account = p.account?.name || st?.platforms?.[p.platform]?.name;
   const href = `#/post/${p.id}`;
   const title = p.title || p.clip.title || "Untitled post";
   const editable = ["awaiting_approval", "approved", "failed"].includes(p.status);

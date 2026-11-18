@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .. import awake, config, db
 from . import autopublish, myvideos, queue, rights, state, trends
+from .targets import usable
 
 NAME = {"youtube": "YouTube", "tiktok": "TikTok"}
 
@@ -241,8 +242,12 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
         acc = platforms.get(p) or {}
         if not settings.get(f"autopilot_{p}"):
             continue
+        # `acc` is the platform's default account: only posts that go to it wait for it. A post to another chosen
+        # channel keeps going out, and reports its own account when that one needs Reconnect.
+        default = db.default_connection_id(p)
         planned = int(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE platform = ? AND status IN "
-                                "('awaiting_approval', 'approved', 'publishing', 'action_needed')", (p,)) or 0)
+                                "('awaiting_approval', 'approved', 'publishing', 'action_needed') AND "
+                                "COALESCE(connection_id, '') IN ('', ?)", (p, default)) or 0)
         if acc.get("connected") and acc.get("needs_reconnect"):
             items.append({"key": f"account:{p}", "type": "account", "platform": p, "title": f"Reconnect {name}",
                           "detail": f"{name} stopped accepting ClipForge's sign-in, so Autopilot cannot post there. "
@@ -253,6 +258,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                           "detail": f"{name} is not connected, so {planned} planned post{'s' if planned != 1 else ''} "
                                     f"cannot go out."})
     accounts = {i["platform"] for i in items if i["type"] == "account"}
+    accounts |= {db.default_connection_id(p) for p in list(accounts)} - {""}  # the same account, said once
     from . import readiness
 
     setup = readiness.setup_needs(settings, platforms)
@@ -266,6 +272,9 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
             continue
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
             continue
+        if key.startswith("connect:conn-") and usable(db.get_connection(key.split(":", 1)[1])) and \
+                not _held_for_owner(key.split(":", 1)[1]):
+            continue  # reconnected since: the waiting posts go out at their next try and close this themselves
         if kind == "workers" and workers_alive:
             continue  # the automatic in-app fallback already recovered this problem
         if kind == "rights":
@@ -308,6 +317,19 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
     order = {"stopped": 0, "account": 0, "sleep": 1, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5,
              "videos": 6, "other": 7}
     return sorted(items, key=lambda i: order.get(i["type"], 9))
+
+
+def _held_for_owner(connection_id: str) -> bool:
+    """Is a post to this chosen account held with nothing left that tries it again by itself? A post that found its
+    account signed out before uploading keeps a waiting upload job and goes out once the account is back. A post
+    whose upload was refused by the platform's sign-in has none: it waits for the owner (Reconnect, then Retry on
+    the post), so its notice stays in "Needs you" even while the account looks connected."""
+    for row in db.select("scheduled_publications", "connection_id = ? AND status = 'action_needed'",
+                         (connection_id,)):
+        job = db.fetch("worker_jobs", f"publish:{row['id']}", "idem_key")
+        if not job or job["status"] not in queue.ACTIVE:
+            return True
+    return False
 
 
 def needs_videos(settings: dict) -> dict | None:
@@ -441,6 +463,8 @@ def activity(limit: int = 40) -> list[dict]:
                 hold = submissions.problem(s, settings, require_bound=False)
                 posting = ("Uploads held: " + hold if hold else
                            "Qualifying YouTube clips upload automatically under this video's Make & upload request.")
+                if not hold:  # one chosen channel can be held while the others keep uploading: say which
+                    posting = " ".join([posting, *submissions.held_channels(s)])
         out.append({**_source_view(s), "status": s["status"], "used": used, "stage": stage,
                     "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
                     "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),

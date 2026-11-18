@@ -42,7 +42,13 @@ export type Snapshot = { mode: string; values: Record<string, unknown>; decision
 
 export type Connection = { id: string; platform: "youtube" | "tiktok"; label: string; account_id: string; display_name: string;
   nickname: string; avatar: string; scopes: string[]; is_default: boolean; status: string;
-  health: { state: string; text: string; action: string }; connected_at: number; active_uploads: number };
+  health: { state: string; text: string; action: string }; connected_at: number; active_uploads: number;
+  /** Ticked for new posts on Prepare post, Make clips and Missions ("Tick for new posts" in Accounts). */
+  post_by_default: boolean;
+  /** Connected and signed in: it can take a new post now. */
+  postable: boolean;
+  /** TikTok only: the app may post directly to this account / send drafts to its inbox. */
+  can_direct_post: boolean; can_inbox: boolean };
 
 export type Eligibility = { connection_id: string; platform: string; account: string; state: string; eligible: boolean;
   label: string; text: string; alternatives?: string[] };

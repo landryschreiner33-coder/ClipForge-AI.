@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
-import { SubmissionOptions, SubmissionSetup } from "../submissions";
+import { useEffect, useMemo, useState } from "react";
+import type { Connection } from "../studio";
+import { channelRows, SubmissionOptions, SubmissionSetup } from "../submissions";
+import { accountName, ChannelPicker, nameList } from "./channelPicker";
 import { Banner, Icon, Skel } from "./ui";
 import { YouTubeComments } from "./YouTubeComments";
 
 /**
  * "What happens next" for a video or live stream you add: make clips only, or make and upload them under one
- * per-input request (account, visibility, the made-for-kids answer and why you may use it). The same request covers
- * each added video or stream on its own; nothing here approves older clips or other inputs.
+ * per-input request (the YouTube channels, visibility, the made-for-kids answer and why you may use it). The same
+ * request covers each added video or stream on its own; nothing here approves older clips or other inputs.
  */
 export function useUploadChoice(setup: SubmissionSetup | null) {
   const [autoUpload, setAutoUpload] = useState(true);
@@ -14,20 +16,32 @@ export function useUploadChoice(setup: SubmissionSetup | null) {
   const [basis, setBasis] = useState<SubmissionOptions["reuse_basis"]>("");
   const [statement, setStatement] = useState("");
   const [agreed, setAgreed] = useState(false);
+  const [channelIds, setChannelIds] = useState<string[]>([]);
+  const rows = useMemo(() => channelRows(setup), [setup]);
+  // The chosen channels in the order they were ticked; one that left the list is never sent.
+  const chosen = channelIds.map((cid) => rows.find((r) => r.id === cid)).filter((r): r is Connection => !!r);
 
   useEffect(() => {
     setAgreed(false);
     setKids("");
   }, [setup?.account_id, setup?.privacy, setup?.audience.group_version]);
 
-  const complete = !autoUpload || (!!setup?.can_upload && !!kids && !!basis &&
+  /** A different set of channels is a different request: it needs a fresh confirmation. */
+  const setChannels = (ids: string[]) => {
+    setChannelIds(ids);
+    setAgreed(false);
+  };
+  const complete = !autoUpload || (!!setup?.can_upload && chosen.length > 0 && !!kids && !!basis &&
     (basis !== "legal_exception" || !!statement.trim()) && agreed);
-  const options = (): SubmissionOptions => ({
-    auto_upload: autoUpload, account_id: autoUpload && setup ? setup.account_id : "",
-    privacy: setup?.privacy || "private", made_for_kids: autoUpload ? kids === "yes" : null,
-    audience_version: setup?.audience.group_version || 0, reuse_basis: autoUpload ? basis : "",
-    reuse_statement: autoUpload ? statement.trim() : "", agreed: autoUpload && agreed,
-  });
+  const options = (): SubmissionOptions => {
+    const connections = autoUpload ? chosen.map((c) => ({ id: c.id, account_id: c.account_id })) : [];
+    return {
+      auto_upload: autoUpload, account_id: connections[0]?.account_id || "", connections,
+      privacy: setup?.privacy || "private", made_for_kids: autoUpload ? kids === "yes" : null,
+      audience_version: setup?.audience.group_version || 0, reuse_basis: autoUpload ? basis : "",
+      reuse_statement: autoUpload ? statement.trim() : "", agreed: autoUpload && agreed,
+    };
+  };
   const reset = () => {
     setAgreed(false);
     setBasis("");
@@ -35,14 +49,14 @@ export function useUploadChoice(setup: SubmissionSetup | null) {
     setKids("");
   };
   return { autoUpload, setAutoUpload, kids, setKids, basis, setBasis, statement, setStatement, agreed, setAgreed,
-    complete, options, reset };
+    rows, channelIds, chosen, setChannels, complete, options, reset };
 }
 
 export type UploadChoiceState = ReturnType<typeof useUploadChoice>;
 
 const WORDS = {
   video: {
-    upload: "Upload passing clips from this video to the YouTube account shown below.",
+    upload: "Upload passing clips from this video to the YouTube channels you tick below.",
     local: "Keep the clips on this PC. You can edit, export or review them later.",
     why: "Why can you use this video and its audio?",
     details: "Permission details for this video",
@@ -51,7 +65,7 @@ const WORDS = {
   },
   stream: {
     upload: "Upload passing clips while the stream is live, and from the full recording after it ends, to the "
-      + "YouTube account shown below.",
+      + "YouTube channels you tick below.",
     local: "Keep the clips on this computer. You can edit, export or review them later.",
     why: "Why can you use these streams and their audio?",
     details: "Permission details for these streams",
@@ -60,12 +74,19 @@ const WORDS = {
   },
 };
 
+/** The statement the owner agrees to: with several channels ticked it says the permission covers each of them. */
+function basisText(setup: SubmissionSetup | null, basis: string, channels: number): string {
+  const option = setup?.reuse_bases.find((o) => o.id === basis);
+  return (channels > 1 && option?.text_many) || option?.text || "";
+}
+
 export function UploadChoice({ choice, setup, id, what, count = 1 }: {
   choice: UploadChoiceState; setup: SubmissionSetup | null; id: string; what: "video" | "stream"; count?: number;
 }) {
-  const { autoUpload, setAutoUpload, kids, setKids, basis, setBasis, statement, setStatement, agreed, setAgreed } = choice;
+  const { autoUpload, setAutoUpload, kids, setKids, basis, setBasis, statement, setStatement, agreed, setAgreed,
+    rows, channelIds, chosen, setChannels } = choice;
   const words = WORDS[what];
-  const account = <b>{setup?.account_name || "the YouTube account above"}</b>;
+  const account = <b>{nameList(chosen.map(accountName)) || "the YouTube channels you tick above"}</b>;
   const visibility = <b>{setup?.privacy === "public" ? "Public" : "Private"}</b>;
   const these = what === "video" ? "this video" : count > 1 ? "these streams" : "this stream";
   return <>
@@ -81,13 +102,18 @@ export function UploadChoice({ choice, setup, id, what, count = 1 }: {
 
     {autoUpload && <div className="stack-4 submitted-consent">
       {setup === null ? <Skel className="skel-line" /> : <>
+        <ChannelPicker platforms={["youtube"]} rows={rows} value={channelIds} idPrefix={`${id}-channels`}
+          legend="YouTube channels to upload to" onChange={(ids) => setChannels(ids)} />
+        {rows.length > 0 && !chosen.length && <p className="small warn-text">Tick at least one YouTube channel.</p>}
         <div className="submitted-destination">
-          <div className="stack"><span className="small muted">YouTube account</span>
-            <b>{setup.account_name || (setup.connected ? setup.account_id : "Not connected")}</b></div>
           <div className="stack"><span className="small muted">Visibility for these clips</span>
             <b>{setup.privacy === "public" ? "Public · anyone can watch" : `Private · ${setup.audience.label}`}</b>
           </div>
-          <a className="textlink small" href="#/settings">Change account or audience<Icon name="chev" className="sm" /></a>
+          <div className="row wrap">
+            <a className="textlink small" href="#/settings/integrations">Change audience
+              <Icon name="chev" className="sm" /></a>
+            <a className="textlink small" href="#/accounts">Manage channels<Icon name="chev" className="sm" /></a>
+          </div>
         </div>
         {!setup.can_upload && <Banner tone="warn" title="Finish YouTube setup first">
           {setup.blocker || "Connect YouTube and confirm who may watch new uploads in Settings."}{" "}
@@ -112,7 +138,7 @@ export function UploadChoice({ choice, setup, id, what, count = 1 }: {
             onChange={() => { setBasis(option.id); setAgreed(false); }} />
           <span>{option.label}</span>
         </label>)}</div>
-        {basis && <p className="hint">{setup?.reuse_bases.find(option => option.id === basis)?.text}</p>}
+        {basis && <p className="hint">{basisText(setup, basis, chosen.length)}</p>}
         <details className="more" open={basis === "legal_exception" ? true : undefined}>
           <summary><Icon name="chev" className="chev" />{basis === "legal_exception"
             ? "Explain your legal basis (required)" : "Add permission details (optional)"}</summary>

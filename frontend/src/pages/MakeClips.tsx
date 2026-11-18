@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { errorText } from "../api";
-import { DestinationPicker, ExampleSelect, FileDrop, Picked, StyleSelect, UsedFromBrain, useUploadsByFile } from "../components/studioParts";
+import { ChannelPicker } from "../components/channelPicker";
+import {
+  ExampleSelect, FileDrop, Picked, StyleSelect, UsedFromBrain, useUploadsByFile,
+} from "../components/studioParts";
 import { Banner, CAPTION_STYLES, Disclosure, Icon, PageHead, TRACKING } from "../components/ui";
 import { Appearance, useAppearance } from "../prefs";
 import { navigate } from "../router";
@@ -206,7 +209,8 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
             </div>
             {upload && (
               <div className="stack-3">
-                <DestinationPicker value={dest} onChange={(ids, accs) => { setDest(ids); setAccounts(accs); }} />
+                <ChannelPicker platforms={["youtube", "tiktok"]} idPrefix="mc-dest" legend="Accounts to upload to"
+                  value={dest} onChange={(ids, accs) => { setDest(ids); setAccounts(accs); }} />
                 {youtube.length > 0 && (
                   <>
                     <label className="field"><span>Who can watch on YouTube</span>
@@ -226,7 +230,8 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
                     <p className="small muted">Each clip uploads once to each chosen channel after it passes the final check. A clip longer than 3 minutes uploads as a regular video, not a Short.</p>
                   </>
                 )}
-                {tiktok.length > 0 && <p className="small">TikTok asks for your OK on every post: those clips wait for you in Publishing.</p>}
+                {tiktok.length > 0 && <p className="small">TikTok asks for your OK on every post. Open a clip's Prepare
+                  post to send it; the TikTok accounts you chose here are ticked for you there.</p>}
               </div>
             )}
           </section>

@@ -17,6 +17,7 @@ import { ESTIMATE_NOTE, QualitySummary, ViralPanel } from "../components/viral";
 import { navigate } from "../router";
 import type { LinkProblem } from "../studio";
 import StoryReview from "../components/StoryReview";
+import { PostSelected } from "../components/postSelected";
 import "./library.css";
 
 // The five real steps of making clips, and the backend stage names that belong to each.
@@ -61,6 +62,7 @@ export default function ProjectView({ id }: { id: string }) {
   const [exporting, setExporting] = useState<Clip | null>(null);
   const [dialog, setDialog] = useState<"remake" | "delete" | null>(null);
   const [zipping, setZipping] = useState(false);
+  const [posting, setPosting] = useState<Clip[] | null>(null);
 
   // Say when the work this page shows has finished (once, not on every poll).
   const was = useRef("");
@@ -245,6 +247,10 @@ export default function ProjectView({ id }: { id: string }) {
                 onClick={() => zip(selected.map((c) => c.id))}>
                 <Icon name="zip" />Download selected (ZIP)
               </button>
+              <button type="button" className="btn btn-small" disabled={!selected.length}
+                onClick={() => setPosting(selected)}>
+                <Icon name="upload" />Post selected…
+              </button>
               <button type="button" className="btn btn-small" disabled={!ready.length || zipping}
                 onClick={() => zip(null)}>
                 <Icon name="download" />{zipping ? "Preparing the ZIP…" : "Download all (ZIP)"}
@@ -276,6 +282,7 @@ export default function ProjectView({ id }: { id: string }) {
 
       {preview && <PreviewDialog c={preview} onClose={() => setPreview(null)} />}
       {exporting && <ExportDialog clip={exporting} onClose={() => setExporting(null)} />}
+      {posting && <PostSelected clips={posting} onClose={() => setPosting(null)} />}
       {dialog === "remake" && (
         <RemakeDialog p={p} clipCount={clips.length} onClose={() => setDialog(null)} onDone={refresh} />
       )}

@@ -418,10 +418,22 @@ export interface AutopilotStatus {
   home: HomeView;
 }
 
+/** The exact account a planned post goes to (or went to), as the server resolves it (autopilot/routes.py). */
+export interface PostAccount {
+  connection_id: string;
+  name: string;
+  account_id: string;
+  /** The post records its own account; false for an old post, which goes to the platform's default account. */
+  bound: boolean;
+}
+
 export interface ScheduledItemRow {
   id: string;
   clip_id: string;
   platform: "youtube" | "tiktok";
+  /** The account it goes to; empty on an old post, which goes to the platform's default account. */
+  connection_id?: string;
+  account?: PostAccount;
   title: string;
   description: string;
   tags: string[];
