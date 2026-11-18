@@ -1,5 +1,45 @@
 # AI changelog
 
+## Live clips: better moments, split view, split between channels, Stop clipping — 2026-11-18 (Claude Code)
+
+Landry wrote: "Improve the live cliping so it finds better moments, fix the fraiming of what it shows and it should be
+able to split veiw it like face cam one half and gamplay or other thing in the other half if needed, be able to choose
+what live stream clips go to what channle, and be able to split the clips between channles, make it prioritze quality
+over quanity, make it so you can have it stop clipping the stream at any time but it will still upload the scheduled
+clips". Branch `claude/project-thread-82eyed` (PR #57) from the release line, with the channel picker branch
+(`claude/project-thread-rxehvi`, PR #58) merged in, because "split between channels" builds on it. **Not released.**
+
+- **Quality over quantity** (`autopilot/live_pick.py`, `live.detect`). A live moment's score is the Clip Score
+  estimate plus how lively it sounds (-2 to +8: louder than the stream usually is, pitch, emphasis, laughter, read
+  from each minute's kept 16 kHz sound for the four strongest candidates). Three levels per stream: *Only the best
+  moments* (default: 6 minutes of listening first, about 3 clips an hour, starts 3 minutes apart, 5 points above the
+  minimum, above the stream's own 85% mark, which rises with every clip made in the last hour, and a wait of up to 2
+  minutes for a better moment), *Balanced* (6 an hour, 2 minutes apart, the 60% mark) and *Every good moment* (the
+  old behaviour). A standout (15 points above the bar) may ignore the gap and be one clip over the hour. The reason
+  nothing is made is written to the stream's card (`info.live_note`). `post_live` keeps the same floor and
+  `live_pick.total_cap`. On a stand-in half hour the old picker made 27 clips; the new default keeps the 2 strongest.
+- **Framing and split view** (`pipeline/reframe.find_cam`, `split_layout`, `render`, `captions`). The old framing
+  followed the only face it found, so a stream with a corner face cam was parked on that corner. The cam's rectangle
+  is now found (steady edges, still picture against moving picture, a small steady face) and the clip shows the cam
+  across the top 30-42% and the rest of the picture below, captions on the line between. Layouts `auto` (split when
+  a cam is found) and `split` (whenever a small face is found) exist per clip and per live stream, not in Settings;
+  without a cam the clip uses the Settings layout. Stream choice: when there is a face cam (default), always, never.
+- **Split between channels** (`submissions.clip_turn`, `scheduler.candidates`). `source_submissions.settings.split =
+  "turns"` (absent means every channel gets every clip). Each clip gets one planned post: the channel that already
+  holds a post of this clip (any status), else the usable channel with the fewest of this source's clips, the
+  owner's ticking order on a tie. The agreement text and the saved consent name the choice. Videos have it too.
+- **Stop clipping** (`intake.action("stop_clipping")`, `live._clip_minute`, `post_live`, `_close_stopped`). Stops
+  the recorder, skips the picker, and closes the stream without the full-recording search (or between two renders
+  when that had begun: nothing half-made is kept, and a replacement cut never supersedes the live clip). It never
+  sets `intake.canceled`, never touches clip jobs, approvals or planned posts, and Try again does not take it back.
+- **Screens.** Live streams form: How picky, Split view; with two channels ticked, how the clips are shared; a
+  **Stop clipping** button with a dialog that says what stays. Settings → Advanced → Autopilot details: the two
+  defaults. Clip editor → Layout: Split view, Split if face cam.
+- **Stored data.** Minute sound files (`live/<minute>.wav`) live for the rolling window and are removed when the
+  recording is finished; `cam.json` in the project's folder holds where the face cam sits. Privacy page updated.
+- **Checks:** see the test log in `docs/IMPLEMENTATION_STATUS.md`. **Not verified (needs Landry's Mac):** real
+  streams and real face cams (the tests draw their own), real uploads to two channels, the screens in the Mac window.
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
 Landry wrote "make it so you can choose what clips or stuff goes to what channle or if it goes to all or just a few".

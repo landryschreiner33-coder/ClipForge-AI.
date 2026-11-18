@@ -1,5 +1,22 @@
 # Implementation status
 
+## Live clips: better moments, split view, split between channels, Stop clipping — 2026-11-18 (Claude Code)
+
+PR #57, branch `claude/project-thread-82eyed` from the release line, with the channel picker branch (PR #58) merged
+in. Live streams get a per-stream pick level (few strong clips by default), a split view when a face cam is found,
+clips split between the ticked channels, and Stop clipping. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not
+released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-18 | `python -m pytest tests/test_live_pick.py tests/test_live_stop_clipping.py tests/test_split_between_channels.py tests/test_split_view.py -q` | 31 passed (13 picker, 5 Stop clipping, 6 split between channels, 7 split view) |
+| 2026-11-18 | the three real-recording live tests (`test_autopilot_live.py::test_live_capture_and_post_live_analysis`, `test_review_submitted_live_streams.py`, `test_zero_touch_loop.py::test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live`) | 3 passed (304 s); they set `autopilot_live_pick: "most"` because their streams last a minute |
+| 2026-11-18 | `cd frontend && npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-18 | browser check of Missions → Live streams against a throwaway app with two fake channels and two recording streams | form choices, split between channels, Stop clipping dialog and the stopped stream's card shown; no page errors |
+
+Not verified: real streams and face cams (the tests draw their own pictures and use stand-in recorders), real
+uploads to two channels, the screens in the Mac window.
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
 Branch `claude/project-thread-rxehvi` from the release line at 56d2cbd. Prepare post, Post selected… and Missions

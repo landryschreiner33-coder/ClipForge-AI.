@@ -437,6 +437,15 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Live clip quality continuation (2026-11-17):** Landry asked for better live moments with quality over quantity,
+fixed framing with a split view (face cam one half, gameplay the other, if needed), clips split between channels,
+and a way to stop clipping at any time while the scheduled clips still upload. Keep: each stream's own choices
+(`intake.live_choices`: how picky, split view) are copied to its project and never change mid-stream; the default is
+few, strong clips (`autopilot/live_pick.py`); split view is used only when a face cam is found, else the Settings
+layout; "split between channels" sends each clip to exactly one of the chosen channels and a clip never changes
+channel (`submissions.clip_turn`); Stop clipping never cancels, deletes or un-approves anything already made, and is
+not taken back by Try again. Scores stay labelled estimates. Details: docs/AUTOPILOT.md, *Clip live streams*.
+
 **Live streams continuation (2026-11-16):** Landry asked to clip streams while they are live, with Autopilot
 uploading the clips during the live, and to clip several streams at once. Missions → Live streams takes several
 links; each is its own input with its own Make & upload request, recorded and clipped while live and uploaded during

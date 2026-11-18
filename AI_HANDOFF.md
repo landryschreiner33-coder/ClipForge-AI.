@@ -1,5 +1,25 @@
 # AI handoff
 
+## Live clips: better moments, split view, split between channels, Stop clipping — 2026-11-18 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for better live clips: stronger moments and fewer of them, framing that
+works when there is a face cam (split view: face cam on top, gameplay below), clips split between channels, and a way
+to stop clipping while the clips already made still upload. All four are in Missions → Live streams. **Not released.**
+
+- **Where things are:** branch `claude/project-thread-82eyed`, PR #57 into `claude/project-thread-x72wkd`. It
+  contains the channel picker (PR #58, `claude/project-thread-rxehvi`). Details: the top entry of
+  [AI_CHANGELOG.md](AI_CHANGELOG.md) and *Clip live streams* in [docs/AUTOPILOT.md](docs/AUTOPILOT.md).
+- **The rules to keep:** a stream's choices are fixed when it is added (`sources.intake.live_choices`, copied to
+  the project's options); the picker's numbers live only in `autopilot/live_pick.py`; a clip in a "take turns"
+  request has posts for exactly one channel, chosen by `submissions.clip_turn`; Stop clipping
+  (`autopilot_state` key `live_stop_clips:<source>`) never cancels, deletes or un-approves what was made.
+- **Tests that hold them:** `tests/test_live_pick.py`, `test_split_view.py`, `test_split_between_channels.py`,
+  `test_live_stop_clipping.py`. Slow live tests set `autopilot_live_pick: "most"` because their streams last a
+  minute and the default listens for six.
+- **Not verified (needs Landry's computer):** real Twitch, Kick and YouTube streams, real face cams and overlays,
+  real uploads to two channels, the screens in the Mac window. The pick levels' numbers are first guesses from a
+  stand-in stream; expect to tune them after real streams.
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked to choose which clips go to which channel: all of them, a few, or one. Every

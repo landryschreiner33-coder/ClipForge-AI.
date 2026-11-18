@@ -132,6 +132,35 @@ It covers that one broadcast only, never the channel's later streams.
   holds a live lane). Timing follows the posting settings: with no daily limit or target, a clip goes out as soon as
   it passes, and later ones at least **Minimum gap** apart (30 minutes by default) per YouTube account, shared by all
   streams. A live clip that is approved, uploading or uploaded is never replaced by a better post-live cut.
+- **Fewer, stronger clips.** Each stream has its own **How picky** choice, made when you add it (what a new stream
+  starts with is in Settings → Advanced → Autopilot details). **Only the best moments** (the default) listens for
+  six minutes first, then makes at most about three clips for each recorded hour, at least three minutes apart. A
+  moment has to be clearly above the minimum quality and beat most of what this stream has given so far, and the bar
+  rises with every clip already made in the last hour; when a strong moment has just happened ClipForge waits up to
+  two minutes in case a better one follows. Only a standout moment (15 points above the bar) may be a fourth clip of
+  the hour. **Balanced** makes about six an hour, each above the stream's average. **Every good moment** makes a clip
+  for every moment that passes the minimum quality, as before. The live score is the Clip Score estimate plus how
+  lively the moment sounds (louder than the stream usually is, a rising or emphatic voice, laughter); to hear that,
+  each recorded minute's sound is kept as a small file for the rolling 15 minutes and deleted afterwards. The
+  stream's card says in a line why nothing is being made right now. The full-recording check afterwards keeps the
+  same minimum and the same pace over the whole stream (`autopilot/live_pick.py`). All scores are estimates.
+- **Split view.** Each stream also has a **Split view** choice: *when there is a face cam* (the default), *always*,
+  or *no split view*. When ClipForge finds a face cam laid over the picture (`pipeline/reframe.find_cam`), the clip
+  shows the face cam across the top part and the rest of the picture below it, with the captions on the line between
+  them. Without a face cam the clip uses the layout from Settings. This also fixes clips that used to park on the
+  corner holding the face cam. In the clip editor, Layout offers **Split view** and **Split if face cam** for any
+  clip.
+- **Split the clips between channels.** With two or more YouTube channels ticked, the request asks how the clips are
+  shared: **Every channel gets every clip**, or **Split the clips between the channels**. Split means each clip is
+  uploaded to one channel only; the channels take turns (the one with the fewest of this stream's clips goes next,
+  your ticking order on a tie), so no clip appears on two of them. A clip never changes channel once it has a
+  planned post, and a channel that needs Reconnect is passed over until it is back. The agreement text names the
+  choice. Submitted videos have the same choice (`submissions.clip_turn`, stored as `settings.split = "turns"`).
+- **Stop clipping** (on the card of a stream that is recording, with a confirmation) is for when you have enough:
+  the recorder stops, no more clips are made now and the full recording is not searched for more. Everything already
+  made stays exactly as it is: clips keep their final checks, planned posts keep their times, and with Make & upload
+  they still upload. It cannot be undone for that stream (Try again does not take it back); add the link again to
+  clip the channel from then on. Nothing is canceled or deleted.
 - **Stop recording** (on the stream's card, with a confirmation) stops the recorder, joins what was recorded and
   analyzes it like an ended stream; the uploads made so far stay, and so do the live clips, except that the
   full-recording check may swap one nobody approved for a clearly better cut of the same moment (see above). Before
