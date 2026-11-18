@@ -669,12 +669,29 @@ def detect(sess: Session, job: Job) -> dict | None:
                 sentence["text"] for sentence in sents[c["s0"]:c["s1"] + 1])}, opts, sess.settings)
         if not any("target_duration" in item["decisions"] for item in used):
             used += opts.get("brain_duration_knowledge") or []
-        r = max((virality.analyze(a, b, sents, feats, words, loud, local)
-                 for a, b in virality.variants(c["s0"], c["s1"], sents, local, feats)), key=lambda x: x["raw"])
-        if r["blocked"] or clip_reason(r, sess.settings):
+        core = max((virality.analyze(a, b, sents, feats, words, loud, local)
+                    for a, b in virality.variants(c["s0"], c["s1"], sents, local, feats)), key=lambda x: x["raw"])
+        # ... and the same moment with its build-up and its ending, when that is about as strong (live_pick.fuller)
+        wider = [(a, b) for a, b in live_pick.fuller(core["s0"], core["s1"], sents, feats, local)
+                 if not any(live_pick.overlaps({"start": sents[a]["start"], "end": sents[b]["end"]}, k)
+                            for k in taken)]
+        versions = [v for v in (core, *(virality.analyze(a, b, sents, feats, words, loud, local) for a, b in wider))
+                    if not v["blocked"] and not clip_reason(v, sess.settings)]
+        if not versions:
             continue
+        # The first estimate names the few versions worth the full live rating; that rating decides between them.
+        short = live_pick.ranked(versions, local)[:live_pick.FULL_RATE]
+        short += [core] if core in versions and core not in short else []
+        for v in short:
+            v["live"] = live_pick.rate(v, sents, words, loud, emb)
+        r = live_pick.ranked(short, local)[0]
+        if r is not core and r["live"]["score"] < floor <= (core.get("live") or {"score": -1.0})["score"]:
+            r = core  # the fuller version is not strong enough on its own: clip the moment as it was found
+        if any((r["s0"], r["s1"]) == (other["s0"], other["s1"]) for other in rated):
+            continue  # two moments found close together are the same story once each is told in full
+        if r is not core:
+            r["fuller"] = {"from": round(core["end"] - core["start"], 1), "to": round(r["end"] - r["start"], 1)}
         r["brain_knowledge"] = used
-        r["live"] = live_pick.rate(r, sents, words, loud, emb)
         rated.append(r)
     # The voice is read for the few strongest only: it costs the most, and it can only decide between them.
     for r in sorted(rated, key=lambda item: item["live"]["score"], reverse=True)[:live_pick.VOICE_TOP]:
@@ -683,7 +700,9 @@ def detect(sess: Session, job: Job) -> dict | None:
         if voice:
             r["live"] = live_pick.rate(r, sents, words, loud, emb, voice)
     for r in rated:
-        r["live_score"], r["explanation"] = r["live"]["score"], r["live"]["why"]
+        r["live_score"], r["explanation"] = r["live"]["score"], [*r["live"]["why"], *(
+            [f"Kept the build-up and the ending: {r['fuller']['to']:g} s instead of {r['fuller']['from']:g} s"]
+            if r.get("fuller") else [])]
         if r["end"] <= edge - EDGE_MARGIN:  # a moment still being said is rated again when it is complete
             minute = str(int(r["start"] // SEGMENT_SECONDS))
             sess.minute_best[minute] = max(float(sess.minute_best.get(minute) or 0.0), r["live_score"])

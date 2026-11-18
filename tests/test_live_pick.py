@@ -190,6 +190,8 @@ def stream(data, monkeypatch):  # noqa: F811 - the shared live fixture
         monkeypatch.setattr(cand_mod, "find_candidates", find)
         monkeypatch.setattr(live.virality, "variants", lambda s0, s1, sents, opts, feats: [(s0, s1)])
         monkeypatch.setattr(live.virality, "analyze", analyze)
+        # These streams are about which moment is taken and when; how much of it is kept has its own tests below.
+        monkeypatch.setattr(live_pick, "fuller", lambda s0, s1, sents, feats, opts: [])
         return sess, turn_job(src)
 
     return start
@@ -247,6 +249,244 @@ def test_live_picker_makes_few_clips_from_a_long_ordinary_stream(stream, monkeyp
     assert len(made["most"]) >= 15
     assert 1 <= len(made["best"]) <= 3
     assert min(made["best"]) >= sorted(made["most"])[-4]  # each is among the strongest few the old picker made
+
+
+# ------------------------------------------------------------------ longer clips: the whole moment
+def spoken(n=12, seconds=4.0, gap=0.5):
+    """n sentences of `seconds` each with `gap` between them, and features that say nothing starts anew."""
+    sents = [{"start": k * (seconds + gap), "end": k * (seconds + gap) + seconds, "text": f"Line {k}."}
+             for k in range(n)]
+    feats = [{"transition": False, "boundary": 0.0, "gap_before": gap} for _ in sents]
+    return sents, feats
+
+
+def lasts(sents, version):
+    return sents[version[1]]["end"] - sents[version[0]]["start"]
+
+
+def test_fuller_versions_add_the_build_up_and_the_ending_within_the_length_allowed():
+    sents, feats = spoken()
+    opts = {"target_duration": 30.0, "max_duration": 40.0}
+    versions = live_pick.fuller(5, 6, sents, feats, opts)
+    assert versions and (5, 6) not in versions and len(set(versions)) == len(versions)
+    assert all(a <= 5 and b >= 6 for a, b in versions)             # the moment itself is always inside
+    assert all(lasts(sents, v) <= 40.0 for v in versions)          # never over the longest clip allowed
+    assert abs(lasts(sents, versions[0]) - 30.0) == min(abs(lasts(sents, v) - 30.0) for v in versions)
+    assert any(a < 5 for a, _ in versions) and any(b > 6 for _, b in versions)  # earlier lines and later ones
+    # a moment that already runs as long as allowed has no fuller version
+    assert live_pick.fuller(0, 8, sents, feats, opts) == []
+
+
+@pytest.mark.parametrize("mark", [{"transition": True}, {"boundary": 1.4}, {"gap_before": live_pick.FULL_PAUSE + 0.5}])
+def test_fuller_versions_stop_where_something_else_begins(mark):
+    sents, feats = spoken()
+    feats[3].update(mark)   # sentence 3 starts the moment's subject ...
+    feats[9].update(mark)   # ... and sentence 9 starts the next one
+    versions = live_pick.fuller(5, 6, sents, feats, {"target_duration": 30.0, "max_duration": 90.0})
+    assert versions and min(a for a, _ in versions) == 3 and max(b for _, b in versions) == 8
+    assert (3, 8) in versions  # the whole story, from its first line to its last
+
+
+def test_the_whole_story_is_always_among_the_versions(monkeypatch):
+    sents, feats = spoken(n=30)
+    feats[2]["transition"] = feats[27]["transition"] = True
+    opts = {"target_duration": 20.0, "max_duration": 200.0}
+    monkeypatch.setattr(live_pick, "FULL_TRY", 3)
+    versions = live_pick.fuller(14, 15, sents, feats, opts)
+    assert (2, 26) in versions and len(versions) <= 3 + 2 * live_pick.FULL_ENDS + 1
+    assert sum(1 for a, _ in versions if a == 2) >= live_pick.FULL_ENDS  # from its first line ...
+    assert sum(1 for _, b in versions if b == 26) >= live_pick.FULL_ENDS  # ... and to its last
+    # What was said last may still go on: without a new beginning after it, no version is anchored on the end.
+    feats[27]["transition"] = False
+    late = live_pick.fuller(14, 15, sents, feats, opts)
+    assert all(b < 29 for a, b in late if a != 2)
+
+
+def version(seconds, potential, raw=0.5):
+    return {"start": 100.0, "end": 100.0 + seconds, "viral_potential": potential, "raw": raw}
+
+
+def test_the_fuller_version_is_taken_when_it_is_about_as_strong():
+    opts = {"target_duration": 45.0}
+    core = version(20.0, 80.0)
+    assert live_pick.fullest([core, version(44.0, 78.0)], opts)["end"] == 144.0   # 2 points for 24 more seconds
+    assert live_pick.fullest([core, version(44.0, 70.0)], opts) is core           # it falls apart when made longer
+    assert live_pick.fullest([core, version(22.0, 78.0)], opts) is core           # 2 points for 2 seconds is no trade
+    # a moment is never traded down further than the whole missing length is worth
+    worst = live_pick.FULL_WORTH * 45.0
+    assert live_pick.fullest([core, version(45.0, 80.0 - worst - 0.1)], opts) is core
+    # past the length aimed for, only the estimate decides
+    assert live_pick.fullest([version(46.0, 80.0), version(80.0, 79.0)], opts)["end"] == 146.0
+    assert live_pick.fullest([version(46.0, 80.0), version(80.0, 81.0)], opts)["end"] == 180.0
+    # once a version has its live rating, that decides: not the first estimate
+    rated = [{**core, "live": {"score": 82.0}}, {**version(44.0, 78.0), "live": {"score": 70.0}}]
+    assert live_pick.ranked(rated, opts)[0]["end"] == 120.0
+
+
+def told_in_full(monkeypatch, back=4, on=2, potential=78.0):
+    """The stand-in stream's moments get one fuller version: `back` sentences earlier to `on` sentences later."""
+    from clipfoundry.autopilot import live
+
+    usual = live.virality.analyze
+    monkeypatch.setattr(live_pick, "fuller", lambda s0, s1, sents, feats, opts: [(s0 - back, s1 + on)])
+    # the stand-in speech repeats itself, which the live rating marks down the longer it runs: rate by the estimate
+    monkeypatch.setattr(live_pick, "rate", lambda r, *a, **kw: {
+        "score": r["viral_potential"], "why": [f"Viral Potential {r['viral_potential']:.0f}"]})
+
+    def analyze(a, b, sents, feats, words, loud, opts):
+        try:
+            return usual(a, b, sents, feats, words, loud, opts)
+        except KeyError:  # not one of the stream's moments: the fuller version
+            return {"s0": a, "s1": b, "start": sents[a]["start"], "end": sents[b]["end"], "raw": 0.5,
+                    "viral_potential": potential, "blocked": False,
+                    "structure": {"hook": True, "context": True, "payoff": True}, "flags": []}
+
+    monkeypatch.setattr(live.virality, "analyze", analyze)
+
+
+LONGER = {"min_duration": 25.0, "target_duration": 45.0, "max_duration": 90.0}
+
+
+def test_a_live_clip_keeps_the_build_up_and_the_ending(stream, monkeypatch):
+    from clipfoundry.autopilot import live
+
+    sess, job = stream(10, [(200, 80.0)], autopilot_live_pick="most", **LONGER)
+    found = live.detect(sess, job)["r"]
+    assert 200 <= found["start"] and found["end"] <= 230 and "fuller" not in found
+    told_in_full(monkeypatch)
+    full = live.detect(sess, job)["r"]
+    assert full["start"] < found["start"] and full["end"] > found["end"]
+    assert full["fuller"] == {"from": round(found["end"] - found["start"], 1),
+                              "to": round(full["end"] - full["start"], 1)}
+    assert full["end"] - full["start"] <= 90.0
+    assert any(line.startswith("Kept the build-up and the ending") for line in full["explanation"])
+    assert full["live_score"] == 78.0  # the fuller version's own estimate is what the stream's bars see
+
+
+def test_a_moment_that_falls_apart_when_made_longer_stays_as_found(stream, monkeypatch):
+    from clipfoundry.autopilot import live
+
+    sess, job = stream(10, [(200, 80.0)], autopilot_live_pick="most", **LONGER)
+    told_in_full(monkeypatch, potential=60.0)
+    found = live.detect(sess, job)["r"]
+    assert 200 <= found["start"] and "fuller" not in found
+    assert not any(line.startswith("Kept the build-up") for line in found["explanation"])
+
+
+def test_a_fuller_version_never_runs_into_a_clip_already_made(stream, monkeypatch):
+    from clipfoundry.autopilot import live
+
+    sess, job = stream(10, [(200, 80.0)], autopilot_live_pick="most", **LONGER)
+    told_in_full(monkeypatch, back=8, on=0)
+    sess.clips.append({"id": "earlier", "start": 150.0, "end": 199.0, "score": 90.0})
+    found = live.detect(sess, job)["r"]
+    assert found["start"] >= 199.0 and "fuller" not in found  # the build-up is the earlier clip: not shown twice
+
+
+def test_a_fuller_version_too_weak_for_the_stream_leaves_the_moment_as_found(stream, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import live
+
+    sess, job = stream(10, [(200, 62.0)], autopilot_live_pick="most", autopilot_min_quality=61, **LONGER)
+    assert sess.settings["autopilot_min_quality"] == db.get_settings()["autopilot_min_quality"] == 61
+    told_in_full(monkeypatch, potential=60.0)   # worth taking for its length, but under this stream's minimum
+    found = live.detect(sess, job)["r"]
+    assert found["viral_potential"] == 62.0 and "fuller" not in found
+
+
+def test_two_moments_that_are_one_story_are_rated_once(stream, monkeypatch):
+    from clipfoundry.autopilot import live
+
+    sess, job = stream(10, [(200, 80.0), (240, 79.0)], autopilot_live_pick="most", **LONGER)
+    monkeypatch.setattr(live_pick, "fuller", lambda s0, s1, sents, feats, opts: [(40, 60)])
+    usual, seen = live.virality.analyze, []
+
+    def analyze(a, b, sents, *rest):
+        if (a, b) != (40, 60):
+            return usual(a, b, sents, *rest)
+        return {"s0": a, "s1": b, "start": sents[a]["start"], "end": sents[b]["end"], "raw": 0.5,
+                "viral_potential": 85.0, "blocked": False,
+                "structure": {"hook": True, "context": True, "payoff": True}, "flags": []}
+
+    monkeypatch.setattr(live.virality, "analyze", analyze)
+    monkeypatch.setattr(live_pick, "rate", lambda r, *a, **kw: {"score": r["viral_potential"], "why": ["estimate"]})
+    monkeypatch.setattr(live_pick, "choose", lambda rated, **kw: (seen.extend(rated) or rated[0], "taken"))
+    assert live.detect(sess, job)["r"]["s0"] == 40
+    assert [(r["s0"], r["s1"]) for r in seen] == [(40, 60)]
+
+
+TOURNAMENT = (
+    "Okay chat I have to tell you what happened at the tournament last weekend. "
+    "So we get to the venue at eight in the morning. And the first thing I see is my old teammate Marcus. "
+    "The same Marcus who left our team two years ago. He walks up to me and he does not even say hello. "
+    "He just says we are going to destroy you today. So now I am angry before the first match even starts. "
+    "We win our first three games and they win theirs. And of course we meet them in the final. "
+    "First map they beat us thirteen to two. I am thinking this is going to be the worst day of my life. "
+    "But then our captain calls a timeout and says one thing. He says Marcus always pushes left when he is ahead. "
+    "So on the second map we put three people on the left side. And he pushes left every single round. "
+    "We win that map thirteen to four. Third map goes to overtime and it comes down to me against Marcus. "
+    "One against one, ten seconds on the clock. I hear him on the left, I turn, and I hit the shot. "
+    "The whole room went crazy. And Marcus walked over, shook my hand and said good game. "
+    "That was the best moment of my whole career.")
+CAT = (
+    "Here is the story of the worst game I ever played. It was the final boss of the hardest mode. "
+    "Nobody on the server had beaten it yet. We had been trying for six weeks. "
+    "Every night from eight until two in the morning. "
+    "My girlfriend was ready to throw my computer out the window. So this one night everything goes perfectly. "
+    "We get the boss down to one percent. One percent, after six weeks. And then my cat jumps on my keyboard. "
+    "My character walks straight off the platform. "
+    "I am the healer so without me everybody dies in five seconds. "
+    "Nobody says anything in voice chat for a full minute. Then our leader just says, was that a cat? "
+    "And everybody starts laughing so hard that nobody is angry anymore. We beat the boss the next night. "
+    "But the clip of my cat has two million views. So the cat is more famous than I am. "
+    "And honestly she deserves it.")
+SMALL_TALK = "Thank you for the sub. Welcome in everybody. Let me check the settings. One second."
+
+
+def told(parts):
+    """Words of a stream: each part is said at a steady pace, with six seconds of silence between the parts."""
+    words, t = [], 2.0
+    for part in parts:
+        for w in part.split():
+            length = 0.22 + 0.03 * len(w) / 4
+            words.append({"w": w, "start": round(t, 2), "end": round(t + length, 2), "p": 0.9})
+            t += length + (0.5 if w[-1] in ".?!" else 0.06)
+        t += 6.0
+    return words, t
+
+
+def test_a_story_told_on_stream_is_clipped_with_its_build_up_and_its_ending(data, monkeypatch):  # noqa: F811
+    """The real analysis on a stand-in stream of two stories of about a minute each: without fuller versions the
+    clips are the stories' strongest lines; with them they are longer, and never longer than allowed."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import live
+
+    words, total = told([SMALL_TALK, TOURNAMENT, SMALL_TALK, CAT, SMALL_TALK])
+    db.save_settings({"autopilot_live_pick": "most", **LONGER})
+    made = {}
+    for name in ("found", "full"):
+        src = going_live(add_live(f"https://www.twitch.tv/{name}storyteller"))
+        sess, job = live.Session(src, db.get_settings()), turn_job(src)
+        with monkeypatch.context() as only_here:
+            if name == "found":
+                only_here.setattr(live_pick, "fuller", lambda s0, s1, sents, feats, opts: [])
+            for minute in range(1, int(total // 60) + 3):
+                sess.offset = minute * 60.0
+                sess.env = [-25.0] * int(sess.offset * 10)
+                sess.words = [w for w in words if w["end"] <= sess.offset]
+                found = live.detect(sess, job)
+                if found:
+                    sess.clips.append({"id": f"c{len(sess.clips)}", **{k: found["r"].get(k) for k in (
+                        "start", "end", "fuller", "explanation")}, "score": found["r"]["live_score"]})
+        made[name] = sess.clips
+    lengths = {name: [round(c["end"] - c["start"], 1) for c in clips] for name, clips in made.items()}
+    assert made["found"] and made["full"]
+    assert max(lengths["full"]) <= LONGER["max_duration"]
+    grown = [c for c in made["full"] if c["fuller"]]
+    assert grown and all(c["fuller"]["to"] > c["fuller"]["from"] for c in grown)
+    assert all(any(line.startswith("Kept the build-up and the ending") for line in c["explanation"]) for c in grown)
+    assert sum(lengths["full"]) / len(lengths["full"]) > sum(lengths["found"]) / len(lengths["found"])
+    assert max(lengths["full"]) >= LONGER["target_duration"] > min(lengths["found"])
 
 
 def test_a_stream_keeps_the_choices_it_was_added_with(data):  # noqa: F811

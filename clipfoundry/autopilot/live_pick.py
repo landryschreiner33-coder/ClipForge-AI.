@@ -48,6 +48,15 @@ VOICE_TOP = 4        # ... of which this many get their voice listened to
 LIFT = (-2.0, 8.0)   # what a lively or flat sound can change, in points
 LIVELY_USUAL = 0.2   # the liveliness of an ordinary minute: neither helps nor hurts
 OVERLAP = 0.15       # a moment sharing more than this of its length with a clip is that clip again
+# A moment is found as its strongest few sentences, so a clip of it sits near the shortest length allowed: the
+# punchline without what led up to it. The fuller version of the same moment is clipped instead when the estimate
+# says it is about as strong.
+FULL_WORTH = 0.15    # points of Viral Potential one second is worth to a clip shorter than the length aimed for
+FULL_TRY = 40        # fuller versions of a moment that are analysed: those nearest the length aimed for ...
+FULL_ENDS = 8        # ... and this many more that begin where the moment begins, and that end where it ends
+FULL_RATE = 6        # of the analysed versions, this many get the full live rating that decides between them
+FULL_PAUSE = 3.0     # seconds of silence that end a moment (the analysis counts a longer one as dead air): what
+#                      is said after it belongs to the next moment
 
 
 FRAMING_LABELS = {"auto": "Split view when there is a face cam", "split": "Always split view",
@@ -127,6 +136,58 @@ def stream_bar(minute_best: dict, share: float) -> float | None:
 
 def overlaps(a: dict, b: dict, share: float = OVERLAP) -> bool:
     return min(a["end"], b["end"]) - max(a["start"], b["start"]) > share * (a["end"] - a["start"])
+
+
+def fuller(s0: int, s1: int, sents: list[dict], feats: list[dict], opts: dict) -> list[tuple[int, int]]:
+    """Fuller versions of the moment in sentences s0..s1: the same sentences with more of what was said before
+    them (the build-up) and after them (how it ends). A version never crosses a change of subject or a long
+    silence and never runs past the longest clip allowed. Returned are the versions nearest the length aimed
+    for, and some that start where the moment starts or end where it ends (the whole story)."""
+    target, longest = float(opts["target_duration"]), float(opts["max_duration"])
+
+    def begins(k: int) -> bool:  # sentence k starts something else: nothing before it belongs to what follows it
+        f = feats[k]
+        return bool(f["transition"]) or float(f.get("boundary") or 0.0) > 1.0 or f["gap_before"] > FULL_PAUSE
+
+    def span(ab: tuple[int, int]) -> float:
+        return sents[ab[1]]["end"] - sents[ab[0]]["start"]
+
+    first, last = s0, s1
+    while first > 0 and not begins(first) and span((first - 1, s1)) <= longest:
+        first -= 1
+    while last + 1 < len(sents) and not begins(last + 1) and span((s0, last + 1)) <= longest:
+        last += 1
+    out = sorted(((a, b) for a in range(first, s0 + 1) for b in range(s1, last + 1)
+                  if (a, b) != (s0, s1) and span((a, b)) <= longest), key=lambda ab: (abs(span(ab) - target), ab))
+    picked = out[:FULL_TRY]
+    if first < s0 and begins(first):  # the walk back stopped where the moment begins, not at the length allowed
+        picked += [ab for ab in out if ab[0] == first][:FULL_ENDS]
+    # What was said last is still being said: only a sentence that starts something else marks an ending.
+    if last > s1 and last + 1 < len(sents) and begins(last + 1):
+        picked += [ab for ab in out if ab[1] == last][:FULL_ENDS]
+    if (first, last) in out:
+        picked.append((first, last))  # everything that belongs to the moment and fits
+    return list(dict.fromkeys(picked))
+
+
+def ranked(versions: list[dict], opts: dict) -> list[dict]:
+    """One moment's analysed versions (virality.analyze results), the one to clip first. Every second a version
+    is short of the length aimed for counts against it like FULL_WORTH points, so the build-up and the ending are
+    kept when they cost less than the length they add is worth, and a moment that falls apart when it is made
+    longer stays short. Past the length aimed for, only the estimate decides. The estimate is a version's live
+    score once it has one ("live", from `rate`), its Viral Potential before that."""
+    target = float(opts["target_duration"])
+
+    def worth(r: dict) -> tuple[float, float]:
+        score = float(r["live"]["score"] if r.get("live") else r["viral_potential"])
+        return score - FULL_WORTH * max(0.0, target - (r["end"] - r["start"])), float(r["raw"])
+
+    return sorted(versions, key=worth, reverse=True)
+
+
+def fullest(versions: list[dict], opts: dict) -> dict:
+    """The version of a moment that is clipped (`ranked`)."""
+    return ranked(versions, opts)[0]
 
 
 def choose(rated: list[dict], *, clips: list[dict], edge: float, unit: float, floor: float, pace: dict,
