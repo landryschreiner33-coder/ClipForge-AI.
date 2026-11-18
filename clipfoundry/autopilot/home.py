@@ -272,8 +272,9 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
             continue
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
             continue
-        if key.startswith("connect:conn-") and usable(db.get_connection(key.split(":", 1)[1])):
-            continue  # reconnected since: the waiting post goes out at its next try and closes this itself
+        if key.startswith("connect:conn-") and usable(db.get_connection(key.split(":", 1)[1])) and \
+                not _held_for_owner(key.split(":", 1)[1]):
+            continue  # reconnected since: the waiting posts go out at their next try and close this themselves
         if kind == "workers" and workers_alive:
             continue  # the automatic in-app fallback already recovered this problem
         if kind == "rights":
@@ -316,6 +317,19 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
     order = {"stopped": 0, "account": 0, "sleep": 1, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5,
              "videos": 6, "other": 7}
     return sorted(items, key=lambda i: order.get(i["type"], 9))
+
+
+def _held_for_owner(connection_id: str) -> bool:
+    """Is a post to this chosen account held with nothing left that tries it again by itself? A post that found its
+    account signed out before uploading keeps a waiting upload job and goes out once the account is back. A post
+    whose upload was refused by the platform's sign-in has none: it waits for the owner (Reconnect, then Retry on
+    the post), so its notice stays in "Needs you" even while the account looks connected."""
+    for row in db.select("scheduled_publications", "connection_id = ? AND status = 'action_needed'",
+                         (connection_id,)):
+        job = db.fetch("worker_jobs", f"publish:{row['id']}", "idem_key")
+        if not job or job["status"] not in queue.ACTIVE:
+            return True
+    return False
 
 
 def needs_videos(settings: dict) -> dict | None:
@@ -449,6 +463,8 @@ def activity(limit: int = 40) -> list[dict]:
                 hold = submissions.problem(s, settings, require_bound=False)
                 posting = ("Uploads held: " + hold if hold else
                            "Qualifying YouTube clips upload automatically under this video's Make & upload request.")
+                if not hold:  # one chosen channel can be held while the others keep uploading: say which
+                    posting = " ".join([posting, *submissions.held_channels(s)])
         out.append({**_source_view(s), "status": s["status"], "used": used, "stage": stage,
                     "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
                     "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),

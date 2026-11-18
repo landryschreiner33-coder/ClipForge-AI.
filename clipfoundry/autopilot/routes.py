@@ -736,13 +736,10 @@ def _public_item(item: dict, settings: dict) -> dict:
     publishing_job = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
     if publishing_job and publishing_job["status"] == "retrying":
         delivery_state = "retrying"
-    # The exact account this post goes to (or went to): its own binding, never just whichever account is the default.
-    cid = item.get("connection_id") or (pub or {}).get("connection_id") or db.default_connection_id(item["platform"])
-    acc = db.get_connection(cid) if cid else None
-    account = {"connection_id": cid, "name": (acc or {}).get("nickname") or (acc or {}).get("display_name") or "",
-               "account_id": (acc or {}).get("external_id") or "", "bound": bool(item.get("connection_id") or
-                                                                            (pub or {}).get("connection_id"))}
-    return {**item, "account": account, "local_time": _local_time(item.get("planned_at"), settings),
+    # The exact account this post goes to (or went to), by the one rule every check uses (autopilot/targets.py).
+    from .targets import account_view
+
+    return {**item, "account": account_view(item), "local_time": _local_time(item.get("planned_at"), settings),
             "reuse_review": rights.review_info(item, settings),
             "publishing_job": ({k: publishing_job.get(k) for k in
                                 ("status", "attempts", "max_attempts", "run_after", "message", "error", "fix",
@@ -913,7 +910,8 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     from .targets import item_account
 
     item = _item_or_404(item_id)
-    # The post's own account (an unbound post goes to the platform's default account, as before).
+    # The account this post goes to now, by the same rule its page shows (targets.account_view). A page names it
+    # only while that account is connected; with none connected nothing is compared, as before.
     if body.expected_account_id and body.expected_account_id != item_account(item):
         raise HTTPException(409, "Another account is connected now. Review the destination and approve again")
     fields = _fields(item, body)

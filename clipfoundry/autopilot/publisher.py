@@ -34,7 +34,7 @@ from . import autopublish, gate, queue, quota, rights, state, verify
 from .host import MAINTENANCE_STEPS, Job, handler
 from .providers import iso_time
 from .scheduler import _audit, _label, active_version_path, approval_problem, block_platform, blocked_until, tz
-from .targets import account_name, item_account, same_account, usable
+from .targets import account_name, begun_on, item_account, same_account, usable
 
 RECONNECT_WAIT = 30 * 60
 
@@ -216,6 +216,14 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
         opts["approved_account"] = (item.get("approval") or {}).get("account") or item_account(item)
         opts["approved_connection"] = item["connection_id"]
         bound = {"connection_id": item["connection_id"]}
+    elif pub and pub.get("connection_id") and not begun_on(item) and \
+            pub["connection_id"] != db.default_connection_id(item["platform"]):
+        # Another account became the default before this upload sent anything. The post is approved for the
+        # account it goes to now, so its upload starts fresh there instead of on the account the record names.
+        db.update_publication(pub["id"], status="cancelled",
+                              message="Another account became the default before the upload started")
+        db.update("scheduled_publications", item["id"], publication_id="")
+        pub = None
     if pub:
         if not publish_jobs.transfer_started(pub) and not publish_jobs.unknown_outcome(pub):
             # A platform wait may leave a local row before any session or bytes exist. The owner can edit and

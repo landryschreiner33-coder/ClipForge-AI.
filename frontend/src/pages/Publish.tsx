@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Accounts, api, Clip, ClipVersion, clipThumbUrl, downloadZip, errorText, fmtTime, Platform, PlatformAccount, Project,
   Publication, TikTokCreator, versionDownloadUrl, versionThumbUrl, versionVideoUrl,
@@ -395,6 +395,8 @@ function channelsOf(platform: Platform, { rows, ticked, pubs, pubConnection }: C
     unknown: chosen.filter((c) => has(c, outcomeUnknown)),
     /** This clip is already on it. */
     posted: chosen.filter((c) => has(c, (p) => p.status === "done")),
+    /** This clip already waits in its TikTok inbox as a draft. */
+    drafted: chosen.filter((c) => has(c, (p) => p.status === "action_needed")),
   };
 }
 
@@ -443,10 +445,15 @@ function PanelChannels({ platform, rows, ticked, onTick }: ChannelProps & { plat
 }
 
 /** "Already posted to A; this posts it there again." for each chosen account that has this clip already. */
-function AgainNotes({ posted }: { posted: Connection[] }) {
-  return <>{posted.map((c) => (
-    <Note key={c.id}>Already posted to {accountName(c)}; this posts it there again.</Note>
-  ))}</>;
+function AgainNotes({ posted, drafted = [] }: { posted: Connection[]; drafted?: Connection[] }) {
+  return <>
+    {posted.map((c) => (
+      <Note key={c.id}>Already posted to {accountName(c)}; this posts it there again.</Note>
+    ))}
+    {drafted.filter((c) => !posted.includes(c)).map((c) => (
+      <Note key={c.id}>Already sent to {accountName(c)}'s TikTok inbox as a draft; this sends it there again.</Note>
+    ))}
+  </>;
 }
 
 function YouTubePanel(props: PanelProps) {
@@ -569,6 +576,12 @@ function TikTokPanel(props: PanelProps & { onExport: () => void; downloadUrl: st
   const [creators, setCreators] = useState<Record<string, TikTokCreator>>({});
   const [creatorErrors, setCreatorErrors] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<"direct" | "inbox">("direct");
+  // True while "inbox" was chosen for the owner (a ticked account has no Direct Post), not by the owner.
+  const forcedInbox = useRef(false);
+  const pickMode = (m: "direct" | "inbox") => {
+    forcedInbox.current = false;
+    setMode(m);
+  };
   const [privacy, setPrivacy] = useState("");
   const [allow, setAllow] = useState({ comment: false, duet: false, stitch: false });
   const [disclose, setDisclose] = useState(false);
@@ -587,8 +600,13 @@ function TikTokPanel(props: PanelProps & { onExport: () => void; downloadUrl: st
     setCreatorErrors({});
     if (!n) return;
     if (!directOk) {
+      if (mode === "direct") forcedInbox.current = true;
       setMode("inbox");
       return;
+    }
+    if (forcedInbox.current) {  // every ticked account has Direct Post again: back to what the owner had chosen
+      forcedInbox.current = false;
+      setMode("direct");
     }
     let alive = true;
     for (const c of ch.chosen) {
@@ -684,7 +702,7 @@ function TikTokPanel(props: PanelProps & { onExport: () => void; downloadUrl: st
         <legend className="label">How to post</legend>
         <label className="choice">
           <input type="radio" name="pp-tt-mode" checked={direct} disabled={n > 0 && !directOk}
-            onChange={() => setMode("direct")} />
+            onChange={() => pickMode("direct")} />
           <span>
             <b>Post directly</b> to your profile
             {n > 0 && !directOk ? (n > 1 ? " (not every chosen account has Direct Post permission)"
@@ -693,7 +711,7 @@ function TikTokPanel(props: PanelProps & { onExport: () => void; downloadUrl: st
         </label>
         <label className="choice">
           <input type="radio" name="pp-tt-mode" checked={!direct} disabled={n > 0 && !inboxOk}
-            onChange={() => setMode("inbox")} />
+            onChange={() => pickMode("inbox")} />
           <span>
             <b>Send to TikTok inbox</b> as a draft: finish and post it in the TikTok app for {who}. TikTok must
             approve your app for inbox uploads; at most 5 drafts can wait at a time. This is a manual posting step.
@@ -838,7 +856,7 @@ function TikTokPanel(props: PanelProps & { onExport: () => void; downloadUrl: st
             {label && <><dt>Label</dt><dd>{label}</dd></>}
             <dt>When</dt><dd>Right away</dd>
           </dl>
-          <AgainNotes posted={ch.posted} />
+          <AgainNotes posted={ch.posted} drafted={ch.drafted} />
           <div className="consequence">
             <span>
               {n > 1 ? `This sends it to ${n} accounts, one after another. ` : ""}

@@ -539,6 +539,18 @@ def _channel_problem(chosen: dict[str, str], connection_id: str) -> str:
     return ""
 
 
+def held_channels(source: dict) -> list[str]:
+    """Why some of this video's chosen channels take no upload now while at least one other still does (one
+    sentence per held channel; [] when none is held, all are, or the request is from before channel choice)."""
+    row = for_source(source)
+    cfg = (row or {}).get("settings") or {}
+    if not row or row.get("revoked_at") or _legacy(cfg):
+        return []
+    chosen = targets(cfg)
+    found = [_channel_problem(chosen, cid) for cid in chosen]
+    return [why for why in found if why] if "" in found else []
+
+
 def _destination_problem(cfg: dict, connection_id: str = "") -> str:
     """One channel's problem, or, without a channel, "" when at least one chosen channel can still take uploads."""
     chosen = targets(cfg)
