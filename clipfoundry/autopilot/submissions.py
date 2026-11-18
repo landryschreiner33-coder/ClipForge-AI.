@@ -144,8 +144,14 @@ def _options(options: dict) -> dict:
         available = 4000 - len(said) - len(" Details: ")
         raise ValueError(f"The reuse statement, including the selected basis, must fit within 4,000 characters. "
                          f"Shorten its details to at most {available:,} characters.")
+    split = options.get("split") or "each"
+    if split not in SPLITS:
+        raise ValueError("Choose how the clips are shared between the channels again.")
+    if split == "turns" and (chosen is None or len(chosen) < 2):
+        raise ValueError("Tick at least two YouTube channels to split the clips between them.")
     destination = {"account_id": view["account_id"]} if chosen is None else \
-        {"account_id": next(iter(chosen.values())), "connections": chosen}
+        {"account_id": next(iter(chosen.values())), "connections": chosen,
+         **({"split": "turns"} if split == "turns" else {})}  # absent means every channel gets every clip
     return {"auto_upload": True, **destination, "privacy": view["privacy"],
             "made_for_kids": options["made_for_kids"], "audience": {"intent": view["audience"]["intent"],
             "platform": "youtube", "policy_version": audience.POLICY_VERSION,
@@ -267,6 +273,8 @@ def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", l
         names = [account_name(db.get_connection(cid)) or external for cid, external in targets(cfg).items()]
         where = f"YouTube channel {names[0]}" if len(names) == 1 else \
             f"YouTube channels {', '.join(names[:-1])} and {names[-1]}"
+        if takes_turns(cfg):
+            where += " (each clip to one of them, taking turns)"
         others = "other inputs, other YouTube channels"
     text = (f"Make clips from this video using relevant saved Brain guidance and app settings. Upload qualifying "
             f"finished clips automatically to {where} as {cfg['privacy']}, marked "
@@ -459,6 +467,56 @@ def targets(cfg: dict) -> dict[str, str]:
 
 def _legacy(cfg: dict) -> bool:
     return not isinstance((cfg or {}).get("connections"), dict)
+
+
+SPLITS = ("each", "turns")   # every chosen channel gets every clip, or each clip goes to one of them in turn
+
+
+def takes_turns(cfg: dict) -> bool:
+    """Do the request's channels share its clips, each clip going to one of them? Only with two or more channels;
+    a request that does not say gives every channel every clip, as before."""
+    return (cfg or {}).get("split") == "turns" and len(targets(cfg)) > 1
+
+
+def clip_turn(source: dict, clip: dict, dealt: dict) -> str | None:
+    """The one channel (connection ID) a clip's post goes to when its request's channels take turns; None when
+    they do not. A clip never changes channel: whatever became of an earlier post of it (held, failed, canceled),
+    the next one goes to the same channel. A new clip goes to the channel that has the fewest of this input's
+    clips so far, the owner's order deciding a tie, so the clips end up shared evenly. A channel that needs
+    Reconnect gets no new clips meanwhile (the ones it has wait for it) and catches up afterwards.
+
+    `dealt` is one planning pass's memory ({} at its start): the clips given out in the pass before their posts
+    exist (`took_turn`)."""
+    cfg = (for_source(source) or {}).get("settings") or {}
+    if not cfg.get("auto_upload") or not takes_turns(cfg):
+        return None
+    chosen = targets(cfg)
+    for post in db.select("scheduled_publications", "clip_id = ? AND platform = 'youtube'", (clip["id"],), "created_at"):
+        if post.get("connection_id") in chosen:
+            return post["connection_id"]
+    memo = dealt.setdefault(source["id"], {})
+    if clip["id"] in memo.get("clips", {}):
+        return memo["clips"][clip["id"]]
+    if "counts" not in memo:
+        memo["counts"], counted = {cid: 0 for cid in chosen}, set()
+        for post in db.select("scheduled_publications", "source_id = ? AND platform = 'youtube' AND status NOT IN "
+                                                        "('canceled', 'replaced')", (source["id"],)):
+            key = (post["clip_id"], post.get("connection_id"))
+            if post.get("connection_id") in memo["counts"] and key not in counted:
+                counted.add(key)
+                memo["counts"][post["connection_id"]] += 1
+        memo["open"] = [cid for cid in chosen if not _channel_problem(chosen, cid)] or list(chosen)
+    order = list(chosen)
+    return min(memo["open"], key=lambda cid: (memo["counts"][cid], order.index(cid)))
+
+
+def took_turn(source: dict, clip: dict, connection_id: str, dealt: dict) -> None:
+    """Count a clip for its channel for the rest of this planning pass (its post may not exist yet)."""
+    memo = dealt.setdefault(source["id"], {})
+    clips = memo.setdefault("clips", {})
+    if clip["id"] not in clips and connection_id in memo.get("counts", {}):
+        clips[clip["id"]] = connection_id
+        memo["counts"][connection_id] += 1
 
 
 def _covers(cfg: dict, item: dict) -> bool:
@@ -693,7 +751,8 @@ def item(source: dict) -> dict:
               "local_ready" if not cfg.get("auto_upload") and view["status"] in ("ready", "finished") else "creating")
     view["submission"] = {"id": row["id"], "auto_upload": cfg.get("auto_upload", False), "account_id": cfg.get("account_id", ""),
                           "privacy": cfg.get("privacy", ""), "made_for_kids": cfg.get("made_for_kids"), "created_at": row["created_at"],
-                          "status": status, "progress": counts, "hold_reason": hold, "channels": _channel_list(cfg)}
+                          "status": status, "progress": counts, "hold_reason": hold, "channels": _channel_list(cfg),
+                          "split": "turns" if cfg.get("auto_upload") and takes_turns(cfg) else "each"}
     if cfg.get("auto_upload") and counts["posts_waiting"] and view["status"] not in ("canceled", "removed"):
         view["can_cancel"] = True
     return view

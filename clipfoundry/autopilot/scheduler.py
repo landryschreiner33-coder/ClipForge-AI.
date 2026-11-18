@@ -226,9 +226,11 @@ def audience_reminders(settings: dict) -> None:
 
 def candidates(settings: dict, now: float) -> list[dict]:
     """(clip, platform, connection) triples ready to be scheduled, with their scores. A submitted video's request
-    names its YouTube channels: one candidate per channel. Other clips go to each platform's default account
+    names its YouTube channels: one candidate per channel, or, when the request says its channels take turns, one
+    candidate on the channel whose turn the clip is. Other clips go to each platform's default account
     (connection_id "")."""
     out = []
+    dealt: dict = {}  # this pass's turns (submissions.clip_turn)
     rows = db.select("clips", "status = 'ready' AND project_id IN (SELECT id FROM projects WHERE origin IN "
                               "('autopilot', 'live'))", (), "created_at")
     platforms = uploadable_platforms(settings)
@@ -242,6 +244,9 @@ def candidates(settings: dict, now: float) -> list[dict]:
             continue  # input-only mode never admits an older discovered/backlog clip to a new posting plan
         destinations = [("youtube", cid) for cid in submitted] if submitted is not None else \
             [(p, "") for p in platforms]
+        turn = submissions.clip_turn(source, clip, dealt) if submitted and len(submitted) > 1 else None
+        if turn:
+            destinations = [("youtube", turn)]
         try:
             rights.gate(source, "schedule", settings)
         except rights.RightsBlocked:
@@ -278,6 +283,8 @@ def candidates(settings: dict, now: float) -> list[dict]:
                                    "trend": sc.get("trend"), "source": sc.get("source"),
                                    "diversity": sc.get("diversity"), "retention": retention},
                         "urgency": max(0.0, min(1.0, urgency / 100))})
+            if turn:
+                submissions.took_turn(source, clip, turn, dealt)
     return out
 
 

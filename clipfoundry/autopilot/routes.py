@@ -38,6 +38,7 @@ class SubmissionIn(BaseModel):
     reuse_statement: str = ""
     agreed: StrictBool = False
     live: StrictBool = False  # added in Live streams (what the link really is is checked afterwards)
+    split: str = ""           # with several channels: "turns" gives each clip to one of them ("" = each gets all)
     live_pick: str = ""       # Live streams only: how picky this stream is ("" follows Settings)
     live_framing: str = ""    # Live streams only: split view for this stream's clips ("" follows Settings)
 
