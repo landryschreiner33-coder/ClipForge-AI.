@@ -1,5 +1,25 @@
 # AI handoff
 
+## Choose which channels each post goes to — 2026-11-18 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked to choose which clips go to which channel: all of them, a few, or one. Every
+place that posts now has the same tick-box list of connected YouTube channels and TikTok accounts with **All**:
+Prepare post (one clip), **Post selected…** on a video's page (several clips, YouTube), and Missions for submitted
+videos and live streams. Accounts has **Tick for new posts** to say which accounts start ticked. **Not released.**
+
+- **Where things are:** branch `claude/project-thread-rxehvi` from the release line at 56d2cbd; the pull request into
+  `claude/project-thread-x72wkd` carries the test runs. Details and decisions: the top entry of
+  [AI_CHANGELOG.md](AI_CHANGELOG.md); how Missions uses it: [docs/AUTOPILOT.md](docs/AUTOPILOT.md).
+- **The rule to keep:** a planned post with an empty `connection_id` goes to the default account exactly as before; a
+  non-empty one is the owner's chosen account and everything (approval, pacing, duplicate check, Reconnect notice,
+  upload) follows it. New code that plans or posts uses `clipfoundry/autopilot/targets.py`, not
+  `db.get_account(platform)`, for a bound post.
+- **Building on it:** the thread "Improve live stream clipping quality" (`claude/project-thread-82eyed`) adds
+  "split between channels" by filtering the destinations per clip in `scheduler.candidates()`.
+- **Not built:** animated shorts and full YouTube videos cannot be posted from the app at all yet, so they have no
+  channel choice. Audience, made-for-kids and post text are per platform, not per channel.
+- **Not verified (needs Landry's computer):** real YouTube channels and TikTok accounts; the screens in the Mac window.
+
 ## Release 2026.11.16.2 published — 2026-11-16 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry could not find where to connect a cloud computer. It was there, but hidden as one

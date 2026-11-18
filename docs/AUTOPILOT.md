@@ -27,10 +27,15 @@ remain intact. Optional **Discover videos** mode is under Settings → Advanced 
 The discovery, watched-folder and live-monitor *discovery* descriptions later in this document apply only to that
 optional mode. Live streams you add yourself are covered under *Clip live streams* below.
 
-For **Make & upload clips**, the form shows the actual connected YouTube channel and confirmed audience. Choose a
+For **Make & upload clips**, the form lists every connected YouTube channel and the confirmed audience. Tick the
+channels this input's clips go to: one, a few, or **All** (the channels marked *Tick for new posts* in Accounts start
+ticked). Each passing clip uploads once to each ticked channel; every channel keeps its own posting pace, and a
+channel that needs Reconnect holds only its own posts. All is saved as the channels connected at that moment, so a
+channel you connect later is never included. Choose a
 genuine made-for-kids answer and the reuse basis for this video's footage and sound, then confirm the input once.
 Qualifying new clips from that input can upload without another click on every clip. The stored request is bound
-to that source, acquired original hash, project, account, audience, kids answer and current terms/credit. Every
+to that source, acquired original hash, project, the ticked channels, audience, kids answer and current
+terms/credit. A request saved before channels could be chosen names the default channel only and behaves as before. Every
 post still needs grounded metadata, a passing exact-file quality report and a fresh hash before upload. An
 assertion does not verify ownership or grant rights you do not have. Merely pasting a link grants no permission.
 Permission answers are stored with the submission/posts, never in Brain.
@@ -91,7 +96,7 @@ visibility. TikTok's app audit remains separate; a private TikTok account cannot
    source cap 8 GB; configured duration and disk limits also apply). Login-only, protected and unavailable
    sources are not accepted. A live link pasted here is recorded like one added in **Live streams** (below). Link import contacts the supplied service using the
    guarded importer, without search-service keys, cookies or authentication bypass.
-3. Choose **Make & upload clips**. Review the actual account/audience, answer made-for-kids, choose your reuse basis
+3. Choose **Make & upload clips**. Tick the YouTube channels, review the audience, answer made-for-kids, choose your reuse basis
    and tick the confirmation. **Another legal basis** needs your explanation; the other bases offer optional
    details. Press **Make & upload clips** once. Or choose **Make clips only** to keep results local.
 4. Keep the app open and PC awake. **Submitted videos** reports actual ready/waiting/uploading/uploaded counts and
