@@ -217,7 +217,7 @@ function made(item: LiveStream): string {
   const these = clips === 1 ? "The clip already made stays" : `The ${clips} clips already made stay`;
   return item.submission.auto_upload
     ? `${these}: ${clips === 1 ? "it still goes" : "they still go"} through the final checks and `
-      + `${clips === 1 ? "uploads" : "upload"} at ${clips === 1 ? "its" : "their"} planned times.`
+      + `${clips === 1 ? "uploads at its planned time" : "upload at their planned times"}.`
     : `${these} on this computer.`;
 }
 
