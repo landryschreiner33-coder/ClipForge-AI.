@@ -256,7 +256,8 @@ def test_a_stream_keeps_the_choices_it_was_added_with(data):  # noqa: F811
     db.save_settings({"autopilot_live_pick": "balanced", "autopilot_live_framing": "off"})
     src = going_live(add_live())
     sess = live.Session(src, db.get_settings())
-    assert "layout" not in sess.project["options"]  # no split view: the layout from Settings, as before
+    # no split view: the layout from Settings, and the Settings' own look for a face cam is off for this stream
+    assert "layout" not in sess.project["options"] and sess.project["options"]["split_view"] == "off"
     assert sess.project["options"]["live_framing"] == "off" and sess.project["options"]["live_pick"] == "balanced"
     db.save_settings({"autopilot_live_pick": "most", "autopilot_live_framing": "split"})
     again = live.Session(db.fetch("sources", src["id"]), db.get_settings())

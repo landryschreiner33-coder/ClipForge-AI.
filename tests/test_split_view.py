@@ -216,3 +216,192 @@ def test_split_view_passes_the_framing_check_and_is_a_clip_only_layout():
         assert not [e for e in blueprint.errors(blueprint.validate(bp, None, [])) if "layout" in e], layout
     bp.framing.layout = "sideways"
     assert any("layout" in e for e in blueprint.errors(blueprint.validate(bp, None, [])))
+
+
+# ------------------------------------------------------------------ the whole picture under the cam
+CAM_16_9 = {"box": [0.02, 0.6, 0.27, 0.6 + 0.25], "face": [0.14, 0.7, 0.05, 0.1]}       # 320x180 on 1280x720
+CAM_4_3 = {"box": [0.02, 0.6, 0.27, 0.6 + 0.25 * 16 / 9 * 0.75], "face": [0.14, 0.72, 0.05, 0.1]}
+
+
+@pytest.mark.parametrize("cam, size", [(CAM_16_9, (1280, 720)), (CAM_4_3, (1280, 720)), (CAM_4_3, (1440, 1080)),
+                                       (CAM_16_9, (1080, 1080)), (CAM_16_9, (720, 1280))])
+def test_whole_split_view_keeps_all_of_the_picture_under_the_cam(cam, size):
+    from clipfoundry.pipeline import reframe
+
+    width, height = size
+    split = reframe.split_layout(cam, width, height)
+    view = reframe.split_panels(split, width, height, "whole")
+    (cam_y, cam_h), (px, py, pw, ph) = view["cam"], view["picture"]
+    assert view["game"] == "whole"
+    # all of the picture, in its own shape, as large as the frame allows
+    assert abs(pw / ph - width / height) < 0.01
+    assert pw == 1080 or py + ph >= 1918
+    assert px == (1080 - pw) // 2 and 0 <= px
+    # the cam, then the captions' strip, then the picture: nothing overlaps and nothing leaves the frame
+    assert 0 <= cam_y and cam_y + cam_h <= py and py + ph <= 1920
+    assert reframe.SPLIT_WHOLE_TOP[0] <= cam_h / 1920 <= reframe.SPLIT_WHOLE_TOP[1] + 0.001
+    band = py - (cam_y + cam_h)
+    assert band <= int(1920 * reframe.SPLIT_BAND)
+    assert view["seam"] == cam_y + cam_h + band / 2          # the captions' line is the middle of that strip
+    # what is left over goes mostly below the picture, where the phone apps draw over the video anyway
+    assert cam_y <= 1920 - (py + ph) and cam_y <= 1920 * reframe.SPLIT_HEAD[1]
+    if size == (1280, 720):
+        assert (pw, ph) == (1080, 608) and band == int(1920 * reframe.SPLIT_BAND)
+        assert cam_y + cam_h + 4 <= view["hook"] <= cam_y + cam_h + band // 4   # a headline starts in the strip
+    # the zoomed split view is the picture it always was: cam on top, the rest filling everything below
+    zoom = reframe.split_panels(split, width, height, "zoom")
+    top = int(round(1920 * split["top"])) // 2 * 2
+    assert zoom == {"game": "zoom", "cam": (0, top), "picture": (0, top, 1080, 1920 - top), "seam": top,
+                    "hook": None}
+
+
+def test_whole_split_picture_shows_every_corner_of_the_game(monkeypatch):
+    from clipfoundry.pipeline import reframe, render
+
+    monkeypatch.setattr(render, "OUTPUT_W", 180)
+    monkeypatch.setattr(render, "OUTPUT_H", 320)
+    frame = np.zeros((360, 640, 3), np.uint8)
+    frame[:, :] = (200, 0, 0)                 # the game: blue
+    frame[:40, :40] = frame[:40, -40:] = frame[-40:, :40] = frame[-40:, -40:] = (0, 200, 0)   # its corners: green
+    frame[220:320, 60:200] = (0, 0, 200)      # the cam: red
+    cam = {"box": [60 / 640, 220 / 360, 200 / 640, 320 / 360], "face": [130 / 640, 260 / 360, 0.05, 0.1]}
+    split = reframe.split_layout(cam, 640, 360)
+    split["view"] = reframe.split_panels(split, 640, 360, "whole", 180, 320)
+    out = render._compose(frame, split["content"][0], 0.5, 1.0, 640, 360, 0.0, 0.0, "split", 1.0, split)
+    assert out.shape == (320, 180, 3) and out.dtype == np.uint8 and out.flags["C_CONTIGUOUS"]
+    (cam_y, cam_h), (px, py, pw, ph) = split["view"]["cam"], split["view"]["picture"]
+    top = out[cam_y + 2:cam_y + cam_h - 2]
+    assert top[..., 2].mean() > 190 and top[..., 0].mean() < 10            # the cam panel holds only the cam
+    picture = out[py:py + ph, px:px + pw]
+    assert (pw, ph) == (180, 100)                                          # 640x360 as wide as the output
+    for ys, xs in ((slice(0, 6), slice(0, 6)), (slice(0, 6), slice(-6, None)),
+                   (slice(-6, None), slice(0, 6)), (slice(-6, None), slice(-6, None))):
+        corner = picture[ys, xs].reshape(-1, 3).mean(axis=0)
+        assert corner[1] > 150 and corner[0] < 60, corner                  # all four corners are in view
+    assert picture[45:55, 80:100, 0].mean() > 190                          # and the middle of the game
+    # between and around the two: the blurred, darkened fill, never a bare black bar
+    strip = out[cam_y + cam_h + 2:py - 2]
+    assert strip.size and 20 < strip.mean() < 120
+    assert out[py + ph + 4:].mean() > 20
+    zoomed = render._compose(frame, split["content"][0], 0.5, 1.5, 640, 360, 0.0, 0.0, "split", 1.0, split)
+    assert np.array_equal(zoomed[:py], out[:py])                           # a zoom moves neither the cam nor the strip
+    assert zoomed[py:py + 6, px:px + 6, 1].mean() < 60                     # ... it moves in on the picture's middle
+
+
+def test_whole_split_view_headline_starts_in_the_strip_between_the_pictures():
+    from clipfoundry.pipeline import captions
+
+    words = [{"w": w, "start": 0.3 * k, "end": 0.3 * k + 0.25} for k, w in enumerate("one two three four".split())]
+    words += [{"w": w, "start": 4.0 + 0.3 * k, "end": 4.25 + 0.3 * k} for k, w in enumerate("five six".split())]
+    opts = {"caption_style": "bold", "caption_position": "bottom", "hook_overlay": True, "hook_seconds": 3.0,
+            "picture_seam": 950 / captions.OUTPUT_H, "seam_hook_top": 856}
+    ass = captions.build_ass(words, opts, 6.0, "The headline")
+    hook_style = next(line for line in ass.splitlines() if line.startswith("Style: Hook"))
+    assert hook_style.split(",")[-2] == "856"
+    late = [line for line in ass.splitlines() if line.startswith("Dialogue: 1") and line.split(",")[1] >= "0:00:03.00"]
+    assert late and all("\\an5\\pos(540,950)" in line for line in late)    # the captions: the middle of the strip
+
+
+def test_a_layout_nobody_chose_looks_for_a_face_cam(monkeypatch, tmp_path):
+    from clipfoundry import config, db
+    from clipfoundry.pipeline import blueprint, render
+
+    assert config.DEFAULT_SETTINGS["split_view"] == "auto" and config.DEFAULT_SETTINGS["split_game"] == "whole"
+    assert config.validate_settings({"split_view": "always", "split_game": "tiny"}) == {}
+    assert config.validate_settings({"split_view": "off", "split_game": "zoom"}) == {"split_view": "off",
+                                                                                      "split_game": "zoom"}
+    on = {"layout": "fit", "split_view": "auto"}
+    assert render.cam_layout(on, chosen=False) == "auto"
+    assert render.cam_layout(on, chosen=True) == "fit"                      # a layout somebody chose stays
+    assert render.cam_layout({"layout": "fit", "split_view": "off"}, chosen=False) == "fit"
+    assert render.cam_layout({"layout": "fit"}, chosen=False) == "fit"      # settings from before this choice
+    assert render.cam_layout({"layout": "split", "split_view": "off"}, chosen=True) == "split"
+    # who counts as having chosen
+    plain = {"options": {}}
+    assert not render.layout_chosen(plain, {"edit": {}})
+    assert render.layout_chosen(plain, {"edit": {"layout": "fill"}})        # the clip's own editor
+    assert render.layout_chosen(plain, {"edit": {"tracking": "center"}})    # ... also when it places the crop
+    assert not render.layout_chosen(plain, {"edit": {"tracking": "auto"}})
+    assert render.layout_chosen({"options": {"layout": "fit"}}, {"edit": {}})
+    assert render.layout_chosen(plain, {"edit": {}}, blueprint=object())    # the plan decided when it was written
+
+    def guided(level):
+        return {"options": {"layout": "fill"}, "guidance": {"schema": 1, "decisions": [
+            {"field": "layout", "value": "fill", "from": {"level": level}}]}}
+
+    assert not render.layout_chosen(guided("settings"), {"edit": {}})       # only repeats the Settings layout
+    for level in ("project", "style", "skill", "brain", "story", "reference"):
+        assert render.layout_chosen(guided(level), {"edit": {}}), level
+    # the plan of an Autopilot clip asks for the look when nobody chose a layout for the video
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    db.init()
+    words = [{"w": w, "start": 0.2 + k * 0.5, "end": 0.6 + k * 0.5} for k, w in enumerate("a b c d e f g h".split())]
+
+    def planned(options, **settings):
+        project = db.create_project("A stream", origin="autopilot", duration=6, options=options)
+        clip = db.create_clip(project["id"], start=0, end=5, duration=5, title="t", caption_text="a b c")
+        return blueprint.build(clip, project, words, {**db.get_settings(), **settings}).framing.layout
+
+    assert planned({}) == "auto"
+    assert planned({}, split_view="off") == "fill"
+    assert planned({}, layout="fit", split_view="off") == "fit"
+    assert planned({"layout": "fit"}) == "fit"                              # chosen for this video
+    assert planned({"layout": "split"}) == "split"                          # a live stream's "always"
+    assert planned({"split_view": "off"}) == "fill"                         # a live stream's "no split view"
+    assert blueprint.errors(blueprint.validate(blueprint.Blueprint(
+        clip_id="c", project_id="p", source_id="", input_hash="h", intervals=[blueprint.Interval(0.0, 5.0)],
+        framing=blueprint.Framing(layout="auto")), 6.0, words)) == []
+
+
+@needs_ffmpeg
+def test_a_stream_with_a_face_cam_renders_as_a_whole_split_view_by_default(monkeypatch, tmp_path):
+    """The real path: a drawn stream, the default Settings, nobody choosing a layout."""
+    from clipfoundry import config, db
+    from clipfoundry.pipeline import quality, reframe, render
+    from clipfoundry.pipeline.common import JobContext
+    from clipfoundry.pipeline.ffmpeg_utils import probe
+
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    db.init()
+    video = tmp_path / "stream.mp4"
+    _stream(video, (30, 440, 320, 240))
+    meta = probe(video)
+    project = {"id": "p1", "name": "stream", "source_path": str(video), "dir": str(tmp_path / "proj"), "info": meta,
+               "options": {}, **meta}
+    settings = {**config.DEFAULT_SETTINGS, "encoder": "x264", "x264_preset": "ultrafast", "normalize_audio": False}
+    clip = {"id": "c1", "start": 0.0, "end": 5.5, "hook": "", "edit": {"silence": "off"}}
+    out = render.render_clip(project, clip, [], settings, JobContext())
+    info = out["render_info"]
+    assert info["mode"] == "split" and info["layout"] == "split" and info["layout_asked"] == "auto"
+    assert info["split_game"] == "whole"
+    check = quality.framing_checks(info)[0]
+    assert check["status"] == quality.PASS and "the whole picture" in check["detail"]
+    # the picture strip is the stream itself, whole: the same frame of the source, scaled to the strip's size
+    view = reframe.split_panels(info["framing_evidence"]["split"], W, H, "whole")
+    px, py, pw, ph = view["picture"]
+    assert (px, pw, ph) == (0, 1080, 608) and view["cam"][0] + view["cam"][1] < py
+
+    def frames(path, scale, first, count):
+        width, height = (int(v) for v in scale.split(":"))
+        raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(path), "-vf",
+                              f"select=between(n\\,{first}\\,{first + count - 1}),scale={scale}", "-vsync", "0",
+                              "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"], capture_output=True, check=True).stdout
+        return np.frombuffer(raw, np.uint8).reshape(-1, height, width, 3).astype(np.int16)
+
+    def alike(a, b):   # brightness only: the drawn source carries no colour tags, so its colours decode a shade off
+        return float(np.corrcoef(a.mean(axis=2).ravel(), b.mean(axis=2).ravel())[0, 1])
+
+    # the clip's start may have moved onto a detected cut, so its frame 24 is one of the source's frames near there
+    made, sources = frames(out["output_path"], "1080:1920", 24, 1)[0], frames(video, "1080:608", 20, 16)
+    assert max(alike(made[py:py + ph], source) for source in sources) > 0.97   # the same picture, every part of it
+    assert max(alike(made[py - 300:py - 300 + ph], source) for source in sources) < 0.5   # and nowhere else
+    # the same stream with the zoomed split view chosen for this clip, and with a layout chosen for it
+    zoom = render.render_clip(project, {**clip, "id": "c2", "edit": {"silence": "off", "split_game": "zoom"}}, [],
+                              settings, JobContext())["render_info"]
+    assert zoom["mode"] == "split" and zoom["split_game"] == "zoom"
+    fill = render.render_clip(project, {**clip, "id": "c3", "edit": {"silence": "off", "layout": "fill"}}, [],
+                              settings, JobContext())["render_info"]
+    assert fill["mode"] != "split" and fill["layout"] == "fill" and "layout_asked" not in fill
+    off = render.render_clip(project, {**clip, "id": "c4"}, [], {**settings, "split_view": "off"},
+                             JobContext())["render_info"]
+    assert off["mode"] != "split" and off["layout"] == "fill"

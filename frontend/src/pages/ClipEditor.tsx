@@ -31,13 +31,13 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
   trim: ["start", "end"],
   captions: ["captions_enabled", "caption_style", "caption_position", "caption_size", "caption_emphasis",
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
-  layout: ["tracking", "crop_x", "layout", "zoom", "auto_zoom"],
+  layout: ["tracking", "crop_x", "layout", "split_game", "zoom", "auto_zoom"],
   audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
 // What the renderer uses when neither the clip, the video's options nor Settings say otherwise.
 const FALLBACK: Partial<Record<Key, unknown>> = {
-  tracking: "auto", crop_x: 0.5, layout: "fill", zoom: 1, auto_zoom: true,
+  tracking: "auto", crop_x: 0.5, layout: "fill", split_game: "whole", zoom: 1, auto_zoom: true,
   captions_enabled: true, caption_style: "bold", caption_position: "bottom", caption_size: 1, caption_emphasis: false,
   highlight_words: true, highlight_color: "", hook_overlay: true, hook_seconds: 3,
   gain_db: 0, normalize_audio: true, clean_sound: "auto", silence: "light", remove_fillers: true, speed: 1,
@@ -182,9 +182,12 @@ export default function ClipEditor({ id }: { id: string }) {
   const opts = (project?.options || {}) as Record<string, unknown>;
   const saved = (clip?.edit || {}) as Record<string, unknown>;
   const d = draft as Record<string, unknown>;
+  // The layout: what this clip's last render was asked for when that was a look for a face cam (Settings → Split
+  // view does that for a clip nobody chose a layout for), so the choice shown is the one that made the picture.
   const base = (k: Key): unknown =>
     k === "start" ? clip?.start : k === "end" ? clip?.end : k === "hook" ? clip?.hook
-      : opts[k] ?? settings[k] ?? FALLBACK[k];
+      : k === "layout" ? clip?.render_info?.layout_asked ?? opts[k] ?? settings[k] ?? FALLBACK[k]
+        : opts[k] ?? settings[k] ?? FALLBACK[k];
   const eff = (k: Key) => d[k] ?? base(k);
   const num = (k: Key) => Number(eff(k) ?? 0);
   const bool = (k: Key) => !!eff(k);
@@ -597,10 +600,18 @@ export default function ClipEditor({ id }: { id: string }) {
             options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" },
               { value: "split", label: "Split view" }, { value: "auto", label: "Split if face cam" }]} />
           {(str("layout") === "split" || str("layout") === "auto") && <p className="hint">Split view shows the face
-            cam on the top part and the rest of the picture below it, with the captions on the line between them.
+            cam on top and the picture below it, with the captions between them.
             {str("layout") === "auto" ? " It is used only when a face cam is found in this clip;"
               : " If no small face is found in this clip,"} otherwise the clip uses the layout from Settings.</p>}
         </div>
+        {(str("layout") === "split" || str("layout") === "auto") && <div className="field">
+          <span className="label" id={`${uid}-game`}>Under the face cam</span>
+          <Segmented labelledBy={`${uid}-game`} value={str("split_game")} onChange={(v) => set({ split_game: v })}
+            options={[{ value: "whole", label: "Whole picture" }, { value: "zoom", label: "Zoomed in" }]} />
+          <p className="hint">{str("split_game") === "zoom"
+            ? "The middle of the picture fills everything below the face cam; its sides are cut off."
+            : "All of the picture stays in view, as wide as the clip, over a blurred background."}</p>
+        </div>}
         <div className="field">
           <label htmlFor={`${uid}-zoom`}>Zoom <span className="faint tnum">{num("zoom").toFixed(2)}×</span></label>
           <input id={`${uid}-zoom`} type="range" min={1} max={2} step={0.05} value={num("zoom")}

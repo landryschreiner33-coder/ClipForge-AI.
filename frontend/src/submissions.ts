@@ -61,8 +61,8 @@ export const LIVE_PICKS: { value: LivePick; label: string; hint: string }[] = [
 ];
 export const LIVE_FRAMINGS: { value: LiveFraming; label: string; hint: string }[] = [
   { value: "auto", label: "Split view when there is a face cam",
-    hint: "When ClipForge finds a face cam in the picture, the clip shows the face cam on top and the rest of the "
-      + "picture below. Without one, the clip uses your usual layout." },
+    hint: "When ClipForge finds a face cam in the picture, the clip shows the face cam on top and the whole "
+      + "gameplay below it. Without one, the clip uses your usual layout." },
   { value: "split", label: "Always split view",
     hint: "Also splits when the face is only sometimes in view. If no face is found at all, the clip uses your "
       + "usual layout." },

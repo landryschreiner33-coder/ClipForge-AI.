@@ -26,6 +26,10 @@ LAYOUTS = ["fill", "fit"]
 # below). "auto" makes a split view only when a face cam is found, "split" whenever a face is. They are chosen
 # per live stream and per clip, not in Settings: the full-video editor and saved styles know only LAYOUTS.
 CLIP_LAYOUTS = LAYOUTS + ["auto", "split"]
+# Settings → Split view: "auto" looks for a face cam in every clip whose layout nobody chose (render.cam_layout).
+SPLIT_VIEWS = ["auto", "off"]
+# What is under the cam in a split view: the whole picture, or its middle zoomed in to fill (reframe.split_panels)
+SPLIT_GAMES = ["whole", "zoom"]
 LIVE_PICKS = ["best", "balanced", "most"]   # how picky a live stream is (autopilot/live_pick.py)
 # How a live stream's clips are framed: "auto" and "split" as above (without a face cam the clip gets the layout
 # from Settings), "off" never makes a split view.
@@ -121,6 +125,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "highlight_words": True,
     "tracking": "auto",
     "layout": "fill",
+    "split_view": "auto",             # a video with a face cam gets a split view (the cam on top, the picture below)
+    "split_game": "whole",            # ... showing the whole picture under the cam ("zoom": its middle, filling)
     "silence": "light",
     "remove_fillers": True,           # with silence cleanup: an "um"/"uh" goes together with the pause around it
     "auto_zoom": True,                # subtle push-ins on sentences with an emphasized word
@@ -329,6 +335,10 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
         elif key == "tracking" and v not in TRACKING_MODES:
             continue
         elif key == "layout" and v not in LAYOUTS:
+            continue
+        elif key == "split_view" and v not in SPLIT_VIEWS:
+            continue
+        elif key == "split_game" and v not in SPLIT_GAMES:
             continue
         elif key == "silence" and v not in SILENCE_MODES:
             continue

@@ -151,7 +151,9 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     margin_v = int(OUTPUT_H * margin_frac)
     hook_on = bool(opts.get("hook_overlay", True)) and hook_text.strip()
     seam = seam_line(opts)
-    hook_top = int(seam + SEAM_HOOK_GAP) if seam is not None else None
+    # a split view that keeps the whole picture has a strip for the text: the headline starts at its top
+    hook_top = None if seam is None else int(opts["seam_hook_top"]) if opts.get("seam_hook_top") is not None \
+        else int(seam + SEAM_HOOK_GAP)
     under_hook = int(hook_bottom(hook_text, hook_top) + HOOK_GAP) if hook_on else 0
     on_seam = seam is not None and opts.get("caption_position", "bottom") == "bottom"
     if opts.get("caption_position") == "above":

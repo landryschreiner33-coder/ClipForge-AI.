@@ -69,8 +69,9 @@ def choices(src: dict, settings: dict) -> dict:
         settings.get("autopilot_live_framing")
     framing = framing if framing in config.LIVE_FRAMINGS else "auto"
     pick = chosen.get("pick") if chosen.get("pick") in PICKS else settings.get("autopilot_live_pick")
+    # "off" also switches off the Settings' own split view (render.cam_layout), which would otherwise look for a cam
     return {"live_framing": framing, "live_pick": pick if pick in PICKS else DEFAULT_PICK,
-            **({"layout": framing} if framing != "off" else {})}
+            **({"layout": framing} if framing != "off" else {"split_view": "off"})}
 
 
 def pace(project: dict | None, settings: dict) -> dict:

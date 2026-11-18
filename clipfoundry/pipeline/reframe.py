@@ -50,6 +50,15 @@ CAM_BORDERLESS_MOTION = 0.5  # ... off to one side of a picture that moves
 SPLIT_TOP = (0.30, 0.42)    # the cam panel's share of the output height; the seam stays clear of the apps' buttons
 SPLIT_SHIFT = 0.10          # how far the lower panel may move off-centre to leave the cam out of it
 SPLIT_CLEAR = 0.012         # ... and how far past the cam it then starts, so the cam's drawn frame stays out too
+# Split view with the whole picture under the cam ("whole", what the owner asked for: all of the gameplay stays in
+# view). The picture is as wide as the output, so on a 16:9 stream it is about a third of the height; the cam is
+# kept a little smaller than in the zoomed split so the two are of a kind, the captions get a strip of their own
+# between them, and what is left over goes above the cam and, mostly, below the picture, where the phone apps put
+# their own buttons and text anyway.
+SPLIT_GAMES = tuple(config.SPLIT_GAMES)
+SPLIT_WHOLE_TOP = (0.28, 0.36)  # the cam's share of the output height
+SPLIT_BAND = 0.11               # the captions' strip between the cam and the picture
+SPLIT_HEAD = (0.35, 0.08)       # of what is left over: this share goes above the cam, at most this much of the height
 
 
 @dataclass
@@ -664,6 +673,32 @@ def split_layout(cam: dict, src_w: int, src_h: int, content_x: float | None = No
     return {"top": round(top, 5), "cam": [round(float(v), 5) for v in cam["box"]],
             "focus": [round(float(cam["face"][0]), 5), round(float(cam["face"][1]), 5)],
             "content": [round(min(hi, max(lo, cx)), 5), 0.5, round(cw, 5), round(ch, 5)]}
+
+
+def split_panels(split: dict, src_w: int, src_h: int, game: str = "whole", out_w: int = 1080,
+                 out_h: int = 1920) -> dict:
+    """Where the parts of a split view sit in the output, in pixels (`split` is split_layout's answer).
+
+    "zoom": the cam on top and the picture's middle filling everything below it; the captions sit on the line where
+    the two meet. "whole": the cam, then a strip for the captions, then the whole picture as wide as the output,
+    over a blurred fill.
+
+    Returns {"game", "cam": (top, height), "picture": (left, top, width, height), "seam": the captions' centre
+    line, "hook": where a headline starts (None: just under the line)}."""
+    if game != "whole":
+        top_h = int(round(out_h * float(split["top"]))) // 2 * 2
+        return {"game": "zoom", "cam": (0, top_h), "picture": (0, top_h, out_w, out_h - top_h), "seam": top_h,
+                "hook": None}
+    x0, y0, x1, y1 = split["cam"]
+    shape = max(1e-6, (y1 - y0) * src_h) / max(1e-6, (x1 - x0) * src_w)        # the cam's height over its width
+    top_h = int(round(out_h * min(SPLIT_WHOLE_TOP[1], max(SPLIT_WHOLE_TOP[0], shape * out_w / out_h)))) // 2 * 2
+    scale = min(out_w / src_w, (out_h - top_h) / src_h)                        # a tall picture gets what is left
+    pic_w, pic_h = int(round(src_w * scale)) // 2 * 2, int(round(src_h * scale)) // 2 * 2
+    spare = max(0, out_h - top_h - pic_h)
+    band = min(spare, int(out_h * SPLIT_BAND))
+    head = min(int((spare - band) * SPLIT_HEAD[0]), int(out_h * SPLIT_HEAD[1]))
+    return {"game": "whole", "cam": (head, top_h), "picture": ((out_w - pic_w) // 2, head + top_h + band, pic_w, pic_h),
+            "seam": head + top_h + band / 2, "hook": head + top_h + min(12, band // 4) if band else None}
 
 
 # --------------------------------------------------------------- targets

@@ -420,6 +420,10 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
     opts = render.effective_options(settings, project.get("options") or {}, {})
     with brain.consultation("blueprint", settings, ref=("clip", clip["id"])):
         opts, influences = knowledge.choose(knowledge.context(clip, project), opts, settings)
+    # A layout nobody chose (not this video's options, not a Brain note) is the Settings one: with Settings → Split
+    # view on, the plan asks for a look for a face cam first.
+    opts["layout"] = render.cam_layout(opts, (project.get("options") or {}).get("layout") is not None
+                                       or any("layout" in i["decisions"] for i in influences))
     # Selection provenance is persisted with the chosen range, so a resumed render uses the original decision.
     selected = (selection or {}).get("brain_knowledge") or []
     combined = {}
