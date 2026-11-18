@@ -23,7 +23,9 @@ from .targets import account_name, usable
 
 REUSE_BASES = [
     {"id": "owned", "label": "My original video", "text": "I own this video's footage and sound and may edit and upload clips from it."},
-    {"id": "permission", "label": "I have permission", "text": "I have permission or a license covering this video's footage and sound, editing, and uploading clips to this YouTube channel."},
+    {"id": "permission", "label": "I have permission", "text": "I have permission or a license covering this video's footage and sound, editing, and uploading clips to this YouTube channel.",
+     # Said, and saved, when the request names more than one channel: the permission must cover each of them.
+     "text_many": "I have permission or a license covering this video's footage and sound, editing, and uploading clips to each YouTube channel I chose."},
     {"id": "legal_exception", "label": "Another legal basis", "text": "I checked the footage and sound and have the legal basis described below to edit and upload clips from this video."},
 ]
 
@@ -135,9 +137,11 @@ def _options(options: dict) -> dict:
         raise ValueError("Choose your reuse basis and use at most 4,000 characters for its details.")
     if basis["id"] == "legal_exception" and not statement.strip():
         raise ValueError("Explain the legal basis covering the footage, sound, edits and YouTube upload.")
-    full_statement = basis["text"] + (" Details: " + statement.strip() if statement.strip() else "")
+    said = basis.get("text_many") if chosen and len(chosen) > 1 else None
+    said = said or basis["text"]
+    full_statement = said + (" Details: " + statement.strip() if statement.strip() else "")
     if len(full_statement) > 4000:
-        available = 4000 - len(basis["text"]) - len(" Details: ")
+        available = 4000 - len(said) - len(" Details: ")
         raise ValueError(f"The reuse statement, including the selected basis, must fit within 4,000 characters. "
                          f"Shorten its details to at most {available:,} characters.")
     destination = {"account_id": view["account_id"]} if chosen is None else \

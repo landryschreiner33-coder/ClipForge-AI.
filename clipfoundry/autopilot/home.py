@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .. import awake, config, db
 from . import autopublish, myvideos, queue, rights, state, trends
+from .targets import usable
 
 NAME = {"youtube": "YouTube", "tiktok": "TikTok"}
 
@@ -241,8 +242,12 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
         acc = platforms.get(p) or {}
         if not settings.get(f"autopilot_{p}"):
             continue
+        # `acc` is the platform's default account: only posts that go to it wait for it. A post to another chosen
+        # channel keeps going out, and reports its own account when that one needs Reconnect.
+        default = db.default_connection_id(p)
         planned = int(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE platform = ? AND status IN "
-                                "('awaiting_approval', 'approved', 'publishing', 'action_needed')", (p,)) or 0)
+                                "('awaiting_approval', 'approved', 'publishing', 'action_needed') AND "
+                                "COALESCE(connection_id, '') IN ('', ?)", (p, default)) or 0)
         if acc.get("connected") and acc.get("needs_reconnect"):
             items.append({"key": f"account:{p}", "type": "account", "platform": p, "title": f"Reconnect {name}",
                           "detail": f"{name} stopped accepting ClipForge's sign-in, so Autopilot cannot post there. "
@@ -253,6 +258,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                           "detail": f"{name} is not connected, so {planned} planned post{'s' if planned != 1 else ''} "
                                     f"cannot go out."})
     accounts = {i["platform"] for i in items if i["type"] == "account"}
+    accounts |= {db.default_connection_id(p) for p in list(accounts)} - {""}  # the same account, said once
     from . import readiness
 
     setup = readiness.setup_needs(settings, platforms)
@@ -266,6 +272,8 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
             continue
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
             continue
+        if key.startswith("connect:conn-") and usable(db.get_connection(key.split(":", 1)[1])):
+            continue  # reconnected since: the waiting post goes out at its next try and closes this itself
         if kind == "workers" and workers_alive:
             continue  # the automatic in-app fallback already recovered this problem
         if kind == "rights":

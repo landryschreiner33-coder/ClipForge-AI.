@@ -523,3 +523,114 @@ def test_a_request_from_before_channel_choice_behaves_as_before(chans):
     assert published["status"] == "published"
     pub = db.get_publication(published["publication_id"])
     assert pub["connection_id"] == a["id"] and "approved_account" not in pub["options"]
+
+
+# ------------------------------------------------------------------ what the review found
+def test_reconnecting_a_channel_keeps_its_tick_for_new_posts(chans, api):  # noqa: F811
+    from clipfoundry import db
+
+    b = chans["b"]
+    assert api.patch(f"/api/connections/{b['id']}", headers=H, json={"post_by_default": True}).status_code == 200
+    db.update_connection(b["id"], status="needs_reconnect", info={"needs_reconnect": True})
+    again = add_channel(chans["google"], "UCchanB", "Channel B")  # Reconnect: the same channel signs in again
+    assert again["id"] == b["id"] and again["status"] == "connected"
+    info = db.get_connection(b["id"])["info"]
+    assert info["post_by_default"] is True and info["needs_reconnect"] is False
+    rows = {c["account_id"]: c for c in api.get("/api/connections").json()["connections"]}
+    assert rows["UCchanB"]["post_by_default"] is True
+
+
+def test_posts_planned_before_accounts_could_be_chosen_keep_going_to_the_default(chans):
+    """The earlier connections migration wrote the default connection on every planned post, and nothing read it.
+    The first start of this version clears it once, so those posts and their approvals behave exactly as before."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import scheduler, submissions
+
+    a, b = chans["a"], chans["b"]
+    source = add_file(account_id="UCchanA")
+    _clip, posts = ready(chans["tmp"], source, created=1)
+    item = posts[""]
+    assert item["status"] == "approved" and "connection_id" not in item["approval"]
+    db.execute("UPDATE scheduled_publications SET connection_id = ? WHERE id = ?", (a["id"], item["id"]))
+    db.execute("DELETE FROM autopilot_state WHERE key = ?", (db.SCHEDULED_ACCOUNTS_MIGRATION,))
+    assert scheduler.approval_problem(post(item["id"]))  # read as a chosen account, the old approval would not fit
+    with db.connect() as conn:
+        db._migrate_scheduled_accounts(conn)  # noqa: SLF001 - the next start
+    row = post(item["id"])
+    assert row["connection_id"] == "" and scheduler.approval_problem(row) == "" and submissions.still_covers(row)
+    # Only once: an account chosen from now on is never cleared by a later start.
+    db.execute("UPDATE scheduled_publications SET connection_id = ? WHERE id = ?", (b["id"], item["id"]))
+    with db.connect() as conn:
+        db._migrate_scheduled_accounts(conn)  # noqa: SLF001
+    assert post(item["id"])["connection_id"] == b["id"]
+
+
+def test_a_post_without_a_chosen_account_is_checked_against_the_whole_platform(chans):
+    """Making another channel the default must never plan or post the old backlog again."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import publisher, scheduler
+
+    a, b = chans["a"], chans["b"]
+    source = add_file(account_id="UCchanA")
+    clip, posts = ready(chans["tmp"], source, created=1)
+    item = posts[""]
+    scheduler.process_due(db.get_settings(), time.time())
+    run_publish(item["id"])
+    done = post(item["id"])
+    assert done["status"] == "published" and db.get_publication(done["publication_id"])["connection_id"] == a["id"]
+    db.set_default_connection(b["id"])
+    assert scheduler._published_or_active(clip["id"], "youtube")  # noqa: SLF001 - no chosen account: anywhere
+    assert scheduler._published_or_active(clip["id"], "youtube", a["id"])  # noqa: SLF001 - it went to channel A
+    assert not scheduler._published_or_active(clip["id"], "youtube", b["id"])  # noqa: SLF001 - never to channel B
+    assert scheduler.plan_new(db.get_settings(), time.time())["created"] == 0
+    again = {**done, "id": "another-post", "publication_id": ""}
+    assert publisher.already_published(again)  # the default is channel B now; still a repeat
+    assert publisher.already_published({**again, "connection_id": b["id"]}) == ""  # chosen: channel B never had it
+    assert publisher.already_published({**again, "connection_id": a["id"]})
+
+
+def test_home_counts_only_the_default_channels_posts_when_it_is_disconnected(chans):
+    from clipfoundry import db
+    from clipfoundry.autopilot import home, state
+    from clipfoundry.publish.routes import _youtube_state
+
+    a, b = chans["a"], chans["b"]
+    on_b = owner_item(chans["tmp"], b["id"], "Build what they asked for")
+    db.disconnect_connection(a["id"])
+
+    def account_items() -> list[dict]:
+        settings = db.get_settings()
+        platforms = {"youtube": _youtube_state(settings)}
+        return [i for i in home.needs_you(settings, platforms) if i.get("key") == "account:youtube"]
+
+    assert account_items() == []  # the only planned post goes to channel B, which is connected
+    waiting = db.insert("scheduled_publications", {
+        "clip_id": on_b["clip_id"], "platform": "youtube", "title": "Unbound", "description": "", "tags": [],
+        "privacy": "private", "options": {"made_for_kids": False}, "planned_at": time.time() + 7200,
+        "status": "awaiting_approval", "final_score": 50})
+    found = account_items()
+    assert len(found) == 1 and "1 planned post cannot go out" in found[0]["detail"]
+    # A chosen channel that was reconnected since no longer asks for Reconnect on Home.
+    state.action(f"connect:{b['id']}", "publish", "Reconnect Channel B to publish", "", "", ref_type="scheduled",
+                 ref_id=on_b["id"])
+    keys = [i["key"] for i in home.needs_you(db.get_settings(), {})]
+    assert f"connect:{b['id']}" not in keys
+    db.disconnect_connection(b["id"])
+    keys = [i["key"] for i in home.needs_you(db.get_settings(), {})]
+    assert f"connect:{b['id']}" in keys
+    assert waiting["id"]
+
+
+def test_the_permission_statement_covers_each_chosen_channel(chans):
+    from clipfoundry.autopilot import submissions
+
+    a, b = chans["a"], chans["b"]
+    many = submissions.for_source(add_file(a, b, reuse_basis="permission"))["settings"]["reuse_statement"]
+    assert "uploading clips to each YouTube channel I chose." in many and STATEMENT in many
+    one = submissions.for_source(add_file(b, reuse_basis="permission"))["settings"]["reuse_statement"]
+    assert "uploading clips to this YouTube channel." in one
+    old = submissions.for_source(add_file(account_id="UCchanA", reuse_basis="permission"))["settings"]
+    assert "uploading clips to this YouTube channel." in old["reuse_statement"]
+    shown = {row["id"]: row for row in submissions.setup()["reuse_bases"]}
+    assert shown["permission"]["text_many"].endswith("each YouTube channel I chose.")
+    assert "text_many" not in shown["owned"]
