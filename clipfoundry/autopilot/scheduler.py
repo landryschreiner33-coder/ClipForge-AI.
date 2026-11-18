@@ -32,7 +32,7 @@ from ..pipeline import artifact, fingerprint
 from ..publish import audience
 from . import autopublish, gate, learner, queue, rights, state
 from .host import Job, handler
-from .targets import effective_connection_id, item_account
+from .targets import effective_connection_id, item_account, same_account
 from .scout import local_day, tz
 
 PLATFORMS = ("youtube", "tiktok")
@@ -173,15 +173,13 @@ def active_version_path(clip: dict) -> tuple[str, str]:
 
 
 def _published_or_active(clip_id: str, platform: str, connection_id: str = "") -> bool:
-    """Is this clip already planned or posted to this account? Rows and publications without a connection of their
-    own count for the platform's default account, as `connection_id=""` does here (the only case before several
-    accounts could be chosen, so one account behaves exactly as before)."""
-    target = effective_connection_id({"platform": platform, "connection_id": connection_id})
+    """Is this clip already planned or posted? Without a chosen account ("") anywhere on the platform, as before
+    accounts could be chosen; for a chosen account, on that account (see targets.same_account)."""
     for row in db.select("scheduled_publications", "clip_id = ? AND platform = ? AND status IN ('awaiting_approval', "
                          "'approved', 'publishing', 'reconciling', 'published')", (clip_id, platform)):
-        if effective_connection_id(row) == target:
+        if same_account(row, connection_id):
             return True
-    return any(effective_connection_id(row) == target for row in db.select(
+    return any(same_account(row, connection_id) for row in db.select(
         "publications", "clip_id = ? AND platform = ? AND status IN ('done', 'action_needed', 'uploading', "
         "'processing', 'queued')", (clip_id, platform)))
 
@@ -793,6 +791,10 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         _note(item, "Held for your review: automatic publishing was turned on for another channel than the one "
                     "connected now")
         return False
+    if item.get("connection_id") and item_account(item) != autopublish.account_id(item["platform"]):
+        # The permission names the default channel only; a post planned for another chosen channel is the owner's.
+        _note(item, "Held for your review: automatic publishing was turned on for another channel than this post's")
+        return False
     clip = db.get_clip(item["clip_id"]) or {}
     report = gate.report_for(clip) if clip else None
     sha = video_sha256(active_version_path(clip)[0]) if clip else ""
@@ -983,9 +985,8 @@ def reschedule(item_id: str, planned_at: float) -> dict:
     for other in db.select("scheduled_publications", "platform = ? AND id != ? AND status IN ('awaiting_approval', "
                                                      "'approved', 'publishing', 'reconciling', 'published')",
                            (item["platform"], item_id)):
-        if effective_connection_id(other) != account:
-            continue  # each account keeps its own gap
-        if other["planned_at"] and abs(other["planned_at"] - planned_at) < gap:
+        if other["planned_at"] and abs(other["planned_at"] - planned_at) < gap and \
+                effective_connection_id(other) == account:  # each account keeps its own gap
             raise ValueError(f"Less than {gap / 60:.0f} minutes from another {item['platform']} post "
                              f"(“{other['title'][:40]}”)")
     local = _local(planned_at, settings)

@@ -11,9 +11,25 @@ from .. import db
 
 
 def effective_connection_id(row: dict) -> str:
-    """The connection this scheduled post or publication goes (or went) to; "" when none is connected at all."""
+    """The connection this scheduled post or publication goes (or went) to; "" when none is connected at all.
+    A planned post without a connection of its own that already has an upload record went where that upload went
+    (the default may have changed since); otherwise it goes to today's default."""
     row = row or {}
-    return row.get("connection_id") or db.default_connection_id(row.get("platform") or "")
+    if row.get("connection_id"):
+        return row["connection_id"]
+    if row.get("publication_id"):  # only planned posts carry one
+        sent = (db.get_publication(row["publication_id"]) or {}).get("connection_id")
+        if sent:
+            return sent
+    return db.default_connection_id(row.get("platform") or "")
+
+
+def same_account(row: dict, connection_id: str) -> bool:
+    """Does this planned post or publication count against a new post to `connection_id`? A new post without a
+    connection of its own ("") is checked platform-wide, exactly as before accounts could be chosen: changing the
+    default account must never send the old backlog out again. A post to a chosen account counts only that
+    account's rows, so one clip can go to several chosen channels."""
+    return not connection_id or effective_connection_id(row) == connection_id
 
 
 def item_account(item: dict) -> str:

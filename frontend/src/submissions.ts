@@ -25,7 +25,8 @@ export interface SubmissionSetup {
   privacy: "private" | "public";
   can_upload: boolean;
   blocker: string;
-  reuse_bases: { id: SubmissionOptions["reuse_basis"]; label: string; text: string }[];
+  /** `text_many` is what the statement says (and saves) when more than one channel is ticked. */
+  reuse_bases: { id: SubmissionOptions["reuse_basis"]; label: string; text: string; text_many?: string }[];
   input_mode: string;
 }
 

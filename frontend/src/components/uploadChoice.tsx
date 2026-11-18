@@ -74,6 +74,12 @@ const WORDS = {
   },
 };
 
+/** The statement the owner agrees to: with several channels ticked it says the permission covers each of them. */
+function basisText(setup: SubmissionSetup | null, basis: string, channels: number): string {
+  const option = setup?.reuse_bases.find((o) => o.id === basis);
+  return (channels > 1 && option?.text_many) || option?.text || "";
+}
+
 export function UploadChoice({ choice, setup, id, what, count = 1 }: {
   choice: UploadChoiceState; setup: SubmissionSetup | null; id: string; what: "video" | "stream"; count?: number;
 }) {
@@ -132,7 +138,7 @@ export function UploadChoice({ choice, setup, id, what, count = 1 }: {
             onChange={() => { setBasis(option.id); setAgreed(false); }} />
           <span>{option.label}</span>
         </label>)}</div>
-        {basis && <p className="hint">{setup?.reuse_bases.find(option => option.id === basis)?.text}</p>}
+        {basis && <p className="hint">{basisText(setup, basis, chosen.length)}</p>}
         <details className="more" open={basis === "legal_exception" ? true : undefined}>
           <summary><Icon name="chev" className="chev" />{basis === "legal_exception"
             ? "Explain your legal basis (required)" : "Add permission details (optional)"}</summary>

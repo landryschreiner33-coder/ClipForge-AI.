@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
-import { api, Clip, errorText } from "../api";
+import { api, Clip, errorText, Publication } from "../api";
 import { audienceApi, AudienceView } from "../office/api";
-import type { Connection } from "../studio";
+import { Connection, studio } from "../studio";
 import { accountName, ChannelPicker, nameList } from "./channelPicker";
 import { Dialog, Icon, Pill, toast } from "./ui";
 import { YouTubeComments } from "./YouTubeComments";
@@ -18,10 +18,15 @@ function postOf(c: Clip) {
 
 type Outcome = { key: string; clip: string; channel: string; ok: boolean; text: string };
 
+// An upload that is on the channel, on its way there, or whose outcome YouTube never confirmed.
+const HELD = ["done", "queued", "uploading", "processing", "action_needed"];
+const onChannel = (p: Publication) => HELD.includes(p.status) || !!p.info?.outcome_unknown
+  || p.info?.code === "outcome_unknown";
+
 /**
  * Post several clips at once, to YouTube only: each selected clip goes to each ticked channel as its own upload, one
- * after another, with the clip's saved post text and your confirmed audience. TikTok asks for a check of every post,
- * so it stays on Prepare post.
+ * after another, with the clip's saved post text and your confirmed audience. A clip a channel already has is left out
+ * unless you ask for it again. TikTok asks for a check of every post, so it stays on Prepare post.
  */
 export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () => void }) {
   const hid = useId();
@@ -32,21 +37,48 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
   const [kids, setKids] = useState<"" | "no" | "yes">("");
   const [running, setRunning] = useState<{ done: number; total: number } | null>(null);
   const [results, setResults] = useState<Outcome[] | null>(null);
+  const [rows, setRows] = useState<Connection[] | null>(null);
+  const [history, setHistory] = useState<Record<string, Publication[]> | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  const [again, setAgain] = useState(false);
+  const clipIds = clips.map((c) => c.id).join("|");
   useEffect(() => {
     audienceApi.view().then(setAudience).catch((e) => setAudienceError(errorText(e)));
+    studio.connections().then((r) => setRows(r.connections)).catch(() => setRows([]));
   }, []);
+  // What each clip was already uploaded to, so one press never posts a clip to the same channel twice by accident.
+  useEffect(() => {
+    let alive = true;
+    Promise.all(clips.map((c) => api.publications(c.id).then((list) => [c.id, list] as const)))
+      .then((pairs) => alive && setHistory(Object.fromEntries(pairs)))
+      .catch((e) => alive && setHistoryError(errorText(e)));
+    return () => {
+      alive = false;
+    };
+  }, [clipIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const yt = audience?.youtube;
   const privacy = yt?.intent === "PUBLIC" ? "public" : "private";
-  const posts = clips.map((c) => ({ clip: c, ...postOf(c) }));
+  // An old upload names no account: it went to the platform's default account.
+  const fallback = rows?.find((r) => r.platform === "youtube" && r.is_default)?.id || "";
+  const has = (clipId: string, c: Connection) => !!history?.[clipId]?.some(
+    (p) => p.platform === "youtube" && (p.connection_id || fallback) === c.id && onChannel(p));
+  const posts = clips.map((c) => {
+    const there = chosen.filter((ch) => has(c.id, ch));
+    return { clip: c, ...postOf(c), there, to: again ? chosen : chosen.filter((ch) => !there.includes(ch)) };
+  });
   const longTitles = posts.filter((p) => p.title.length > 100).length;
-  const total = posts.length * chosen.length;
+  const total = posts.reduce((n, p) => n + p.to.length, 0);
+  const repeats = posts.reduce((n, p) => n + p.there.length, 0);
   const missing = [
     !audience && !audienceError && "wait for your audience settings to load",
     !!audienceError && "reload the audience settings",
     yt && (!yt.confirmed || yt.intent === "LOCAL_ONLY") && "confirm who watches in Settings → Integrations",
     !!yt?.halted && "resolve the audience warning in Settings → Integrations",
+    !history && !historyError && "wait while ClipForge reads where these clips were already posted",
+    !!historyError && "close this and try again (the clips' earlier uploads could not be read)",
     !chosen.length && "choose at least one channel",
+    chosen.length > 0 && !!history && !total && "tick another channel, or tick “Post them there again”",
     !kids && "answer “made for kids”",
     posts.some((p) => !p.title) && "give every clip a title in Prepare post",
     longTitles > 0 && "shorten the titles marked below to 100 characters in Prepare post",
@@ -65,7 +97,7 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
     setRunning({ done, total });
     // One at a time, in order: each is its own upload request, and one refusal never stops the others.
     for (const p of posts) {
-      for (const c of chosen) {
+      for (const c of p.to) {
         setRunning({ done, total });
         const row = { key: `${p.clip.id}|${c.id}`, clip: p.title, channel: accountName(c) };
         try {
@@ -115,8 +147,9 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
         <fieldset className="stack-4" disabled={!!running}>
           <legend className="sr-only">Where and how these clips are posted</legend>
           <p className="small muted">TikTok asks you to check each post, so use Prepare post for TikTok.</p>
-          <ChannelPicker platforms={["youtube"]} value={ids} idPrefix={`${hid}-to`} legend="YouTube channels to post to"
-            onChange={(next, accounts) => { setIds(next); setChosen(accounts); }} />
+          {rows ? <ChannelPicker platforms={["youtube"]} rows={rows} value={ids} idPrefix={`${hid}-to`}
+            legend="YouTube channels to post to" onChange={(next, accounts) => { setIds(next); setChosen(accounts); }} />
+            : <p className="muted small">Loading accounts…</p>}
           <div className="field">
             <span className="label">Who can see it</span>
             {audienceError ? <span className="error-text">{audienceError}</span>
@@ -145,7 +178,11 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
                 const big = new TextEncoder().encode(p.description).length > 5000;
                 return (
                   <li key={p.clip.id}>
-                    <span className="break">{p.title || <span className="muted">(no title)</span>}</span>
+                    <span className="break">{p.title || <span className="muted">(no title)</span>}
+                      {p.there.length > 0 && <span className="block small muted">
+                        Already on {nameList(p.there.map(accountName))}:{" "}
+                        {again ? "posted there again" : "left out there"}</span>}
+                    </span>
                     {(long || big || !p.title) && (
                       <a className="textlink small" href={`#/publish/${p.clip.id}`}>
                         {!p.title ? "Add a title" : long ? `Title is ${p.title.length}/100: shorten it`
@@ -158,11 +195,21 @@ export function PostSelected({ clips, onClose }: { clips: Clip[]; onClose: () =>
             </ul>
             <p className="tiny faint">Each clip uses its saved post text (title, caption and hashtags). Edit it in the
               clip's Prepare post.</p>
+            {repeats > 0 && (
+              <label className="choice">
+                <input type="checkbox" checked={again} onChange={(e) => setAgain(e.target.checked)} />
+                <span>Post them there again <span className="hint block">
+                  {repeats === 1 ? "1 upload is" : `${repeats} uploads are`} left out because the channel already has
+                  that clip, or an upload of it is still under way. Tick this to upload {repeats === 1 ? "it" : "them"}
+                  {" "}again anyway.</span></span>
+              </label>
+            )}
           </div>
           <div className="consequence">
             <span>
-              {total > 0 ? `This starts ${total === 1 ? "1 upload" : `${total} uploads`}: each clip to `
-                + `${nameList(chosen.map(accountName))}, as ${privacy === "public" ? "Public" : "Private"}, `
+              {total > 0 ? `This starts ${total === 1 ? "1 upload" : `${total} uploads`}`
+                + (repeats > 0 && !again ? " (clips a channel already has are left out)" : ": each clip")
+                + ` to ${nameList(chosen.map(accountName))}, as ${privacy === "public" ? "Public" : "Private"}, `
                 + "right away. "
                 : ""}
               Every upload uses part of your project's daily YouTube upload allowance. ClipForge can't take an upload

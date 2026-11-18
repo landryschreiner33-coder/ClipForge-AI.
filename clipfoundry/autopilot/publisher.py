@@ -34,7 +34,7 @@ from . import autopublish, gate, queue, quota, rights, state, verify
 from .host import MAINTENANCE_STEPS, Job, handler
 from .providers import iso_time
 from .scheduler import _audit, _label, active_version_path, approval_problem, block_platform, blocked_until, tz
-from .targets import account_name, effective_connection_id, item_account, usable
+from .targets import account_name, item_account, same_account, usable
 
 RECONNECT_WAIT = 30 * 60
 
@@ -59,19 +59,19 @@ def _next_local_midnight(settings: dict) -> float:
 
 
 def already_published(item: dict) -> str:
-    """Why this post would be a repeat on its account ("" if it is not). A post without a connection of its own goes
-    to the platform's default account, as do publications without one. Posting a clip to one channel is no reason
-    to cancel its post to another chosen channel."""
-    account = effective_connection_id(item)
+    """Why this post would be a repeat ("" if it is not). A post without a chosen account is checked against the
+    whole platform, as before accounts could be chosen. A post to a chosen account is checked against that account
+    only: posting a clip to one channel is no reason to cancel its post to another chosen channel."""
+    chosen = item.get("connection_id") or ""
     for p in db.list_publications(item["clip_id"], item["platform"]):
         if p["status"] in ("done", "action_needed") and p.get("scheduled_id") != item["id"] and \
-                effective_connection_id(p) == account:
+                same_account(p, chosen):
             return "This clip was already published on this platform."
     mine = db.fetch("clip_fingerprints", item["clip_id"], "clip_id")
     if mine:
         posted = {p["clip_id"] for p in db.select("publications", "platform = ? AND clip_id != ? AND status IN "
                                                   "('done', 'action_needed')", (item["platform"], item["clip_id"]))
-                  if effective_connection_id(p) == account}
+                  if same_account(p, chosen)}
         for o in db.select("clip_fingerprints", "clip_id != ? AND clip_id IN (SELECT clip_id FROM publications WHERE "
                                                 "platform = ? AND status IN ('done', 'action_needed'))",
                            (item["clip_id"], item["platform"])):
