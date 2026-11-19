@@ -17,8 +17,8 @@ clips". Branch `claude/project-thread-82eyed` (PR #57) from the release line, wi
   minutes for a better moment), *Balanced* (6 an hour, 2 minutes apart, the 60% mark) and *Every good moment* (the
   old behaviour). A standout (15 points above the bar) may ignore the gap and be one clip over the hour. The reason
   nothing is made is written to the stream's card (`info.live_note`). `post_live` keeps the same floor and
-  `live_pick.total_cap`. On a stand-in half hour the old picker made 26 clips; the new default keeps 3, all in the strongest quarter
-  and the strongest among them.
+  `live_pick.total_cap`. On a stand-in half hour the old picker made 26 clips; the new default keeps 3, all in
+  the strongest quarter and the strongest among them.
 - **Framing and split view** (`pipeline/reframe.find_cam`, `split_layout`, `render`, `captions`). The old framing
   followed the only face it found, so a stream with a corner face cam was parked on that corner. The cam's rectangle
   is now found (steady edges, still picture against moving picture, a small steady face) and the clip shows the cam
