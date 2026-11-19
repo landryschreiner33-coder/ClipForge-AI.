@@ -1,7 +1,7 @@
 import { KeyboardEvent, PointerEvent, ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useConnection } from "../components/ui";
 import { useMotion } from "../motion";
-import { BrainGraphModel, BrainNode } from "./brainGraphModel";
+import { BrainGraphModel, BrainNode, branchControl } from "./brainGraphModel";
 import { galaxyCanvas } from "./galaxy";
 import "./BrainGraph.css";
 
@@ -39,16 +39,35 @@ function pathTo(model: BrainGraphModel, target: string): string[] {
   while (path[0] !== "brain") path.unshift(from.get(path[0])!);
   return path;
 }
+/** A link's drawn path: CORE's branches bend a little, like an arm of the galaxy; every other link is straight. */
+function linkPath(from: BrainNode, to: BrainNode): string {
+  if (from.kind !== "brain" || to.kind !== "collection") return `M${from.x} ${from.y}L${to.x} ${to.y}`;
+  const bend = branchControl(to.x, to.y);  // CORE sits at (0, 0)
+  return `M${from.x} ${from.y}Q${bend.x} ${bend.y} ${to.x} ${to.y}`;
+}
+/** A dot's name, on the side away from its collection (the way its branch points), so it never covers the
+ * collection's own name. */
+function LeafName({ node, parent }: { node: BrainNode; parent?: BrainNode }) {
+  const dx = node.x - (parent?.x ?? 0), dy = node.y - (parent?.y ?? 0);
+  const gap = node.radius + 7;
+  const side = Math.abs(dx) >= Math.abs(dy) * 0.6;
+  return side ? (
+    <text x={dx >= 0 ? gap : -gap} y={4} textAnchor={dx >= 0 ? "start" : "end"} className="brain-node-label">{node.label}</text>
+  ) : (
+    <text y={dy >= 0 ? gap + 9 : -gap} textAnchor="middle" className="brain-node-label">{node.label}</text>
+  );
+}
 /** How far the galaxy reaches from CORE, in graph units (the branches sit within about 480). */
 const GALAXY_REACH = 560;
 function bounds(model: BrainGraphModel): View {
   const xs = model.nodes.map((node) => node.x),
     ys = model.nodes.map((node) => node.y);
-  const width = Math.max(460, Math.max(...xs) - Math.min(...xs) + 120);
-  const height = Math.max(400, Math.max(...ys) - Math.min(...ys) + 130);
+  // room round the dots for their names, and a little more at the top, under the map's own heading
+  const width = Math.max(460, Math.max(...xs) - Math.min(...xs) + 190);
+  const height = Math.max(400, Math.max(...ys) - Math.min(...ys) + 210);
   return {
     x: (Math.max(...xs) + Math.min(...xs) - width) / 2,
-    y: (Math.max(...ys) + Math.min(...ys) - height) / 2,
+    y: (Math.max(...ys) + Math.min(...ys) - height) / 2 - 18,
     width,
     height,
   };
@@ -87,10 +106,9 @@ export default function BrainGraph({
   // tab, off screen, with reduced motion and while ClipForge is not answering.
   const frozen = reduceMotion || pageHidden || lost || offscreen;
   const applied = model.nodes.filter((node) => node.applied).length;
-  const leaves = model.nodes.filter((node) => node.kind !== "brain" && node.kind !== "collection").length;
   const zoomLevel = home.width / view.width;
-  // labels thin out when zoomed out on a busy map; the selected item, its links and every collection keep theirs
-  const allLabels = leaves <= 40 || zoomLevel >= 1.5;
+  // dots' names show once zoomed in; until then the chosen item, its links and every collection keep theirs
+  const allLabels = zoomLevel >= 1.5;
   useEffect(() => {
     setView(home);
   }, [home]);
@@ -125,6 +143,9 @@ export default function BrainGraph({
   const path = useMemo(() => pathTo(model, selected).map((id) => points.get(id)).filter(Boolean) as BrainNode[],
     [model, selected, points]);
   const pathIds = new Set(path.map((node) => node.id));
+  // the same bends as the links it follows, joined into one line from CORE
+  const tracePath = path.slice(1).map((node, i) => linkPath(path[i], node).replace(/^M[^LQ]+/, i ? "" : "$&"))
+    .join("");
   const selectedNode = points.get(selected);
   useEffect(() => {
     if (typeof IntersectionObserver !== "function" || !section.current) return;
@@ -194,6 +215,7 @@ export default function BrainGraph({
       className={`brain-graph ${frozen ? "is-still" : ""}`}
       aria-label="Knowledge graph"
       data-animation={frozen || !applied ? "still" : "applied"}
+      data-names={allLabels ? "all" : "chosen"}
     >
       <div className="brain-graph-heading">
         <span>
@@ -244,27 +266,24 @@ export default function BrainGraph({
               to = points.get(edge.to);
             if (!from || !to) return null;
             return (
-              <line
+              <path
                 key={edge.id}
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                className={`edge-${edge.kind}`}
+                d={linkPath(from, to)}
+                className={`edge-${edge.kind}${from.kind === "brain" ? " edge-branch" : ""}`}
                 strokeDasharray={edge.kind === "provenance" ? "4 3" : undefined}
                 data-highlighted={edge.from === selected || edge.to === selected}
-                style={{ stroke: from.color }}
+                style={{ stroke: from.kind === "brain" ? to.color : from.color,
+                  color: from.kind === "brain" ? to.color : from.color }}
               >
                 <title>{edge.label}</title>
-              </line>
+              </path>
             );
           })}
         </g>
         {path.length > 1 && selectedNode && (
           <g className="brain-path" aria-hidden="true" style={{ color: selectedNode.color }}>
-            <polyline className="brain-path-line" points={path.map((n) => `${n.x},${n.y}`).join(" ")} />
-            <polyline key={selected} className="brain-path-trace" pathLength={100}
-              points={path.map((n) => `${n.x},${n.y}`).join(" ")} />
+            <path className="brain-path-line" d={tracePath} />
+            <path key={selected} className="brain-path-trace" pathLength={100} d={tracePath} />
           </g>
         )}
         {model.nodes.map((node) => (
@@ -309,12 +328,14 @@ export default function BrainGraph({
             {node.knowledge?.state === "disabled" && <path d="M-6 6L6-6" className="brain-node-disabled" />}
             {node.kind === "brain" ? (
               <text y={5} textAnchor="middle" className="brain-node-label brain-core-word">{node.label}</text>
-            ) : (allLabels || node.kind === "collection" || node.applied || selected === node.id
-              || connected.has(node.id)) && (
-              <text x={node.kind === "collection" ? node.radius + 10 : 0} y={node.kind === "collection" ? 4 : node.radius + 16}
-                textAnchor={node.kind === "collection" ? "start" : "middle"} className="brain-node-label">
+            ) : node.kind === "collection" ? (
+              <text x={node.labelAt?.x ?? node.radius + 10} y={node.labelAt?.y ?? 4} className="brain-node-label">
                 {node.label}
               </text>
+            ) : (
+              // every dot has its name; the map shows it when the dot is chosen, linked to the chosen one, pointed at,
+              // just used or zoomed in on (BrainGraph.css), so a full map stays readable
+              <LeafName node={node} parent={points.get(`group:${node.category}`)} />
             )}
           </g>
         ))}

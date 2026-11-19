@@ -291,3 +291,10 @@
   .brain-page .brain-vault .brain-inspector { border-left: 0; border-top: 1px solid var(--line); }
   .brain-saved { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* the inspector's Source row (the space studio's picture: "Source  Imported skill") */
+.brain-source { display: flex; justify-content: space-between; gap: var(--s3); margin: 0; padding: var(--s3) 0;
+  border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); font-size: var(--fs-small); }
+.brain-source dt { color: var(--primary); }
+.brain-source dd { margin: 0; color: var(--text); text-align: right; }
+.brain-inspector-eyebrow { font-size: var(--fs-small); }

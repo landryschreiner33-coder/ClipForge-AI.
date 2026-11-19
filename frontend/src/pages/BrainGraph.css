@@ -18,10 +18,10 @@
 }
 .brain-graph-canvas:active { cursor: grabbing; }
 .brain-graph-canvas:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
-.brain-graph-edges line { stroke-width: 0.75; opacity: 0.22; vector-effect: non-scaling-stroke; }
+.brain-graph-edges path { fill: none; stroke-width: 0.75; opacity: 0.22; vector-effect: non-scaling-stroke; }
 .brain-graph-edges .edge-topic { opacity: 0.16; }
 .brain-graph-edges .edge-evidence { stroke-dasharray: 3 4; opacity: 0.28; }
-.brain-graph-edges line[data-highlighted="true"] { opacity: 0.7; stroke-width: 1.3; }
+.brain-graph-edges path[data-highlighted="true"] { opacity: 0.7; stroke-width: 1.3; }
 .brain-graph-node { cursor: pointer; outline: none; }
 .brain-node-hit { fill: transparent; stroke: transparent; }
 .brain-node-ring { fill: none; stroke: currentColor; stroke-width: 0.75; opacity: 0.25; }
@@ -96,7 +96,7 @@
 .brain-graph { background: transparent; background-image: none; }
 .brain-graph-stage { position: relative; overflow: hidden; }
 .brain-galaxy { position: absolute; pointer-events: none; opacity: 0.92; }
-.brain-galaxy-tilt { position: absolute; inset: 0; transform: rotate(-22deg) scale(1, 0.62); }
+.brain-galaxy-tilt { position: absolute; inset: 0; transform: rotate(-18deg) scale(1, 0.74); }
 .brain-galaxy-spin { position: absolute; inset: 0; animation: brain-galaxy-turn 360s linear infinite; }
 .brain-galaxy-spin canvas { display: block; width: 100%; height: 100%; }
 @keyframes brain-galaxy-turn { to { transform: rotate(360deg); } }
@@ -112,7 +112,9 @@
 .brain-graph-node.node-collection .brain-node-label { font-size: 13px; font-weight: 700; }
 .brain-graph-node.node-brain .brain-node-label.brain-core-word { fill: #ffe2b8; stroke: none; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; }
 .brain-graph-node.node-brain .brain-node-core { filter: drop-shadow(0 0 14px rgba(255, 200, 140, 0.85)); stroke: #ffd9a8; stroke-width: 1.5; }
-.brain-graph-edges line { opacity: 0.3; }
+.brain-graph-edges path { opacity: 0.3; }
+/* CORE's branches: brighter, thicker and in their collection's colour */
+.brain-graph-edges .edge-branch { opacity: 0.85; stroke-width: 2; filter: drop-shadow(0 0 3px currentColor); }
 
 /* the path from CORE to the chosen node: a faint line, and one light that runs along it once */
 .brain-path { pointer-events: none; }
@@ -128,3 +130,32 @@
 @keyframes brain-settle { from { opacity: 0; transform: scale(1.8); } to { opacity: 1; transform: scale(1); } }
 .brain-graph.is-still .brain-path-trace { animation: none; opacity: 0; }
 .brain-graph.is-still .brain-node-settle { animation: none; opacity: 1; }
+
+/* the map's name, and its controls laid over the bottom of the map (zoom at the left, Teach preference at the right) */
+.brain-graph-heading { padding: var(--s4) var(--s5) 0; pointer-events: none; }
+.brain-graph-heading > span:first-child { font-size: 1.25rem; font-weight: 700; color: var(--text); text-shadow: 0 1px 6px #000; }
+.brain-graph-heading > span:first-child i { display: none; }
+.brain-graph-motion { text-shadow: 0 1px 4px #000; }
+.brain-graph-bottom {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; background: none; border-top: 0; margin: 0;
+  padding: var(--s4) var(--s5); align-items: flex-end; flex-wrap: nowrap; pointer-events: none;
+}
+.brain-graph-bottom > * { pointer-events: auto; }
+.brain-graph-bottom p { flex: 1; text-align: center; color: var(--text-2); text-shadow: 0 1px 4px #000; pointer-events: none;
+  font-size: 0.75rem; }
+.brain-graph-controls { background: rgba(5, 8, 20, 0.82); border: 1px solid var(--line-strong); border-radius: 12px; padding: 3px; gap: 2px; }
+.brain-graph-controls button { background: transparent; border: 0; box-shadow: none; min-width: 38px; min-height: 38px; font-size: 1.125rem; }
+.brain-graph-controls button:hover { background: var(--raised); }
+.brain-graph-controls span { font-size: 0.9375rem; color: var(--text); min-width: 52px; }
+.brain-graph-controls button:last-child { font-size: 0.875rem; border-left: 1px solid var(--line-strong); border-radius: 0 9px 9px 0; padding: 0 12px; }
+.brain-graph-actions .btn { background: rgba(5, 8, 20, 0.82); border-color: var(--mint); color: var(--text); min-height: 44px; }
+.brain-graph-actions .btn:hover { box-shadow: 0 0 16px -4px var(--mint); }
+.brain-graph-empty { bottom: 120px; }
+@media (max-width: 900px) { .brain-graph-bottom p { display: none; } }
+@media (max-width: 560px) { .brain-graph-bottom { flex-wrap: wrap; padding: var(--s3); } }
+
+/* a dot's name shows when it is chosen, linked to the chosen one, pointed at, focused, just used or zoomed in on */
+.brain-graph[data-names="chosen"] .brain-graph-node:not(.node-brain, .node-collection):not([aria-pressed="true"],
+  [data-connected="true"], .is-applied, :hover, :focus-visible) .brain-node-label { opacity: 0; }
+.brain-graph[data-names="all"] .brain-graph-node .brain-node-label,
+.brain-graph-node[data-connected="true"] .brain-node-label, .brain-graph-node.is-applied .brain-node-label { opacity: 1; }

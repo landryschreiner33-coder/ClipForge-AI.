@@ -35,6 +35,22 @@ const lessonLabel = (item: Knowledge, paused = false) =>
 const pretty = (key: string) => key.replace(/_/g, " ");
 const RECORD_WORD: Record<RecordKind, string> = { style: "style", skill: "skill", video: "example video",
   project: "project" };
+const KNOWLEDGE_WORD: Record<KnowledgeKind, string> = { reference: "note", instruction: "preference",
+  example: "example note" };
+const OTHER_WORD: Record<string, string> = { decision: "recorded decision", result: "recorded result", topic: "topic",
+  collection: "collection" };
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+/** Where a record on the map came from, in a few words ("" for CORE, collections and topics). */
+function sourceOf(node: BrainNode): string {
+  if (node.skill) return "Imported skill";
+  if (node.style) return node.style.reference_id ? "Learned from an example video" : "Saved by you";
+  if (node.video) return "Example video you added";
+  if (node.project) return "Your project";
+  if (node.knowledge) return node.knowledge.filename ? `Document: ${node.knowledge.filename}` : "Written by you";
+  if (node.influence) return "Recorded when a clip was made";
+  if (node.observation) return pretty(node.observation.provenance) || "Recorded result";
+  return "";
+}
 const valueLabel = (value: unknown) =>
   typeof value === "boolean" ? (value ? "on" : "off") : value == null ? "default" : pretty(String(value));
 const date = (at: number) => new Date(at * 1000).toLocaleDateString();
@@ -95,8 +111,6 @@ const MORE_TABS: { id: string; href: string; label: string; detail: string; icon
   { id: "results", href: "#/brain/results", label: "Performance history", detail: "How your posts did",
     icon: "bars" },
 ];
-const BRAIN_SUB = "Brain remembers your editing preferences, styles and what worked, so new projects start closer to "
-  + "how you like them.";
 
 /** The Brain's tabs: Memory, Styles, Agents, Decisions, and More for the rest. */
 function BrainTabs({ current }: { current: string }) {
@@ -121,6 +135,10 @@ function BrainTabs({ current }: { current: string }) {
                 <Icon name={t.icon} className="sm" /><span><b>{t.label}</b><small>{t.detail}</small></span>
               </a>
             ))}
+            <a role="menuitem" href={knowledgeApi.export} download onClick={() => setOpen(false)}>
+              <Icon name="download" className="sm" /><span><b>Export knowledge</b>
+                <small>Save everything the Brain holds to one file</small></span>
+            </a>
           </div>
         )}
       </div>
@@ -193,7 +211,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
   if (["styles", "skills", "example-videos", "memory", "talk", "agents"].includes(tab)) {
     return (
       <div className="page brain-page">
-        <PageHead title="Brain" sub={BRAIN_SUB} />
+        <PageHead title="Brain" />
         <BrainTabs current={tab} />
         {tab === "memory" && <MemoryViews current="facts" />}
         {tab === "styles" ? <StylesTab /> : tab === "skills" ? <SkillsTab /> : tab === "memory" ? <MemoryTab />
@@ -369,16 +387,7 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
         setSavingStyle(false);
         void refresh().then(() => setNodeId(`style:${saved.id}`));
       }} />}
-      <PageHead
-        title="Brain"
-        sub={BRAIN_SUB}
-        actions={
-          <a className="btn btn-small" href={knowledgeApi.export} download>
-            <Icon name="download" />
-            Export knowledge
-          </a>
-        }
-      />
+      <PageHead title="Brain" />
       <BrainTabs current={active} />
       {active === "knowledge" && <MemoryViews current="map" />}
       {problem && (
@@ -733,7 +742,7 @@ function RecordDetails({ node, model, onSelect }: { node: BrainNode; model: Retu
         {effects(st.effects, "No editing choices saved")}
         {used || <p className="brain-note">No project has used this style yet.</p>}
         <p className="brain-note">Revision {st.revision}{st.provenance?.title ? ` · learned from “${st.provenance.title}”` : ""}</p>
-        <a className="btn btn-small" href="#/brain/styles"><Icon name="edit" />Open styles</a>
+        <a className="btn btn-small" href="#/brain/styles"><Icon name="external" />Open in editor</a>
       </>
     );
   }
@@ -746,7 +755,7 @@ function RecordDetails({ node, model, onSelect }: { node: BrainNode; model: Retu
         {effects(sk.effects, "Nothing ClipForge supports yet")}
         {used || <p className="brain-note">No project has used this skill yet.</p>}
         <p className="brain-note">Revision {sk.revision} · version {sk.version}</p>
-        <a className="btn btn-small" href="#/brain/skills"><Icon name="edit" />Open skills</a>
+        <a className="btn btn-small" href="#/brain/skills"><Icon name="external" />Open in editor</a>
       </>
     );
   }
@@ -762,7 +771,7 @@ function RecordDetails({ node, model, onSelect }: { node: BrainNode; model: Retu
         <p className="brain-note">{ex.status === "ready" ? `Analysis revision ${ex.analysis_revision}` : `Analysis: ${pretty(ex.status)}`}</p>
         {style && <button className="btn btn-small" onClick={() => onSelect(style.to)}><Icon name="spark" />Its saved style</button>}
         {used || <p className="brain-note">No project has used this example yet.</p>}
-        <a className="btn btn-small" href="#/brain/example-videos"><Icon name="film" />Open example videos</a>
+        <a className="btn btn-small" href="#/brain/example-videos"><Icon name="external" />Open in editor</a>
       </>
     );
   }
@@ -812,10 +821,12 @@ function GraphInspector({
     <aside className="brain-inspector" aria-label="Selected connection">
       <div className="brain-inspector-eyebrow">
         <span style={{ background: node.color }} />
-        {node.kind === "brain" ? "Your knowledge" : node.kind === "knowledge" ? node.category
-          : RECORD_WORD[node.kind as RecordKind] || node.kind}
+        {capital(node.kind === "brain" ? "Your knowledge" : node.kind === "knowledge"
+          ? KNOWLEDGE_WORD[node.category as KnowledgeKind] || "note" : RECORD_WORD[node.kind as RecordKind]
+            || OTHER_WORD[node.kind] || node.kind)}
       </div>
       <h2>{node.title}</h2>
+      {sourceOf(node) && <dl className="brain-source"><dt>Source</dt><dd>{sourceOf(node)}</dd></dl>}
       {node.applied && (
         <p className="brain-just-used-note" role="status">
           <span className="brain-just-used">Just used</span> by {node.applied.project}, {ago(node.applied.at)}. This
@@ -852,8 +863,8 @@ function GraphInspector({
             {item.filename ? ` · ${item.filename}` : ""}
           </p>
           <button className="btn btn-small" onClick={() => onEdit(item.id)}>
-            <Icon name="edit" />
-            Open & edit
+            <Icon name="external" />
+            Open in editor
           </button>
         </>
       ) : node.influence ? (
