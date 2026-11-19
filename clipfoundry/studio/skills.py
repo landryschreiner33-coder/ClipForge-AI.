@@ -62,6 +62,23 @@ def refused(text: str) -> str | None:
     return "links are kept as text and never fetched" if re.search(r"https?://|www\.", low) else None
 
 
+NAME_WHY = "name: "
+
+
+def shown_name(row: dict) -> str:
+    """The name a model may see as the title of a skill's advice: one kept before names were checked is "Skill"."""
+    name = " ".join(str(row.get("name") or "").split())[:80]
+    return name if name and not refused(name) else "Skill"
+
+
+def match_words(row: dict) -> list[str]:
+    """What a skill is about, for finding it and never shown: its topics and its name as its file gave it, also when
+    that name may not be shown (the importer keeps such a name with the refused lines)."""
+    said = [str(b.get("text") or "") for b in row.get("blocked") or []
+            if isinstance(b, dict) and str(b.get("why") or "").startswith(NAME_WHY)]
+    return [str(t) for t in row.get("topics") or []] + [str(row.get("name") or "")] + said
+
+
 def _listed_refused(entry: dict, blocked: list[dict]) -> bool:
     """A JSON skill's own "unsupported" line gets the same checks as a line of instructions: a refused one is moved
     to the refused lines and a link is kept as text, whatever reason the file gives. Only a line that passes may
@@ -269,12 +286,13 @@ def parse(filename: str, data: bytes) -> dict:
     unsupported += [{"text": p, "why": "invalid value"} for p in problems]
     modes = [m for m in meta.get("modes") or [] if m in capabilities.MODES] or list(capabilities.MODES)
     name = " ".join(str(meta.get("name") or Path(filename).stem).split())[:80].strip() or "Imported skill"
-    if refused(name):             # the name is shown to a model as the title of the skill's advice
-        blocked.append({"text": name, "why": f"name: {refused(name)}"})
+    key = _slug(str(meta.get("id") or name))   # the file's own name keeps two skills apart, shown or not
+    if refused(name):             # the name is shown to a model as the title of the skill's advice; it is kept with
+        blocked.append({"text": name, "why": f"{NAME_WHY}{refused(name)}"})   # the refused lines, for finding it
         name = " ".join(Path(filename).stem.split())[:80].strip() or "Imported skill"
         if refused(name):
             name = "Imported skill"
-    return {"skill_key": _slug(str(meta.get("id") or name)), "name": name,
+    return {"skill_key": key, "name": name,
             "description": str(meta.get("description") or "")[:300], "version": str(meta.get("version") or "1")[:20],
             "modes": modes, "topics": [str(t)[:40] for t in meta.get("topics") or []][:20],
             "original": text, "original_format": fmt, "supported": clean,

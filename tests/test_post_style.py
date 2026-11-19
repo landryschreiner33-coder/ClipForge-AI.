@@ -90,10 +90,45 @@ def _say(text: str, **kw) -> dict:
     ("Never miss a chance to add hashtags.", {}),
     ("Don't ever forget to add the hashtags.", {}),
     ("I miss having hashtags.", {}),
+    # skip, drop, leave out and stop leave something out, and after a "no" ask for it
+    ("Don't skip the hashtags.", {}),
+    ("Never skip the emoji.", {}),
+    ("Never leave out the hashtags.", {}),
+    ("Don't stop using hashtags.", {}),
+    ("Never drop the call to action.", {}),
+    ("Don't stop asking people to follow.", {}),
+    ("Skip the hashtags.", {"tags": 0}),
+    ("No, no hashtags.", {"tags": 0}),
+    # a "no" reaches only over its own instruction, and "isn't" or "didn't" describe
+    ("Titles shouldn't be too long and should have an emoji.", {}),
+    ("My titles aren't getting clicks so make them questions.", {"question": 1}),
+    ("Titles that aren't questions do worse, so use questions.", {"question": 1}),
+    ("If a title isn't clear add an emoji.", {}),
+    ("There aren't enough hashtags on my posts.", {}),
+    ("Why didn't you add hashtags?", {}),
+    ("You can't go wrong with emoji in titles.", {}),
+    ("I don't want boring titles so make them questions.", {"question": 1}),
+    ("I don't like long titles so keep them short.", {"title_max": poststyle.TITLE_SHORT}),
+    ("We're not big yet so we need hashtags.", {}),
+    ("I don't post every day so always add hashtags.", {}),
+    # what the video's own text or length is, and some capitals, are not title rules
+    ("Text in all caps on my videos, titles in lower case.", {"title_case": "lower"}),
+    ("All caps on my clips, titles in lower case.", {"title_case": "lower"}),
+    ("Keep my clips short, titles can be long.", {}),
+    ("Titles should only have the first letter in capital letters.", {}),
+    ("Titles with proper names in capital letters.", {}),
+    ("Brand names in capital letters, titles in lower case.", {"title_case": "lower"}),
+    ("Titles in ALL CAPS.", {"title_case": "upper"}),
+    # where hashtags come from is which hashtags; "that much" is fewer
+    ("Don't copy hashtags from competitors.", {}),
+    ("Don't use hashtags from TikTok on YouTube.", {}),
+    ("Don't use hashtags that much.", {"tags": poststyle.FEWER_TAGS}),
+    ("Too many hashtags on my posts.", {"tags": poststyle.FEWER_TAGS}),
     # when and where a rule holds is not which hashtags
     ("No hashtags from now on.", {"tags": 0}),
     ("No hashtags in titles or descriptions.", {"tags": 0}),
     ("Titles, lower case for every video.", {"title_case": "lower"}),
+    ("Titles, lower case for all my videos.", {"title_case": "lower"}),
     ("Titles, keep them under 40 characters for clips.", {"title_max": 40}),
     # a list goes on through "please"; "but" before the next thing ends it
     ("No hashtags, emoji or links please.", {"tags": 0, "emoji": False}),
@@ -215,8 +250,15 @@ def test_hashtags_say_what_the_clip_is_about():
     tags = postpack.hashtags_for(about, prefer="YouTube Shorts or TikTok?")
     assert {"#youtube", "#tiktok"} <= set(tags) and "#viral" not in tags
     assert postpack.generic_tag("#fyp", {"fyp"}) and not postpack.generic_tag("#tiktok", {"tiktok", "youtube"})
-    # one platform in the title is where the clip went, not what it is about; "video" never says anything
-    assert postpack.generic_tag("#tiktok", {"tiktok", "viral"}) and postpack.generic_tag("#video", {"video"})
+    # a platform the title names as where the clip went is not what it is about; "video" never says anything
+    subject = postpack.title_subject
+    assert postpack.generic_tag("#tiktok", subject("Going viral on TikTok and YouTube"))
+    assert postpack.generic_tag("#youtube", subject("Going viral on TikTok and YouTube"))
+    assert not postpack.generic_tag("#instagram", subject("Why I quit Instagram"))
+    assert not postpack.generic_tag("#tiktok", subject("The TikTok algorithm explained"))
+    assert postpack.generic_tag("#video", {"video"})
+    said = "I quit Instagram and ninety percent of my sleep came back. Instagram took my sleep."
+    assert "#instagram" in postpack.hashtags_for(said, prefer="Why I quit Instagram")
     tags = postpack.hashtags_for(" ".join(sents), prefer=sents[0])
     assert not {"#tiktok", "#video"} & set(tags)
 

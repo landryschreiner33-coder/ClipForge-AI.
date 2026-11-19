@@ -170,18 +170,21 @@ _FLIP = {"min": "max", "max": "min"}
 _BARE_BOUND = re.compile(r"^(?:longer than|shorter than|more than|less than|over|under|above|below)\b")
 _OR_LESS = re.compile(rf"{_NUM}{_UNIT}\s+or (?:less|under|shorter)\b(?!\s+(?:than|\d))")   # not "or under 90"
 _OR_MORE = re.compile(rf"{_NUM}{_UNIT}\s+or (?:more|over|longer)\b(?!\s+(?:than|\d))")
-# "grab attention in the first 10 seconds", "a cut every 3 seconds": a time inside the clip, not how long it is;
-# "in 45 second clips" and "in 30 seconds or less" are lengths
+# "grab attention in the first 10 seconds", "a cut every 3 seconds", "get to the action in 10 seconds or less": a
+# time inside the clip, not how long it is; "in 45 second clips" and "keep clips in 30 seconds or less" are lengths
 _POINT_IN_CLIP = re.compile(r"\b(?:first|last|opening|final|after|every|each|by)\s+$")
 _IN_POINT = re.compile(r"\bin\s+$")
-_A_LENGTH_AFTER = re.compile(r"^\s*(?:long\s+)?(?:clips?|shorts?|videos?)\b|"
-                             r"^\s+or (?:less|under|shorter|more|over|longer)")
+_CLIPS_AFTER = re.compile(r"^\s*(?:long\s+)?(?:clips?|shorts?|videos?)\b")
+_OR_BOUND_AFTER = re.compile(r"^\s+or (?:less|under|shorter|more|over|longer)")
+_CLIPS_IN = re.compile(r"\b(?:clips?|shorts?|videos?|make|keep|cut)\s+in\s+$")
 
 
 def _point_in_clip(low: str, m: re.Match) -> bool:
-    before = low[:m.start(1)]
-    return bool(_POINT_IN_CLIP.search(before) or (_IN_POINT.search(before)
-                                                   and not _A_LENGTH_AFTER.match(low[m.end(2):])))
+    before, after = low[:m.start(1)], low[m.end(2):]
+    if _POINT_IN_CLIP.search(before):
+        return True
+    return bool(_IN_POINT.search(before) and not (_CLIPS_AFTER.match(after)
+                                                  or (_OR_BOUND_AFTER.match(after) and _CLIPS_IN.search(before))))
 
 
 def _seconds(value: str, unit: str | None) -> float:
@@ -272,7 +275,10 @@ def lengths(st: dict, shortest: float, longest: float, ideal: float) -> tuple[fl
 # A turn counts only once the "no" before it has named what it refuses: "don't pick clips that are just small talk"
 # still refuses small talk, "no intros, just funny moments" turns to funny moments.
 _RESET = re.compile(r"\b(?:just|only|instead|rather|but|keep\w*|focus\w* on|stick to|straight to|lead with|"
-                    r"more|and (?:go|keep|focus|pick|show|use|find|look|stick|leave in|add|include)\w*)\b")
+                    r"(?<!\bno )(?<!\bany )more|and (?:go|keep|focus|pick|show|use|find|look|stick|leave in|add|"
+                    r"include)\w*)\b")
+# "never pick intros or lead with small talk", "no intros or any more small talk": the "no" goes on across "or"
+_OR_GOES_ON = re.compile(r"\b(?:or|nor)\s+(?:any\s+)?$")
 _ANY_KIND = re.compile(r"\b(?:" + "|".join(k.names for k in KINDS) + r")\b")
 # words around a "no" that do not end it at a comma ("never, ever clip intros", "don't, under any circumstances, ...")
 _ASIDE = re.compile(r"\b(?:ever|at all|please|really|seriously|again|under any circumstances|whatever happens|"
@@ -305,6 +311,8 @@ def _scope(part: str, at: int, neg: re.Pattern) -> str:
 
     start = 0
     for m in _RESET.finditer(before):
+        if _OR_GOES_ON.search(before[:m.start()]):
+            continue
         no = last_no(m.start())
         if no is None or any(no <= k < m.start() for k in named):
             start = max(start, m.end())
@@ -372,9 +380,13 @@ def read(text: object, *, owner: bool = False, about_picking: bool = False) -> d
         if _CUT_POINT.search(clause):    # "never end clips on a question" is about the cut, not the moment
             pieces = re.split(r"(\s*(?:[,;:]|\band\b|\bbut\b)\s*)", clause)
             kept = [pieces[0]] if not _CUT_POINT.search(pieces[0]) else []
+            dropping = not kept          # "never end a clip on a joke, a question, or a cliffhanger": the list too
             for sep, piece in zip(pieces[1::2], pieces[2::2]):
-                if not _CUT_POINT.search(piece):
-                    kept += [sep, piece] if kept else [piece]
+                if _CUT_POINT.search(piece) or (dropping and _LIST_GOES_ON.match(piece)):
+                    dropping = True
+                    continue
+                dropping = False
+                kept += [sep, piece] if kept else [piece]
             clause = "".join(kept).strip()
             if not clause:
                 continue
@@ -454,10 +466,9 @@ def _skill_lines(ws: str) -> list[dict]:
         modes = tuple(row.get("modes") or ())
         if modes and not set(modes) & set(SKILL_MODES):
             continue
-        named = " ".join([str(row.get("name") or "")] + [str(t) for t in (row.get("topics") or [])])
-        about = bool(_PICK_SKILL.search(named))
+        about = bool(_PICK_SKILL.search(" ".join(skills.match_words(row)).lower()))
         out += [{"id": row["id"], "from": "skill", "level": "skill", "owner": False, "rule": False, "text": line,
-                 "about": about, "name": str(row.get("name") or "Skill")[:80]} for line in skill_lines(row)]
+                 "about": about, "name": skills.shown_name(row)} for line in skill_lines(row)]
     return out
 
 

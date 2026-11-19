@@ -76,6 +76,19 @@ def _kinds(text: str, **kw) -> dict:
     # a line about the cut is left out, the rest of the sentence is read
     ("Pick funny moments, never end clips on a question", {"funny": 1}),
     ("no swearing in clips and start right on the action", {"swearing": -1}),
+    ("Never end clips on a question, funny moments do best", {"funny": 1}),
+    ("never open clips with an intro, and always keep the reactions", {"reaction": 1}),
+    # ... and so is the rest of its list
+    ("Don't open clips with small talk, swearing, or intros, my audience wants action", {}),
+    ("never open clips with intros, swearing or banter", {}),
+    ("Never start clips with intros and greetings", {}),
+    ("Never start clips with an intro, a greeting, or a sponsor read.", {}),
+    # the "no" goes on across "or", whatever word comes after it
+    ("I don't want intros or any more small talk in my clips", {"promo": -1, "smalltalk": -1}),
+    ("I don't want swearing or any more sponsor reads in my clips", {"swearing": -1, "promo": -1}),
+    ("Never pick intros or lead with small talk", {"promo": -1, "smalltalk": -1}),
+    ("don't clip ads or lead with a greeting", {"promo": -1}),
+    ("no intros, more reactions in my clips", {"promo": -1, "reaction": 1}),
     # not about which moment to pick
     ("Never end clips on a question", {}),
     ("don't end clips before the reaction", {}),
@@ -105,6 +118,9 @@ def test_imported_advice_is_read_with_care():
     assert _kinds("Don't bury the punchline.", about_picking=True) == {"funny": 1}
     assert _kinds("Never hide the reaction behind a cut.", about_picking=True) == {"reaction": 1}
     assert _kinds("Bury the intro and lead with the reaction.", about_picking=True) == {"promo": -1, "reaction": 1}
+    assert _kinds("Never end a clip on a joke, a question, or a cliffhanger.", about_picking=True) == {}
+    assert _kinds("Never open clips with a lesson, a tip or a question; open with the payoff.",
+                  about_picking=True) == {}
     assert _kinds("Pick clips with a hidden twist or reveal.") == {"surprise": 1}
 
 
@@ -159,6 +175,13 @@ def test_the_owners_rule_outweighs_lessons_and_one_source_speaks_once():
     ("I want everything in 45 second clips", {"target": 45.0}),
     ("make clips in 30 seconds or less", {"max": 30.0}),
     ("clips of 40 seconds or more", {"min": 40.0}),
+    ("keep clips in 45 seconds or less", {"max": 45.0}),
+    ("I want my clips in 30 seconds or less", {"max": 30.0}),
+    # how soon something happens inside a clip is not how long it is
+    ("my clips need to get to the action in 10 seconds or less", {}),
+    ("grab attention in 8 seconds or less in every clip", {}),
+    ("get to the point in 10 seconds or less in clips", {}),
+    ("clips should show the payoff in 20 seconds or more", {}),
 ])
 def test_clip_lengths_the_owner_asks_for(said, want):
     assert steer._length(steer._plain(said)) == want  # noqa: SLF001
@@ -426,6 +449,41 @@ def test_noise_alone_rarely_makes_a_lesson():
     assert lessons.t_bar(0.05, 10) == pytest.approx(2.228, abs=0.001)
 
 
+def test_one_long_video_is_not_a_lesson_and_a_gap_inside_each_video_is_found():
+    import random
+
+    def stream(seed: int, share: float, others: float | None) -> list[dict]:
+        """A 20-clip stream mostly of reactions and 12 short videos with few: no real difference."""
+        rnd = random.Random(seed)
+        base = rnd.gauss(0, 15)
+        pts = [{"source": "s", "value": 40 + base + rnd.gauss(0, 8), "weight": 20 ** -0.5,
+                "kinds": ["reaction"] if rnd.random() < share else []} for _ in range(20)]
+        for v in range(12):
+            base = rnd.gauss(0, 15)
+            for i in range(3):
+                mine = (v < 2 and i == 0) if others is None else rnd.random() < others
+                pts.append({"source": f"v{v}", "value": 40 + base + rnd.gauss(0, 8), "weight": 3 ** -0.5,
+                            "kinds": ["reaction"] if mine else []})
+        return pts
+
+    def within(seed: int) -> list[dict]:
+        """12 videos that differ a lot in reach; inside each, the two reaction clips got twice the views."""
+        rnd = random.Random(seed)
+        pts = []
+        for v in range(12):
+            base = rnd.gauss(0, 0.6)
+            for i in range(4):
+                pts.append({"source": f"v{v}", "value": 3 + base + rnd.gauss(0, 0.15) + (0.301 if i < 2 else 0),
+                            "weight": 0.5, "kinds": ["reaction"] if i < 2 else []})
+        return pts
+
+    for share, others in ((1.0, None), (0.9, 0.15)):  # 21% and 10% of runs made a lesson from the stream's luck
+        assert sum(1 for seed in range(200) if lessons.compare(stream(seed, share, others), "watched")) <= 10
+    found = sum(1 for seed in range(100) if any(x["kind"] == "reaction" and x["sign"] > 0
+                                                for x in lessons.compare(within(seed), "views")))
+    assert found >= 90                                # was 3 in 100 when each side's error stood alone
+
+
 def test_an_owners_rewrite_of_a_lesson_is_theirs(audience):
     for source in range(3):
         _posted(REACTION, 3, 62.0, source)
@@ -462,6 +520,14 @@ def test_view_counts_read_long_after_48_hours_are_not_compared(audience):
     for source in range(3):                                # under the floor at 48 hours: left out, not read later
         _viewed(REACTION, 3, [(50, 5), (720, 110)], 20 + source)
     assert lessons.learn(db.get_settings())["lessons"] == 0
+
+
+def test_view_counts_imported_after_day_four_still_teach(audience):
+    for source in range(4):                                # every count imported on day 4 to 7
+        _viewed(REACTION, 4, [(100 + 20 * source, 3000)], source)
+        _viewed(PLAIN, 4, [(100 + 20 * source, 1000)], 10 + source)
+    report = lessons.learn(db.get_settings())
+    assert report["lessons"] == 1 and "times the views" in report["added"][0]
 
 
 def test_a_lesson_replaced_by_a_run_that_fails_comes_back(audience, monkeypatch):

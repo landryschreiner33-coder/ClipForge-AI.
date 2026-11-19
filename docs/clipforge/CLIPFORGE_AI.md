@@ -233,11 +233,16 @@ the chat "does not know a lot of stuff"). It holds three sources:
 - **the advice lines of switched-on skills** (`library.skill_lines`): the lines of an imported skill that the
   importer kept as readable advice ("not an editing choice ClipForge applies yet"). They used to be shown and never
   read. A skill is read only while it is switched on and only when it is about what was asked (its name and
-  topics), at most five lines of it.
+  topics), at most five lines of it. A name the importer may not show a model ("Post titles for TikTok" reads like
+  an order to post) is shown as "Imported skill" or "Skill", yet the skill is still found by it and kept apart from
+  other skills by it.
 
 `library.search(query, ws, task=...)` ranks all three by the words they share with the question (rarer words count
 more; the words an entry is *about* count more than words inside its lines) and, when the meaning model is there,
 by meaning. A job (`task="clips"`, `"post"`) never reads the guide; a "where is the button" question prefers it.
+A word can count only beside others: "buttons" leads to the captions playbook only beside what they cover ("are my
+captions hidden behind the TikTok buttons?"), never in a question about pressing one ("which share button do I
+press?").
 `Found.prompt()` gives one block per source, and the skills block says the owner's skills win over the built-in
 craft. `library.answer(query)` answers a question without a model when one entry clearly fits, with a link to the
 page. The chat reads the library before every answer; its tools `knowhow` (reads an entry), `clip` (one clip's
@@ -267,8 +272,18 @@ and measured facts) and `finalize` adds the result to the raw score.
 
 One source speaks once per kind, an owner's rule on a kind silences everything else on it, and nobody but the owner
 can ask for small talk, ad reads or swearing. An owner's sentence about an editing subject ("no music under funny
-moments") is not a picking rule. **Lengths** the owner told it ("clips at least 40 seconds") set the shortest,
-ideal and longest clip for the run unless this project's own lengths differ from Settings. Every clip keeps what
+moments"), and the part of a sentence about where a clip starts or ends ("never end clips on a question"), is not a
+picking rule. A "no" reaches until the line turns to what it wants, and a turn counts only once the "no" has named
+what it refuses: "no intros, just funny moments" and "skip intros and keep the reactions" turn, "don't pick clips
+that are just small talk" refuses small talk. It goes on through a list after a comma ("no swearing, boring small
+talk or ads") and across "or" ("never pick intros or lead with small talk"), and two of them make a yes ("don't bury
+the punchline"); the list after a cut point goes with it ("never end a clip on a joke, a question, or a
+cliffhanger" says nothing about picking). Only "cut" can mean making clips ("cut more
+reaction clips"); drop, remove, trim and stop leave things out. **Lengths** the owner told it ("clips at least 40
+seconds"; "no more than 60 seconds", "I don't want my clips to be longer than 30 seconds" and "30 seconds or less"
+are longest lengths; "grab attention in the first 10 seconds" and "get to the action in 10 seconds or less" are no
+length at all) set the shortest, ideal and
+longest clip for the run unless this project's own lengths differ from Settings. Every clip keeps what
 the Brain did (`analysis.brain`: points, reasons, sources) and the kinds it shows (`analysis.moment`); the clip page
 shows "Your Brain: +N points. It …" and the memories are counted as used in "clips".
 
@@ -287,15 +302,27 @@ never while the Brain is paused). It reads the same
 results under the same guards as the clip-length learning in `autopilot/brain.py` (a reading at least 48 hours
 old, enough views, one comparable audience, YouTube API numbers only with Google's approval) and compares, per kind
 of moment, the clips that showed it with those that did not: the share of the clip people watched where most clips
-have it, otherwise views. A difference becomes a memory when it stands on 6 clips with the kind, 6 without, 3
-source videos and two standard errors:
+have it, otherwise views, each clip's view count read at the age closest to 48 hours and only when that reading is
+within 1.5 times the middle age of that audience's readings (views keep growing, so counts read at different ages
+are not compared: a clip first read a month later is left out, and an owner who imports every count on day 5 still
+learns). A difference becomes a memory when it stands on 6 clips with the kind and 6 without,
+each side from at least 3 source videos, and passes a bar that is split over the kinds tested in that run and read
+from Student's t (what two standard errors mean on many clips). Clips of one video move together, so the error is
+the gap's own spread when each video in turn is left out (a jackknife over videos): a video with clips on both sides
+cancels out, so a reaction that doubles views inside every video is found even when the videos' reach differs
+tenfold, and one long stream that holds most of the reactions counts with all its weight. The degrees of freedom are
+the videos less one, fewer when a few videos carry the gap. On pure noise about 3-7% of runs make a lesson, also when
+kinds come with some videos more than others or one long video carries a side (that made a lesson in about a fifth
+of runs before); a real difference of 20 points watched on 30 videos is found every time:
 
 > From your results: look for a big reaction. Clips with it were watched 12 points further than your other clips
 > (9 clips against 14, on TikTok). A pattern in your own numbers, not proof.
 
-Clip picking reads it like any memory (weight 0.45, or 0.65 at three standard errors), the AI that reads the video
-is told, and the chat can answer from it. The owner can switch it off, rewrite it (then it is theirs and is left
-alone) or forget it; a forgotten lesson is not written again while the numbers say the same. When the numbers stop
+Clip picking reads it like any memory (weight 0.45, or 0.65 past the stricter bar that stands for three standard
+errors), the AI that reads the video is told, and the chat can answer from it. The owner can switch it off, rewrite
+it (any change to its words makes it theirs, even one that keeps "From your results:"; it is then read as their
+words and left alone) or forget it; a forgotten lesson is not written again while the numbers say the same. When the
+numbers stop
 saying it, the lesson is removed. Results never teach it to look for small talk, ad reads or swearing. The other
 things results already change are unchanged: the ideal clip length, the score weights and which packaging style
 does best (`autopilot/brain.py`, `autopilot/learner.py`).
@@ -314,8 +341,23 @@ emoji") and the memories are counted as used in "post". What the owner types on 
 
 A model that writes post text is told the choices in ClipForge's words, never the owner's note, and reads the
 advice of switched-on skills about titles, post text or hashtags (600 characters). Hashtags that say nothing about
-the video (#fyp, #viral, #trending, the platform's name) are left out even when the speaker says the word, and a
-clip gets five at most.
+the video (#fyp, #viral, #trending, #video, #clip) are left out even when the speaker says the word; a platform's
+name only when the title is about it ("Why I quit Instagram", "YouTube Shorts or TikTok?" keep it; "This video went
+viral on TikTok" names only where the clip went). A clip gets five at most. Story clips
+(Full stories, Story parts) and the post text Autopilot rewrites after cutting weak parts follow the rules kept for
+their own video as highlights do.
+
+How a sentence is read: a "no" in the last eight words before the thing, in its own instruction, counts ("I don't
+want you to add any hashtags"; "shouldn't", "can't" and "mustn't" too; not across "so", "if" or "and should": "my
+titles aren't getting clicks so make them questions"); "isn't", "aren't" and "didn't" describe and are no rule. After
+a "no", "forget", "miss", "skip", "drop", "leave out" or "stop" says the opposite ("don't forget the hashtags",
+"never skip the emoji" ask for them). Each part of a sentence is about
+what it names ("thumbnail text in capitals, title in lower case" is a title rule for lower case only; "for every
+video" only says where it holds, "on my videos" is about the video's own text). A list carries a "no" on ("no hashtags, emoji or links please") unless the part
+allows the thing ("no emoji, hashtags welcome", "no emoji but hashtags are fine"). "Capitals" alone is a rule only
+when refused ("no capitals"); "titles in capital letters" means all capitals, "only the first letter in capital
+letters" and "names in capitals" do not. "From now on" is when, not which hashtags; "hashtags from other creators" is
+which; "don't use hashtags that much" is fewer.
 
 ## The assistant
 

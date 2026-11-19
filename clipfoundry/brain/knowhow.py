@@ -94,9 +94,10 @@ TOPICS: tuple[Topic, ...] = (
               "A 1080p source cropped to 9:16 is upscaled 1.78 times, so keep the subject centred; a 4K source "
               "stays sharp (1215 x 2160)."),
           ("subtitles", "subtitle", "caption", "text", "font", "safe zone", "safe zones", "covered",
-           # the platforms' own buttons, as phrases only: "where is the button to ..." is about the app
-           "=share buttons", "=side buttons", "=buttons hide", "=buttons cover", "=buttons on youtube",
-           "=buttons on tiktok", "=like buttons", "=cover the bottom",
+           # the platforms' own buttons only together with what they cover: "where is the share button" is about
+           # the app, "are my captions hidden behind the tiktok buttons?" is about captions
+           "+buttons: caption captions subtitle subtitles text words cover covers covered covering hide hides "
+           "hidden hiding block blocks blocked blocking behind bottom overlap overlaps screen", "=cover the bottom",
            "stroke", "outline", "readable", "framing", "crop", "reframe", "9:16", "vertical", "face", "faces",
            "position", "placement", "words on screen")),
     Topic("sound", "Voice and sound mix", "Levels, the voice chain, music under speech and loudness targets.",
@@ -319,7 +320,9 @@ def _strong_terms(t: Topic) -> set[str]:
     """The words a playbook is about: its title and the words a question may use for it."""
     out = _terms(t.title)
     for w in t.words:
-        out |= _terms(w)
+        if w.startswith("+"):       # a word that counts only beside others: brain/library.py reads it, not this
+            continue
+        out |= {x for x in _terms(w[1:]) if "_" in x} if w.startswith("=") else _terms(w)  # "=": the phrase only
     return out
 
 

@@ -178,6 +178,24 @@ def test_a_json_skill_cannot_name_a_refused_line_advice(env):
     assert library._skill_entry(kept).title == "Skill"  # noqa: SLF001
 
 
+def test_skills_whose_names_cannot_be_shown_stay_apart_and_are_still_found(env):
+    from clipfoundry import db
+    from clipfoundry.brain import library
+    from clipfoundry.studio import skills
+
+    a = skills.save(WS, "Post titles for TikTok.md",
+                    b"# Post titles for TikTok\n- Name the situation and hold back the outcome.\n")
+    db.update("skills", a["id"], enabled=1)
+    b = skills.save(WS, "Secrets of viral hooks.md", b"# Secrets of viral hooks\n- Open on the most surprising line.\n")
+    assert a["name"] == b["name"] == "Imported skill" and a["skill_key"] != b["skill_key"]
+    assert b["revision"] == 1 and db.fetch("skills", a["id"])["enabled"]     # the first one is kept, still on
+    db.update("skills", b["id"], enabled=1)
+    found = library.search("how should I write post titles for tiktok?", WS)
+    assert f"skill:{a['id']}" in found.ids and "Post titles for TikTok" not in found.prompt()
+    assert library.search("tips for viral hooks", WS).ids[0] == f"skill:{b['id']}"
+    assert skills.shown_name({"name": "Post titles for TikTok"}) == "Skill"   # one stored before names were checked
+
+
 def test_the_guide_says_what_the_app_really_does(env):
     from clipfoundry.brain import library
 
@@ -188,8 +206,14 @@ def test_the_guide_says_what_the_app_really_does(env):
     assert "posts Autopilot plans on its own wait under Needs review" in auto["text"]
     # the platforms' own buttons are about where captions sit; the app's buttons are in the guide
     for q in ("will the side buttons hide my text?", "do the buttons on youtube shorts cover the bottom?",
-              "where do tiktok's like and share buttons sit on screen?"):
+              "where do tiktok's like and share buttons sit on screen?",
+              "are my captions hidden behind the tiktok buttons?", "will tiktok's buttons block my text?",
+              "my text is under the buttons on the right"):
         assert library.search(q, WS).ids[0] == "captions", q
+    for q in ("I pressed the buttons on youtube and nothing happened", "which share button do I press to get the "
+              "post link?", "I can't find the share button to copy my tiktok link"):
+        assert library.search(q, WS).ids[0] == "guide:publishing", q
+    assert library.search("the share buttons on clipforge don't work", WS).ids[0] == "guide:what"
     link = library.search("can I use my own transcript with a youtube link?", WS)
     assert "works only with a video file" in link.prompt()
     brain = library.search("what do you use to decide?", WS).prompt()

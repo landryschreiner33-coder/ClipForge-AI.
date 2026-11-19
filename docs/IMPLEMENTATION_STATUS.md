@@ -1,5 +1,19 @@
 # Implementation status
 
+## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code)
+
+Branch `claude/project-thread-dwz7vo` (release line 3bb861f merged in), pull request #59. The chat answers from
+sixteen playbooks, a guide to the app and switched-on skills; clip picking reads the Brain and says so on each clip;
+clips are grown to the whole moment (defaults 25 / 45 / 90 seconds); posted results become "From your results:"
+memories; titles, post text and hashtags follow the owner's rules. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+STATUS_ROWS_PLACEHOLDER
+
+Not verified: a real model's answers, Landry's Mac, real streams, lessons on real posted results.
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
 Branch `claude/project-thread-rxehvi` from the release line at 56d2cbd. Prepare post, Post selected… and Missions

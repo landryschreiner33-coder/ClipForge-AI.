@@ -50,6 +50,11 @@ _HOWTO = re.compile(r"\b(how (do|can|to|would) (i|you|we)?|how to|where( do| can
 _CRAFT = re.compile(r"\b(good|best|better|great|viral|engaging|should|tips?|ideas?|advice|improve|more views|"
                     r"what makes|why do)\b", re.I)
 BOOST = 1.2
+# "where is the button to change captions?", "which button do I press?": pressing one of ClipForge's buttons, so a
+# word that counts only beside others ("buttons" beside "text") does not count
+_PRESSING = re.compile(r"\b(?:which|what) (?:\w+ )?buttons?\b|\bbuttons? (?:to|for)\b|"
+                       r"\b(?:press|click|tap|hit|find)\w* (?:on )?(?:the |a |that |this |my )?(?:\w+ )?buttons?\b",
+                       re.I)
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,7 @@ class Entry:
     strong: frozenset           # the words it is about (its title and the words a question may use for it)
     terms: frozenset            # strong plus every word of its lines
     named: frozenset = frozenset()          # the words of its title alone
+    together: tuple = ()                    # (word, words): the word counts in full only beside one of the words
     tasks: tuple[str, ...] = ()
     modes: tuple[str, ...] = ()
     link: tuple[str, str] | None = None     # (label, href)
@@ -155,14 +161,18 @@ def _terms(text: str) -> set[str]:
 def _entry(id_: str, source: str, title: str, lines, words, about: str = "", **kw) -> Entry:
     """`words` are what the entry is about (they count in full); `about` is a summary that is matched like its lines
     but never shown."""
-    strong = set(_terms(title))
+    strong, together = set(_terms(title)), []
     for w in words:
-        if w.startswith("="):            # a phrase that counts only whole ("=side buttons": not "button" alone)
+        if w.startswith("="):            # a phrase that counts only whole ("=cover the bottom": not "bottom" alone)
             strong |= {t for t in _terms(w[1:]) if "_" in t}
+        elif w.startswith("+"):          # "+buttons: text cover ...": "buttons" counts only beside one of those
+            head, _, rest = w[1:].partition(":")
+            together += [(t, frozenset(_stems(rest))) for t in _stems(head)]
         else:
             strong |= _terms(w)
     return Entry(id_, source, title, tuple(lines), frozenset(strong),
-                 frozenset(strong | _terms(" ".join((about, *lines)))), frozenset(_terms(title)), **kw)
+                 frozenset(strong | _terms(" ".join((about, *lines)))), frozenset(_terms(title)),
+                 together=tuple(together), **kw)
 
 
 def _builtin() -> list[Entry]:
@@ -195,12 +205,10 @@ def _skill_entry(row: dict) -> Entry | None:
     lines = skill_lines(row)
     if not lines:
         return None
-    from ..studio.skills import refused
+    from ..studio.skills import match_words, shown_name
 
-    words = [str(t) for t in (row.get("topics") or [])]
-    name = " ".join(str(row.get("name") or "").split())[:80]
-    name = name if name and not refused(name) else "Skill"   # a skill kept before its name was checked
-    return _entry(f"skill:{row['id']}", "skill", name, lines, words,
+    # the name the file gave counts in full for finding the skill, even when a model may only see "Skill"
+    return _entry(f"skill:{row['id']}", "skill", shown_name(row), lines, match_words(row),
                   str(row.get("description") or ""), modes=tuple(row.get("modes") or ()),
                   link=("Open Brain → Skills", "#/brain/skills"))
 
@@ -254,6 +262,7 @@ Unit = tuple[str, float]   # one word (by its stem) or one phrase of the questio
 class _Query:
     words: list[Unit]
     phrases: list[Unit]
+    said: frozenset = frozenset()       # the question's words another word may count beside (Entry.together)
 
     @property
     def all(self) -> list[Unit]:
@@ -274,7 +283,8 @@ def _units(query: str, corpus: _Corpus) -> _Query:
                 out.append((t, w))
         return out
 
-    return _Query(known(st), known([f"{a}_{b}" for a, b in zip(st, st[1:])]))
+    return _Query(known(st), known([f"{a}_{b}" for a, b in zip(st, st[1:])]),
+                  frozenset() if _PRESSING.search(query or "") else frozenset(st))
 
 
 def _score(q: _Query, e: Entry) -> tuple[float, float]:
@@ -287,6 +297,7 @@ def _score(q: _Query, e: Entry) -> tuple[float, float]:
     got, about = 0.0, 0.0
     # a word the entry is about only inside a phrase ("side buttons") counts in full where the question says it so
     held = {part for t, _ in q.phrases if t in e.strong for part in t.split("_")}
+    held |= {t for t, beside in e.together if beside & q.said}     # "buttons" beside "text" or "hidden"
     for t, w in q.words:
         if t in e.strong or t in held:
             got, about = got + w, about + w

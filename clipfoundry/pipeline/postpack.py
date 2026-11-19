@@ -37,17 +37,26 @@ GROWTH_TAGS = {"fyp", "foryou", "foryoupage", "fy", "viral", "trending", "trend"
                "xyzbca", "follow", "like", "likes", "subscribe"}
 # What a clip is: never a hashtag ("In this video I show you ...").
 MEDIUM_TAGS = {"video", "videos", "clip", "clips", "short", "content"}
-# Where a clip is posted: no hashtag, unless the clip is about the platforms themselves, which its title shows by
-# naming two of them ("YouTube Shorts or TikTok?"); "This video went viral on TikTok" is not about TikTok.
+# Where a clip is posted: no hashtag, unless the clip is about the platform, which its title shows by naming it as
+# its subject ("Why I quit Instagram", "YouTube Shorts or TikTok?"); "This went viral on TikTok" is not about TikTok.
 PLATFORM_TAGS = {"tiktok", "youtube", "shorts", "reels", "instagram"}
 GENERIC_TAGS = GROWTH_TAGS | MEDIUM_TAGS | PLATFORM_TAGS
+_PLATFORM = r"(?:tik ?tok|you ?tube|shorts|reels|instagram|insta)"
+_POSTED_ON = re.compile(rf"\b(?:on|to|from|for|via|in|at|across|onto)\s+(?:the\s+|my\s+)?({_PLATFORM}"
+                        rf"(?:(?:\s*,\s*|\s+(?:and|or|&)\s+|\s+){_PLATFORM})*)\b")
+
+
+def title_subject(title: str) -> set[str]:
+    """The content words of a title, without the platforms it names only as where the clip went."""
+    where = {w for m in _POSTED_ON.finditer(str(title or "").lower()) for w in content_tokens(m.group(1))}
+    return {w for w in content_tokens(title) if not (w in PLATFORM_TAGS and w in where)}
 
 
 def generic_tag(word: str, lead: set[str] | frozenset[str] = frozenset()) -> bool:
-    """A hashtag word that says nothing about this clip; `lead`: the content words of its title."""
+    """A hashtag word that says nothing about this clip; `lead`: its title's subject words (title_subject)."""
     word = word.lstrip("#").lower()
     if word in PLATFORM_TAGS:
-        return word not in lead or len(PLATFORM_TAGS & set(lead)) < 2
+        return word not in lead
     return word in GROWTH_TAGS or word in MEDIUM_TAGS
 
 # Call-to-action templates. They ask for an action and make no statement about the clip.
@@ -208,7 +217,7 @@ later earlier soon everyone someone anyone almost also maybe
 def hashtags_for(clip_text: str, global_df: Counter | None = None, n_docs: int = 1, prefer: str = "") -> list[str]:
     """Topic words the clip actually uses, weighted by how specific they are to it within the video. Words that also
     appear in `prefer` (the title) rank first."""
-    lead = set(content_tokens(prefer))
+    lead = title_subject(prefer)
     kws = [k for k in keywords(clip_text, global_df, n_docs, top=HASHTAG_LIMIT * 4)
            if k.isalpha() and k not in WEAK_TAGS and not generic_tag(k, lead) and not k.endswith(("ly", "est"))]
     kws.sort(key=lambda k: k not in lead)  # stable: keeps the keyword order otherwise
@@ -346,7 +355,7 @@ def _merge_ai(base: dict, ai: dict, clip_text: str) -> tuple[dict, int]:
     tags = ["#" + re.sub(r"[^\w]", "", str(t)) for t in (ai.get("hashtags") or []) if re.sub(r"[^\w]", "", str(t))]
     titles = base.get("titles") or []
     rec = base.get("recommended_title") or 0
-    lead = set(content_tokens(titles[rec] if 0 <= rec < len(titles) else ""))
+    lead = title_subject(titles[rec] if 0 <= rec < len(titles) else "")
     tags = [t for t in tags if not hashtag_problems(t, clip_text) and not generic_tag(t, lead)]
     if tags:
         base["hashtags"] = list(dict.fromkeys(tags + base["hashtags"]))[:HASHTAG_LIMIT]

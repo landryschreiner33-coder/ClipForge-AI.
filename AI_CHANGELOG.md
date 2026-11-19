@@ -1,5 +1,95 @@
 # AI changelog
 
+## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code)
+
+Landry wrote "improve the ai when i talk to it it does not know a lot of stuff and is dumb make sure it is smarter
+and that the clipping system uses the brain", "make it so it proporally uses the brain data to improve its work and
+esspecially the clips to know how to make viral ones", "make it so the clips arent so short and they are actually
+longer and more engaging", "make it so the ai is involved in the clipping and that the brain is better used and when
+it sees the data on what works and dosent it changes stuff" and "make sure it knows the best titals and captions to
+use". Branch `claude/project-thread-dwz7vo` (release line 3bb861f merged in), pull request #59. **Not released.**
+Framing and the split view from the same message are the live thread's work (PR #57).
+
+- **The chat knows more** (`brain/library.py`, `brain/appguide.py`, `brain/knowhow.py`): one search over sixteen
+  playbooks (new: titles, post text and hashtags, gaming and stream clips), a 29-section guide to the app itself
+  (what it does, where each thing is, with the page to open) and the advice lines of switched-on skills, which were
+  imported and shown but never read before. Without a model the chat answers "how do I clip a live stream?" or
+  "what makes a good title?" from them and links the page; with a model they go into the prompt, and the tools
+  `clip` (a clip's words, score and reasons) and `settings` let it look things up. An answer says what it read
+  ("From its guide to ClipForge", "From your skills"). The chat tells an owner whose computer can run a bigger
+  built-in model (`builtin_ai.best_level`).
+- **Clip picking reads the Brain** (`brain/steer.py`): the owner's memories, imported lessons and viral examples,
+  the advice of skills about picking clips and lessons from results are read, without a model, into kinds of moment
+  to look for or pass over (funny, a big reaction, a story, friction, small talk, ad reads …). A candidate that
+  shows them moves by 0.02 raw per kind times the source's weight (the owner's rule 1.0 … a viral example 0.2), at
+  most ±0.045 in all, so the Brain re-orders close calls and cannot pass a weak moment; an owner's "never" is a
+  warning flag. Lengths the owner told it ("clips at least 40 seconds") set the run's lengths. The clip page shows
+  "Your Brain: +N points. It …" and Brain → Memory counts the use ("clips").
+- **Fuller clips** (`virality.grown`, `scoring._fuller`, `config.py`, `db._migrate_clip_lengths`): defaults are now
+  25 / 45 / 90 seconds (saved 15 / 60 / 30 are moved once). The strongest lines of a moment are grown with their
+  build-up and ending while the talk stays on the subject, never across a topic change or a pause over three
+  seconds. On stand-in talks clean stories were already whole (40-60 s); messy talk went from a median of 21.6 s to
+  31.9 s. A plain-talk clip with no marked line that ends on a finished point is no longer docked for "excessive
+  setup". Live clips are not grown here (agreed with the live thread, which has its own).
+- **The AI that reads the video** (`pipeline/scout.py`): its brief now carries the Brain's one-line picking summary,
+  six memories that fit the video (900 characters, was 500) and the know-how and skills advice that fit it (1,300,
+  was 1,100; a stream reads the gaming playbook). **Also fixed:** recording which memories it used raised
+  ("Unknown place of use") and was logged as "recall failed" on every run, so the scout never got its memories.
+- **Lessons from results** (`brain/lessons.py`, run by the learning job): with the same guards as the clip-length
+  learning (48 hours old, enough views, one audience, YouTube API numbers only with approval) it compares, per kind
+  of moment, clips that showed it with clips that did not. A clear difference (6 clips and 3 videos on each side,
+  past a bar split over the kinds tested and read from Student's t with the error taken over videos, view counts
+  compared only when read at about the same age) becomes
+  a memory "From your results: look for …" that clip picking and the chat read. On pure noise about 3-7% of runs
+  make a lesson. Forget it and it stays forgotten while the numbers say the same; switch it off or rewrite it and it is
+  left alone.
+- **Titles, post text and hashtags** (`brain/poststyle.py`, `pipeline/postpack.py`, `autopilot/packaging.py`): what
+  the owner said about how post text looks (letter case, no emoji, how many hashtags, title length, a question as
+  the title, no call to action) is applied by both writers. It never adds a word, so the grounding check holds. A
+  model is told the choices in ClipForge's words and reads the advice of skills about titles. Hashtags that say
+  nothing about the video (#fyp, #viral, #video; a platform's name unless the title is about the platforms) are
+  dropped; a clip gets
+  five at most. Story clips and Autopilot's rewritten post text follow the rules kept for their own video too.
+- **Review fixes** (8 checkers, 23 problems, each with a test): a "no" in an owner's line reaches only until it
+  turns to what they want ("no intros, just funny moments"); "never end clips on a question" is about the cut;
+  "no more than 60 seconds" is a longest length and "the first 10 seconds" no length at all; "what else" is a topic
+  change only when a line opens with it; a fuller clip never replaces one that passes the score bar with one that
+  fails it. Post text: "don't forget the hashtags" is a yes, "thumbnail text in capitals" is not a title rule,
+  "hashtags welcome" is not banned by the list before it. A JSON skill's own advice lines get the importer's checks
+  and are checked again when read. Three guide lines were wrong (links with a transcript, automatic YouTube posts,
+  which parts read notes); the privacy page now lists what the chat's clip and status tools send.
+- **Second check** (4 checkers tried to break the fixes, a skeptic re-checked each claim; 30 confirmed, all fixed
+  with tests): several fixes read owner sentences the wrong way round ("don't pick clips that are just small talk",
+  "drop clips with swearing", "look for hidden funny moments", "I don't want you to add any hashtags"). A turn now
+  ends a "no" only once the "no" has named what it refuses; only "cut" can mean making clips; a "no" anywhere in its
+  part of a sentence counts for post text. Lessons take their error between videos (with kinds that come with some
+  videos more than others, noise made a lesson in about a fifth of runs; now about 5%) and compare view counts only
+  read at 48 to 96 hours. A skill line or name is checked as one line. 116 owner sentences about picking and
+  lengths and 102 about post text are read as meant (`tests/test_brain_steer.py`, `tests/test_post_style.py`).
+- **Third check** (4 checkers, a skeptic per claim; 15 confirmed, all fixed with tests). Lessons: the error was
+  taken per side, so a reaction that doubled views inside every video was missed when the videos' reach differed
+  (found in 3% of runs; now 100%), and one long stream holding most reactions still made a lesson from its luck in a
+  fifth of runs (now under 1%): the error is now the gap's own spread with each video left out in turn, with fewer
+  degrees of freedom when a few videos carry it. View counts read after 96 hours were dropped, so an owner who
+  imports on day 5 got no lessons: counts are now compared when read within 1.5 times the audience's middle age.
+  Picking: the rest of a list after a cut point ("never end a clip on a joke, a question, or a cliffhanger") no
+  longer reads as wanted; "never pick intros or lead with small talk" refuses both; "get to the action in 10
+  seconds or less" is no clip length. Post text: "never skip the emoji" asks for emoji; "my titles aren't getting
+  clicks so make them questions" asks for questions (a "no" reaches only its own instruction and the last eight
+  words); "text in all caps on my videos" and "only the first letter in capital letters" are no title rules;
+  "hashtags from other creators" is which and "hashtags that much" is fewer; "Why I quit Instagram" keeps
+  #instagram. Chat: two skills whose names may not be shown ("Post titles for TikTok") no longer share one key, so a
+  later import cannot replace an earlier one, and they are still found by their names; the captions playbook's
+  phrase words no longer pull "make it work on YouTube" to captions; "buttons" leads to captions only beside what
+  they cover, never in "which share button do I press?".
+- **Decisions:** the Brain's effect on a score is small and bounded on purpose; only the owner's own words can ask
+  for small talk, ad reads or swearing; an owner's sentence about an editing subject is not a picking rule; the
+  shortest clip stays a soft limit (a tight moment may run to 75% of it); clips cut from a live stream follow the
+  general post text rules but not one kept for a single video (`autopilot/live.py` was left to the live thread).
+- **Not verified:** a real model's answers with the larger brief; Landry's Mac; real streams; lessons on real
+  posted results (tested with recorded stand-in results only).
+- **Checks:** CHECKS_PLACEHOLDER
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
 Landry wrote "make it so you can choose what clips or stuff goes to what channle or if it goes to all or just a few".

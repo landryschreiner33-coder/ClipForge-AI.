@@ -1,5 +1,43 @@
 # AI handoff
 
+## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry said the chat "does not know a lot of stuff", that clipping should use the Brain
+and learn from what works, that clips were too short, and that it should know the best titles. The chat now answers
+from sixteen playbooks, a guide to the app and the owner's switched-on skills. Clip picking reads the Brain and says
+on each clip what the Brain added. Clips are grown to the whole moment (defaults 25 / 45 / 90 seconds). Results of
+posted clips become "From your results:" memories that picking follows. Titles, post text and hashtags follow the
+owner's rules. **Not released.**
+
+- **Where things are:** branch `claude/project-thread-dwz7vo`, pull request #59 into `claude/project-thread-x72wkd`.
+  Details and numbers: the top entry of [AI_CHANGELOG.md](AI_CHANGELOG.md) and
+  [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md) (*One library*, *The Brain in clip picking*,
+  *Lessons from results*, *Titles, post text and hashtags the owner's way*).
+- **The rules to keep:** (1) the Brain's nudge to a score stays inside `steer.LIMIT`; a lesson or a skill can never
+  ask for small talk, ad reads or swearing. (2) `poststyle` never adds a word: every new choice must be something
+  that only changes, removes or picks among the clip's own text. (3) A model gets the owner's post text choices in
+  ClipForge's words (`poststyle.prompt`), never the note. (4) New code that needs "what does ClipForge AI know"
+  calls `library.search`, not `knowhow.select`. (5) A lesson is machine-owned only while its text equals the
+  `data.text` it was written with (`steer.lesson_of`); anything else is the owner's. (6) `lessons.compare` splits its
+  bar over the kinds it tests and takes the gap's error over videos (`lessons._gap`: a jackknife leaving each video
+  out, with Satterthwaite's degrees of freedom): adding kinds of moment makes each test stricter, which is intended.
+  Do not swap in `autopilot/brain._stats` (clips counted as independent) or a per-side error (misses a gap inside
+  each video). `tests/test_brain_steer.py` holds the noise and power checks; run them after any change there.
+  (7) A skill name the importer may not show is kept in its `blocked` list ("name: …"): `skills.match_words` finds
+  the skill by it, `skills.shown_name` is what a model sees.
+- **How owner lines are read** is tested sentence by sentence in `tests/test_brain_steer.py` and
+  `tests/test_post_style.py`; add the sentence that went wrong there before changing a pattern.
+- **Shared with the live thread (PR #57):** `virality.variants()` is unchanged and live clips are not grown by
+  `scoring._fuller`; `virality.analyze` keeps its keys and gained `facts`, `short_by` and `brain_steer`;
+  `virality.summary` gained `moment` and `brain`. Whoever merges second rebuilds `frontend/dist` (the only
+  conflict) and runs both threads' tests.
+- **Tests written for the old lengths** set 15 / 60 / 30 themselves (for example the fixture of
+  `tests/test_postpack.py`): they are about something else than length.
+- **Not built:** the chat cannot yet start "make clips" on its own from a sentence; lessons compare kinds of moment
+  only (not hooks or topics); a rule for one video is not applied to post text written while its stream is live.
+- **Not verified (needs Landry's computer or real posts):** a real model with the larger brief, the Mac window,
+  real streams, lessons on real results.
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked to choose which clips go to which channel: all of them, a few, or one. Every
