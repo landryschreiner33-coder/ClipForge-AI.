@@ -62,9 +62,13 @@ clips, story boundaries) mean the same thing whichever space made them. Novelty 
 
 ## The scout and the judge (`clipfoundry/pipeline/scout.py`)
 
-Both passes read the same **brief** (`scout.brief`, built once per run): the video's title, the best playbooks for
-picking clips (1,100 characters), the owner's standing rules from the brain (500), the wanted length, and the
-taste learner's sentence when it has one.
+Both passes read the same **brief** (`scout.brief`, built once per run): the video's title, the know-how and the
+advice of switched-on skills that fit the video (1,300 characters; a gaming stream reads the gaming playbook), up
+to six of the owner's rules and facts that fit it (900), one line that sums up what the Brain says to look for and
+pass over (`steer.brief_line`, which includes lessons from the owner's results; see *The Brain in clip picking* in
+[CLIPFORGE_AI.md](CLIPFORGE_AI.md)), the wanted length, and the taste learner's sentence when it has one. (Until
+2026-11-18 the brief held 1,100 characters of playbooks and 500 of rules, and recording which memories it used
+failed silently.)
 
 1. **Scout** (`scout.nominate`), before the candidates are scored: the model reads the transcript in order in
    windows of 8,000 characters and names up to 4 moments per window (12 in all) that would stand alone as a short,

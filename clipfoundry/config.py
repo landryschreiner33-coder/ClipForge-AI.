@@ -82,9 +82,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "language": "",                   # "" = auto-detect
     # Clip discovery
     "clip_count": 5,
-    "min_duration": 15.0,
-    "max_duration": 60.0,
-    "target_duration": 30.0,
+    # 25 / 90 / 45 since 2026-11: at 15 / 60 / 30 a clip was often only the strongest lines of a longer moment.
+    "min_duration": 25.0,
+    "max_duration": 90.0,
+    "target_duration": 45.0,
     "min_score": 50.0,                # clips below this AI estimate are dropped (best one is always kept)
     # Stage 2 AI evaluation (all optional; heuristic works fully offline)
     "ai_provider": "heuristic",

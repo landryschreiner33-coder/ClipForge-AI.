@@ -208,6 +208,9 @@ def clip_score(r: dict) -> tuple[float, list[str]]:
                      (j_label, adj_j), (y_label, adj_y)):
         if abs(v) >= 0.5:
             why.append(f"{v:+.1f} {label}")
+    said = (r.get("analysis") or {}).get("brain_steer") or {}
+    if said.get("why") and abs(float(said.get("points") or 0.0)) >= 0.5:
+        why.append(f"includes {said['points']:+.1f} from your Brain: it " + "; ".join(said["why"][:2]))
     if r.get("scout"):
         why.append(f"named by ClipForge AI while reading the video ({r['scout'].get('kind', 'moment')})")
     if d.get("prosody") and d["prosody"].get("monotone"):

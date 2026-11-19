@@ -15,7 +15,8 @@ import numpy as np
 
 from .text_utils import (DANGLING_STARTS, EMOTION_WORDS, HOOK_PHRASES, HOOK_WORDS, LOSS_PHRASES, LOSS_WORDS,
                          OUTRO_PHRASES, PAYOFF_PHRASES, PROMO_PHRASES, RESPONSE_STARTS, SETUP_PHRASES,
-                         SLOW_OPEN_PHRASES, STORY_MARKERS, TRANSITION_PHRASES, content_tokens, cosine, count_phrases,
+                         SLOW_OPEN_PHRASES, STORY_MARKERS, TRANSITION_OPENERS, TRANSITION_PHRASES, content_tokens,
+                         cosine, count_phrases,
                          ends_sentence, tf_vector, tokens)
 
 FILLER_TOKENS = {"um", "uh", "erm", "hmm", "mm"}
@@ -50,7 +51,7 @@ def sentence_features(sentences: list[dict], words: list[dict]) -> list[dict]:
             "content": len(content_tokens(text)),
             "gap_before": s["start"] - sentences[k - 1]["end"] if k else s["start"],
             "gap_after": sentences[k + 1]["start"] - s["end"] if k + 1 < len(sentences) else 5.0,
-            "transition": count_phrases(low, TRANSITION_PHRASES) > 0,
+            "transition": count_phrases(low, TRANSITION_PHRASES) > 0 or bool(TRANSITION_OPENERS.match(low)),
             "setup": text.rstrip().endswith("?") or count_phrases(low, SETUP_PHRASES) > 0,
             "promo": count_phrases(low, PROMO_PHRASES),
             "slow_open": count_phrases(low[:60], SLOW_OPEN_PHRASES) > 0,  # "so today I want to talk about..."

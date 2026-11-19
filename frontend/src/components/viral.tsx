@@ -128,7 +128,8 @@ const kindWord = (k: string) => k.replace(/_/g, " ");
 export function AiNotes({ a }: { a: Partial<NonNullable<Clip["analysis"]>> }) {
   const seen = a.deep?.seen;
   const voice = a.deep?.prosody;
-  const any = a.scout || a.judge || seen || voice || a.taste;
+  const brain = a.brain && (a.brain.why.length || a.brain.avoid) ? a.brain : null;
+  const any = a.scout || a.judge || seen || voice || a.taste || brain || a.brain_length;
   const explanation = a.explanation || [];
   if (!any && !explanation.length) return null;
   return (
@@ -142,6 +143,12 @@ export function AiNotes({ a }: { a: Partial<NonNullable<Clip["analysis"]>> }) {
             {seen.text_on_screen ? ` · on screen: “${seen.text_on_screen}”` : ""} (picture appeal {seen.appeal}/10{seen.problem ? `; ${seen.problem}` : ""})</li>}
           {voice && <li className="info"><b>The voice:</b> {voice.monotone ? "stays flat here" : `${voice.pitch_variation >= 0.5 ? "lively" : "steady"}, ${voice.emphasis_per_30s} emphasis moments per 30 s`}
             {voice.laughter_like ? `, ${voice.laughter_like} laugh-like burst${voice.laughter_like === 1 ? "" : "s"}` : ""} (estimated from the sound)</li>}
+          {brain && <li className={brain.avoid ? "warn" : "info"}><b>Your Brain:</b>{" "}
+            {brain.why.length > 0 && <>{(brain.points ?? 0) >= 0 ? "+" : ""}{brain.points ?? 0} points. It {brain.why.join("; ")}.</>}
+            {brain.avoid && <> You said to pass over {brain.avoid.label}: “{brain.avoid.by.text}”.</>}
+            {brain.used.length > 0 && <> <a href="#/brain/memory">See what it went by</a></>}</li>}
+          {a.brain_length && <li className="info"><b>Clip length from your Brain:</b> {Math.round(a.brain_length.after[0])} to{" "}
+            {Math.round(a.brain_length.after[1])} seconds, because you said “{a.brain_length.by.text}”.</li>}
           {a.taste && <li className="info"><b>Your taste:</b> {a.taste.adjust >= 0 ? "+" : ""}{a.taste.adjust} points
             {a.taste.why && a.taste.why.length ? ` (you tend to keep clips with ${a.taste.why.join(" and ")})` : ""}</li>}
         </ul>

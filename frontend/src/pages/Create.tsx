@@ -7,8 +7,8 @@ import "./library.css";
 const ACCEPT = [".mp4", ".mov", ".mkv", ".webm", ".m4v"];
 const LENGTHS = [
   { value: "short", label: "15–30 s", min: 15, max: 30, target: 22 },
-  { value: "standard", label: "15–60 s", min: 15, max: 60, target: 30 },
-  { value: "long", label: "30–90 s", min: 30, max: 90, target: 50 },
+  { value: "standard", label: "25–90 s", min: 25, max: 90, target: 45 },
+  { value: "long", label: "45–120 s", min: 45, max: 120, target: 75 },
 ];
 const COUNTS = [3, 5, 10];
 

@@ -1,5 +1,25 @@
 # Implementation status
 
+## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code)
+
+Branch `claude/project-thread-dwz7vo` (release line afc0c1f merged in, with the live clips work of PR #57), pull
+request #59. The chat answers from sixteen playbooks, a guide to the app and switched-on skills; clip picking reads
+the Brain and says so on each clip;
+clips are grown to the whole moment (defaults 25 / 45 / 90 seconds); posted results become "From your results:"
+memories; titles, post text and hashtags follow the owner's rules. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-19 | `CLIPFOUNDRY_DATA=$(mktemp -d) python -m pytest -q -m "not slow"` on e932640 | 3105 passed, 2 skipped (27 min, alone on the machine) |
+| 2026-11-19 | `CLIPFOUNDRY_DATA=$(mktemp -d) python -m pytest -q -m slow` on e932640 | 31 passed, 1 skipped (21 min) |
+| 2026-11-19 | the same two runs on b523866 and on cb646fd (after the release line came in) | 3084 and 3050 passed; slow 31 passed each time |
+| 2026-11-19 | `cd frontend && npm run build` on cb646fd | reproduces the committed `frontend/dist`; no frontend file changed after it |
+| 2026-11-19 | `python -m pytest tests/test_brain_steer.py tests/test_post_style.py tests/test_assistant_library.py tests/test_clipforge_ai_knowhow.py -q` | 298 passed; the fifth check's 18 new cases fail on b523866 |
+| 2026-11-19 | lesson simulations from `tests/test_brain_steer.py` (200 runs each) | noise alone: 2.5%, clustered kinds 2.5%, one long stream 0.5-1.5%, volatile videos 2%; real gaps found in 94-100 of 100 |
+
+Not verified: a real model's answers, Landry's Mac, real streams, lessons on real posted results.
+
 ## Live clips: better moments, split view, split between channels, Stop clipping — 2026-11-18 (Claude Code)
 
 PR #57, branch `claude/project-thread-82eyed` from the release line, with the channel picker branch (PR #58) merged

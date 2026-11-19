@@ -724,7 +724,7 @@ CREATE TABLE IF NOT EXISTS brain_memory_uses ( -- where an answer used a memory
     id TEXT PRIMARY KEY,
     memory_id TEXT NOT NULL,
     workspace_id TEXT NOT NULL DEFAULT 'local',
-    where_used TEXT NOT NULL,                 -- change_request | filmcraft | smart_edit | chat | guidance | agent
+    where_used TEXT NOT NULL,                 -- brain/memories.py WHERE: chat, clips, post, smart_edit, ...
     ref_id TEXT DEFAULT '',                   -- the request, project or chat message
     created_at REAL NOT NULL
 );
@@ -1393,6 +1393,30 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_scheduled_accounts(conn)
     _migrate_cloud_secrets(conn)
     _migrate_uploads_taken(conn)
+    _migrate_clip_lengths(conn)
+
+
+CLIP_LENGTHS_MIGRATION = "clip_lengths_migrated_v1"
+OLD_CLIP_LENGTHS = {"min_duration": 15.0, "max_duration": 60.0, "target_duration": 30.0}
+
+
+def _migrate_clip_lengths(conn: sqlite3.Connection) -> None:
+    """Once: saved clip lengths that are exactly the old defaults (15 / 60 / 30, written by a Save in Settings, not
+    chosen) give way to the new, longer defaults. Lengths the owner changed, even one of the three, stay."""
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (CLIP_LENGTHS_MIGRATION,)).fetchone():
+        return
+    saved = {}
+    for row in conn.execute("SELECT key, value FROM settings WHERE key IN (?, ?, ?)", list(OLD_CLIP_LENGTHS)):
+        try:
+            saved[row["key"]] = float(json.loads(row["value"]))
+        except (TypeError, ValueError):
+            saved[row["key"]] = None
+    moved = bool(saved) and all(saved.get(k, v) == v for k, v in OLD_CLIP_LENGTHS.items())
+    if moved:
+        conn.execute("DELETE FROM settings WHERE key IN (?, ?, ?)", list(OLD_CLIP_LENGTHS))
+    now = time.time()
+    conn.execute("INSERT INTO autopilot_state (key,value,updated_at) VALUES (?,?,?)",
+                 (CLIP_LENGTHS_MIGRATION, json.dumps({"at": now, "version": 1, "moved": moved}), now))
 
 
 CONNECTIONS_MIGRATION = "social_connections_migrated_v1"

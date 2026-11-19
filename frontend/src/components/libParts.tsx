@@ -109,8 +109,8 @@ export function RemakeDialog({ p, clipCount, onClose, onDone }: {
   const opts = (p.options || {}) as Record<string, any>;
   const startCount = typeof opts.clip_count === "number" ? opts.clip_count : 5;
   const [count, setCount] = useState<number>(startCount);
-  const [minD, setMinD] = useState(String(opts.min_duration ?? 15));
-  const [maxD, setMaxD] = useState(String(opts.max_duration ?? 60));
+  const [minD, setMinD] = useState(String(opts.min_duration ?? 25));
+  const [maxD, setMaxD] = useState(String(opts.max_duration ?? 90));
   const lo = Number(minD);
   const hi = Number(maxD);
   const problem = !minD || !Number.isFinite(lo) || lo < 5 || lo > 170 ? "The shortest clip must be 5 to 170 seconds."

@@ -159,13 +159,17 @@ meanings. The existing backup includes the tables
 | Smart edit's AI advice (`ai_editor`) | rules, at most 500 characters per window | nothing | `smart_edit`, the project's id |
 | The chat (ClipForge AI, and a helper you talk to with "@") | every rule that applies (at most 8), then up to 8 facts, episodes and answers that fit the message: 1,200 characters with the built-in model or Ollama, 1,600 with other models | rules and facts you teach it ("remember: …", its `remember` tool); a change applied from a video's chat writes its episode like any change request | `chat`, the AI message's id |
 | A job ClipForge AI hands a helper (`ask_agent`) | the same, for the words of the job | what it saves with `remember`, when it was given that tool | `agent`, the helper's id |
+| Clip picking (`brain/steer.py`, see *The Brain in clip picking*) | every rule and fact that applies to the video, read without a model into kinds of moment to look for or pass over and into clip lengths | nothing | `clips`, the project's id |
+| The AI that reads the video (`pipeline/scout.py`) | the steer's one-line summary, up to 6 rules and facts that fit the video's title (900 characters) and the know-how and skills advice that fit (1,300) | nothing | `clips`, the project's id |
+| Titles, post text and hashtags (`brain/poststyle.py`) | the owner's own rules for how post text looks, read without a model into a fixed set of choices | nothing | `post`, the project's id |
+| Lessons from results (`brain/lessons.py`) | the results of posted clips, not memories | a `fact` (`did`, tags "from results" and "clip picking") per kind of moment that did clearly better or worse | read by clip picking like any memory |
 
 The guidance snapshot (styles, skills, examples, notes) is unchanged: it is structured and deterministic; memories
 are words for the model. The Brain page's "Used from your brain" and a request's `memories` list show both.
 
 ## Know-how
 
-`clipfoundry/brain/knowhow.py` is what ClipForge AI knows about editing before you teach it anything: thirteen
+`clipfoundry/brain/knowhow.py` is what ClipForge AI knows about editing before you teach it anything: sixteen
 **playbooks** in plain words with the numbers an editor needs, distilled in November 2026 from two guides the owner
 gave it (a cinematic filmmaking and post-production guide and a viral short-form video strategy guide) and from
 ClipForge's own rules. They are built in (the same on every computer, never downloaded, never sent anywhere on their
@@ -187,6 +191,9 @@ header says so.
 | Reading a retention graph | what each shape of the curve means and the fix | |
 | Talking-head edits | pauses and takes, punch-ins, more than one speaker, pictures on cue | smart edits |
 | Animated voice-over shorts | the hook in 2 s, one picture per 6-14 words with a push-in or pan, 175 wpm, concrete pictures with the same character and no words in them, only sure facts, the payoff and the loop | writing an animated short (with hooks and endings) |
+| Titles that earn the tap | sell the reaction or an open question, the search words early, 40-60 characters, the shapes that work, one emoji at most, no all-caps | post packages |
+| Post text and hashtags | the first line is the hook or a question, the search phrase spoken, on screen and written, 3-5 niche hashtags and never #fyp | post packages |
+| Gaming and stream clips | the play and the reaction together, the face cam with the gameplay (split view), which moments spread, captions that carry the clip with the sound off | clip scoring (when the video is a stream or a game) |
 
 **Picking** (`knowhow.select(query, task, limit, budget_chars)`): the share of the question's words a playbook
 covers, rarer words counting more and the words a playbook is *about* (its title and its own word list) counting
@@ -212,6 +219,160 @@ are a weak ending and a poor opener, loss or warning framing and short plain hea
 hook headline sits below the apps' top bar and shrinks to fit, "bottom" captions sit above the 35% the apps cover,
 the voice chain uses the dialogue numbers, clips are converted and tagged BT.709 and delivered with a keyframe every
 half second and 256 kbps AAC.
+
+## One library: the know-how, the guide to the app and the owner's skills
+
+`clipfoundry/brain/library.py` is the one search ClipForge AI reads from (added 2026-11-18, because the owner said
+the chat "does not know a lot of stuff"). It holds three sources:
+
+- the sixteen playbooks above;
+- **the guide to the app** (`brain/appguide.py`): 29 short sections that say what ClipForge does and where each
+  thing is (making clips, links, live streams, clip lengths, framing, scores, posting, the Brain, memory, skills,
+  the model, settings, what the chat can do), each with the page it opens. A test checks that every page it names
+  exists in the app and that a section stays short;
+- **the advice lines of switched-on skills** (`library.skill_lines`): the lines of an imported skill that the
+  importer kept as readable advice ("not an editing choice ClipForge applies yet"). They used to be shown and never
+  read. A skill is read only while it is switched on and only when it is about what was asked (its name and
+  topics), at most five lines of it. A name the importer may not show a model ("Post titles for TikTok" reads like
+  an order to post) is shown as "Imported skill" or "Skill", yet the skill is still found by it and kept apart from
+  other skills by it.
+
+`library.search(query, ws, task=...)` ranks all three by the words they share with the question (rarer words count
+more; the words an entry is *about* count more than words inside its lines) and, when the meaning model is there,
+by meaning. A job (`task="clips"`, `"post"`) never reads the guide; a "where is the button" question prefers it.
+A word can count only beside others: "buttons" leads to the captions playbook only beside what they cover ("are my
+captions hidden behind the TikTok buttons?"), never in a question about pressing one ("which share button do I
+press?").
+`Found.prompt()` gives one block per source, and the skills block says the owner's skills win over the built-in
+craft. `library.answer(query)` answers a question without a model when one entry clearly fits, with a link to the
+page. The chat reads the library before every answer; its tools `knowhow` (reads an entry), `clip` (one clip's
+words, score and reasons) and `settings` (the current settings in plain words) let a model look things up.
+
+## The Brain in clip picking
+
+`clipfoundry/brain/steer.py` turns what the Brain holds into picking rules, without a model, once per run
+(`process._options` → `opts["brain_steer"]`). It reads:
+
+- the owner's memories that apply to the video (rules and facts; what the owner said counts most);
+- imported lessons and viral examples (memories with source `imported`);
+- the advice lines of switched-on skills whose name or topics are about picking clips;
+- lessons from the owner's own results (below).
+
+Each line is read into **kinds of moment** (funny, a big reaction, emotional, a story, teaching, a question, friction
+or debate, a surprise, a win, a fail, a quotable line, numbers, swearing, an ad read, small talk) with a direction:
+look for it or pass it over. `virality.analyze` asks `steer.judge` which kinds a candidate shows (from its words
+and measured facts) and `finalize` adds the result to the raw score.
+
+| Number | Value | Why |
+|---|---|---|
+| One kind | 0.02 raw × the source's weight | about 3-4 points of Viral Potential near the middle of the scale |
+| Weights | owner's rule 1.0, said 0.7, results 0.45 (0.65 when strong), imported lesson 0.5, did 0.4, skill 0.35, guessed 0.25, viral example 0.2 | the owner's words lead; advice nudges |
+| All kinds together | at most ±0.045 raw | the Brain re-orders close calls; it cannot make a weak moment pass |
+| An owner's "never" | a warn flag ("Your Brain says to pass this over"), no second penalty | the same weight as any other warning |
+
+One source speaks once per kind, an owner's rule on a kind silences everything else on it, and nobody but the owner
+can ask for small talk, ad reads or swearing. An owner's sentence about an editing subject ("no music under funny
+moments"), and the part of a sentence about where a clip starts or ends ("never end clips on a question"), is not a
+picking rule. A "no" reaches until the line turns to what it wants, and a turn counts only once the "no" has named
+what it refuses: "no intros, just funny moments" and "skip intros and keep the reactions" turn, "don't pick clips
+that are just small talk" refuses small talk. It goes on through a list after a comma ("no swearing, boring small
+talk or ads") and across "or" ("never pick intros or lead with small talk"), and two of them make a yes ("don't bury
+the punchline"); the list after a cut point goes with it ("never end a clip on a joke, a question, or a
+cliffhanger" says nothing about picking). Only "cut" can mean making clips ("cut more
+reaction clips"); drop, remove, trim and stop leave things out. **Lengths** the owner told it ("clips at least 40
+seconds"; "no more than 60 seconds", "I don't want my clips to be longer than 30 seconds" and "30 seconds or less"
+are longest lengths; "grab attention in the first 10 seconds" and "get to the action in 10 seconds or less" are no
+length at all) set the shortest, ideal and
+longest clip for the run unless this project's own lengths differ from Settings. Every clip keeps what
+the Brain did (`analysis.brain`: points, reasons, sources) and the kinds it shows (`analysis.moment`); the clip page
+shows "Your Brain: +N points. It …" and the memories are counted as used in "clips".
+
+**Fuller clips.** The default lengths are 25 / 45 / 90 seconds (shortest / ideal / longest; saved 15 / 60 / 30 are
+moved once). After the best lines of a moment are found, `virality.grown` offers the same moment with its build-up
+and ending: lines are added while they are about the same thing, never across a change of topic or a pause over
+three seconds, never past the longest clip. The fuller version wins when its score, less 0.0025 raw per second
+short of the ideal length, is higher. A clip under the shortest length loses up to 0.10 raw. Clips cut from a live
+stream are not grown here: the live path chooses its own lengths.
+
+## Lessons from results
+
+`clipfoundry/brain/lessons.py` runs with the learning job (`autopilot/learner.learn`: every six hours while
+Autopilot is on with learning switched on, or when you press **Learn now** under Missions → Advanced → Learning;
+never while the Brain is paused). It reads the same
+results under the same guards as the clip-length learning in `autopilot/brain.py` (a reading at least 48 hours
+old, enough views, one comparable audience, YouTube API numbers only with Google's approval) and compares, per kind
+of moment, the clips that showed it with those that did not: the share of the clip people watched where most clips
+have it, otherwise views, each clip's view count read at the age closest to 48 hours. Views keep growing, so counts
+read at very different ages are not compared: ClipForge compares only the clips read within 1.5 times either way
+of one reading age, the one nearest 48 hours whose band holds at least 12 clips and at least half as many as the
+fullest band. A clip first read a month later is left out, an owner who imports every count on day 5 still learns,
+a later import of last month's counts does not unsettle a lesson that stands on 48-hour readings, and a few newer
+clips read at two days do not hide the many read on day 3. A difference becomes a memory when it stands on 6 clips with
+the kind and 6 without,
+each side from at least 3 source videos, and passes a bar that is split over the kinds tested in that run and read
+from Student's t (what two standard errors mean on many clips). Clips of one video move together. When at least 5
+videos hold clips on both sides and those videos hold at least half of each side's clips, the gap is measured inside
+each of them (its clips with the kind against its own clips without) and averaged, a video counting more the more
+clips it has on both sides, so a reaction that doubles views inside every video is found even when the videos'
+reach differs tenfold and each holds one to three reaction clips. Otherwise the gap is between all clips with and
+without, so a few long streams do not throw away the many one-clip videos beside them. Which of the two is used
+depends only on which clips show the kind, never on their numbers. Either way the error is the gap's own spread when
+each video in turn is left out (a jackknife over videos), so one long stream that holds most of the reactions counts
+with all its weight, and it is read from the values before the outlier cap, which would otherwise flatten a few
+videos whose reach swings a lot and make their luck look steady. The degrees of freedom are the videos less one,
+fewer when a few videos carry the gap. On pure noise about 1-3% of runs make a lesson, also when kinds come with some
+videos more than others, one long video carries a side, or a few volatile videos hold the kind (the last made a
+lesson in about a sixth of runs before); a real difference of 20 points watched on 30 videos is found every time,
+and with three or four long streams beside 25 one-clip videos in about 19 runs in 20:
+
+> From your results: look for a big reaction. Clips with it were watched 12 points further than your other clips
+> (9 clips against 14, on TikTok). A pattern in your own numbers, not proof.
+
+Clip picking reads it like any memory (weight 0.45, or 0.65 past the stricter bar that stands for three standard
+errors), the AI that reads the video is told, and the chat can answer from it. The owner can switch it off, rewrite
+it (any change to its words makes it theirs, even one that keeps "From your results:"; it is then read as their
+words and left alone) or forget it; a forgotten lesson is not written again while the numbers say the same. When the
+numbers stop
+saying it, the lesson is removed. Results never teach it to look for small talk, ad reads or swearing. The other
+things results already change are unchanged: the ideal clip length, the score weights and which packaging style
+does best (`autopilot/brain.py`, `autopilot/learner.py`).
+
+## Titles, post text and hashtags the owner's way
+
+`clipfoundry/brain/poststyle.py` reads what the owner said about how post text looks into a fixed set of choices:
+letter case of titles (lower, capitals, every word capitalised, no all-caps), lower-case post text, no emoji, how
+many hashtags at most (or none), a title length in characters or words, a question as the title or not, and no
+call to action. Only the owner's own words count; "captions" alone means the words on the video and changes
+nothing here. Both writers apply the choices to the finished text: the post package of every clip
+(`pipeline/postpack.py`) and Autopilot's packaging (`autopilot/packaging.py`). It never adds a word: it changes
+case, removes emoji and hashtags, recommends the clip's own line that fits best and can leave the call to action
+out, so the grounding check still passes. The post's source line says so ("your Brain: titles in lower case, no
+emoji") and the memories are counted as used in "post". What the owner types on a post afterwards stays as typed.
+
+A model that writes post text is told the choices in ClipForge's words, never the owner's note, and reads the
+advice of switched-on skills about titles, post text or hashtags (600 characters). Hashtags that say nothing about
+the video (#fyp, #viral, #trending, #video, #clip) are left out even when the speaker says the word; a platform's
+name only when the title is about it ("Why I quit Instagram", "YouTube Shorts or TikTok?" keep it; "This video went
+viral on TikTok" names only where the clip went). A clip gets five at most. Story clips
+(Full stories, Story parts) and the post text Autopilot rewrites after cutting weak parts follow the rules kept for
+their own video as highlights do.
+
+How a sentence is read: a "no" before the thing, in its own instruction, counts ("I don't want you to add any
+hashtags"; "shouldn't", "can't" and "mustn't" too; not across "so", "if", "and should", "please", "honestly" or "just"
+with a new instruction: "my titles aren't getting clicks so make them questions", "dont worry about the title just
+make sure there are emojis"; "so many" and "so much" go on); "not sure", "no idea", "don't care", "don't mind" and
+"doesn't matter" refuse nothing; "isn't", "aren't" and "didn't" describe and are no rule unless a wish follows
+("titles aren't supposed to have emoji", "I didn't want hashtags"). After
+a "no", "forget", "miss", "skip", "drop", "leave out" or "stop" says the opposite ("don't forget the hashtags",
+"never skip the emoji" ask for them). Each part of a sentence is about
+what it names ("thumbnail text in capitals, title in lower case" is a title rule for lower case only; "for every
+video" only says where it holds, "on my videos" is about the video's own text; a part that only names titles heads
+the rest: "titles: lower case on every clip"). A list carries a "no" on ("no hashtags, emoji or links please") unless the part
+allows the thing ("no emoji, hashtags welcome", "no emoji but hashtags are fine"). "Capitals" alone is a rule only
+when refused ("no capitals"); "titles in capital letters" means all capitals, "only the first letter in capital
+letters" and "names in capitals" do not. "From now on", "from tomorrow", "from the description" and "from my posts" say when or where, not which
+hashtags; "hashtags from other creators", "from my last video" or "from TikTok" is which; "don't use hashtags that much" is fewer. A title that
+moves between platforms ("Why I left TikTok for YouTube") keeps both platforms' hashtags.
 
 ## The assistant
 

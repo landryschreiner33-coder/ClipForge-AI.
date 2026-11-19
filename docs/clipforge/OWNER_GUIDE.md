@@ -15,6 +15,18 @@ or note decides each choice before you start.
 - **Make & upload clips**: tick the exact channels. YouTube uploads happen once per channel after each clip passes
   its final check; TikTok posts wait for your OK on each one. You can close the page once the file has uploaded.
 
+**How long clips are.** Settings → Defaults sets the Shortest clip, the Ideal clip length and the Longest clip (25,
+45 and 90 seconds unless you change them). ClipForge finds the strongest lines of a moment and then takes in what
+leads up to them and how they end, as long as it is still the same subject, so a clip is the whole moment and not
+only its punchline. Telling ClipForge AI *remember: clips should be at least 40 seconds* changes the lengths for
+new clips.
+
+**Your Brain picks with you.** What you told ClipForge AI (*I love funny moments*, *never clip the sponsor read*),
+the advice in your switched-on skills about picking clips, the viral lessons you imported and what your own
+results show all nudge which moments are picked. Each clip's page says what your Brain added or took away and why.
+Once enough of your posts have real numbers, ClipForge AI compares which kinds of moment did better and keeps it in
+Brain → Memory as a line that starts *From your results:*; switch it off or forget it there if you disagree.
+
 Full story finds where each story starts (the narrator's own words such as *next story*, *first story* or *story
 number three*, a post's title read out, a long break and a new subject) and makes one clip per story, running until
 the next story starts. A gamer who stops talking for a few seconds while he plays is not split at every pause. A
@@ -64,18 +76,24 @@ happens until you press **Apply as a new version** (Undo takes it back) or **Dis
 *remember: …*, *always …* or *never …* (add *for this video* to keep it to one video); ask *what do you know?*,
 *why?* or *help*; say *forget …* to remove something. Brain → **Talk to ClipForge AI** is the chat for everything
 else. Ask it how to edit (*how loud should my video be?*, *where do captions go on TikTok?*, *what music fits a sad
-scene?*) and it answers from its built-in know-how, with no model; with a model set up (Settings → **ClipForge AI**;
+scene?*, *what makes a good title?*) or how ClipForge works (*how do I clip a live stream?*, *where do I change the
+clip length?*) and it answers from its built-in know-how and its guide to the app, with no model, and links the
+page; with a model set up (Settings → **ClipForge AI**;
 the built-in one is free and stays on this computer) it answers anything, with your memories and that know-how.
 Brain → **Memory** shows everything it remembers, where each memory was used, and lets you edit, confirm, turn off or
 forget it, tidy or rebuild the brain, and export or import it as a file; below that, **What it knows about editing**
-lists the twelve playbooks it edits by (hooks, endings, pacing, captions, sound, music, colour, effects, picking
-clips, platforms, retention, talking heads). What you teach it always wins over them. Only words are ever sent to a
+lists the sixteen playbooks it edits by (hooks, endings, pacing, captions, sound, music, colour, effects, picking
+clips, platforms, retention, talking heads, animated shorts, titles, post text and hashtags, gaming and stream
+clips). What you teach it always wins over them. Titles, post text and hashtags are still written only from the
+words said in the clip; tell it how you like them (*remember: titles in lower case, no emoji*, *at most three
+hashtags*, *don't ask people to follow*) and both the clip's post text and Autopilot's follow it. Only words are ever sent to a
 model, never your videos or their sound.
 
 ## Brain: styles and skills
 Brain → **Styles** lists your saved styles. Brain → **Skills** imports a Markdown or JSON skill: you see what it would
 change, what it ignores and anything it refused (commands, secrets, accounts, publishing), then switch it on. Try
-*Add the example skill*. Changing a style or skill affects new projects only.
+*Add the example skill*. Changing a style or skill affects new projects only. The advice in a switched-on skill
+that is not an editing choice is read by ClipForge AI when it answers you, picks clips and writes titles.
 
 ## Accounts
 **Accounts** → *Add YouTube account* or *Add TikTok account*. Add as many as you have; adding one never replaces

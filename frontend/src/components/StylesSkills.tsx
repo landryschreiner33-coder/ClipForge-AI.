@@ -118,46 +118,92 @@ export function SaveStyleDialog({ onClose, onSaved }: { onClose: () => void; onS
   );
 }
 
-/** Brain → Skills: imported editing instructions. Nothing in a skill runs; only supported editing choices apply. */
+/** The lines of a skill that ClipForge AI reads as advice (the importer's own words for them, studio/skills.py). */
+const ADVICE = "not an editing choice ClipForge applies yet";
+
+/** What a skill does: the editing choices it sets, the advice ClipForge AI reads, and what is neither. */
+function SkillLines({ s }: { s: Skill }) {
+  const advice = s.unsupported.filter((u) => u.why === ADVICE);
+  const rest = s.unsupported.filter((u) => u.why !== ADVICE);
+  return (
+    <div className="grid-2">
+      <div><b className="small">Sets for new projects</b><ul className="small">{s.effects.length ? s.effects.map((e) => <li key={e}>{e}</li>) : <li>No editing choice: advice only</li>}</ul>
+        {rest.length > 0 && <><b className="small">Not used</b><ul className="small">{rest.slice(0, 4).map((u, i) => <li key={i}>{u.text} <span className="muted">({u.why})</span></li>)}</ul></>}</div>
+      <div><b className="small">ClipForge AI reads {advice.length === 1 ? "1 line" : `${advice.length} lines`} of advice</b>
+        <ul className="small">{advice.slice(0, 4).map((u, i) => <li key={i}>{u.text}</li>)}
+          {advice.length > 4 && <li className="muted">and {advice.length - 4} more</li>}
+          {advice.length === 0 && <li>None</li>}</ul></div>
+    </div>
+  );
+}
+
+/**
+ * Brain → Skills: imported editing guides. Nothing in a skill runs. A switched-on skill sets the editing choices
+ * ClipForge supports for new projects, and ClipForge AI reads its advice when it picks clips, writes titles and
+ * post text, and answers in the chat.
+ */
 export function SkillsTab() {
   const [rows, setRows] = useState<Skill[] | null>(null);
   const [problem, setProblem] = useState("");
+  const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const load = useCallback(() => studio.skills().then(setRows).catch(() => setRows([])), []);
   useEffect(() => {
     void load();
   }, [load]);
-  const add = async (file: File) => {
+  /** One file or many at once (a folder of skills is imported in one go). Each file is checked on its own. */
+  const add = async (files: File[]) => {
+    setProblem("");
+    setBusy(true);
+    const done: string[] = [];
+    const failed: string[] = [];
+    for (const file of files) {
+      try {
+        done.push((await studio.importSkill(file)).name);
+      } catch (e) {
+        failed.push(`${file.name}: ${errorText(e)}`);
+      }
+    }
+    await load();
+    setBusy(false);
+    if (done.length === 1) toast(`Imported “${done[0]}”. Check what it would change, then switch it on.`);
+    else if (done.length > 1) toast(`Imported ${done.length} skills. Switch them on for ClipForge AI to read them.`);
+    if (failed.length) setProblem(failed.slice(0, 5).join(" ") + (failed.length > 5 ? ` And ${failed.length - 5} more.` : ""));
+  };
+  const switchAll = async (on: boolean) => {
+    setBusy(true);
     setProblem("");
     try {
-      const s = await studio.importSkill(file);
-      toast(`Imported “${s.name}”. Check what it would change, then switch it on.`);
-      await load();
+      for (const s of rows || []) if (s.enabled !== on) await studio.patchSkill(s.id, { enabled: on });
+      toast(on ? "Every skill is on" : "Every skill is off");
     } catch (e) {
       setProblem(errorText(e));
     }
+    await load();
+    setBusy(false);
   };
+  const on = (rows || []).filter((s) => s.enabled).length;
   return (
     <div className="stack-3">
-      <p className="muted">Import a Markdown, text or ClipForge JSON skill. ClipForge reads the editing choices it supports and shows the rest; it never runs commands, scripts or links from a skill.</p>
+      <p className="muted">Import Markdown, text or ClipForge JSON skills, one or many at once. A switched-on skill sets the editing choices ClipForge supports for new projects, and ClipForge AI reads its advice when it picks clips, writes titles and post text, and answers you. ClipForge never runs commands, scripts or links from a skill.</p>
       <div className="row-actions" style={{ justifyContent: "flex-start" }}>
-        <button type="button" className="btn" onClick={() => input.current?.click()}><Icon name="upload" />Import a skill</button>
-        <button type="button" className="btn" onClick={async () => { const ex = await studio.exampleSkill(); await add(new File([ex.text], ex.filename, { type: "text/markdown" })); }}>
+        <button type="button" className="btn" disabled={busy} onClick={() => input.current?.click()}><Icon name="upload" />Import skills</button>
+        <button type="button" className="btn" disabled={busy} onClick={async () => { const ex = await studio.exampleSkill(); await add([new File([ex.text], ex.filename, { type: "text/markdown" })]); }}>
           Add the example skill</button>
-        <input ref={input} type="file" accept=".md,.markdown,.txt,.json" hidden onChange={(e) => e.target.files?.[0] && void add(e.target.files[0])} />
+        {rows && rows.length > 1 && on < rows.length && <button type="button" className="btn" disabled={busy} onClick={() => void switchAll(true)}>Switch all on</button>}
+        {rows && rows.length > 1 && on > 0 && <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void switchAll(false)}>Switch all off</button>}
+        <input ref={input} type="file" accept=".md,.markdown,.txt,.json" multiple hidden
+          onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ""; if (files.length) void add(files); }} />
       </div>
+      {rows && rows.length > 0 && <p className="small muted" role="status">{on} of {rows.length} switched on.</p>}
       {problem && <Banner tone="bad" title="Not imported">{problem}</Banner>}
       {rows && rows.length === 0 && <EmptyState icon="spark" title="No skills yet" level={3}>Try the example skill to see how it works.</EmptyState>}
       {(rows || []).map((s) => (
         <article key={s.id} className="panel">
           <div className="panel-head"><h3 style={{ margin: 0 }}>{s.name}</h3>
-            <label><input type="checkbox" checked={s.enabled} onChange={async (e) => { await studio.patchSkill(s.id, { enabled: e.target.checked }); await load(); }} /> {s.enabled ? "On for new projects" : "Off"}</label></div>
+            <label><input type="checkbox" checked={s.enabled} disabled={busy} onChange={async (e) => { await studio.patchSkill(s.id, { enabled: e.target.checked }); await load(); }} /> {s.enabled ? "On: used and read" : "Off"}</label></div>
           {s.description && <p className="small muted">{s.description}</p>}
-          <div className="grid-2">
-            <div><b className="small">Will change</b><ul className="small">{s.effects.length ? s.effects.map((e) => <li key={e}>{e}</li>) : <li>Nothing ClipForge supports yet</li>}</ul></div>
-            <div><b className="small">Not applied</b><ul className="small">{s.unsupported.slice(0, 6).map((u, i) => <li key={i}>{u.text} <span className="muted">({u.why})</span></li>)}
-              {s.unsupported.length === 0 && <li>Nothing</li>}</ul></div>
-          </div>
+          <SkillLines s={s} />
           {s.blocked.length > 0 && <Banner tone="warn" title={`${s.blocked.length} instruction${s.blocked.length > 1 ? "s" : ""} refused`}>
             <ul className="small">{s.blocked.slice(0, 6).map((b, i) => <li key={i}>{b.text} <span className="muted">({b.why})</span></li>)}</ul>
             Skills can only change editing choices. They never run code, use secrets, change accounts or publish.</Banner>}

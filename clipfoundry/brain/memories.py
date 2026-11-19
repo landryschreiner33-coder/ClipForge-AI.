@@ -33,7 +33,7 @@ RANK = {"said": 3, "imported": 2, "did": 1, "guessed": 0}      # the stronger so
 BOOST = {"said": 0.15, "did": 0.05, "guessed": -0.10, "imported": 0.0}
 MODES = ("clips", "video")
 WHERE = ("change_request", "filmcraft", "smart_edit", "chat", "guidance", "short_script",
-         "agent")  # agent: a helper agent's job
+         "agent", "clips", "post")  # agent: a helper agent's job; clips: picking moments; post: titles and post text
 MAX_TEXT = 600
 MAX_TAGS = 12
 MAX_RULES = 8

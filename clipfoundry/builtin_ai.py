@@ -175,6 +175,16 @@ def recommended_level(mem_mb: int, gpu_mb: int, mac: bool) -> str:
     return "basic"
 
 
+def best_level(mem_mb: int, gpu_mb: int, mac: bool) -> str:
+    """The biggest level this computer runs well, for the chat's "your computer can run a better one" tip (the
+    first setup still offers `recommended_level`, a smaller download). Pro's 15 GB model needs to sit in fast
+    memory: an Apple-silicon Mac with 32 GB or more shares its memory with the graphics chip, a PC needs a 24 GB
+    graphics card; on anything less it would answer too slowly to talk to."""
+    if (mac and mem_mb >= 30000) or (not mac and gpu_mb >= 22000 and mem_mb >= 30000):
+        return "pro"
+    return recommended_level(mem_mb, gpu_mb, mac)
+
+
 # ------------------------------------------------------------------ files on disk
 def root() -> Path:
     return config.models_dir() / "builtin-ai"
@@ -993,7 +1003,8 @@ def status(settings: dict) -> dict:
     return {"supported": bool(engine), "engine": {"version": ENGINE_VERSION, "installed": bool(engine_path()),
                                                   "license": "MIT (llama.cpp)"},
             "computer": {"memory_mb": mem, "vram_mb": gpu, "mac": sys.platform == "darwin"},
-            "levels": levels, "recommended": rec, "level": chosen_level(settings), "task": task(),
+            "levels": levels, "recommended": rec, "best": best_level(mem, gpu, sys.platform == "darwin"),
+            "level": chosen_level(settings), "task": task(),
             "server": server.view()}
 
 

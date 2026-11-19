@@ -16,20 +16,16 @@ from dataclasses import dataclass
 
 from .. import db
 from ..pipeline.text_utils import STOPWORDS
-from . import knowhow as knowhow_mod
-from . import memories
+from . import appguide, library, memories
 from .tools import AskFirst, Ctx, Result, Tool, ToolError, TryAgain, clip, one_line, register
 
-PAGES = {
-    "studio": ("Studio", "#/"), "projects": ("Projects", "#/projects"), "make_clips": ("Make clips", "#/create/clips"),
-    "make_video": ("Make a YouTube video", "#/create/video"), "from_link": ("Make clips from a link", "#/create/link"),
-    "memory": ("Brain → Memory", "#/brain/memory"), "agents": ("Brain → Agents", "#/brain/agents"),
-    "talk": ("Talk to ClipForge AI", "#/brain/talk"), "ai_settings": ("Settings → ClipForge AI", "#/settings/ai"),
-    "makers_settings": ("Settings → Pictures, video, voice", "#/settings/makers"),
-    "cloud_computer": ("Settings → Cloud computer", "#/settings/cloud"),
-    "publishing": ("Publishing", "#/publishing/review"), "missions": ("Missions", "#/missions"),
-    "office": ("Office", "#/office"), "accounts": ("Accounts", "#/accounts"),
-}
+# The pages go_to can open: the main ones of the guide to ClipForge (every word of this list is read by the model
+# on every turn, so the rarely needed tabs are left to the guide's own page buttons).
+_MAIN_PAGES = ("studio", "projects", "make_clips", "make_video", "make_short", "from_link", "live_streams", "missions",
+               "memory", "skills", "notes", "example_videos", "styles", "agents", "talk", "publishing",
+               "publishing_problems", "accounts", "office", "ai_settings", "defaults", "makers_settings",
+               "cloud_computer", "editing_apps")
+PAGES = {k: appguide.PAGES[k] for k in _MAIN_PAGES}
 KIND_WORDS = {"clips": "clips project", "full_video": "YouTube video"}
 NAME_CHARS = 160    # a project name as the model reads it
 GROUNDED = 0.6      # the share of a memory's meaningful words that must be in the owner's message to save it at once
@@ -49,6 +45,7 @@ NUMBER_WORDS = {w: str(n) for n, w in enumerate(
     "hundred": "100", "thousand": "1000", "million": "1000000", "half": "half", "quarter": "quarter",
     "double": "double", "twice": "double", "triple": "triple"}
 MEMORY_PAGE = {"label": "Open Brain → Memory", "href": "#/brain/memory"}
+MAX_CLIP_TEXT = 1450  # one clip as a tool result (tools.MAX_TEXT is 1500): its words get what the rest leaves
 _LETTERS = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
 _PARTS = re.compile(r"[.!?;,\n]+|\b(?:but|though|however)\b", re.I)  # where one thing said ends and the next begins
 
@@ -238,10 +235,102 @@ def _recall(ctx: Ctx, args: dict) -> Result:
 
 
 def _knowhow(ctx: Ctx, args: dict) -> Result:
-    picked = knowhow_mod.select(args.get("topic", ""), "chat", limit=1, budget_chars=1400)
-    if picked.empty:
-        return Result("No playbook fits that topic.", "Read its know-how: nothing fitted")
-    return Result(picked.prompt(), "Read its editing know-how")
+    """Look a topic up in everything ClipForge AI knows in words: the craft playbooks, the guide to ClipForge and the
+    owner's switched-on skills (the tool keeps its first name: helper agents are allowed it by name)."""
+    found = library.search(args.get("topic", ""), ctx.ws, task="chat", limit=3, budget_chars=1400)
+    if found.empty:
+        return Result("Nothing in the know-how, the guide to ClipForge or the owner's skills fits that topic.",
+                      "Looked it up: nothing fitted")
+    names = ", ".join(h.entry.title.lower() for h in found.hits[:3])
+    return Result(found.prompt(), one_line(f"Looked it up ({names})", 120),
+                  {"links": found.links(1)} if found.hits[0].entry.source == "guide" else {})
+
+
+# What the owner chose in Settings, as a model reads it: only editing choices, never a key, an address or an account.
+_SETTINGS_WORDS = (
+    ("clip_count", "Clips per video"), ("min_duration", "Shortest clip (s)"), ("target_duration", "Ideal clip (s)"),
+    ("max_duration", "Longest clip (s)"), ("min_score", "Lowest Viral Potential kept"),
+    ("caption_style", "Caption style"), ("caption_position", "Caption position"),
+    ("highlight_words", "Highlight each word as it is spoken"), ("caption_emphasis", "Key words in their own colour"),
+    ("hook_overlay", "On-screen hook"), ("hook_seconds", "Seconds the hook shows"),
+    ("tracking", "Framing follows"), ("layout", "Layout"), ("auto_zoom", "Subtle push-ins"),
+    ("silence", "Pauses cut"), ("remove_fillers", "“um” and “uh” cut"), ("normalize_audio", "Loudness evened out"),
+    ("clean_sound", "Sound cleanup"))
+
+
+def _settings(ctx: Ctx, args: dict) -> Result:
+    from ..pipeline import llm
+
+    s = db.get_settings()
+
+    def word(v) -> str:
+        return ("on" if v else "off") if isinstance(v, bool) else one_line(v, 40)
+
+    lines = ["The owner's choices in Settings (new projects use them; a project or clip changed by hand keeps its "
+             "own):"]
+    lines += [f"- {label}: {word(s.get(key))}" for key, label in _SETTINGS_WORDS if key in s]
+    lines.append(f"- ClipForge AI's model: {llm.provider_label(s)}"
+                 + (" (on this computer)" if llm.is_local(s) else " (online)"))
+    return Result("\n".join(lines), "Looked at your settings",
+                  {"links": [{"label": "Open Settings → Defaults", "href": "#/settings/defaults"}]})
+
+
+def _find_clip(ws: str, project: str, which: str, here: str) -> tuple[dict, dict, int]:
+    """(the project, the clip, its place in the list) for "3", "the best one" or words from a clip's title."""
+    p = find(ws, project, here)
+    if p["kind"] != "clips":
+        raise ToolError(f"“{p['name']}” is a full video, not a clips project: open_project shows its parts.")
+    clips = sorted(db.list_clips(p["id"]), key=lambda c: -float(c.get("score") or 0))
+    if not clips:
+        raise ToolError(f"“{p['name']}” has no clips yet.")
+    want = str(which or "").strip().lower()
+    number = re.fullmatch(r"(?:clip\s*)?#?(\d{1,3})", want)
+    if number:
+        n = int(number.group(1))
+        if not 1 <= n <= len(clips):
+            raise ToolError(f"“{p['name']}” has {len(clips)} clips: say a number from 1 to {len(clips)}.")
+        return p, clips[n - 1], n
+    if want in ("", "best", "first", "top", "the best", "the best one", "the first", "the top one"):
+        return p, clips[0], 1
+    words = {w for w in _said_words(want) if len(w) >= 3 and w not in STOPWORDS}
+    scored = []
+    for i, c in enumerate(clips):
+        text = set(_said_words(" ".join(str(c.get(k) or "") for k in ("title", "hook"))))
+        scored.append((len(words & text), -i, i, c))
+    best = max(scored, default=None)
+    if not best or best[0] == 0:
+        names = "; ".join(f"{i + 1}. “{one_line(c.get('title') or c.get('hook') or 'untitled', 60)}”"
+                          for i, c in enumerate(clips[:8]))
+        raise ToolError(f"No clip of “{p['name']}” matches that. Its clips: {names}.")
+    return p, best[3], best[2] + 1
+
+
+def _clip(ctx: Ctx, args: dict) -> Result:
+    """One clip as words: what is said in it, what was written for it and why it was picked. A title or a caption
+    for a clip has to come from what is said in it, so this is read first."""
+    p, c, n = _find_clip(ctx.ws, args.get("project", ""), args.get("clip", ""), ctx.project_id)
+    post = c.get("post") if isinstance(c.get("post"), dict) else {}
+    analysis = c.get("analysis") if isinstance(c.get("analysis"), dict) else {}
+    length = round(float(c.get("duration") or (float(c["end"]) - float(c["start"]))))
+    lines = [f"Clip {n} of “{p['name']}”: {length} s, Viral Potential {round(float(c.get('score') or 0))} "
+             f"(ClipForge's estimate), {c.get('status') or 'made'}."]
+    for label, value in (("Title", post.get("title") or c.get("title")), ("On-screen hook", c.get("hook")),
+                         ("Post text", post.get("caption") or post.get("description")),
+                         ("Hashtags", " ".join(str(t) for t in (post.get("hashtags") or c.get("hashtags") or [])))):
+        if value:
+            lines.append(f"{label}: {one_line(value, 220)}")
+    why = [one_line(x, 160) for x in (analysis.get("explanation") or []) if str(x).strip()][:4]
+    if c.get("reason") and not why:
+        why = [one_line(c["reason"], 240)]
+    if why:
+        lines.append("Why it was picked: " + " ".join(why))
+    said = one_line(c.get("caption_text") or "", 10 ** 6)
+    head = "\n".join(lines)
+    room = max(200, MAX_CLIP_TEXT - len(head) - 40)
+    lines.append("What is said in it: " + (clip(said, room) if said else "(no words: nothing was said, or it was not "
+                                                                         "transcribed)"))
+    return Result("\n".join(lines), f"Read clip {n} of “{p['name']}”",
+                  {"links": [{"label": f"Open clip {n}", "href": f"#/clip/{c['id']}"}]})
 
 
 def _app_status(ctx: Ctx, args: dict) -> Result:
@@ -260,7 +349,37 @@ def _app_status(ctx: Ctx, args: dict) -> Result:
 
     on = agents.list_(ctx.ws, enabled_only=True)
     lines.append("Helper agents switched on: " + (", ".join(a["name"] for a in on) or "none") + ".")
+    lines += _more_status(ctx.ws)
     return Result("\n".join(lines), "Checked how ClipForge is doing")
+
+
+def _more_status(ws: str) -> list[str]:
+    """Skills, accounts and posts in a line each. Each is read on its own: a table an older database lacks, or one
+    that cannot be read just now, leaves its line out and never fails the answer."""
+    out: list[str] = []
+    try:
+        rows = db.select("skills", "workspace_id = ?", (ws,))
+        if rows:
+            on = sum(1 for r in rows if r.get("enabled"))
+            out.append(f"Skills: {len(rows)} imported, {on} switched on (only switched-on skills are read).")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        rows = db.select("social_connections", "workspace_id = ? AND status != 'disconnected'", (ws,))
+        names = [f"{r['platform']} “{one_line(r.get('nickname') or r.get('display_name') or 'account', 40)}”"
+                 + (" (needs reconnect)" if r.get("status") == "needs_reconnect" else "") for r in rows[:6]]
+        out.append("Accounts connected: " + (", ".join(names) or "none") + ".")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        counts: dict[str, int] = {}
+        for r in db.select("scheduled_publications", "", (), "created_at DESC", 400):
+            counts[str(r.get("status") or "")] = counts.get(str(r.get("status") or ""), 0) + 1
+        if counts:
+            out.append("Posts: " + ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(counts.items())) + ".")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 def _go_to(ctx: Ctx, args: dict) -> Result:
@@ -647,12 +766,20 @@ register(Tool("open_project", "the details of one project or video (its clips, p
 register(Tool("recall", "search what the owner told you before (memories)",
               {"type": "object", "properties": {"words": TEXT}, "required": ["words"]}, _recall, "look",
               "Searched your memories"))
-register(Tool("knowhow", "read ClipForge's editing playbook on a topic (hooks, pacing, captions, sound, music, "
-              "colour, effects, picking clips, platforms, retention)",
+register(Tool("knowhow", "look a topic up in what you know: editing craft (hooks, titles, hashtags, captions, "
+              "sound, picking clips, gaming clips…), how ClipForge works (pages, buttons, settings) and the owner's "
+              "skills",
               {"type": "object", "properties": {"topic": TEXT}, "required": ["topic"]}, _knowhow, "look",
-              "Read its editing know-how"))
-register(Tool("app_status", "what ClipForge is doing now: the AI model, work running, memories, agents",
+              "Looked it up"))
+register(Tool("app_status", "what ClipForge is doing now: the AI model, work running, memories, agents, skills, "
+              "accounts, posts",
               {"type": "object", "properties": {}}, _app_status, "look", "Checked how ClipForge is doing"))
+register(Tool("clip", "one clip in words (what is said in it, title, hook, post text, hashtags, score, why it "
+              "was picked); read it before you write a title or post text for a clip. clip: its number (1 is the "
+              "best) or words from its title",
+              {"type": "object", "properties": {"project": TEXT, "clip": TEXT}}, _clip, "look", "Read a clip"))
+register(Tool("settings", "the owner's choices in Settings: clip length and count, captions, framing, sound, the "
+              "AI model", {"type": "object", "properties": {}}, _settings, "look", "Looked at your settings"))
 register(Tool("go_to", "show the owner a button that opens a page or a project",
               {"type": "object", "properties": {"page": {"type": "string", "enum": sorted(PAGES)}, "project": TEXT}},
               _go_to, "look", "Showed a link"))

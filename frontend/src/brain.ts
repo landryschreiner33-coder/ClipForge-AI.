@@ -65,7 +65,8 @@ export type Recalled = { memories: (Memory & { score: number })[]; prompt: strin
 /** One playbook of ClipForge AI's built-in craft know-how (brain/knowhow.py). */
 export type KnowHowTopic = { id: string; title: string; summary: string; lines: string[]; tasks: string[]; chars: number; score: number };
 export type KnowHow = { topics: KnowHowTopic[]; source: string; tasks: string[] };
-export type UsedKnowHow = { id: string; title: string; score?: number };
+/** One thing an answer read: a craft playbook, a section of the guide to ClipForge or a switched-on skill. */
+export type UsedKnowHow = { id: string; title: string; score?: number; source?: "knowhow" | "guide" | "skill" };
 const mem = "/api/brain/memories";
 export const memoryApi = {
   list: (q = "", kind = "", projectId = "") =>

@@ -2,7 +2,8 @@
 editor needs (docs/clipforge/CLIPFORGE_AI.md, "Know-how").
 
 The playbooks were distilled in November 2026 from two guides the owner gave ClipForge AI (a cinematic filmmaking and
-post-production guide and a viral short-form video strategy guide) and from ClipForge's own editing rules. They are
+post-production guide and a viral short-form video strategy guide), from the viral shorts the owner collected that
+month (what their titles, captions and moments have in common) and from ClipForge's own editing rules. They are
 built in: the same on every computer, never sent anywhere on their own, and the owner's memories always win over
 them (a model reads the memories first and is told so). Because they are plain words, a small local model can use
 them, and the chat can answer with them when no model is set up.
@@ -23,7 +24,8 @@ TASKS = ("chat", "clips", "change", "smart_edit", "finish", "post", "short")
 SELECT_MIN = 0.20     # share of a question's (weighted) words a playbook must cover to be picked for it
 ANSWER_MIN = 0.30     # ... to answer the question on its own, without a model
 SOURCE = ("Distilled from two guides the owner gave ClipForge AI in November 2026 (cinematic filmmaking and "
-          "post-production; viral short-form video strategy) and ClipForge's own editing rules.")
+          "post-production; viral short-form video strategy), the viral shorts the owner collected that month and "
+          "ClipForge's own editing rules.")
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,7 @@ TOPICS: tuple[Topic, ...] = (
               "Plain words a ten-year-old understands, 180-210 words a minute, and sentences joined by 'but' or "
               "'therefore', never 'and then'."),
           ("opening", "open", "start", "first seconds", "intro", "intros", "grab", "attention", "headline",
-           "title", "scroll", "hook rate", "beginning", "curiosity")),
+           "scroll", "hook rate", "beginning", "curiosity")),
     Topic("endings", "Endings and loops", "Stop on the payoff; no outro; where a call to action goes.",
           ("chat", "clips", "change", "smart_edit"), (
               "Stop 2-3 seconds after the payoff. No 'to recap', 'in conclusion', 'let me know in the comments', "
@@ -91,7 +93,12 @@ TOPICS: tuple[Topic, ...] = (
               "and 28 percent on the right in the lower half: nothing important goes there.",
               "A 1080p source cropped to 9:16 is upscaled 1.78 times, so keep the subject centred; a 4K source "
               "stays sharp (1215 x 2160)."),
-          ("subtitles", "subtitle", "caption", "text", "font", "safe zone", "safe zones", "covered", "buttons",
+          ("subtitles", "subtitle", "caption", "text", "font", "safe zone", "safe zones", "covered",
+           # the platforms' own buttons only together with what they cover: "where is the share button" is about
+           # the app, "are my captions hidden behind the tiktok buttons?" is about captions
+           "+buttons: caption captions subtitle subtitles text words cover covers covered covering hide hides "
+           "hidden hiding block blocks blocked blocking behind bottom overlap overlaps screen", "=cover the bottom",
+           "=buttons hide", "=buttons cover",       # the two words side by side: knowhow and the library both read
            "stroke", "outline", "readable", "framing", "crop", "reframe", "9:16", "vertical", "face", "faces",
            "position", "placement", "words on screen")),
     Topic("sound", "Voice and sound mix", "Levels, the voice chain, music under speech and loudness targets.",
@@ -148,8 +155,8 @@ TOPICS: tuple[Topic, ...] = (
               "Hide the seams: motion blur that matches the shutter, grain over the composite, the same black level "
               "in every layer."),
           ("effect", "effects", "vfx", "visual effects", "motion graphics", "animation", "animated", "overlay",
-           "green screen", "tracking", "typography", "titles", "glitch", "flash", "shake", "effectcraft",
-           "transition effect", "fancy")),
+           "green screen", "tracking", "typography", "kinetic text", "lower third", "glitch", "flash", "shake",
+           "effectcraft", "transition effect", "fancy")),
     Topic("clips", "Picking a clip", "What makes a moment work on its own, lengths, and the numbers that matter.",
           ("chat", "clips"), (
               "A clip stands alone: no 'as I said', no reply to something outside it, no topic change inside; at "
@@ -177,8 +184,8 @@ TOPICS: tuple[Topic, ...] = (
               "Since the platforms' 2025 retention changes a calm, intentional edit beats a gimmick; the hook still "
               "has to land on frame one."),
           ("export", "render", "bitrate", "resolution", "format", "codec", "fps", "frame rate", "upload", "youtube",
-           "shorts", "tiktok", "instagram", "reels", "platform", "platforms", "hashtag", "hashtags", "seo", "keyword",
-           "description", "post", "publish", "algorithm", "quality")),
+           "shorts", "tiktok", "instagram", "reels", "platform", "platforms", "post", "publish", "algorithm",
+           "quality")),
     Topic("retention", "Reading a retention graph", "What each shape of the audience-retention curve means.",
           ("chat", "post"), (
               "A cliff in the first 3 seconds: the hook or the thumbnail promised something else.",
@@ -215,6 +222,49 @@ TOPICS: tuple[Topic, ...] = (
           ("animated short", "animated shorts", "animation short", "faceless", "voice over", "voiceover",
            "narration", "narrator", "story short", "scenes", "scene", "slideshow", "ken burns", "ai pictures",
            "facts short", "faceless channel", "animated story")),
+    Topic("titles", "Titles that earn the tap", "What a title sells, the shapes that work and how long it is.",
+          ("chat", "post"), (
+              "A title sells the reaction or an open question, not the topic: name the situation and hold back the "
+              "outcome ('Kai forgot he was streaming', 'He didn't even dare to try the last one').",
+              "Say the words people search for early, in plain language; 40-60 characters read whole on a phone.",
+              "Shapes that work: a question the clip answers, A vs B, a number with a promise, a warning ('stop "
+              "doing this'), or a first-person conflict with ONE word in capitals.",
+              "The title, the headline on screen and the first spoken line agree; never promise what the clip does "
+              "not show.",
+              "One emoji at most, hinting at the payoff without spoiling it; no all-caps titles and no hashtag "
+              "except #shorts."),
+          ("title", "titles", "name", "naming", "headline", "clickbait", "click", "tap", "thumbnail", "thumbnails",
+           "emoji", "capitals", "caps", "wording", "call it", "titled")),
+    Topic("descriptions", "Post text and hashtags", "The written caption under a post, search words and hashtags.",
+          ("chat", "post"), (
+              "A short is read three ways: the words spoken, the words on screen and the written post text. Put "
+              "the search phrase in all three and say it within the first 3-5 seconds.",
+              "TikTok and Reels show only the first line of the post text, so make it the hook or a question "
+              "people answer in the comments; then 100-200 readable words with the keywords in them.",
+              "End with 3-5 niche hashtags (the game, the topic, the format); leave out #fyp, #viral and "
+              "#trending, which say nothing about the video.",
+              "On YouTube Shorts the title does the work: one or two lines of description with the keyword and "
+              "where the full video is.",
+              "A question as post text starts comments; comments, shares and saves count for more than likes."),
+          ("description", "descriptions", "post text", "post caption", "caption text", "write up", "hashtag",
+           "hashtags", "tag", "tags", "seo", "search", "keyword", "keywords", "discover", "discovery", "found",
+           "fyp", "comments", "bio")),
+    Topic("gaming", "Gaming and stream clips", "Which stream moments spread, and how to show the game and the face.",
+          ("chat", "clips"), (
+              "The moment is a cause and a reaction: keep the play and the streamer's reaction together, start "
+              "2-4 seconds before the peak and stop when the reaction has landed.",
+              "Show both: the gameplay with the face cam stacked above or below it (a split view), so the viewer "
+              "sees what happened and how it felt; never crop away the face cam or the part of the screen that "
+              "matters.",
+              "Loud is not enough. Pick the clutch, the fail, the jump scare, the rage, the unguarded moment or a "
+              "one-line joke that needs no context; cut lobbies, loading and dead air.",
+              "Big all-caps captions that name each action, one per beat, ending on a verdict, carry a stream clip "
+              "with the sound off.",
+              "Post the same day, and title the situation, not only the game."),
+          ("gaming", "game", "games", "gameplay", "gamer", "stream", "streams", "streamer", "streaming",
+           "livestream", "live stream", "twitch", "kick", "face cam", "facecam", "webcam", "split view",
+           "split screen", "clutch", "fail", "rage", "kill", "funny moment", "reaction", "reactions", "fortnite",
+           "minecraft", "roblox", "valorant", "warzone")),
 )
 BY_ID = {t.id: t for t in TOPICS}
 
@@ -224,7 +274,7 @@ DEFAULTS = {
     "change": ("pacing",),
     "smart_edit": ("talking", "endings", "pacing"),
     "finish": ("colour", "effects", "sound"),
-    "post": ("hooks", "platforms"),
+    "post": ("titles", "descriptions", "hooks"),
     "short": ("shorts", "hooks", "endings"),
     "chat": (),
 }
@@ -242,8 +292,9 @@ PRINCIPLES = {
                    "few seconds."),
     "finish": ("Correct before you grade, pick the look by the mood, keep only effects that serve the story and give "
                "each its sound, and keep the voice first in the mix."),
-    "post": ("The on-screen hook is 3-6 plain words; a loss or warning framing beats a promise; a title says the "
-             "keyword early; 3-5 specific hashtags, never #fyp."),
+    "post": ("The on-screen hook is 3-6 plain words; a loss or warning framing beats a promise; a title names the "
+             "situation and holds back the outcome, says the keyword early and stays near 40-60 characters; the "
+             "post text opens on the hook or a question; 3-5 specific hashtags, never #fyp."),
     "short": ("Write like a viral short's narrator: the hook lands in the first 2 seconds with no greeting, one "
               "picture for every 6-14 spoken words, plain words at about 175 a minute, only facts you are sure of, "
               "and the short ends on its payoff with no outro."),
@@ -251,8 +302,18 @@ PRINCIPLES = {
 
 
 # ------------------------------------------------------------------ matching words
+# Words every question uses ("what is the best way to make a good hook"): they say nothing about the subject, so
+# they never count, wherever a playbook happens to use them.
+GENERIC = frozenset((
+    "good", "best", "better", "great", "nice", "right", "make", "makes", "making", "made", "use", "uses", "using",
+    "used", "add", "adding", "get", "gets", "getting", "want", "wants", "need", "needs", "way", "ways", "tip", "tips",
+    "help", "really", "thing", "things", "lot", "lots", "stuff", "know", "tell", "work", "works", "like", "kind",
+    "idea", "ideas", "advice", "please", "put", "puts", "putting", "give", "gives", "giving", "look", "looks",
+    "looking", "everything", "anything", "something"))
+
+
 def _terms(text: str) -> set[str]:
-    toks = content_tokens(text)
+    toks = [t for t in content_tokens(text) if t not in GENERIC]
     return set(toks) | {f"~{t[:4]}" for t in toks if len(t) >= 4} | {f"{a}_{b}" for a, b in zip(toks, toks[1:])}
 
 
@@ -260,12 +321,27 @@ def _strong_terms(t: Topic) -> set[str]:
     """The words a playbook is about: its title and the words a question may use for it."""
     out = _terms(t.title)
     for w in t.words:
-        out |= _terms(w)
+        if w.startswith("+"):       # a word that counts only beside others (_BESIDE)
+            continue
+        out |= {x for x in _terms(w[1:]) if "_" in x} if w.startswith("=") else _terms(w)  # "=": the phrase only
+    return out
+
+
+def _beside_terms(t: Topic) -> list[tuple[set[str], set[str]]]:
+    """"+buttons: text cover ...": (the word's terms, the words it counts beside). brain/library.py reads the same."""
+    out = []
+    for w in t.words:
+        if w.startswith("+"):
+            head, _, rest = w[1:].partition(":")
+            out.append((_terms(head), {x for x in _terms(rest) if "_" not in x}))
     return out
 
 
 _STRONG = {t.id: _strong_terms(t) for t in TOPICS}
-_TERMS = {t.id: _STRONG[t.id] | _terms(" ".join((t.summary, *t.lines))) for t in TOPICS}
+_BESIDE = {t.id: _beside_terms(t) for t in TOPICS}
+_HEADS = {t.id: {x for head, _ in _BESIDE[t.id] for x in head} for t in TOPICS}
+# the head words are known words (so they count in a question), but a playbook has them only beside their company
+_TERMS = {t.id: _STRONG[t.id] | _HEADS[t.id] | _terms(" ".join((t.summary, *t.lines))) for t in TOPICS}
 _DF: dict[str, int] = {}
 for _ts in _TERMS.values():
     for _term in _ts:
@@ -287,7 +363,9 @@ def score(query: str, topic: Topic) -> float:
     total = sum(_idf(t) for t in q)
     if total <= 0:
         return 0.0
-    strong, own = _STRONG[topic.id], _TERMS[topic.id]
+    said = set(q)
+    beside = {x for head, company in _BESIDE[topic.id] if company & said for x in head}
+    strong, own = _STRONG[topic.id] | beside, (_TERMS[topic.id] - _HEADS[topic.id]) | beside
     return sum(_idf(t) * (1.0 if t in strong else WEAK) for t in q if t in own) / total
 
 

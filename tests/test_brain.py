@@ -18,6 +18,10 @@ def data(monkeypatch, tmp_path):
 
     db.init()
     db.save_settings({"autopilot_enabled": True, "autopilot_youtube": False, "autopilot_tiktok": True})
+    # The synthetic clips below are 18 to 44 seconds long, on both sides of a 30-second ideal length: these tests
+    # are about how results move the ideal length, not about the defaults, so they keep the lengths they were
+    # written for (the defaults are 25 / 45 / 90 since 2026-11-18).
+    db.save_settings({"min_duration": 15.0, "max_duration": 60.0, "target_duration": 30.0})
     return tmp_path
 
 

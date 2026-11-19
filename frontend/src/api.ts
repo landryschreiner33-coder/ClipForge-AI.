@@ -82,6 +82,12 @@ export interface ClipAnalysis {
   judge?: { rank: number; of: number; verdict: "green" | "yellow" | "red" | ""; note: string; adjust: number; provider: string };
   scout?: { kind: string; why: string; part: number };
   taste?: { p: number; adjust: number; why: string[] };
+  /** What the owner's Brain (rules, imported lessons, skills, results) added to or took from this clip's score. */
+  brain?: { points?: number; why: string[]; used: BrainSource[]; avoid?: { label: string; by: BrainSource } | null };
+  /** Clip lengths the owner told the Brain, when they set this clip's run: [shortest, longest, ideal] seconds. */
+  brain_length?: { by: BrainSource; before: number[]; after: number[] };
+  /** The kinds of moment this clip shows ("reaction", "story"): what its results are compared by. */
+  moment?: string[];
   deep?: {
     seen?: { kind: string; people: number; text_on_screen: string; description: string; problem: string; appeal: number;
       thumbnail_t: number; adjust: number; provider: string };
@@ -147,6 +153,9 @@ export interface ClipVersion {
   version: number;
   stale: boolean;
 }
+
+/** A memory or a skill line the Brain went by when it picked a clip. */
+export interface BrainSource { id: string; from: "memory" | "skill"; level: string; text: string; name?: string }
 
 export interface Clip {
   id: string;
