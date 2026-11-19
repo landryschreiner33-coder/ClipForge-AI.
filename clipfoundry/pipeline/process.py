@@ -63,6 +63,10 @@ def _options(project: dict, settings: dict, *, words: list[dict] | None = None) 
     opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 45))))
     opts["clip_count"] = int(opts.get("clip_count", 5))
     _brain_steer(opts, project, settings)
+    from ..brain import poststyle
+
+    # how the owner wants titles, post text and hashtags to look, read once for every clip of this run
+    opts["post_style"] = poststyle.build(opts["workspace_id"], str(project.get("id") or ""))
     from ..autopilot import brain, knowledge
 
     opts["brain_base_target_duration"] = opts["target_duration"]
@@ -353,6 +357,9 @@ def _count_brain_uses(p: Prepared, chosen: list[dict]) -> None:
             ids.append(by["id"])
         if ids:
             ai_brain.record_use(p.opts["workspace_id"], ids, "clips", p.id)
+        wrote = [i for i in (p.opts.get("post_style") or {}).get("ids") or [] if chosen]
+        if wrote:
+            ai_brain.record_use(p.opts["workspace_id"], wrote, "post", p.id)
     except Exception:  # noqa: BLE001 - counting a use never fails the clips
         log.exception("could not count the Brain's uses")
 

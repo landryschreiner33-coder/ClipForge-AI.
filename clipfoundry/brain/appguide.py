@@ -203,9 +203,11 @@ SECTIONS: tuple[Section, ...] = (
         "Example notes are your own written advice; Example videos and Styles are looks to copy.",
         "Clip picking, titles, post text and my answers read all of them. What you told me wins over a skill, and "
         "a skill wins over my built-in know-how.",
+        "Once posts have real numbers, I compare which kinds of moment did better and keep it as a memory that "
+        "starts “From your results:”. Clip picking follows it until you switch it off or forget it.",
         "Decisions shows what the Brain changed and Performance history how your posts did."),
         ("brain", "learn", "learns", "teach", "train", "knowledge", "smarter", "improve", "what do you use",
-         "how do you decide", "data"), "memory"),
+         "how do you decide", "data", "results", "what works", "performance", "numbers", "feedback"), "memory"),
     Section("memory", "Teaching ClipForge AI and its memory", (
         "Tell me in any chat: “remember: …”, “always …” or “never …”. Add “for this video” to keep it to "
         "one video.",
