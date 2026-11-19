@@ -24,6 +24,8 @@ released.
 | 2026-11-19 | a second look at the fixes by two reviewers | 6 smaller gaps (3 medium, 3 low), all fixed with tests |
 | 2026-11-19, after the second look | the four feature test files | 30 picker, 7 Stop clipping, 12 split between channels, 18 split view: all passed |
 | 2026-11-19, after the second look | `python -m pytest -m "not slow"` on the 29 test files near the changed code | 358 passed, 14 deselected |
+| 2026-11-19, on 47830df | GitHub run 44463238420, `pytest -m "not slow"` | 2,818 passed, 1 failed: the picker's half-hour stand-in stream gave a different third clip with 2 math threads (its repeated speech leaves the word-based meaning vectors without one answer) |
+| 2026-11-19 | `tests/test_live_pick.py` with 1, 2, 3 and 4 math threads (`OPENBLAS_NUM_THREADS`) after making the stand-in streams' meaning neutral | 30 passed each time |
 
 Not verified: real streams and face cams (the tests draw their own pictures and use stand-in recorders), real
 uploads to two channels, the screens in the Mac window.

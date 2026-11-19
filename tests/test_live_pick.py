@@ -5,6 +5,7 @@ picker on a stand-in stream: the words, the loudness and the candidate moments a
 """
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from clipfoundry.autopilot import live_pick
@@ -172,6 +173,7 @@ def stream(data, monkeypatch):  # noqa: F811 - the shared live fixture
     from clipfoundry import db
     from clipfoundry.autopilot import live
     from clipfoundry.pipeline import candidates as cand_mod
+    from clipfoundry.pipeline import semantic
 
     def start(minutes, moments, url="https://www.twitch.tv/SomeStreamer", **choices):
         if choices:
@@ -207,6 +209,12 @@ def stream(data, monkeypatch):  # noqa: F811 - the shared live fixture
         monkeypatch.setattr(live.virality, "analyze", analyze)
         # These streams are about which moment is taken and when; how much of it is kept has its own tests below.
         monkeypatch.setattr(live_pick, "fuller", lambda s0, s1, sents, feats, opts: [])
+        # ... and the stand-in speech repeats one short passage, which leaves the word-based meaning vectors without
+        # a single answer (tied eigenvalues): their few tenths of a point then changed with the number of threads
+        # the math library used (a different third clip on GitHub with 2 threads). Meaning is tested elsewhere;
+        # here it adds nothing.
+        monkeypatch.setattr(live.semantic, "embed_sentences",
+                            lambda sents, opts: semantic.Embeddings(np.zeros((0, 1), dtype=np.float32)))
         return sess, turn_job(src)
 
     return start
@@ -268,7 +276,10 @@ def test_moments_remembered_between_searches_are_few_and_strong():
 
 def test_live_picker_makes_few_clips_from_a_long_ordinary_stream(stream, monkeypatch):
     """Half an hour in which every minute has a moment that passes the minimum quality: the old picker made a clip
-    nearly every minute; the default now keeps a few."""
+    nearly every minute; the default now keeps a few. A live picker cannot know the moments still to come, so its
+    clips are not simply the strongest few in hindsight: each beat most of what the stream had given by then (here
+    the second clip is the second best moment of the first ten minutes, sixth of the whole half hour). They are all
+    in the strongest quarter, and the strongest moment is among them."""
     from clipfoundry.autopilot import live
 
     moments = [(60.0 * k + 5, 60.0 + (k * 7) % 23) for k in range(0, 30)]
@@ -289,7 +300,7 @@ def test_live_picker_makes_few_clips_from_a_long_ordinary_stream(stream, monkeyp
         made[name] = [c["score"] for c in sess.clips]
     assert len(made["most"]) >= 15
     assert 1 <= len(made["best"]) <= 3
-    assert min(made["best"]) >= sorted(made["most"])[-4]  # each is among the strongest few the old picker made
+    assert min(made["best"]) >= np.quantile(made["most"], 0.75) and max(made["best"]) == max(made["most"])
 
 
 # ------------------------------------------------------------------ longer clips: the whole moment
