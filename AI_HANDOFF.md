@@ -20,8 +20,9 @@ owner's rules. **Not released.**
   calls `library.search`, not `knowhow.select`. (5) A lesson is machine-owned only while its text equals the
   `data.text` it was written with (`steer.lesson_of`); anything else is the owner's. (6) `lessons.compare` splits its
   bar over the kinds it tests and takes the gap's error over videos (`lessons._gap`: the gap inside each video
-  with clips on both sides when 3 or more have them, else between all clips; a jackknife leaving each video out, on
-  the values before the outlier cap ("raw"), with Satterthwaite's degrees of freedom): adding kinds of moment makes
+  with clips on both sides when at least `PAIRED_VIDEOS` (5) such videos hold at least half of each side's clips,
+  else between all clips, chosen from which clips show the kind only; a jackknife leaving each video out, on the
+  values before the outlier cap ("raw"), with Satterthwaite's degrees of freedom): adding kinds of moment makes
   each test stricter, which is intended. Do not swap in `autopilot/brain._stats` (clips counted as independent), a
   per-side error (misses a gap inside each video) or the capped values (a few volatile videos then look steady). `tests/test_brain_steer.py` holds the noise and power checks; run them after any change there.
   (7) A skill name the importer may not show is kept in its `blocked` list ("name: …"): `skills.match_words` finds

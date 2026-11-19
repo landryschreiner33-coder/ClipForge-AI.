@@ -303,24 +303,27 @@ results under the same guards as the clip-length learning in `autopilot/brain.py
 old, enough views, one comparable audience, YouTube API numbers only with Google's approval) and compares, per kind
 of moment, the clips that showed it with those that did not: the share of the clip people watched where most clips
 have it, otherwise views, each clip's view count read at the age closest to 48 hours. Views keep growing, so counts
-read at very different ages are not compared: ClipForge takes the reading age nearest 48 hours around which at least
-12 clips were read (within 1.5 times either way) and compares only those clips; a clip first read a month later is
-left out, an owner who imports every count on day 5 still learns, and a later import of last month's counts does
-not unsettle a lesson that stands on 48-hour readings. A difference becomes a memory when it stands on 6 clips with
+read at very different ages are not compared: ClipForge compares only the clips read within 1.5 times either way
+of one reading age, the one nearest 48 hours whose band holds at least 12 clips and at least half as many as the
+fullest band. A clip first read a month later is left out, an owner who imports every count on day 5 still learns,
+a later import of last month's counts does not unsettle a lesson that stands on 48-hour readings, and a few newer
+clips read at two days do not hide the many read on day 3. A difference becomes a memory when it stands on 6 clips with
 the kind and 6 without,
 each side from at least 3 source videos, and passes a bar that is split over the kinds tested in that run and read
-from Student's t (what two standard errors mean on many clips). Clips of one video move together. When at least 3
-videos hold clips on both sides, the gap is measured inside each of those videos (its clips with the kind against
-its own clips without) and averaged, a video counting more the more clips it has on both sides, so a reaction that
-doubles views inside every video is found even when the videos' reach differs tenfold and each holds one to three
-reaction clips. Otherwise the gap is between all clips with and without. Either way the error is the gap's own
-spread when each video in turn is left out (a jackknife over videos), so one long stream that holds most of the
-reactions counts with all its weight, and it is read from the values before the outlier cap, which would otherwise
-flatten a few videos whose reach swings a lot and make their luck look steady. The degrees of freedom are the videos
-less one, fewer when a few videos carry the gap. On pure noise about 2-4% of runs make a lesson, also when kinds
-come with some videos more than others, one long video carries a side, or a few volatile videos hold the kind (the
-last made a lesson in about a sixth of runs before); a real difference of 20 points watched on 30 videos is found in
-about 19 runs in 20:
+from Student's t (what two standard errors mean on many clips). Clips of one video move together. When at least 5
+videos hold clips on both sides and those videos hold at least half of each side's clips, the gap is measured inside
+each of them (its clips with the kind against its own clips without) and averaged, a video counting more the more
+clips it has on both sides, so a reaction that doubles views inside every video is found even when the videos'
+reach differs tenfold and each holds one to three reaction clips. Otherwise the gap is between all clips with and
+without, so a few long streams do not throw away the many one-clip videos beside them. Which of the two is used
+depends only on which clips show the kind, never on their numbers. Either way the error is the gap's own spread when
+each video in turn is left out (a jackknife over videos), so one long stream that holds most of the reactions counts
+with all its weight, and it is read from the values before the outlier cap, which would otherwise flatten a few
+videos whose reach swings a lot and make their luck look steady. The degrees of freedom are the videos less one,
+fewer when a few videos carry the gap. On pure noise about 1-3% of runs make a lesson, also when kinds come with some
+videos more than others, one long video carries a side, or a few volatile videos hold the kind (the last made a
+lesson in about a sixth of runs before); a real difference of 20 points watched on 30 videos is found every time,
+and with three or four long streams beside 25 one-clip videos in about 19 runs in 20:
 
 > From your results: look for a big reaction. Clips with it were watched 12 points further than your other clips
 > (9 clips against 14, on TikTok). A pattern in your own numbers, not proof.
@@ -355,9 +358,11 @@ viral on TikTok" names only where the clip went). A clip gets five at most. Stor
 their own video as highlights do.
 
 How a sentence is read: a "no" before the thing, in its own instruction, counts ("I don't want you to add any
-hashtags"; "shouldn't", "can't" and "mustn't" too; not across "so", "if" or "and should": "my titles aren't getting
-clicks so make them questions"; "so many" and "so much" go on); "isn't", "aren't" and "didn't" describe and are no
-rule unless a wish follows ("titles aren't supposed to have emoji", "I didn't want hashtags"). After
+hashtags"; "shouldn't", "can't" and "mustn't" too; not across "so", "if", "and should", "please", "honestly" or "just"
+with a new instruction: "my titles aren't getting clicks so make them questions", "dont worry about the title just
+make sure there are emojis"; "so many" and "so much" go on); "not sure", "no idea", "don't care", "don't mind" and
+"doesn't matter" refuse nothing; "isn't", "aren't" and "didn't" describe and are no rule unless a wish follows
+("titles aren't supposed to have emoji", "I didn't want hashtags"). After
 a "no", "forget", "miss", "skip", "drop", "leave out" or "stop" says the opposite ("don't forget the hashtags",
 "never skip the emoji" ask for them). Each part of a sentence is about
 what it names ("thumbnail text in capitals, title in lower case" is a title rule for lower case only; "for every
@@ -365,8 +370,8 @@ video" only says where it holds, "on my videos" is about the video's own text; a
 the rest: "titles: lower case on every clip"). A list carries a "no" on ("no hashtags, emoji or links please") unless the part
 allows the thing ("no emoji, hashtags welcome", "no emoji but hashtags are fine"). "Capitals" alone is a rule only
 when refused ("no capitals"); "titles in capital letters" means all capitals, "only the first letter in capital
-letters" and "names in capitals" do not. "From now on", "from tomorrow" and "from the description" say when or where, not which hashtags;
-"hashtags from other creators" or "from TikTok" is which; "don't use hashtags that much" is fewer. A title that
+letters" and "names in capitals" do not. "From now on", "from tomorrow", "from the description" and "from my posts" say when or where, not which
+hashtags; "hashtags from other creators", "from my last video" or "from TikTok" is which; "don't use hashtags that much" is fewer. A title that
 moves between platforms ("Why I left TikTok for YouTube") keeps both platforms' hashtags.
 
 ## The assistant

@@ -218,6 +218,12 @@ def test_the_guide_says_what_the_app_really_does(env):
     assert library.search("the share buttons on clipforge don't work", WS).ids[0] == "guide:what"
     assert library.search("the tiktok buttons hide my text", WS).ids[0] == "captions"
     assert library.search("the side buttons in the app are too small", WS).ids[0].startswith("guide:")
+    for q in ("is there a button to hide the captions", "i need a button to hide captions for one clip"):
+        assert library.search(q, WS).ids[0].startswith("guide:"), q    # a button in ClipForge
+    assert library.search("is there a button to cover my webcam", WS).ids[0] != "captions"
+    for q in ("where are the tiktok buttons on the screen", "where are the buttons on youtube shorts so i can keep "
+              "my text clear"):
+        assert "captions" in library.search(q, WS).ids, q             # the platforms' buttons over the text
     for q in ("where is the captions button?", "the captions button is not working"):    # ClipForge's own button
         assert library.search(q, WS).ids[0].startswith("guide:"), q
     link = library.search("can I use my own transcript with a youtube link?", WS)

@@ -99,6 +99,18 @@ pull request #59. **Not released.** Framing and the split view from the same mes
   capitalized not all caps" are title rules; "Why I left TikTok for YouTube" keeps both platforms. Chat: "where is
   the captions button?" goes to the app guide; "the side buttons hide my text" gets the captions playbook in edits
   too; editing a skill keeps the refused name it is found by.
+- **Fifth check** (4 checkers on the fourth check's own changes, a skeptic per claim; 8 confirmed, all fixed with
+  tests that fail on the fourth check's code). Lessons: with three or four long streams beside many one-clip videos
+  the gap was taken inside the streams alone and the clear gap was found in 22 and 51 of 100 runs; it is now taken
+  inside videos only when at least 5 of them hold at least half of each side's clips (94 and 95 of 100, noise 2-3%);
+  a few newer clips read at two days hid 40 clips read on day 3, so the view-count band is now the one nearest 48
+  hours that holds at least half as many clips as the fullest. Picking: "clips min 30 sec max 60 sec" became a
+  30-second cap (each bound now keeps its own number); "dont pick clips that are just banter or just intros" again
+  refuses both. Post text: in a run-on sentence an early "dont worry" or "not sure" refused what came after ("just
+  make sure there are emojis"): "just" with a new instruction, "please" and "honestly" start a new one, and "not
+  sure", "no idea", "don't care", "don't mind" refuse nothing; "dont reuse hashtags from my last video" removed every
+  hashtag and is again about which ones. Chat: "is there a button to hide the captions?" got the captions playbook
+  instead of the app guide, and "where are the tiktok buttons on the screen?" lost it; both are back as before.
 - **Decisions:** the Brain's effect on a score is small and bounded on purpose; only the owner's own words can ask
   for small talk, ad reads or swearing; an owner's sentence about an editing subject is not a picking rule; the
   shortest clip stays a soft limit (a tight moment may run to 75% of it); clips cut from a live stream follow the

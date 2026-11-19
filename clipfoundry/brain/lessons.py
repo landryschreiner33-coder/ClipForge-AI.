@@ -14,6 +14,7 @@ can do to one clip stays inside steer.LIMIT, and every lesson says how many clip
 """
 from __future__ import annotations
 
+import bisect
 import math
 import re
 import time
@@ -29,6 +30,10 @@ STARTS = steer.LESSON_STARTS
 MIN_WITH = 6          # clips that showed the kind ...
 MIN_WITHOUT = 6       # ... and clips that did not, in one comparable audience
 MIN_SOURCES = 3       # ... each side from at least this many different videos, so one video is not a lesson
+# The gap is taken inside videos when at least this many hold clips on both sides (fewer give too few degrees of
+# freedom: the bar then rises so high that a clear gap is missed) ...
+PAIRED_VIDEOS = 5
+PAIRED_SHARE = 0.5    # ... and those videos hold at least half of each side's clips (lessons._gap)
 # How clear a difference must be: what two (and, for a strong lesson, three) standard errors mean on many clips.
 # Each run tests every kind of moment at once and has only a few clips, so the bar is split over the kinds tested
 # and read from Student's t with the few clips' degrees of freedom: noise alone rarely makes a lesson.
@@ -96,9 +101,14 @@ def _outcomes(settings: dict, now: float) -> dict[tuple, dict]:
     for key, clips in at_age.items():  # the floor applies to the reading compared, never to an earlier one
         kept = {cid: o for cid, o in clips.items() if o["metrics"]["views"] >= min_views}
         ages = sorted(float(o["age_hours"]) for o in kept.values())
-        near = sorted(ages, key=lambda a: abs(math.log(a / REFERENCE_AGE_H)))  # the band nearest 48 hours ...
-        mid = next((a for a in near if sum(a / VIEWS_AGE_SPREAD <= x <= a * VIEWS_AGE_SPREAD for x in ages)
-                    >= MIN_WITH + MIN_WITHOUT), ages[len(ages) // 2] if ages else 0.0)  # ... that holds enough
+        held = {a: bisect.bisect_right(ages, a * VIEWS_AGE_SPREAD) - bisect.bisect_left(ages, a / VIEWS_AGE_SPREAD)
+                for a in set(ages)}   # clips read within the spread of each reading age
+        most = max(held.values(), default=0)
+        # the band nearest 48 hours that holds at least half as many clips as the fullest band: an import of last
+        # month's counts does not move it away from 48 hours, and a few early readings do not hide the many read
+        # on day 3
+        mid = next((a for a in sorted(held, key=lambda a: abs(math.log(a / REFERENCE_AGE_H)))
+                    if held[a] >= max(MIN_WITH + MIN_WITHOUT, most / 2)), ages[len(ages) // 2] if ages else 0.0)
         at_age[key] = {cid: o for cid, o in kept.items()
                        if mid / VIEWS_AGE_SPREAD <= float(o["age_hours"]) <= mid * VIEWS_AGE_SPREAD}
     out: dict[tuple, dict] = {}
@@ -191,36 +201,25 @@ def _inside(have: dict[str, list[dict]], rest: dict[str, list[dict]], videos: li
     return num / den
 
 
-def _gap(have: list[dict], rest: list[dict]) -> tuple[float, float, float, int, int]:
-    """The gap between clips with the kind and the others, the square of its standard error, its degrees of freedom
-    and the clips with and without it that it stands on.
+def _paired(have_v: dict[str, list[dict]], rest_v: dict[str, list[dict]],
+            both: list[str]) -> tuple[float, float, float]:
+    """The gap inside the videos in `both` (each holds clips on both sides), the square of its error (a jackknife
+    leaving each video out) and its degrees of freedom."""
+    gap = _inside(have_v, rest_v, both, False)
+    var = _jackknife([_inside(have_v, rest_v, [v for v in both if v != u], True) for u in both])
+    ks = []
+    for v in both:
+        wa, wb = sum(p["weight"] for p in have_v[v]), sum(p["weight"] for p in rest_v[v])
+        ks.append(wa * wb / (wa + wb))
+    df = sum(ks) ** 2 / sum(k * k for k in ks)   # each video's part of the error goes with its weight
+    return gap, var, max(1.0, min(len(both) - 1.0, df))
 
-    Clips of one video move together (a strong video lifts all of them). Where at least MIN_SOURCES videos hold
-    clips on both sides (with enough clips), the gap is taken inside each of those videos, so their reach cancels
-    out; otherwise the two sides' means are compared and one long video that carries a side counts with all its
-    weight. Either way the error is the gap's own spread when each video in turn is left out (a jackknife over
-    videos), read from the values before the outlier cap (a cap that flattens a few volatile videos must not make
-    noise look certain), and the degrees of freedom are the videos less one, fewer when a few videos carry the gap
-    (Satterthwaite's estimate), so one lucky video cannot pass for many."""
-    have_v: dict[str, list[dict]] = defaultdict(list)
-    rest_v: dict[str, list[dict]] = defaultdict(list)
-    for p in have:
-        have_v[p["source"]].append(p)
-    for p in rest:
-        rest_v[p["source"]].append(p)
-    both = sorted(set(have_v) & set(rest_v))
-    n_with, n_without = sum(len(have_v[v]) for v in both), sum(len(rest_v[v]) for v in both)
-    if len(both) >= MIN_SOURCES and n_with >= MIN_WITH and n_without >= MIN_WITHOUT:
-        gap = _inside(have_v, rest_v, both, raw=False)
-        var = _jackknife([_inside(have_v, rest_v, [v for v in both if v != u], raw=True) for u in both])
-        ks = []
-        for v in both:
-            wa, wb = sum(p["weight"] for p in have_v[v]), sum(p["weight"] for p in rest_v[v])
-            ks.append(wa * wb / (wa + wb))
-        df = sum(ks) ** 2 / sum(k * k for k in ks)   # each video's part of the error goes with its weight
-        return gap, var, max(1.0, min(len(both) - 1.0, df)), n_with, n_without
+
+def _pooled(have: list[dict], rest: list[dict]) -> tuple[float, float, float]:
+    """The gap between all clips with the kind and all without, the square of its error (a jackknife leaving each
+    video out) and Satterthwaite's degrees of freedom."""
     gap = _mean(have) - _mean(rest)
-    videos = sorted(set(have_v) | set(rest_v))
+    videos = sorted({p["source"] for p in have} | {p["source"] for p in rest})
     g = len(videos)
     # each side keeps clips when one video is left out: compare asks for MIN_SOURCES videos on both
     var = _jackknife([_mean([p for p in have if p["source"] != v], True)
@@ -240,7 +239,35 @@ def _gap(have: list[dict], rest: list[dict]) -> tuple[float, float, float, int, 
     video_var = max(0.0, (between - within) * g / n)  # how much videos differ beyond their clips (one-way ANOVA)
     parts = [max(within, 1e-12) * clip_part[v] + video_var * video_part[v] ** 2 for v in videos]
     df = sum(parts) ** 2 / max(1e-30, sum(x * x for x in parts))
-    return gap, var, max(1.0, min(g - 1.0, df)), len(have), len(rest)
+    return gap, var, max(1.0, min(g - 1.0, df))
+
+
+def _gap(have: list[dict], rest: list[dict]) -> tuple[float, float, float, int, int]:
+    """The gap between clips with the kind and the others, the square of its standard error, its degrees of freedom
+    and the clips with and without it that it stands on.
+
+    Clips of one video move together (a strong video lifts all of them). When videos that hold clips on both sides
+    carry most of the evidence (PAIRED_SHARE of each side's clips, from at least PAIRED_VIDEOS videos), the gap is
+    taken inside each of those videos, so their reach cancels out; otherwise the two sides' means are compared over
+    all videos (a few paired videos must not throw away the many one-sided ones) and one long video that carries a
+    side counts with all its weight. Which of the two is used depends only on which clips show the kind, never on
+    their numbers. Either way the error is the gap's own spread when each video in turn is left out (a jackknife
+    over videos), read from the values before the outlier cap (a cap that flattens a few volatile videos must not
+    make noise look certain; the gap itself keeps the cap, so one wild clip cannot make it), and the degrees of
+    freedom are the videos less one, fewer when a few videos carry the gap (Satterthwaite's estimate), so one lucky
+    video cannot pass for many."""
+    have_v: dict[str, list[dict]] = defaultdict(list)
+    rest_v: dict[str, list[dict]] = defaultdict(list)
+    for p in have:
+        have_v[p["source"]].append(p)
+    for p in rest:
+        rest_v[p["source"]].append(p)
+    both = sorted(set(have_v) & set(rest_v))
+    n_with, n_without = sum(len(have_v[v]) for v in both), sum(len(rest_v[v]) for v in both)
+    if (len(both) >= PAIRED_VIDEOS and n_with >= max(MIN_WITH, PAIRED_SHARE * len(have))
+            and n_without >= max(MIN_WITHOUT, PAIRED_SHARE * len(rest))):
+        return (*_paired(have_v, rest_v, both), n_with, n_without)
+    return (*_pooled(have, rest), len(have), len(rest))
 
 
 def compare(pts: list[dict], what: str) -> list[dict]:

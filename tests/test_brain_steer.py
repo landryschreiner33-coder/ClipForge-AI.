@@ -95,6 +95,10 @@ def _kinds(text: str, **kw) -> dict:
     ("less small talk or more reactions in my clips", {"smalltalk": -1, "reaction": 1}),
     ("no intros in my clips or only funny moments", {"promo": -1, "funny": 1}),
     ("dont pick intros or rather pick reactions", {"promo": -1, "reaction": 1}),
+    # ... unless the "just" or "only" repeats the one the "no" came with
+    ("dont pick clips that are just banter or just intros", {"smalltalk": -1, "promo": -1}),
+    ("no clips that are only small talk or only intros", {"smalltalk": -1, "promo": -1}),
+    ("i dont want clips that are only ads or only sad stuff", {"promo": -1, "emotional": -1}),
     # after a cut point only a bare list goes with it: a sentence that says more is read
     ("dont start clips with a intro, funny or emotional moments get the most views", {"funny": 1, "emotional": 1}),
     ("dont end clips on a question, funny moments and reactions work best", {"funny": 1, "reaction": 1}),
@@ -208,6 +212,11 @@ def test_the_owners_rule_outweighs_lessons_and_one_source_speaks_once():
     ("clips 30 sec max", {"max": 30.0}),
     ("clips 60 seconds tops", {"max": 60.0}),
     ("clips 40 seconds minimum", {"min": 40.0}),
+    # ... but each bound keeps its own number
+    ("clips min 30 sec max 60 sec", {"min": 30.0, "max": 60.0}),
+    ("keep clips min 15s max 45s", {"min": 15.0, "max": 45.0}),
+    ("clips max 60 seconds min 30 seconds", {"min": 30.0, "max": 60.0}),
+    ("clips at least 20 sec at most 60 sec", {"min": 20.0, "max": 60.0}),
 ])
 def test_clip_lengths_the_owner_asks_for(said, want):
     assert steer._length(steer._plain(said)) == want  # noqa: SLF001
@@ -530,6 +539,32 @@ def test_one_long_video_is_not_a_lesson_and_a_gap_inside_each_video_is_found():
     assert sum(1 for seed in range(200) if lessons.compare(capped(volatile(seed)), "watched")) <= 10
 
 
+def test_a_few_videos_with_both_sides_do_not_throw_away_the_rest():
+    import random
+
+    picked = [k.id for k in steer.KINDS if k.id not in steer.UNWANTED][:6]
+
+    def streams(seed: int, n: int, effect: float) -> list[dict]:
+        """n streams of 8 clips and 25 one-clip videos; each clip shows each kind about a third of the time."""
+        rnd = random.Random(seed)
+        pts = []
+        for v, clips in enumerate([8] * n + [1] * 25):
+            base = rnd.gauss(0, 8)
+            for _ in range(clips):
+                kinds = [k for k in picked if rnd.random() < 0.35]
+                value = 40 + base + rnd.gauss(0, 8) + (effect if "reaction" in kinds else 0)
+                pts.append({"source": f"v{v}", "value": value, "weight": clips ** -0.5, "kinds": kinds})
+        vals = sorted(p["value"] for p in pts)       # the outlier cap of autopilot/brain._points
+        lo, hi = vals[int(0.1 * (len(vals) - 1))], vals[int(math.ceil(0.9 * (len(vals) - 1)))]
+        return [{**p, "raw": p["value"], "value": min(hi, max(lo, p["value"]))} for p in pts]
+
+    for n in (3, 4):   # 22 and 51 in 100 when the gap was taken inside the three or four streams alone
+        found = sum(1 for seed in range(100) if any(x["kind"] == "reaction" and x["sign"] > 0
+                                                    for x in lessons.compare(streams(seed, n, 20.0), "watched")))
+        assert found >= 85, n
+        assert sum(1 for seed in range(100) if lessons.compare(streams(500 + seed, n, 0.0), "watched")) <= 5, n
+
+
 def test_an_owners_rewrite_of_a_lesson_is_theirs(audience):
     for source in range(3):
         _posted(REACTION, 3, 62.0, source)
@@ -576,6 +611,16 @@ def test_an_import_of_old_view_counts_does_not_unsettle_a_lesson(audience):
     for source in range(10):                               # last month's clips, counted at four weeks
         _viewed(PLAIN, 3, [(600 + 20 * source, 1500)], 20 + source)
     assert lessons.learn(db.get_settings()) == {"added": [], "changed": [], "dropped": [], "lessons": 1}
+
+
+def test_a_few_early_readings_do_not_hide_the_many_read_on_day_three(audience):
+    for source in range(5):
+        _viewed(REACTION, 4, [(78, 3000)], source)
+        _viewed(PLAIN, 4, [(78, 1000)], 10 + source)
+    for source in range(4):                                # four newer videos, read at two days
+        _viewed(PLAIN, 3, [(50, 1000)], 20 + source)
+    report = lessons.learn(db.get_settings())
+    assert report["lessons"] == 1 and "(20 clips against 20" in report["added"][0]
 
 
 def test_view_counts_imported_after_day_four_still_teach(audience):

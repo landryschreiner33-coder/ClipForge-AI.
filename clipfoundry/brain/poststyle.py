@@ -40,7 +40,9 @@ _PART = re.compile(r",\s*|\s+(?:and|but)\s+(?=(?:no|never|don'?t|do not|without|
 _NO_WORDS = (r"no|not|never|cannot|(?:do|does|should|must|ca|wo|would|could)n'?t|do not|without|"
              r"(?:is|are|was|were|did)n'?t(?=\s+(?:supposed|allowed|meant|want|need|ask))|"
              r"stop|avoid|skip|drop|leave out|hate|zero")
-_NEG = re.compile(rf"\b({_NO_WORDS})\b(?!\s+go wrong)")   # "you can't go wrong with emoji" is a yes
+# "you can't go wrong with emoji" is a yes; "not sure", "no idea", "don't care", "doesn't matter" refuse nothing
+_IDIOM = r"(?!\s+go wrong)(?!\s+(?:really\s+|even\s+)?(?:sure|know|knew|care|mind|worry|clue|idea|matters?)\b)"
+_NEG = re.compile(rf"\b({_NO_WORDS})\b{_IDIOM}")
 # "don't forget the hashtags", "never miss a chance to add hashtags": after a "no", these say the opposite
 _UNDO = re.compile(r"\b(forget\w*|forgot\w*|miss\w*|lose)\b")
 # ... and so do these, which on their own leave something out ("skip the hashtags", "never skip the emoji")
@@ -48,7 +50,10 @@ _TURN = re.compile(r"\b(skip\w*|drop\w*|leave out|stop|avoid)\b")
 # A "no" reaches back only within its own instruction: "titles shouldn't be too long and should have an emoji",
 # "my titles aren't getting clicks so make them questions", "not sure it matters but hashtags help"
 _NEW_ORDER = re.compile(r"\b(?:so(?!\s+(?:much|many)\b)|but|because|since|if|unless|as long as|then|"
-                        r"and (?:should|make|keep|use|add|always|put))\b")
+                        r"and (?:should|make|keep|use|add|always|put)|please|pls|plz|honestly)\b"
+                        # "dont worry about the title just make sure there are emojis", but "don't just copy them"
+                        r"|(?<!n't )(?<!nt )(?<!not )(?<!never )(?<!no )\bjust(?=\s+(?:make|use|add|put|keep|do|"
+                        r"give|write|throw|stick|include|go|let|try|pick|mix|toss|slap|leave|have|stay)\b)")
 # what the owner allows is not banned by the list before it ("no emoji in titles, hashtags welcome")
 _OK = re.compile(r"\b(welcome|fine|ok(?:ay)?|good|great|allowed|yes|keep|want)\b")
 _TITLE = re.compile(r"\btitles?\b")
@@ -106,7 +111,7 @@ def _negated(part: str, at: int, carried: bool) -> bool:
     before = before[cut[-1]:] if cut else before
     no, last = False, None   # `last`: where the last plain "no" ended
     for m in re.finditer(rf"\b(?:{_NO_WORDS}|forget\w*|forgot\w*|miss\w*|lose|skip\w*|drop\w*|leave out)\b"
-                         r"(?!\s+go wrong)", before):
+                         rf"{_IDIOM}", before):
         word = m.group(0)
         if _UNDO.fullmatch(word):
             no = False           # "don't forget": the thing is wanted; "forget it" alone is no rule
@@ -125,8 +130,11 @@ def _negated(part: str, at: int, carried: bool) -> bool:
 # hashtags, not about how many; "no hashtags in titles" says where (unless the post text is named too)
 _TAG_WHICH = re.compile(rf"\b(?:generic|same|similar|repeated|irrelevant|random|spammy|banned|broad|big|popular|"
                         rf"trending)\s+(?:\w+\s+)?{_TAG}\b|\b{_TAG}\s+(?:like|such as|that(?! much)|which|"
-                        rf"from (?:other|another|the same|old|older|competitors?|someone|others|tik ?tok|you ?tube|"
-                        rf"instagram|insta|reels|trending|popular|viral|famous)\b)|#\w")
+                        # "hashtags from my last video", "from big accounts": which; "from now on", "from tomorrow",
+                        # "from the description", "drop the hashtags from my posts": when or where
+                        rf"from (?!(?:now|today|tomorrow|tonight|here|then|on|this|next)\b|(?:the |my |all |all my |"
+                        rf"your |every |each )?(?:descriptions?|captions?|titles?|posts?|post texts?|videos?|clips?|"
+                        rf"shorts?|uploads?)\b))|#\w")
 # "don't use hashtags that much", "too many hashtags": fewer of them, not none
 _TAGS_MUCH = re.compile(rf"\b{_TAG}\s+(?:that|so) much\b|\b(?:so|that) (?:many|much)\s+(?:\w+\s+)?{_TAG}\b")
 _TOO_MANY = re.compile(rf"\btoo many\s+(?:\w+\s+)?{_TAG}\b|\b{_TAG}\s+too much\b")

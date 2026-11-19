@@ -170,8 +170,12 @@ _LEN_NEG = re.compile(r"\b(?:no|not|never|cannot|(?:do|does|did|is|are|was|were|
 _FLIP = {"min": "max", "max": "min"}
 _BARE_BOUND = re.compile(r"^(?:longer th[ae]n|shorter th[ae]n|more th[ae]n|less th[ae]n|over|under|above|below)\b")
 _OR_LESS = re.compile(rf"{_NUM}{_UNIT}\s+or (?:less|under|shorter)\b(?!\s+(?:than|\d))")   # not "or under 90"
-_MAX_AFTER = re.compile(rf"{_NUM}{_UNIT}\s+(?:max(?:imum)?|tops|at (?:the )?most)\b")   # "clips 30 sec max"
-_MIN_AFTER = re.compile(rf"{_NUM}{_UNIT}\s+(?:min(?:imum)?|at (?:the )?least)\b")
+# "clips 30 sec max", but in "min 30 sec max 60 sec" each bound has its own number: a number that follows a bound
+# word belongs to it, and a bound word followed by a number is the next bound's
+_OWN_BOUND = "".join(f"(?<!{w} )" for w in ("min", "max", "minimum", "maximum", "least", "most", "than", "then",
+                                              "over", "under", "above", "below", "within", "to", "of"))
+_MAX_AFTER = re.compile(rf"{_OWN_BOUND}{_NUM}{_UNIT}\s+(?:max(?:imum)?|tops|at (?:the )?most)\b(?!\s*\d)")
+_MIN_AFTER = re.compile(rf"{_OWN_BOUND}{_NUM}{_UNIT}\s+(?:min(?:imum)?|at (?:the )?least)\b(?!\s*\d)")
 _OR_MORE = re.compile(rf"{_NUM}{_UNIT}\s+or (?:more|over|longer)\b(?!\s+(?:than|\d))")
 # "grab attention in the first 10 seconds", "a cut every 3 seconds", "get to the action in 10 seconds or less": a
 # time inside the clip, not how long it is; "in 45 second clips" and "keep clips in 30 seconds or less" are lengths
@@ -285,7 +289,7 @@ _RESET = re.compile(r"\b(?:just|only|instead|rather|but|keep\w*|focus\w* on|stic
                     r"(?<!\bno )(?<!\bany )more|and (?:go|keep|focus|pick|show|use|find|look|stick|leave in|add|"
                     r"include)\w*)\b")
 # "never pick intros or lead with small talk", "no intros or any more small talk": the "no" goes on across "or"
-_OR_GOES_ON = re.compile(r"\b(?:or|nor)\s+(?:any\s+)?$")   # only before "lead with": "or just ..." still turns
+_OR_GOES_ON = re.compile(r"\b(?:or|nor)\s+(?:any\s+)?$")   # see _scope: "or just ..." still turns
 _ANY_KIND = re.compile(r"\b(?:" + "|".join(k.names for k in KINDS) + r")\b")
 # words around a "no" that do not end it at a comma ("never, ever clip intros", "don't, under any circumstances, ...")
 _ASIDE = re.compile(r"\b(?:ever|at all|please|really|seriously|again|under any circumstances|whatever happens|"
@@ -327,9 +331,12 @@ def _scope(part: str, at: int, neg: re.Pattern) -> str:
 
     start = 0
     for m in _RESET.finditer(before):
-        if m.group() == "lead with" and _OR_GOES_ON.search(before[:m.start()]):
-            continue
         no = last_no(m.start())
+        # after "or", "lead with" goes on ("never pick intros or lead with small talk"), and so does a "just" or
+        # "only" that repeats the one before it ("no clips that are just banter or just intros")
+        if _OR_GOES_ON.search(before[:m.start()]) and (m.group() == "lead with" or (
+                no is not None and re.search(rf"\b{re.escape(m.group())}\b", before[no:m.start()]))):
+            continue
         if no is None or any(no <= k < m.start() for k in named):
             start = max(start, m.end())
     for m in re.finditer(r",\s*", before):     # a colon explains what came before it: it does not turn away

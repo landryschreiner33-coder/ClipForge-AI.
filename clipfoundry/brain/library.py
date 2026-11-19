@@ -54,7 +54,6 @@ BOOST = 1.2
 # word that counts only beside others ("buttons" beside "text") does not count
 _PRESSING = re.compile(r"\b(?:which|what) (?:\w+ )?buttons?\b|\bbuttons? (?:to|for)\b|"
                        r"\b(?:captions?|subtitles?|text|words?) buttons?\b|"
-                       r"\bwhere(?:'s| is| are)\b[^.?!]*\bbuttons?\b|"
                        r"\b(?:press|click|tap|hit|find)\w* (?:on )?(?:the |a |that |this |my )?(?:\w+ )?buttons?\b",
                        re.I)
 
@@ -285,8 +284,11 @@ def _units(query: str, corpus: _Corpus) -> _Query:
                 out.append((t, w))
         return out
 
-    return _Query(known(st), known([f"{a}_{b}" for a, b in zip(st, st[1:])]),
-                  frozenset() if _PRESSING.search(query or "") else frozenset(st))
+    pressing = bool(_PRESSING.search(query or ""))
+    # a question about pressing a button ("is there a button to hide captions?") is about the app: "button" counts
+    # neither beside other words nor in a pair ("=buttons hide" is the platforms' buttons covering text)
+    pairs = [f"{a}_{b}" for a, b in zip(st, st[1:]) if not (pressing and "button" in (a, b))]
+    return _Query(known(st), known(pairs), frozenset() if pressing else frozenset(st))
 
 
 def _score(q: _Query, e: Entry) -> tuple[float, float]:

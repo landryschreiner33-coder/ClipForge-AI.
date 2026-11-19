@@ -134,6 +134,15 @@ def _say(text: str, **kw) -> dict:
     ("No hashtags from tomorrow.", {"tags": 0}),
     ("No hashtags from the description please.", {"tags": 0}),
     ("Drop the hashtags from my posts.", {"tags": 0}),
+    ("dont reuse hashtags from my last video", {}),       # which ones, not how many
+    ("never use hashtags from big accounts", {}),
+    # a "no" about something else at the start of a run-on sentence refuses nothing after a new instruction
+    ("dont worry about the title being perfect just make sure there are emojis in it", {}),
+    ("not sure what works best honestly just use lots of hashtags", {}),
+    ("i dont really care how the post text looks just keep the titles short", {"title_max": 50}),
+    ("I never know what to write for the post text myself please add a question in the title", {"question": 1}),
+    ("no clue what im doing with this stuff honestly titles in lower case look cool", {"title_case": "lower"}),
+    ("I dont mind hashtags", {}),
     ("Don't use hashtags that much.", {"tags": poststyle.FEWER_TAGS}),
     ("Too many hashtags on my posts.", {"tags": poststyle.FEWER_TAGS}),
     # when and where a rule holds is not which hashtags
