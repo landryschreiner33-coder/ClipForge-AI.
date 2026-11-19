@@ -478,18 +478,20 @@ def takes_turns(cfg: dict) -> bool:
     return (cfg or {}).get("split") == "turns" and len(targets(cfg)) > 1
 
 
-LIVE_POSTS = "status NOT IN ('canceled', 'replaced')"   # a post that holds its clip's place on its channel
-UPLOADS = "status IN ('done', 'action_needed', 'uploading', 'processing', 'queued')"  # an upload made by hand
+HOLDS = ("awaiting_approval", "approved", "publishing", "reconciling", "published")  # a post that is or goes out
+UPLOADS = ("done", "action_needed", "uploading", "processing", "queued")  # an upload by hand that is or was sent
+GONE = ("canceled", "replaced")  # a post that no longer holds its clip's place
 
 
 def clip_turn(source: dict, clip: dict, dealt: dict) -> str | None:
     """The one channel (connection ID) a clip's post goes to when its request's channels take turns; None when
-    they do not. A clip never changes channel: whatever became of an earlier post of it (held, failed, canceled),
-    the next one goes to the same channel, and a clip uploaded to a chosen channel by hand stays there. A new clip
-    goes to the channel that has the fewest of this input's clips so far. On a tie, the channel with the fewest
-    clips over every input whose channels take turns goes first, then the owner's order: an input with one clip
-    (or an odd number) would otherwise always give its extra clip to the first channel ticked. A channel that
-    needs Reconnect gets no new clips meanwhile (the ones it has wait for it) and catches up afterwards.
+    they do not. A clip never changes channel: a post of it that is planned, approved or out, else an upload of it
+    made by hand, else whatever became of an earlier post of it (held, failed, canceled) names its channel, and the
+    next post goes there. A new clip goes to the channel that has the fewest of this input's clips so far. On a
+    tie, the channel with the fewest clips over every input whose channels take turns goes first, then the owner's
+    order: an input with one clip (or an odd number) would otherwise always give its extra clip to the first
+    channel ticked. A channel that needs Reconnect gets no new clips meanwhile (the ones it has wait for it) and
+    catches up afterwards.
 
     `dealt` is one planning pass's memory ({} at its start): the clips given out in the pass before their posts
     exist (`took_turn`)."""
@@ -500,35 +502,61 @@ def clip_turn(source: dict, clip: dict, dealt: dict) -> str | None:
     memo = _turns(source, chosen, dealt)
     if clip["id"] in memo["clips"]:
         return memo["clips"][clip["id"]]
-    from .targets import effective_connection_id
-
-    for post in db.select("scheduled_publications", "clip_id = ? AND platform = 'youtube'", (clip["id"],), "created_at"):
-        if post.get("connection_id") in chosen:
-            return post["connection_id"]
-    for upload in db.select("publications", f"clip_id = ? AND platform = 'youtube' AND {UPLOADS}", (clip["id"],)):
-        if effective_connection_id(upload) in chosen:
-            return effective_connection_id(upload)
+    posts = db.select("scheduled_publications", "clip_id = ? AND platform = 'youtube'", (clip["id"],), "created_at")
+    marks = ", ".join("?" * len(UPLOADS))
+    uploads = db.select("publications", f"clip_id = ? AND platform = 'youtube' AND status IN ({marks})",
+                        (clip["id"], *UPLOADS))
+    bound = _bound(posts, uploads, chosen)
+    if bound:
+        return bound
     overall, order = _turns_overall(dealt), list(chosen)
     return min(memo["open"], key=lambda cid: (memo["counts"][cid], overall.get(cid, 0), order.index(cid)))
 
 
+def _bound(posts: list[dict], uploads: list[dict], chosen) -> str | None:
+    """The chosen channel a clip already belongs to, from its posts (oldest first) and its uploads made by hand."""
+    from .targets import effective_connection_id
+
+    for group in ([p.get("connection_id") for p in posts if p["status"] in HOLDS],
+                  [effective_connection_id(u) for u in uploads],
+                  [p.get("connection_id") for p in posts]):
+        cid = next((c for c in group if c in chosen), None)
+        if cid:
+            return cid
+    return None
+
+
+def _places(source: dict, chosen) -> dict[str, str]:
+    """The input's clips that hold a place on one of its chosen channels (a post that is not canceled or replaced,
+    or an upload made by hand), each with that channel (`_bound`): every clip counts once."""
+    posts: dict[str, list[dict]] = {}
+    for row in db.select("scheduled_publications", "source_id = ? AND platform = 'youtube'", (source["id"],),
+                         "created_at"):
+        posts.setdefault(row["clip_id"], []).append(row)
+    uploads: dict[str, list[dict]] = {}
+    marks = ", ".join("?" * len(UPLOADS))
+    for row in db.select("publications", f"platform = 'youtube' AND status IN ({marks}) AND clip_id IN "
+                                         "(SELECT id FROM clips WHERE project_id = ?)",
+                         (*UPLOADS, source.get("project_id") or "")):
+        uploads.setdefault(row["clip_id"], []).append(row)
+    out = {}
+    for clip_id in {*posts, *uploads}:
+        mine, by_hand = posts.get(clip_id, []), uploads.get(clip_id, [])
+        if by_hand or any(p["status"] not in GONE for p in mine):
+            cid = _bound(mine, by_hand, chosen)
+            if cid:
+                out[clip_id] = cid
+    return out
+
+
 def _turns(source: dict, chosen: dict[str, str], dealt: dict) -> dict:
-    """This pass's count of an input's clips per chosen channel: its posts that hold a place and its uploads made
-    by hand, each clip once per channel."""
+    """This pass's count of an input's clips per chosen channel (`_places`)."""
     memo = dealt.setdefault(source["id"], {})
     if "counts" not in memo:
-        from .targets import effective_connection_id
-
         memo["counts"], memo["counted"], memo["clips"] = {cid: 0 for cid in chosen}, set(), {}
-        rows = [*((row, row.get("connection_id")) for row in db.select(
-            "scheduled_publications", f"source_id = ? AND platform = 'youtube' AND {LIVE_POSTS}", (source["id"],))),
-                *((row, effective_connection_id(row)) for row in db.select(
-                    "publications", f"platform = 'youtube' AND {UPLOADS} AND clip_id IN (SELECT id FROM clips WHERE "
-                                    "project_id = ?)", ((source.get("project_id") or ""),)))]
-        for row, cid in rows:
-            if cid in memo["counts"] and (row["clip_id"], cid) not in memo["counted"]:
-                memo["counted"].add((row["clip_id"], cid))
-                memo["counts"][cid] += 1
+        for clip_id, cid in _places(source, chosen).items():
+            memo["counted"].add((clip_id, cid))
+            memo["counts"][cid] += 1
         memo["open"] = [cid for cid in chosen if not _channel_problem(chosen, cid)] or list(chosen)
     return memo
 
@@ -536,14 +564,12 @@ def _turns(source: dict, chosen: dict[str, str], dealt: dict) -> dict:
 def _turns_overall(dealt: dict) -> dict[str, int]:
     """Clips per channel over every input whose channels take turns (this pass's included): the tie-breaker."""
     if "*overall" not in dealt:
-        turning = [row["source_id"] for row in db.select("source_submissions", "1 = 1", ())
-                   if takes_turns(row.get("settings") or {})]
         counts: dict[str, int] = {}
-        marks = ", ".join("?" * len(turning)) or "''"
-        for row in db.select("scheduled_publications", f"platform = 'youtube' AND {LIVE_POSTS} AND source_id IN "
-                                                       f"({marks})", tuple(turning)):
-            if row.get("connection_id"):
-                counts[row["connection_id"]] = counts.get(row["connection_id"], 0) + 1
+        for row in db.select("source_submissions", "1 = 1", ()):
+            cfg = row.get("settings") or {}
+            source = db.fetch("sources", row["source_id"]) if takes_turns(cfg) else None
+            for cid in _places(source, targets(cfg)).values() if source else ():
+                counts[cid] = counts.get(cid, 0) + 1
         dealt["*overall"] = counts
     return dealt["*overall"]
 

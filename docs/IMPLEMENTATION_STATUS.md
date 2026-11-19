@@ -20,6 +20,10 @@ released.
 | 2026-11-19 | independent review by three reviewers | 18 findings (6 medium, 12 low); fixed in 61db5c5, 83ffa92, 4cbbfb5 (one known limit, see the changelog) |
 | 2026-11-19 | the four feature test files after the fixes | 28 picker, 7 Stop clipping, 10 split between channels, 18 split view: all passed; each new test fails on the code before its fix |
 | 2026-11-19 | `npx tsc --noEmit`, `npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-19, on 5bf372d | GitHub run 44434195548: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | all three passed |
+| 2026-11-19 | a second look at the fixes by two reviewers | 6 smaller gaps (3 medium, 3 low), all fixed with tests |
+| 2026-11-19, after the second look | the four feature test files | 30 picker, 7 Stop clipping, 12 split between channels, 18 split view: all passed |
+| 2026-11-19, after the second look | `python -m pytest -m "not slow"` on the 29 test files near the changed code | 358 passed, 14 deselected |
 
 Not verified: real streams and face cams (the tests draw their own pictures and use stand-in recorders), real
 uploads to two channels, the screens in the Mac window.

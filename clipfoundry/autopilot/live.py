@@ -709,13 +709,19 @@ def detect(sess: Session, job: Job) -> dict | None:
         if any((r["s0"], r["s1"]) == (other["s0"], other["s1"]) for other in rated):
             continue  # two moments found close together are the same story once each is told in full
         if r is not core:
-            r["fuller"] = {"from": round(core["end"] - core["start"], 1), "to": round(r["end"] - r["start"], 1)}
+            r["fuller"] = {"from": round(core["end"] - core["start"], 1), "to": round(r["end"] - r["start"], 1),
+                           "core": [core["start"], core["end"]]}  # the moment as found, for the overlap rule
         r["brain_knowledge"] = used
         rated.append(r)
     # A minute later the search may cut the same speech differently. The moments remembered from the last search
     # (the one the picker waits for among them) are rated again as they were, so waiting never loses a moment.
     for kept in sess.held:
         job.check()
+        core = (kept.get("fuller") or {}).get("core")
+        if core and shared(kept["start"], kept["end"]) > max(1.0, shared(*core)):
+            # A clip made since then shares more with the fuller version than with the moment itself: the same
+            # rule as for a fresh search, so the moment is tried as it was found.
+            kept = {"start": core[0], "end": core[1]}
         a = next((k for k, s in enumerate(sents) if abs(s["start"] - kept["start"]) < 0.05), None)
         b = next((k for k, s in enumerate(sents) if abs(s["end"] - kept["end"]) < 0.05), None)
         if a is None or b is None or b < a or any((a, b) == (other["s0"], other["s1"]) for other in rated) \

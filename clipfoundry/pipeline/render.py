@@ -496,6 +496,10 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     dw, dh = _decode_size(src_w, src_h)
     fit_scale = min(OUTPUT_W / dw, OUTPUT_H / dh)
     picture_top = (OUTPUT_H - dh * fit_scale) / 2 if layout == "fit" else None
+    rendered_game = (clip.get("render_info") or {}).get("split_game")
+    if (clip.get("edit") or {}).get("split_game") is None and rendered_game in reframe.SPLIT_GAMES and \
+            not (blueprint is not None and blueprint.framing.game):
+        opts["split_game"] = rendered_game  # the look it was made with, like its layout (cam_layout)
     if split:
         # how the two pictures are laid out: the whole picture under the cam unless the zoomed one was asked for
         game = opts.get("split_game") if opts.get("split_game") in reframe.SPLIT_GAMES else reframe.SPLIT_GAMES[0]
@@ -644,6 +648,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                         # what was asked for when that differs from what the picture made of it ("auto": a split
                         # view only with a face cam), and which split view it is
                         **({"layout_asked": asked} if asked != layout else {}),
+                        # the layout used when no face cam is found (the clip editor's one-picture layout)
+                        **({"layout_fallback": usual} if asked in reframe.SPLIT_LAYOUTS else {}),
                         **({"split_game": view["game"]} if split else {}),
                         "fps": fps, "segments": len(segs),
                         "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),

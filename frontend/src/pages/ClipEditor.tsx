@@ -187,10 +187,14 @@ export default function ClipEditor({ id }: { id: string }) {
   const base = (k: Key): unknown =>
     k === "start" ? clip?.start : k === "end" ? clip?.end : k === "hook" ? clip?.hook
       : k === "layout" ? clip?.render_info?.layout_asked ?? opts[k] ?? settings[k] ?? FALLBACK[k]
+        // a split view keeps the look it was made with when it is rendered again
+        : k === "split_game" ? clip?.render_info?.split_game ?? opts[k] ?? settings[k] ?? FALLBACK[k]
         : opts[k] ?? settings[k] ?? FALLBACK[k];
   const eff = (k: Key) => d[k] ?? base(k);
-  // the layout a clip gets without a split view: the video's own, else the one from Settings
-  const usualLayout = [opts.layout, settings.layout].find((v) => v === "fill" || v === "fit") ?? "fill";
+  // the layout a clip gets without a split view: what its last render would have used, else the video's own, else
+  // the one from Settings
+  const usualLayout = [clip?.render_info?.layout_fallback, opts.layout, settings.layout]
+    .find((v) => v === "fill" || v === "fit") ?? "fill";
   const num = (k: Key) => Number(eff(k) ?? 0);
   const bool = (k: Key) => !!eff(k);
   const str = (k: Key) => String(eff(k) ?? "");

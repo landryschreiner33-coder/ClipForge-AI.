@@ -169,7 +169,8 @@ It covers that one broadcast only, never the channel's later streams.
   clip editor or for the video, no Brain note, style or skill that decides the layout) looks for a face cam and
   uses split view when it finds one. Settings → Defaults → **Split view** → *Off* stops that for new clips. A clip
   that was already rendered keeps the look it was made with when it is rendered again (a caption fix, a version), so
-  a clip made before split view existed is not turned into one, and the clip editor shows what a new render gives.
+  a clip made before split view existed is not turned into one, and the clip editor shows what a new render gives;
+  the same holds for *Under the face cam*.
   An Autopilot plan keeps its layout without a face cam and its *Under the face cam* choice. In the clip editor,
   Layout offers **Split view** and **Split if face cam** for any clip; choosing **Framing follows** something other
   than automatic gives one picture placed as asked (the Layout shown changes with it), unless a split view is then

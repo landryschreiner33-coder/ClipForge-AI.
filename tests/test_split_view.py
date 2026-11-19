@@ -438,6 +438,14 @@ def test_a_stream_with_a_face_cam_renders_as_a_whole_split_view_by_default(monke
     kept = render.render_clip(project, {**clip, "render_info": info}, [], {**settings, "split_view": "off"},
                               JobContext())["render_info"]
     assert kept["mode"] == "split" and kept["layout_asked"] == "auto"
+    assert info["layout_fallback"] == "fill"  # the one picture the editor offers when Framing is chosen by hand
+    # the look under the face cam is kept too: Settings → Under the face cam changes new clips only
+    zoomed = render.render_clip(project, {**clip, "id": "c7"}, [], {**settings, "split_game": "zoom"},
+                                JobContext())["render_info"]
+    assert zoomed["split_game"] == "zoom"
+    rerendered = render.render_clip(project, {**clip, "id": "c7", "render_info": zoomed}, [], settings,
+                                    JobContext())["render_info"]
+    assert rerendered["split_game"] == "zoom"
     # framing the picture by hand (Framing in the editor) gives one picture, with a plan and without one alike;
     # the plan's own layout without a face cam is used, not the one Settings have now
     by_hand = {"silence": "off", "tracking": "manual", "crop_x": 0.2}

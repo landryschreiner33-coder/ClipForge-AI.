@@ -347,3 +347,39 @@ def test_a_stronger_clip_approved_under_the_request_takes_the_weaker_posts_slot(
     for channel in (a, b):
         approved = db.select("scheduled_publications", "connection_id = ? AND status = 'approved'", (channel["id"],))
         assert len({r["planned_at"] for r in approved}) == len(approved) <= per_channel  # one post per slot
+
+
+def test_a_clip_uploaded_by_hand_after_its_post_was_canceled_stays_on_that_channel(chans):  # noqa: F811
+    """Its canceled post was for channel A; the owner then uploaded it to channel B by hand. It is on B now: it is
+    never planned on A as well."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import scheduler
+
+    a, b = chans["a"], chans["b"]
+    source = add_file(a, b, split="turns")
+    posts = clips(chans, source, 1)
+    scheduler.cancel(posts[0][a["id"]]["id"], "Canceled by you")
+    clip_id = posts[0][a["id"]]["clip_id"]
+    db.create_publication(clip_id, "youtube", status="done", connection_id=b["id"])
+    scheduler.plan_new(db.get_settings(), time.time())
+    assert [r["status"] for r in db.select("scheduled_publications", "clip_id = ?", (clip_id,))] == ["canceled"]
+    assert per_channel(source, a, b) == [0, 0] and len(clips_after(chans, source, posts[0][a["id"]], TITLES[1])) == 1
+
+
+def test_the_tie_breaker_counts_clips_not_posts(chans):  # noqa: F811
+    """A clip whose first post failed and was planned again has two posts on its channel: it is still one clip."""
+    from clipfoundry import db
+
+    a, b = chans["a"], chans["b"]
+    first = add_file(a, b, split="turns")
+    posts = clips(chans, first, 1)
+    (row,) = posts[0].values()
+    assert row["connection_id"] == a["id"]
+    db.update("scheduled_publications", row["id"], status="failed")
+    db.insert("scheduled_publications", {**{k: v for k, v in row.items() if k not in ("id", "status")},
+                                         "status": "approved"})
+    went = []
+    for k in (1, 2):
+        source = add_file(a, b, split="turns")
+        went.append(list(ready(chans["tmp"], source, created=1, title=TITLES[k])[1]))
+    assert went == [[b["id"]], [a["id"]]]

@@ -398,7 +398,7 @@ def test_a_live_clip_keeps_the_build_up_and_the_ending(stream, monkeypatch):
     full = live.detect(sess, job)["r"]
     assert full["start"] < found["start"] and full["end"] > found["end"]
     assert full["fuller"] == {"from": round(found["end"] - found["start"], 1),
-                              "to": round(full["end"] - full["start"], 1)}
+                              "to": round(full["end"] - full["start"], 1), "core": [found["start"], found["end"]]}
     assert full["end"] - full["start"] <= 90.0
     assert any(line.startswith("Kept the build-up and the ending") for line in full["explanation"])
     assert full["live_score"] == 78.0  # the fuller version's own estimate is what the stream's bars see
@@ -434,6 +434,24 @@ def test_a_fuller_version_never_shows_a_short_clip_again(stream, monkeypatch):
     sess.clips.append({"id": "short", "start": 190.0, "end": 195.0, "score": 90.0})
     found = live.detect(sess, job)["r"]
     assert found["start"] >= 195.0 and "fuller" not in found
+
+
+def test_a_remembered_fuller_version_follows_the_same_overlap_rule(stream, monkeypatch):
+    """A fuller version remembered from the last search, and a clip made since that covers part of its build-up:
+    the moment is tried again as it was found, not with footage of that clip."""
+    from clipfoundry.autopilot import live
+
+    moments = [(200, 80.0)]
+    sess, job = stream(10, moments, autopilot_live_pick="most", **LONGER)
+    told_in_full(monkeypatch, back=8, on=0)
+    full = live.detect(sess, job)["r"]
+    core = full["fuller"]["core"]
+    assert full["start"] + 5.0 < core[0]
+    sess.held = live_pick.keep([full], None, full, 0.0)
+    moments.clear()  # the next search does not find the moment again
+    sess.clips.append({"id": "since", "start": full["start"] - 30.0, "end": full["start"] + 5.0, "score": 90.0})
+    found = live.detect(sess, job)["r"]
+    assert [found["start"], found["end"]] == core and "fuller" not in found
 
 
 def test_a_fuller_version_too_weak_for_the_stream_leaves_the_moment_as_found(stream, monkeypatch):

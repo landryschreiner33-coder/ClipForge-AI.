@@ -94,6 +94,14 @@ limit:
   on the line between the pictures. A stream recorded since before the update keeps the Settings layout
   (`split_view: "off"`, as its card says). "Add a video with its transcript" sends a layout only when one was picked.
 - Every fix has a test that fails on the code before it (picker 4, Stop clipping 2, channels 4, split view 3 changed).
+- *A second look at the fixes* (two reviewers) found six smaller gaps, also fixed with tests: a clip's channel is
+  taken first from a post that is planned or out, then from an upload made by hand, then from any earlier post
+  (`submissions._bound`), so a clip uploaded by hand to B after its post for A was canceled is never planned on A;
+  every count of a take-turns input counts clips, not posts (`_places`); a remembered fuller version follows the
+  same overlap rule as a fresh search (else the moment is tried as found); a re-rendered split view keeps its *Under
+  the face cam* look like its layout, and the editor shows it (`render_info.split_game`); `render_info` records the
+  one-picture layout (`layout_fallback`) that the editor uses when Framing is chosen by hand; the transcript page
+  sends a layout with a Framing it picked, so that Framing is not ignored by a split view.
 
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
