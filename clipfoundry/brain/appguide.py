@@ -178,10 +178,11 @@ SECTIONS: tuple[Section, ...] = (
         "Connect your channels on Accounts (Add YouTube account, Add TikTok account); add as many as you have.",
         "Prepare post on a clip shows the exact file with its title, post text and hashtags; tick the accounts and "
         "press a platform's button to post it now.",
-        "Publishing shows every post: Needs review, Scheduled, Published, History, Problems and Results.",
-        "YouTube clips post by themselves only for a video you added with Make & upload clips, once each passes its "
-        "final check; other posts wait under Publishing → Needs review for your OK, and a TikTok post always waits "
-        "for your OK.",
+        "Publishing shows every post (Needs review, Scheduled, Published, History, Problems, Results); posts "
+        "Autopilot plans on its own wait under Needs review for your OK.",
+        "YouTube clips upload by themselves only for a video you added with Make & upload clips (on Make clips or in "
+        "Missions), once each passes its final check; a TikTok post always waits for your OK on the clip's Prepare "
+        "post, where the accounts you chose are ticked.",
         "A failed post is under Publishing → Problems with the reason and what to do."),
         ("post", "posts", "posting", "publish", "upload", "uploads", "schedule", "scheduled", "queue", "tiktok",
          "youtube", "shorts", "channel", "channels", "account", "connect", "reconnect", "failed", "problem",

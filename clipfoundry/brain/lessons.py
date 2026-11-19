@@ -35,6 +35,7 @@ MIN_SOURCES = 3       # ... each side from at least this many different videos, 
 CLEAR = 2.0
 STRONG = 3.0
 MIN_EFFECT = {"watched": 3.0, "views": 0.1}  # points watched; log10 of views (about a quarter more or fewer)
+VIEWS_AGE_H = (48.0, 96.0)  # view counts are compared only when read at this age: views keep growing for weeks
 STATE = "brain:lessons"
 PLATFORM_WORDS = {"youtube": "YouTube", "tiktok": "TikTok"}
 
@@ -71,8 +72,9 @@ def _outcomes(settings: dict, now: float) -> dict[tuple, dict]:
 
     min_views = int(settings.get("brain_min_views") or 10)
     latest: dict[tuple, dict[str, dict]] = defaultdict(dict)
-    # Views only grow, so view counts are compared at one age: each clip's reading closest to 48 hours, as the
-    # posting learner does (learner._snapshot). The share watched settles early and is read at its latest.
+    # Views keep growing, so view counts are compared at one age: each clip's reading closest to 48 hours, as the
+    # posting learner does (learner._snapshot), and only when it was read between 48 and 96 hours (a clip first
+    # read a month later is left out of that comparison). The share watched settles early and is read at its latest.
     at_age: dict[tuple, dict[str, dict]] = defaultdict(dict)
     for o in db.select("brain_observations", "", (), "observed_at"):
         if o["provenance"] == "tester_feedback" or not o.get("platform") or not o.get("clip_id"):
@@ -81,13 +83,17 @@ def _outcomes(settings: dict, now: float) -> dict[tuple, dict]:
             continue  # YouTube API numbers are shown, but learning from them needs Google's approval
         if o.get("age_hours") is None or float(o["age_hours"]) < results.MATURE_HOURS:
             continue
-        if (o.get("metrics") or {}).get("views") is None or o["metrics"]["views"] < min_views:
+        if (o.get("metrics") or {}).get("views") is None:
             continue
         key = (o["platform"], o["cohort"], int(o.get("group_version") or 0))
-        latest[key][o["clip_id"]] = o
         held = at_age[key].get(o["clip_id"])
         if not held or abs(float(o["age_hours"]) - REFERENCE_AGE_H) < abs(float(held["age_hours"]) - REFERENCE_AGE_H):
             at_age[key][o["clip_id"]] = o
+        if o["metrics"]["views"] >= min_views:
+            latest[key][o["clip_id"]] = o
+    for key, clips in at_age.items():  # the floor applies to the reading compared, never to an earlier one
+        at_age[key] = {cid: o for cid, o in clips.items() if o["metrics"]["views"] >= min_views
+                       and VIEWS_AGE_H[0] <= float(o["age_hours"]) <= VIEWS_AGE_H[1]}
     out: dict[tuple, dict] = {}
     for (platform, cohort, gv), clips in latest.items():
         if cohort not in results.STRATEGY_COHORTS or cohort != destination_cohort(platform, settings):
@@ -98,7 +104,7 @@ def _outcomes(settings: dict, now: float) -> dict[tuple, dict]:
         if len(watched) >= 0.8 * len(clips):
             what, values = "watched", {cid: float(o["metrics"]["avg_view_percentage"]) for cid, o in watched.items()}
         else:
-            clips = at_age[(platform, cohort, gv)]
+            clips = at_age.get((platform, cohort, gv)) or {}
             what, values = "views", {cid: math.log10(float(o["metrics"]["views"]) + 1) for cid, o in clips.items()}
         out[(platform, cohort, gv)] = {"what": what, "clips": {cid: {"value": v, "at": clips[cid]["observed_at"]}
                                                               for cid, v in values.items()}}
@@ -153,17 +159,23 @@ def t_bar(p: float, df: float) -> float:
     return hi
 
 
-def _side_df(pts: list[dict], n_eff: float) -> float:
-    """Degrees of freedom one side's clips stand on: clips of one video move together, so a side counts no more
-    than its videos."""
-    return max(1.0, min(n_eff, len({p["source"] for p in pts})) - 1.0)
+def _side(pts: list[dict]) -> tuple[float, float, float]:
+    """One side's weighted mean, the square of its standard error and its degrees of freedom, with the clips of one
+    video taken together: clips of one video move together (a strong video lifts all of them), so the spread that
+    counts is the one between videos (a cluster-robust error, CR1) and a side stands on its videos, less one."""
+    w = sum(p["weight"] for p in pts)
+    mean = sum(p["weight"] * p["value"] for p in pts) / w
+    by_video: dict[str, float] = defaultdict(float)
+    for p in pts:
+        by_video[p["source"]] += p["weight"] * (p["value"] - mean)
+    videos = len(by_video)
+    var = sum(s * s for s in by_video.values()) / (w * w) * videos / max(1, videos - 1)
+    return mean, var, max(1.0, videos - 1.0)
 
 
 def compare(pts: list[dict], what: str) -> list[dict]:
     """The kinds of moment whose clips did clearly better or worse than the other clips of one audience.
     `pts`: autopilot/brain._points rows with their clip's `kinds`."""
-    from ..autopilot import brain as results
-
     tested = []
     for kind in steer.KINDS:
         have = [p for p in pts if kind.id in p["kinds"]]
@@ -175,12 +187,10 @@ def compare(pts: list[dict], what: str) -> list[dict]:
         tested.append((kind, have, rest))
     found = []
     for kind, have, rest in tested:
-        mean_a, se_a, n_a = results._stats(have)  # noqa: SLF001 - the same weighted statistics
-        mean_b, se_b, n_b = results._stats(rest)  # noqa: SLF001
+        mean_a, var_a, df_a = _side(have)
+        mean_b, var_b, df_b = _side(rest)
         diff = mean_a - mean_b
-        var_a, var_b = se_a ** 2, se_b ** 2
         t = diff / max(1e-9, math.sqrt(var_a + var_b))
-        df_a, df_b = _side_df(have, n_a), _side_df(rest, n_b)
         df = (var_a + var_b) ** 2 / max(1e-18, var_a ** 2 / df_a + var_b ** 2 / df_b)  # Welch
         df = min(max(df, 1.0), df_a + df_b)
         clear = t_bar(math.erfc(CLEAR / math.sqrt(2)) / len(tested), df)
@@ -263,12 +273,21 @@ def learn(settings: dict | None = None, now: float | None = None) -> dict:
                 continue  # switched off, or rewritten in the owner's words: theirs now
             if old and old["text"] == text:
                 was[kind] = {"id": old["id"], "sign": lesson["sign"]}
+                if steer.lesson_of(old).get("strong") != lesson["strong"]:   # same words, firmer or weaker
+                    memories._write_over(old, {  # noqa: SLF001 - the memory's own guarded write
+                        "data": {**(old.get("data") or {}), "lesson": lesson, "text": text},
+                        "revision": int(old.get("revision") or 1) + 1})
                 continue
             if old:
+                # recorded as being replaced before it goes: a run that stops before the new one is written must
+                # not read the gap as the owner's Forget
+                was.pop(kind, None)
+                state.put(STATE, {**known, ws: was})
                 _forget(ws, old["id"])
             row = memories.remember(ws, text, kind="fact", source="did", tags=[TAG, "clip picking"],
                                     data={"lesson": lesson, "text": text})
             was[kind] = {"id": row["id"], "sign": lesson["sign"]}
+            state.put(STATE, {**known, ws: was})
             report["changed" if old else "added"].append(text)
         for kind, old in mine.items():
             if kind in now_holds or not old.get("enabled") or not steer.lesson_of(old):

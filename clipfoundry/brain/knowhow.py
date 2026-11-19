@@ -94,6 +94,9 @@ TOPICS: tuple[Topic, ...] = (
               "A 1080p source cropped to 9:16 is upscaled 1.78 times, so keep the subject centred; a 4K source "
               "stays sharp (1215 x 2160)."),
           ("subtitles", "subtitle", "caption", "text", "font", "safe zone", "safe zones", "covered",
+           # the platforms' own buttons, as phrases only: "where is the button to ..." is about the app
+           "=share buttons", "=side buttons", "=buttons hide", "=buttons cover", "=buttons on youtube",
+           "=buttons on tiktok", "=like buttons", "=cover the bottom",
            "stroke", "outline", "readable", "framing", "crop", "reframe", "9:16", "vertical", "face", "faces",
            "position", "placement", "words on screen")),
     Topic("sound", "Voice and sound mix", "Levels, the voice chain, music under speech and loudness targets.",

@@ -76,6 +76,28 @@ def _say(text: str, **kw) -> dict:
     ("Proper names in titles should keep their capitals.", {}),
     ("Titles can have capital letters again.", {}),
     ("Titles should use capital letters at the start of each word.", {"title_case": "title"}),
+    ("No capital letters at the start of each word in titles.", {}),
+    ("Titles in capital letters.", {"title_case": "upper"}),
+    # a "no" anywhere before the thing in its part counts, however the owner says it
+    ("I don't want you to use any emoji in titles.", {"emoji": False}),
+    ("I don't want you to add any hashtags.", {"tags": 0}),
+    ("Don't ever end a post with a call to action.", {"cta": False}),
+    ("I never want to see a single hashtag on my posts.", {"tags": 0}),
+    ("Titles shouldn't be in caps.", {"title_case": "sentence"}),
+    ("We shouldn't use hashtags.", {"tags": 0}),
+    ("You can't use emoji in titles.", {"emoji": False}),
+    ("No no hashtags.", {"tags": 0}),
+    ("Never miss a chance to add hashtags.", {}),
+    ("Don't ever forget to add the hashtags.", {}),
+    ("I miss having hashtags.", {}),
+    # when and where a rule holds is not which hashtags
+    ("No hashtags from now on.", {"tags": 0}),
+    ("No hashtags in titles or descriptions.", {"tags": 0}),
+    ("Titles, lower case for every video.", {"title_case": "lower"}),
+    ("Titles, keep them under 40 characters for clips.", {"title_max": 40}),
+    # a list goes on through "please"; "but" before the next thing ends it
+    ("No hashtags, emoji or links please.", {"tags": 0, "emoji": False}),
+    ("No emoji but hashtags are fine.", {"emoji": False}),
 ])
 def test_what_the_owner_says_about_post_text_is_read_into_choices(said, choices):
     assert poststyle.read(said) == choices
@@ -192,7 +214,11 @@ def test_hashtags_say_what_the_clip_is_about():
     about = "YouTube Shorts or TikTok? I post clips on YouTube and TikTok every day."
     tags = postpack.hashtags_for(about, prefer="YouTube Shorts or TikTok?")
     assert {"#youtube", "#tiktok"} <= set(tags) and "#viral" not in tags
-    assert postpack.generic_tag("#fyp", {"fyp"}) and not postpack.generic_tag("#tiktok", {"tiktok"})
+    assert postpack.generic_tag("#fyp", {"fyp"}) and not postpack.generic_tag("#tiktok", {"tiktok", "youtube"})
+    # one platform in the title is where the clip went, not what it is about; "video" never says anything
+    assert postpack.generic_tag("#tiktok", {"tiktok", "viral"}) and postpack.generic_tag("#video", {"video"})
+    tags = postpack.hashtags_for(" ".join(sents), prefer=sents[0])
+    assert not {"#tiktok", "#video"} & set(tags)
 
 
 def test_story_clips_follow_the_rules_kept_for_their_video():

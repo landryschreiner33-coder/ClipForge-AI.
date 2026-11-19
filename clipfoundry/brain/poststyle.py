@@ -29,20 +29,27 @@ NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seve
 _NUM = r"(\d{1,3}|" + "|".join(NUMBERS) + ")"
 
 _SENTENCE = re.compile(r"(?<=[.!?;])\s+|\n+")
-_PART = re.compile(r",\s*|\s+(?:and|but)\s+(?=(?:no|never|don'?t|do not|without|always|use|add|keep|make|write)\b)")
-_NEG = re.compile(r"\b(no|not|never|don'?t|do not|doesn'?t|without|stop|avoid|skip|drop|leave out|hate|zero)\b")
-# "don't forget the hashtags", "never skip the emoji": a "no" before a "no" asks for the thing
-_NEG_COUNT = re.compile(r"\b(no|not|never|don'?t|do not|doesn'?t|without|stop|avoid|skip|drop|leave out|hate|zero|"
-                        r"forg[eo]t\w*|miss\w*|lose)\b")
-_NEAR = 5                        # words before the thing that a "no" must sit in
-_OK = re.compile(r"\b(welcome|fine|ok(?:ay)?|good|great|allowed|yes|please|use|add|keep|want|love|like)\b")
+_THING = r"(?:the |any |my )?(?:hash ?tags?|emojis?|emoticons?|call[- ]to[- ]actions?|ctas?|titles?|post text|descriptions?)"
+# "no emoji but hashtags are fine": a "but" before the next thing starts a part of its own
+_PART = re.compile(r",\s*|\s+(?:and|but)\s+(?=(?:no|never|don'?t|do not|without|always|use|add|keep|make|write)\b)"
+                   rf"|\s+but\s+(?={_THING}\b)")
+_NO_WORDS = (r"no|not|never|cannot|(?:do|does|did|is|are|was|were|should|must|ca|wo|would|could)n'?t|do not|without|"
+             r"stop|avoid|skip|drop|leave out|hate|zero")
+_NEG = re.compile(rf"\b({_NO_WORDS})\b")
+# "don't forget the hashtags", "never miss a chance to add hashtags": after a "no", these say the opposite
+_UNDO = re.compile(r"\b(forget\w*|forgot\w*|miss\w*|lose|skip\w*|drop\w*|leave out)\b")
+# what the owner allows is not banned by the list before it ("no emoji in titles, hashtags welcome")
+_OK = re.compile(r"\b(welcome|fine|ok(?:ay)?|good|great|allowed|yes|keep|want)\b")
 _TITLE = re.compile(r"\btitles?\b")
 _TEXT = re.compile(r"\b(post texts?|descriptions?|post captions?|written captions?|caption under)\b")
 # what else a part of a sentence can be about: then a title rule needs the part to name titles itself
-_ELSEWHERE = re.compile(r"\b(thumbnails?|on[- ]screen|captions?|subtitles?|clips?|videos?|hooks?|overlays?|"
-                        r"text on (?:the )?(?:video|screen))\b")
+# ("for every video", "on my clips" only says where the rule holds: "titles, lower case for every video")
+_ELSEWHERE = re.compile(r"\b(thumbnails?|on[- ]screen|captions?|subtitles?|hooks?|overlays?|"
+                        r"text on (?:the )?(?:video|screen))\b|(?<!\bfor )(?<!\bon )(?<!\bin )(?<!\bof )"
+                        r"(?<!\bevery )(?<!\beach )(?<!\ball )(?<!\bany )(?<!\bmy )\b(clips?|videos?)\b")
 _LOWER = re.compile(r"\b(lower[- ]?case|all lower|small letters)\b")
-_UPPER = re.compile(r"\b(all[- ]?caps|upper[- ]?case|all capitals|in all capitals|in capitals|in caps)\b")
+_UPPER = re.compile(r"\b(all[- ]?caps|upper[- ]?case|all capitals|in (?:all |big |block )?(?:capital letters|capitals|"
+                    r"caps))\b")
 # bare "capitals" is about shouting only when it is refused ("no capitals"); "keep their capitals" is not a rule
 _CAPITALS = re.compile(r"\b(capital letters|capitals)\b")
 _EACH = re.compile(r"\b(title case|capitali[sz]e (each|every) word|every word capitali[sz]ed|"
@@ -75,17 +82,29 @@ def _number(word: str) -> int:
 
 
 def _negated(part: str, at: int, carried: bool) -> bool:
-    """A "no" just before the words in the same part of the sentence, or handed on by a list ("no hashtags,
-    emoji"). Two of them ("don't forget the hashtags") ask for the thing."""
-    near = " ".join(part[:at].split()[-_NEAR:])
-    return bool(len(_NEG_COUNT.findall(near)) % 2) or carried
+    """A "no" before the words in the same part of the sentence, or handed on by a list ("no hashtags, emoji").
+    After a "no", forget, miss, skip or drop says the opposite ("don't forget the hashtags", "never miss a chance to
+    add hashtags"); "no, no hashtags" is one "no"."""
+    no, last = False, None
+    for m in re.finditer(rf"\b(?:{_NO_WORDS}|forget\w*|forgot\w*|miss\w*|lose|skip\w*|drop\w*|leave out)\b",
+                         part[:at]):
+        if _UNDO.fullmatch(m.group(0)) and not _NEG.fullmatch(m.group(0)):
+            if no:
+                no = False       # "don't forget": the thing is wanted
+        elif last is not None and not part[last:m.start()].strip(" ,!"):
+            pass                 # "no, no hashtags": said twice, meant once
+        else:
+            no = not no
+        last = m.end()
+    return no or carried
 
 
-# "no generic hashtags", "don't use the same hashtags on every clip", "no hashtags in the title": a rule about
-# which hashtags or where, not about how many
+# "no generic hashtags", "don't use the same hashtags on every clip", "no hashtags like #fyp": a rule about which
+# hashtags, not about how many; "no hashtags in titles" says where (unless the post text is named too)
 _TAG_WHICH = re.compile(rf"\b(?:generic|same|similar|repeated|irrelevant|random|spammy|banned|broad|big|popular|"
-                        rf"trending)\s+(?:\w+\s+)?{_TAG}\b|\b{_TAG}\s+(?:like|such as|that|which|"
-                        rf"in (?:the |my |a )?titles?|on every|from)\b|#\w")
+                        rf"trending)\s+(?:\w+\s+)?{_TAG}\b|\b{_TAG}\s+(?:like|such as|that(?! much)|which|"
+                        rf"from (?:other|another|the same|old|older)\b)|#\w")
+_TAG_WHERE = re.compile(rf"\b{_TAG}\s+(?:\w+\s+)?in (?:the |my |a |your )?titles?\b")
 
 
 def read(text: str) -> dict:
@@ -111,6 +130,9 @@ def read(text: str) -> dict:
                 m = rx.search(part)
                 if not m or not (on_title or on_text):
                     continue
+                each = _EACH.search(part)
+                if rx is _CAPITALS and each and each.start() <= m.start() < each.end():
+                    continue     # "no capital letters at the start of each word" refuses Title Case, not capitals
                 value = no if _negated(part, m.start(), carried) else yes
                 if not value:
                     continue
@@ -131,7 +153,7 @@ def read(text: str) -> dict:
                     n, least = _number(count.group(2)), bool(count.group(1))
                 elif _FEWER.search(part):
                     n = FEWER_TAGS
-                elif _TAG_WHICH.search(part):
+                elif _TAG_WHICH.search(part) or (_TAG_WHERE.search(part) and not _TEXT.search(part)):
                     n = None
                 else:
                     n = 0 if _negated(part, m.start(), carried) else None

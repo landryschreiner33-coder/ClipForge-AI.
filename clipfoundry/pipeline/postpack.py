@@ -35,16 +35,20 @@ ADVICE_CHARS = 600       # what a model reads of the owner's skills before it wr
 # viral"): a hashtag is there to say what the clip is about.
 GROWTH_TAGS = {"fyp", "foryou", "foryoupage", "fy", "viral", "trending", "trend", "explore", "explorepage",
                "xyzbca", "follow", "like", "likes", "subscribe"}
-# Where a clip is posted, or what it is: no hashtag, unless the clip is about it ("YouTube Shorts or TikTok?"),
-# which its title shows.
-MEDIUM_TAGS = {"video", "videos", "clip", "clips", "shorts", "short", "reels", "tiktok", "youtube", "content"}
-GENERIC_TAGS = GROWTH_TAGS | MEDIUM_TAGS
+# What a clip is: never a hashtag ("In this video I show you ...").
+MEDIUM_TAGS = {"video", "videos", "clip", "clips", "short", "content"}
+# Where a clip is posted: no hashtag, unless the clip is about the platforms themselves, which its title shows by
+# naming two of them ("YouTube Shorts or TikTok?"); "This video went viral on TikTok" is not about TikTok.
+PLATFORM_TAGS = {"tiktok", "youtube", "shorts", "reels", "instagram"}
+GENERIC_TAGS = GROWTH_TAGS | MEDIUM_TAGS | PLATFORM_TAGS
 
 
 def generic_tag(word: str, lead: set[str] | frozenset[str] = frozenset()) -> bool:
     """A hashtag word that says nothing about this clip; `lead`: the content words of its title."""
     word = word.lstrip("#").lower()
-    return word in GROWTH_TAGS or (word in MEDIUM_TAGS and word not in lead)
+    if word in PLATFORM_TAGS:
+        return word not in lead or len(PLATFORM_TAGS & set(lead)) < 2
+    return word in GROWTH_TAGS or word in MEDIUM_TAGS
 
 # Call-to-action templates. They ask for an action and make no statement about the clip.
 CTAS = {

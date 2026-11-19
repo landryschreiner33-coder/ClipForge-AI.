@@ -106,8 +106,8 @@ _CLAUSE = re.compile(r"(?<=[.;!?])\s+|\s+but\s+|\n+")
 _VERSUS = re.compile(r"(?<!pass)\s+over\s+(?!\d)|\s+(?:instead of|rather than)\s+|,\s*(?:and\s+)?not\s+")
 _VERSUS_REACH = 30  # how far into the passed-over side a kind still belongs to it
 _NO = (r"never|avoid\w*|don'?t|do not|doesn'?t|no|not|without|skip\w*|less|fewer|hate\w*|dislike\w*|exclud\w*|"
-       r"ban|banned|reject\w*|steer clear|stay away|leave out|pass over|bur(?:y|ies|ying|ied)|hid(?:e|es|ing|den)|"
-       r"forg[eo]t\w*")
+       r"ban|banned|reject\w*|steer clear|stay away|leave out|pass over|bur(?:y|ies|ying)|"
+       r"hid(?:e|es|ing)(?!\s+behind)|forget(?:s|ting)?")
 _NEG = re.compile(rf"\b(?:{_NO})\b")
 # "banter does not provoke debate": the kind after such a verb is what is missing, not what to pass over
 _CAUSE = re.compile(r"\b(?:provok\w*|caus\w*|creat\w*|spark\w*|start\w*|trigger\w*|draws?|drew|driv\w*|earn\w*|"
@@ -115,7 +115,7 @@ _CAUSE = re.compile(r"\b(?:provok\w*|caus\w*|creat\w*|spark\w*|start\w*|trigger\
 # Nobody's advice is to look for these; only the owner's own words can ask for them.
 UNWANTED = ("smalltalk", "promo", "swearing")
 # an owner's own verbs for leaving something out; in imported advice "cut" is also how a clip is made
-_NEG_OWNER = re.compile(rf"\b(?:{_NO}|(?:cut|cuts|cutting|drop\w*|remov\w*|trim\w*|stop\w*)"
+_NEG_OWNER = re.compile(rf"\b(?:{_NO}|drop\w*|remov\w*|trim\w*|stop\w*|(?:cut|cuts|cutting)"
                         r"(?!\s+(?:more|clips?|shorts?|highlights?|out (?:clips?|shorts?|more))\b))\b")
 _PICK = re.compile(r"\b(?:clips?|clipping|clipped|moments?|pick\w*|choos\w*|chose|highlights?|excerpts?|segments?|"
                    r"select\w*|shorts)\b")
@@ -160,12 +160,27 @@ _WORD_NUMBERS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
                  "twenty": "20", "thirty": "30", "forty": "40", "forty-five": "45", "fifty": "50", "sixty": "60",
                  "ninety": "90"}
 LONGER, SHORTER = 1.3, 0.75  # "make the clips longer" with no number
-# "no more than 60 seconds", "don't make clips longer than 30 seconds": a "no" just before turns the bound around
-_LEN_NEG = re.compile(r"\b(?:no|not|never|don'?t|do not|doesn'?t|isn'?t|aren'?t|shouldn'?t|mustn'?t|can'?t|"
-                      r"won'?t)(?:\s+[^\s,.;:!?]+){0,3}\s*$")
+# "no more than 60 seconds", "I don't want my clips to be longer than 30 seconds": a "no" before a bound turns it
+# around, when only such words stand between them ("clips that are not boring and under 60 seconds" does not)
+_LEN_NEG = re.compile(r"\b(?:no|not|never|cannot|(?:do|does|did|is|are|was|were|should|must|ca|wo|would|could)n'?t|"
+                      r"do not)(?:\s+(?:be|make|let|get|want|wants|clips?|shorts?|videos?|a|an|any|my|them|they|it|"
+                      r"its|to|should|ever|you|i|me|of|the|that|are|is|have|has|been|being|please|one|ones|all|single|"
+                      r"these|those|do|does|will|would|can|could|really|actually))*\s*$")
 _FLIP = {"min": "max", "max": "min"}
-# "grab attention in the first 10 seconds", "a cut every 3 seconds": a time inside the clip, not how long it is
-_POINT_IN_CLIP = re.compile(r"\b(?:first|last|opening|final|after|every|each|in|by)\s+$")
+_BARE_BOUND = re.compile(r"^(?:longer than|shorter than|more than|less than|over|under|above|below)\b")
+_OR_LESS = re.compile(rf"{_NUM}{_UNIT}\s+or (?:less|under|shorter)\b(?!\s+(?:than|\d))")   # not "or under 90"
+_OR_MORE = re.compile(rf"{_NUM}{_UNIT}\s+or (?:more|over|longer)\b(?!\s+(?:than|\d))")
+# "grab attention in the first 10 seconds", "a cut every 3 seconds": a time inside the clip, not how long it is;
+# "in 45 second clips" and "in 30 seconds or less" are lengths
+_POINT_IN_CLIP = re.compile(r"\b(?:first|last|opening|final|after|every|each|by)\s+$")
+_IN_POINT = re.compile(r"\bin\s+$")
+_A_LENGTH_AFTER = re.compile(r"^\s*(?:long\s+)?(?:clips?|shorts?|videos?)\b|^\s+or (?:less|under|shorter|more|over|longer)")
+
+
+def _point_in_clip(low: str, m: re.Match) -> bool:
+    before = low[:m.start(1)]
+    return bool(_POINT_IN_CLIP.search(before) or (_IN_POINT.search(before)
+                                                   and not _A_LENGTH_AFTER.match(low[m.end(2):])))
 
 
 def _seconds(value: str, unit: str | None) -> float:
@@ -194,15 +209,25 @@ def _length(low: str) -> dict:
         a, b = _seconds(span.group(1), span.group(2) or span.group(4)), _seconds(span.group(3), span.group(4))
         out["min"], out["max"] = min(a, b), max(a, b)
     else:
-        for key, pattern in (("min", _AT_LEAST), ("max", _AT_MOST), ("target", _ABOUT_LONG)):
+        found: dict[int, tuple[str, re.Match]] = {}   # by where the number is: one reading per number
+        for key, pattern in (("max", _OR_LESS), ("min", _OR_MORE), ("min", _AT_LEAST), ("max", _AT_MOST),
+                             ("target", _ABOUT_LONG)):
             for m in pattern.finditer(low):
-                if _POINT_IN_CLIP.search(low[:m.start(1)]):
-                    continue
-                said = _FLIP[key] if key in _FLIP and _LEN_NEG.search(low[:m.start()]) else key
-                out.setdefault(said, _seconds(m.group(1), m.group(2)))
+                if not _point_in_clip(low, m):
+                    found.setdefault(m.start(1), (key, m))
+        flipped, last_end = False, 0
+        for _at, (key, m) in sorted(found.items()):
+            flip = bool(_LEN_NEG.search(low[:m.start()]))
+            # "shouldn't be shorter than 20 seconds or longer than 90": the "no" goes on across "or"
+            if not flip and flipped and re.fullmatch(r"\s*(?:,\s*)?(?:or|nor)\s+", low[last_end:m.start()]) \
+                    and _BARE_BOUND.match(low[m.start():]):
+                flip = True
+            said = _FLIP[key] if flip and key in _FLIP else key
+            out.setdefault(said, _seconds(m.group(1), m.group(2)))
+            flipped, last_end = flip and key in _FLIP, m.end()
         if not out:
             for m in _BARE_LONG.finditer(low):
-                if not _POINT_IN_CLIP.search(low[:m.start(1)]):
+                if not _point_in_clip(low, m):
                     out["target"] = _seconds(m.group(1), m.group(2))
                     break
     out = {k: v for k, v in out.items() if SHORTEST <= v <= LONGEST}
@@ -243,13 +268,23 @@ def lengths(st: dict, shortest: float, longest: float, ideal: float) -> tuple[fl
 # ------------------------------------------------------------------ reading a line
 # Where a "no" stops reaching: the line turns to what it does want ("no intros, just funny moments", "less talking,
 # more reactions", "drop the banter, keep the reactions", "skip the intro and go straight to the reactions").
-_RESET = re.compile(r"\b(?:just|only|instead|rather|but|keep\w*|focus\w* on|stick to|straight to|"
-                    r"(?<!\bno )(?<!\bany )more|and (?:go|keep|focus|pick|show|use|find|look|stick|leave in|add|"
-                    r"include)\w*)\b")
-_NEG_JUST_BEFORE = re.compile(rf"\b(?:{_NO})\b(?:\s+\S+)?\s*$")   # "don't keep the intro": still a "no"
-# After a comma a list of what is left out goes on ("no swearing, small talk or ads"); anything else turns away,
-# and so does a kind that starts a sentence of its own ("..., the funny moments are what my fans want").
-_LIST_GOES_ON = re.compile(r"(?:or |and |nor )?(?:the |any |all )?(?:" + "|".join(k.names for k in KINDS) + r")\b"
+# A turn counts only once the "no" before it has named what it refuses: "don't pick clips that are just small talk"
+# still refuses small talk, "no intros, just funny moments" turns to funny moments.
+_RESET = re.compile(r"\b(?:just|only|instead|rather|but|keep\w*|focus\w* on|stick to|straight to|lead with|"
+                    r"more|and (?:go|keep|focus|pick|show|use|find|look|stick|leave in|add|include)\w*)\b")
+_ANY_KIND = re.compile(r"\b(?:" + "|".join(k.names for k in KINDS) + r")\b")
+# words around a "no" that do not end it at a comma ("never, ever clip intros", "don't, under any circumstances, ...")
+_ASIDE = re.compile(r"\b(?:ever|at all|please|really|seriously|again|under any circumstances|whatever happens|"
+                    r"i mean|ok(?:ay)?|even once)\b")
+# After a comma a list of what is left out goes on ("no swearing, boring small talk or ads", "like banter or
+# chit-chat"); anything else turns away, and so does a kind that starts a sentence of its own ("..., the funny
+# moments are what my fans want"). A list item may carry a word or two before its kind, never a verb or a liking.
+_NOT_A_MODIFIER = (r"(?:keep|pick|show|use|find|look|go|give|make|want|need|get|put|add|include|focus|stick|clip|"
+                   r"cut|leave|is|are|be|i|we|you|they|it|love|loves|like|likes|prefer|more|most|best|always|only|"
+                   r"just|great|good|nice|amazing|awesome|better|cool|strong|epic|" + _NO + r")")
+_LIST_GOES_ON = re.compile(r"(?:or |and |nor |like |such as |especially |including )?(?:the |any |all |my |those |"
+                           rf"these )?(?:(?!{_NOT_A_MODIFIER}\b)[a-z'-]+\s+){{0,2}}"
+                           r"(?:" + "|".join(k.names for k in KINDS) + r")\b"
                            r"(?:\s+(?:moments?|clips?|parts?|bits?|ones?|stuff|reads?|segments?))?"
                            r"\s*(?:[,.;!?]|$|(?:or|and|nor|in|from|on|out of)\b)")
 # A line about where a clip starts or ends ("never end clips on a question") says nothing about which moments to pick.
@@ -258,16 +293,27 @@ _CUT_POINT = re.compile(r"\b(?:end|ends|ending|ended|start|starts|starting|open|
                         r"videos?\s+)?(?:on|with|before|after|at|in the middle of|mid|right (?:on|after|before))\b")
 
 
-def _scope(part: str, at: int) -> str:
+def _scope(part: str, at: int, neg: re.Pattern) -> str:
     """The words before a kind of moment that a "no" can come from: since the line last turned to what it wants."""
     before = part[:at]
+    nos = [m.end() for m in neg.finditer(before)]
+    named = [m.start() for m in _ANY_KIND.finditer(before)]
+
+    def last_no(pos: int) -> int | None:
+        return max((e for e in nos if e <= pos), default=None)
+
     start = 0
     for m in _RESET.finditer(before):
-        if not _NEG_JUST_BEFORE.search(before[:m.start()]):
+        no = last_no(m.start())
+        if no is None or any(no <= k < m.start() for k in named):
             start = max(start, m.end())
     for m in re.finditer(r",\s*", before):     # a colon explains what came before it: it does not turn away
-        if not _LIST_GOES_ON.match(part[m.end():]):
-            start = max(start, m.end())
+        if _LIST_GOES_ON.match(part[m.end():]):
+            continue
+        no = last_no(m.start())
+        if no is not None and not _ASIDE.sub("", before[no:m.start()]).strip(" ,"):
+            continue                       # nothing refused yet: "never, ever clip intros"
+        start = max(start, m.end())
     return before[start:]
 
 
@@ -277,7 +323,7 @@ def _kinds_in(part: str, owner: bool, flipped_until: int = 0) -> dict[str, int]:
     out: dict[str, int] = {}
     for kid, pattern in _NAMES.items():
         for m in pattern.finditer(part):
-            before = _scope(part, m.start())
+            before = _scope(part, m.start(), neg)
             sign = -1 if len(neg.findall(before)) % 2 else 1
             if sign < 0 and _CAUSE.search(before):
                 continue
@@ -322,8 +368,15 @@ def read(text: object, *, owner: bool = False, about_picking: bool = False) -> d
         picking = bool(_PICK.search(clause))
         if _EDITING.search(clause) and (owner or not picking):
             continue                     # "no music under funny moments" is about the music, not the moments
-        if _CUT_POINT.search(clause):
-            continue                     # "never end clips on a question" is about the cut, not the moment
+        if _CUT_POINT.search(clause):    # "never end clips on a question" is about the cut, not the moment
+            pieces = re.split(r"(\s*(?:[,;:]|\band\b|\bbut\b)\s*)", clause)
+            kept = [pieces[0]] if not _CUT_POINT.search(pieces[0]) else []
+            for sep, piece in zip(pieces[1::2], pieces[2::2]):
+                if not _CUT_POINT.search(piece):
+                    kept += [sep, piece] if kept else [piece]
+            clause = "".join(kept).strip()
+            if not clause:
+                continue
         if not (picking or about_picking or (owner and (_PREFER.search(clause) or _LEAVE_OUT.search(clause)))):
             continue
         found: dict[str, int] = {}

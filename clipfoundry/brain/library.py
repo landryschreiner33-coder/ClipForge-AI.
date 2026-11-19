@@ -157,7 +157,10 @@ def _entry(id_: str, source: str, title: str, lines, words, about: str = "", **k
     but never shown."""
     strong = set(_terms(title))
     for w in words:
-        strong |= _terms(w)
+        if w.startswith("="):            # a phrase that counts only whole ("=side buttons": not "button" alone)
+            strong |= {t for t in _terms(w[1:]) if "_" in t}
+        else:
+            strong |= _terms(w)
     return Entry(id_, source, title, tuple(lines), frozenset(strong),
                  frozenset(strong | _terms(" ".join((about, *lines)))), frozenset(_terms(title)), **kw)
 
@@ -178,17 +181,13 @@ def skill_lines(row: dict) -> list[str]:
     """A skill's advice as plain lines: only what the importer kept as readable text, never a refused line, a link
     or a contradicted choice. The importer's checks run again here, so a skill kept before they covered a line
     (or a file that names a reason of its own) cannot put a refused line in front of a model."""
-    from ..studio.skills import BLOCKED
+    from ..studio.skills import refused
 
     out = []
     for u in row.get("unsupported") or []:
-        text = str(u.get("text") or "").strip() if isinstance(u, dict) else ""
-        if not text or u.get("why") != ADVICE_WHY:
-            continue
-        low = text.lower()
-        if re.search(r"https?://|www\.", low) or any(pattern.search(low) for pattern, _ in BLOCKED):
-            continue
-        out.append(text)
+        text = " ".join(str(u.get("text") or "").split()) if isinstance(u, dict) else ""
+        if text and u.get("why") == ADVICE_WHY and not refused(text):
+            out.append(text)
     return out
 
 
@@ -196,8 +195,12 @@ def _skill_entry(row: dict) -> Entry | None:
     lines = skill_lines(row)
     if not lines:
         return None
+    from ..studio.skills import refused
+
     words = [str(t) for t in (row.get("topics") or [])]
-    return _entry(f"skill:{row['id']}", "skill", str(row.get("name") or "Skill")[:80], lines, words,
+    name = " ".join(str(row.get("name") or "").split())[:80]
+    name = name if name and not refused(name) else "Skill"   # a skill kept before its name was checked
+    return _entry(f"skill:{row['id']}", "skill", name, lines, words,
                   str(row.get("description") or ""), modes=tuple(row.get("modes") or ()),
                   link=("Open Brain → Skills", "#/brain/skills"))
 
@@ -282,8 +285,10 @@ def _score(q: _Query, e: Entry) -> tuple[float, float]:
     if total <= 0:
         return 0.0, 0.0
     got, about = 0.0, 0.0
+    # a word the entry is about only inside a phrase ("side buttons") counts in full where the question says it so
+    held = {part for t, _ in q.phrases if t in e.strong for part in t.split("_")}
     for t, w in q.words:
-        if t in e.strong:
+        if t in e.strong or t in held:
             got, about = got + w, about + w
         elif t in e.terms:
             got += w * WEAK

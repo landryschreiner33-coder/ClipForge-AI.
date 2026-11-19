@@ -52,18 +52,28 @@ BLOCKED = [
 CODE_FENCE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)")
 
 
+def refused(text: str) -> str | None:
+    """Why a line of a skill is refused (a link is kept as text, never read as advice), or None. Its words are
+    taken as one line first: a line break must not split a refused sentence past the checks."""
+    low = " ".join(str(text or "").split()).lower()
+    why = next((w for pattern, w in BLOCKED if pattern.search(low)), None)
+    if why:
+        return why
+    return "links are kept as text and never fetched" if re.search(r"https?://|www\.", low) else None
+
+
 def _listed_refused(entry: dict, blocked: list[dict]) -> bool:
     """A JSON skill's own "unsupported" line gets the same checks as a line of instructions: a refused one is moved
     to the refused lines and a link is kept as text, whatever reason the file gives. Only a line that passes may
-    stay readable advice (brain/library.py reads it)."""
-    text = str(entry.get("text") or "")
-    low = text.lower()
-    why = next((w for pattern, w in BLOCKED if pattern.search(low)), None)
-    if why:
+    stay readable advice (brain/library.py reads it), kept as one line."""
+    text = " ".join(str(entry.get("text") or "").split())
+    entry["text"] = text
+    why = refused(text)
+    if why and why.startswith("links"):
+        entry["why"] = why
+    elif why:
         blocked.append({"text": text[:300], "why": why})
         return True
-    if re.search(r"https?://|www\.", low):
-        entry["why"] = "links are kept as text and never fetched"
     return False
 
 
@@ -258,7 +268,12 @@ def parse(filename: str, data: bytes) -> dict:
     clean, problems = capabilities.clean(supported)
     unsupported += [{"text": p, "why": "invalid value"} for p in problems]
     modes = [m for m in meta.get("modes") or [] if m in capabilities.MODES] or list(capabilities.MODES)
-    name = str(meta.get("name") or Path(filename).stem)[:80].strip() or "Imported skill"
+    name = " ".join(str(meta.get("name") or Path(filename).stem).split())[:80].strip() or "Imported skill"
+    if refused(name):             # the name is shown to a model as the title of the skill's advice
+        blocked.append({"text": name, "why": f"name: {refused(name)}"})
+        name = " ".join(Path(filename).stem.split())[:80].strip() or "Imported skill"
+        if refused(name):
+            name = "Imported skill"
     return {"skill_key": _slug(str(meta.get("id") or name)), "name": name,
             "description": str(meta.get("description") or "")[:300], "version": str(meta.get("version") or "1")[:20],
             "modes": modes, "topics": [str(t)[:40] for t in meta.get("topics") or []][:20],
