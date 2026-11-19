@@ -294,15 +294,21 @@ def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
     return opts
 
 
-def cam_layout(opts: dict, chosen: bool) -> str:
+def cam_layout(opts: dict, chosen: bool, rendered: dict | None = None) -> str:
     """The layout a clip is planned with. When nobody chose this clip's layout (it is simply the one from Settings)
     and Settings → Split view is on, the picture is first searched for a face cam ("auto"): with one the clip
     becomes a split view, without one it gets the Settings layout as before. A layout somebody chose for this clip,
-    its video or its kind of video (the editor, the project, a style, a Brain note, story clips) stays that."""
+    its video or its kind of video (the editor, the project, a style, a Brain note, story clips) stays that.
+
+    A clip that was rendered before (`rendered`, its render_info) keeps whether it looked for a face cam: a later
+    change of Settings → Split view, or an update that added it, is for new clips. So a re-render for a caption fix
+    or a version gives the look the clip editor shows, and a clip made before split view existed stays as made."""
     layout = opts.get("layout") or "fill"
-    if layout in config.LAYOUTS and not chosen and opts.get("split_view") == "auto":
-        return "auto"
-    return layout
+    if layout not in config.LAYOUTS or chosen:
+        return layout
+    looks = (rendered or {}).get("layout_asked") == "auto" if (rendered or {}).get("layout") else \
+        opts.get("split_view") == "auto"
+    return "auto" if looks else layout
 
 
 def layout_chosen(project: dict, clip: dict, blueprint=None) -> bool:
@@ -442,8 +448,15 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
 
     # ---- framing plan (cached: expensive analysis is skipped on caption-only edits)
     mode = opts.get("tracking", "auto")
-    layout = cam_layout(opts, chosen)
-    usual = next(v for v in (opts.get("layout"), settings.get("layout"), "fill") if v in config.LAYOUTS)
+    layout = cam_layout(opts, chosen, clip.get("render_info"))
+    # the layout without a face cam: the one the plan was written with, else the video's or the Settings one
+    usual = next(v for v in (opts.get("layout_fallback"), opts.get("layout"), settings.get("layout"), "fill")
+                 if v in config.LAYOUTS)
+    edit = clip.get("edit") or {}
+    if layout in reframe.SPLIT_LAYOUTS and edit.get("layout") is None and edit.get("tracking") not in (None, "auto"):
+        # The owner frames this clip by hand in the editor (Framing) and chose no layout there: one picture,
+        # placed where they asked, never a split view that would ignore it. Plans and manual clips alike.
+        layout = usual
     plan_key = f"v{PLAN_VERSION}-{start:.3f}-{end:.3f}-{mode}-{fps:.3f}-{float(opts.get('crop_x', 0.5)):.3f}"
     if layout in reframe.SPLIT_LAYOUTS:
         # These also look for a face cam; "fill" and "fit" plans are what they always were, under their old key.

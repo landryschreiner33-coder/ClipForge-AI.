@@ -188,9 +188,12 @@ def test_split_view_captions_sit_on_the_line_and_the_headline_goes_under_it():
     under = int(captions.hook_bottom("The headline", seam + captions.SEAM_HOOK_GAP) + captions.HOOK_GAP)
     assert all(f"\\an8\\pos(540,{under})" in line for line in early)          # below the headline while it shows
     assert all(f"\\an5\\pos(540,{seam})" in line for line in late)            # then centred on the line
-    # the owner's own caption place is kept, and nothing changes without a split view
+    # captions placed at the top would cover the face cam: they go on the line too; the middle stays the middle
     top = captions.build_ass(words, {**opts, "caption_position": "top", "picture_seam": 0.36}, 6.0, "")
-    assert "\\pos(" not in top
+    assert all(f"\\an5\\pos(540,{seam})" in line for line in top.splitlines() if line.startswith("Dialogue: 1"))
+    middle = captions.build_ass(words, {**opts, "caption_position": "middle", "picture_seam": 0.36}, 6.0, "")
+    assert "\\pos(" not in middle
+    # nothing changes without a split view
     plain = captions.build_ass(words, opts, 6.0, "The headline")
     assert "\\pos(" not in plain and plain == captions.build_ass(words, {**opts, "picture_seam": None}, 6.0,
                                                                   "The headline")
@@ -316,6 +319,12 @@ def test_a_layout_nobody_chose_looks_for_a_face_cam(monkeypatch, tmp_path):
     assert render.cam_layout({"layout": "fit", "split_view": "off"}, chosen=False) == "fit"
     assert render.cam_layout({"layout": "fit"}, chosen=False) == "fit"      # settings from before this choice
     assert render.cam_layout({"layout": "split", "split_view": "off"}, chosen=True) == "split"
+    # a clip rendered before keeps whether it looked for a face cam, whatever Settings say now: a re-render (a
+    # caption fix, a version) gives the look the editor shows, and a clip made before split view existed stays so
+    assert render.cam_layout(on, chosen=False, rendered={"layout": "fit"}) == "fit"
+    assert render.cam_layout({"layout": "fill", "split_view": "off"}, chosen=False,
+                             rendered={"layout": "fill", "layout_asked": "auto"}) == "auto"
+    assert render.cam_layout(on, chosen=False, rendered={}) == "auto"       # never rendered: Settings decide
     # who counts as having chosen
     plain = {"options": {}}
     assert not render.layout_chosen(plain, {"edit": {}})
@@ -348,6 +357,22 @@ def test_a_layout_nobody_chose_looks_for_a_face_cam(monkeypatch, tmp_path):
     assert planned({"layout": "fit"}) == "fit"                              # chosen for this video
     assert planned({"layout": "split"}) == "split"                          # a live stream's "always"
     assert planned({"split_view": "off"}) == "fill"                         # a live stream's "no split view"
+    # the plan keeps the layout without a face cam and the look under it, so a re-render after the Settings
+    # changed looks the same
+    project = db.create_project("A stream", origin="autopilot", duration=6, options={})
+    clip = db.create_clip(project["id"], start=0, end=5, duration=5, title="t", caption_text="a b c")
+    bp = blueprint.build(clip, project, words, {**db.get_settings(), "layout": "fit", "split_game": "zoom"})
+    assert (bp.framing.layout, bp.framing.fallback, bp.framing.game) == ("auto", "fit", "zoom")
+    assert blueprint.render_options(bp)["layout_fallback"] == "fit"
+    assert blueprint.render_options(bp)["split_game"] == "zoom"
+    assert blueprint.with_edit(bp, {"split_game": "whole"}).framing.game == "whole"   # the editor's choice
+    plain = blueprint.build(clip, project, words, {**db.get_settings(), "split_view": "off"})
+    assert plain.framing.fallback is plain.framing.game is None
+    assert "layout_fallback" not in blueprint.render_options(plain)
+    stored = blueprint.Blueprint.from_dict(bp.to_dict())
+    assert stored.framing == bp.framing and not stored.unsupported
+    wrong = blueprint.Blueprint.from_dict({**bp.to_dict(), "framing": {**bp.to_dict()["framing"], "game": "tiny"}})
+    assert blueprint.errors(blueprint.validate(wrong, 6.0, words))
     assert blueprint.errors(blueprint.validate(blueprint.Blueprint(
         clip_id="c", project_id="p", source_id="", input_hash="h", intervals=[blueprint.Interval(0.0, 5.0)],
         framing=blueprint.Framing(layout="auto")), 6.0, words)) == []
@@ -405,3 +430,25 @@ def test_a_stream_with_a_face_cam_renders_as_a_whole_split_view_by_default(monke
     off = render.render_clip(project, {**clip, "id": "c4"}, [], {**settings, "split_view": "off"},
                              JobContext())["render_info"]
     assert off["mode"] != "split" and off["layout"] == "fill"
+    # a re-render keeps the look the clip was made with, after Settings → Split view changed either way
+    again = render.render_clip(project, {**clip, "id": "c4", "render_info": off, "edit": {"silence": "off",
+                                                                                          "hook": "New words"}},
+                               [], settings, JobContext())["render_info"]
+    assert again["mode"] != "split" and again["layout"] == "fill"
+    kept = render.render_clip(project, {**clip, "render_info": info}, [], {**settings, "split_view": "off"},
+                              JobContext())["render_info"]
+    assert kept["mode"] == "split" and kept["layout_asked"] == "auto"
+    # framing the picture by hand (Framing in the editor) gives one picture, with a plan and without one alike;
+    # the plan's own layout without a face cam is used, not the one Settings have now
+    by_hand = {"silence": "off", "tracking": "manual", "crop_x": 0.2}
+    manual = render.render_clip(project, {**clip, "id": "c5", "edit": by_hand}, [], settings,
+                                JobContext())["render_info"]
+    assert manual["mode"] == "manual" and manual["layout"] == "fill"
+    from clipfoundry.pipeline import blueprint
+
+    plan = blueprint.Blueprint(clip_id="c6", project_id="p1", source_id="", input_hash="h",
+                               intervals=[blueprint.Interval(0.0, 5.5)],
+                               framing=blueprint.Framing(layout="auto", fallback="fit", game="whole"))
+    planned = render.render_clip(project, {**clip, "id": "c6", "edit": by_hand}, [], settings, JobContext(),
+                                 blueprint=blueprint.with_edit(plan, by_hand))["render_info"]
+    assert planned["mode"] == "manual" and planned["layout"] == "fit"

@@ -155,7 +155,9 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     hook_top = None if seam is None else int(opts["seam_hook_top"]) if opts.get("seam_hook_top") is not None \
         else int(seam + SEAM_HOOK_GAP)
     under_hook = int(hook_bottom(hook_text, hook_top) + HOOK_GAP) if hook_on else 0
-    on_seam = seam is not None and opts.get("caption_position", "bottom") == "bottom"
+    # In a split view the face cam is at the top: captions placed at the top would cover the face, so they go on
+    # the line between the two pictures like bottom ones (middle ones already sit about there).
+    on_seam = seam is not None and opts.get("caption_position", "bottom") in ("bottom", "top")
     if opts.get("caption_position") == "above":
         ceiling = under_hook or OUTPUT_H * POSITIONS["top"][1]
         placed = above_picture(opts.get("picture_top"), size, ceiling)

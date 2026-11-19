@@ -189,6 +189,8 @@ export default function ClipEditor({ id }: { id: string }) {
       : k === "layout" ? clip?.render_info?.layout_asked ?? opts[k] ?? settings[k] ?? FALLBACK[k]
         : opts[k] ?? settings[k] ?? FALLBACK[k];
   const eff = (k: Key) => d[k] ?? base(k);
+  // the layout a clip gets without a split view: the video's own, else the one from Settings
+  const usualLayout = [opts.layout, settings.layout].find((v) => v === "fill" || v === "fit") ?? "fill";
   const num = (k: Key) => Number(eff(k) ?? 0);
   const bool = (k: Key) => !!eff(k);
   const str = (k: Key) => String(eff(k) ?? "");
@@ -578,7 +580,14 @@ export default function ClipEditor({ id }: { id: string }) {
       <>
         <div className="field">
           <label htmlFor={`${uid}-tr`}>Framing follows</label>
-          <select id={`${uid}-tr`} value={str("tracking")} onChange={(e) => set({ tracking: e.target.value })}>
+          <select id={`${uid}-tr`} value={str("tracking")} onChange={(e) => {
+            const tracking = e.target.value;
+            // Framing the picture by hand means one picture: a split view places its two pictures itself and would
+            // ignore it. Unless a split view was picked for this clip, the layout shown changes with it.
+            const toUsual = tracking !== "auto" && (str("layout") === "split" || str("layout") === "auto")
+              && d.layout == null && saved.layout == null;
+            set({ tracking, ...(toUsual ? { layout: usualLayout } : {}) });
+          }}>
             {[...TRACKING, { value: "manual", label: "A position you choose" }].map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
@@ -602,7 +611,9 @@ export default function ClipEditor({ id }: { id: string }) {
           {(str("layout") === "split" || str("layout") === "auto") && <p className="hint">Split view shows the face
             cam on top and the picture below it, with the captions between them.
             {str("layout") === "auto" ? " It is used only when a face cam is found in this clip;"
-              : " If no small face is found in this clip,"} otherwise the clip uses the layout from Settings.</p>}
+              : " If no small face is found in this clip,"} otherwise the clip uses the layout from Settings.
+            {str("tracking") !== "auto" && " Split view places both pictures itself, so Framing does not change it."}
+          </p>}
         </div>
         {(str("layout") === "split" || str("layout") === "auto") && <div className="field">
           <span className="label" id={`${uid}-game`}>Under the face cam</span>
