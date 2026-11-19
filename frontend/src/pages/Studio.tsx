@@ -447,7 +447,7 @@ function useReviewQueue(count: number | null): { items: ScheduledItem[]; cue: nu
 }
 
 /** Live streams being recorded now (Missions → Live streams). */
-function useLiveRecordings(): LiveStream[] {
+export function useLiveRecordings(): LiveStream[] {
   const [rows, setRows] = useState<LiveStream[]>([]);
   useEffect(() => {
     let alive = true;
@@ -463,24 +463,40 @@ function useLiveRecordings(): LiveStream[] {
   return rows;
 }
 
-/** A project's card; with `onDelete` (the Projects page) it has a trash button that opens the confirmation. */
+/** A project's card: its picture with the video's length, its name, what kind it is and where it stands. With
+ * `onDelete` (the Projects page) it has a trash button that opens the confirmation. */
 export function LibraryCard({ item, onDelete }: { item: LibraryItem; onDelete?: () => void }) {
   const [broken, setBroken] = useState(false);
+  const length = item.duration ? clock(item.duration) : "";
+  const running = RUNNING.has(item.status);
   return (
     <div className="lib-card-wrap">
       <a className="lib-card" href={item.href}>
-        {item.thumbnail && !broken ? <img className="thumb" src={item.thumbnail} alt="" loading="lazy" onError={() => setBroken(true)} />
-          : <div className="thumb" aria-hidden="true" />}
-        <div className="body">
-          <b className="clamp-1">{item.name}</b>
-          <span className="small muted">{KIND_WORD(item)}</span>
-          <span className="small">{statusWords(item)}</span>
-        </div>
+        <span className="lib-thumb">
+          {item.thumbnail && !broken ? <img className="thumb" src={item.thumbnail} alt="" loading="lazy" onError={() => setBroken(true)} />
+            : <span className="thumb" aria-hidden="true" />}
+          {length && <span className="lib-length"><Icon name="play" size={11} fill /><span className="sr-only">Length </span>{length}</span>}
+        </span>
+        <span className="body">
+          <b className="clamp-2">{item.name}</b>
+          <span className="lib-line"><Icon name={KIND_ICON(item)} size={16} />{KIND_WORD(item)}</span>
+          <span className={`lib-line${running ? " running" : ""}`}><Icon name="layers" size={16} />
+            {running && <i className="state-dot" aria-hidden="true" />}{statusWords(item)}</span>
+        </span>
       </a>
-      <PinButton id={item.id} name={item.name} />
-      {onDelete && <DeleteProjectButton name={item.name} onClick={onDelete} />}
+      <span className="lib-card-tools">
+        <PinButton id={item.id} name={item.name} />
+        {onDelete && <DeleteProjectButton name={item.name} onClick={onDelete} />}
+      </span>
     </div>
   );
+}
+
+const KIND_ICON = (i: LibraryItem): IconName => i.kind === "clips" ? "clapper" : i.mode === "animated_short" ? "spark" : "video";
+/** 75 → "1:15", 3725 → "1:02:05". */
+function clock(seconds: number): string {
+  const s = Math.round(seconds), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}` : `${m}:${String(r).padStart(2, "0")}`;
 }
 
 const PIN_MAX = 12;  // clipfoundry/studio/prefs.py PIN_MAX
@@ -500,7 +516,7 @@ export function PinButton({ id, name }: { id: string; name: string }) {
   return (
     <button type="button" className={`pin-btn${on ? " on" : ""}`} aria-pressed={on} onClick={toggle}
       aria-label={on ? `Unpin ${name}` : `Pin ${name} to the Studio page`} title={on ? "Unpin" : "Pin to Studio"}>
-      <Icon name="spark" size={14} />{on ? "Pinned" : "Pin"}
+      <Icon name="pin" size={15} /><span className="pin-word">{on ? "Pinned" : "Pin"}</span>
     </button>
   );
 }

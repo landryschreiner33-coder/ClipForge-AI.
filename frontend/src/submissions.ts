@@ -90,6 +90,8 @@ export interface SubmittedVideo extends AutopilotLink { submission: Submission }
 
 /** A stream added in Live streams: its recording, live clips and the uploads of its clips. */
 export interface LiveStream extends SubmittedVideo {
+  /** The channel the platform named for the stream ("" when it named none). */
+  channel?: string;
   live: { recording: boolean; finishing: boolean; minutes: number; live_clips: number; ended: boolean;
     stopped: boolean;
     /** "Stop clipping" was pressed: no more clips are made; the ones made still upload. */

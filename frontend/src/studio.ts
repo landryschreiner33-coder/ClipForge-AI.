@@ -103,6 +103,8 @@ export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: stri
   /** Full stories projects: "whole" (Full story) or "parts" (Story parts). */
   story_split?: string;
   message?: string; stage?: string; progress?: number; error?: string; clip_count?: number; updated_at: number;
+  /** In seconds: a clips project's source video, or a video's newest finished render (0 or missing = not known yet). */
+  duration?: number;
   thumbnail: string; href: string };
 
 export type PlanClip = { id: string; asset_id: string; kind: string; in_ms: number; out_ms: number; label: string;

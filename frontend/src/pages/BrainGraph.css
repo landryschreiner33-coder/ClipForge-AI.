@@ -88,3 +88,43 @@
   font-size: var(--fs-tiny); font-weight: 600; white-space: nowrap;
 }
 .brain-just-used-note { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--fs-small); color: var(--text-2); }
+
+/* ------------------------------------------------------------------ the galaxy (2026-11-19)
+   A spiral galaxy painted once (pages/galaxy.ts) sits behind the real graph, tilted, and turns once every six minutes
+   while motion is allowed. CORE is the dark centre. Picking a node sends one light from CORE along its real path and
+   settles a ring round it. The galaxy is decoration; every dot and line over it is a real record. */
+.brain-graph { background: transparent; background-image: none; }
+.brain-graph-stage { position: relative; overflow: hidden; }
+.brain-galaxy { position: absolute; pointer-events: none; opacity: 0.92; }
+.brain-galaxy-tilt { position: absolute; inset: 0; transform: rotate(-22deg) scale(1, 0.62); }
+.brain-galaxy-spin { position: absolute; inset: 0; animation: brain-galaxy-turn 360s linear infinite; }
+.brain-galaxy-spin canvas { display: block; width: 100%; height: 100%; }
+@keyframes brain-galaxy-turn { to { transform: rotate(360deg); } }
+.brain-graph.is-still .brain-galaxy-spin, html[data-page-hidden="true"] .brain-galaxy-spin { animation-play-state: paused; }
+:root[data-motion="reduced"] .brain-galaxy-spin { animation: none; }
+.brain-graph-canvas { position: relative; height: clamp(420px, 64vh, 680px); }
+.brain-graph-heading { position: absolute; z-index: 1; left: 0; right: 0; top: 0; }
+.brain-graph-bottom { position: relative; z-index: 1; border-top-color: var(--line); background: color-mix(in srgb, var(--canvas) 70%, transparent); }
+.brain-graph-actions { display: flex; gap: var(--s2); }
+
+/* labels keep a dark halo so they read over the bright arms */
+.brain-node-label { paint-order: stroke; stroke: rgba(4, 6, 18, 0.88); stroke-width: 3px; stroke-linejoin: round; font-size: 11px; fill: var(--text-2); }
+.brain-graph-node.node-collection .brain-node-label { font-size: 13px; font-weight: 700; }
+.brain-graph-node.node-brain .brain-node-label.brain-core-word { fill: #ffe2b8; stroke: none; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; }
+.brain-graph-node.node-brain .brain-node-core { filter: drop-shadow(0 0 14px rgba(255, 200, 140, 0.85)); stroke: #ffd9a8; stroke-width: 1.5; }
+.brain-graph-edges line { opacity: 0.3; }
+
+/* the path from CORE to the chosen node: a faint line, and one light that runs along it once */
+.brain-path { pointer-events: none; }
+.brain-path-line { fill: none; stroke: currentColor; stroke-width: 1.4; opacity: 0.55; vector-effect: non-scaling-stroke; }
+.brain-path-trace {
+  fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; stroke-dasharray: 9 91;
+  stroke-dashoffset: 100; opacity: 0; filter: drop-shadow(0 0 4px currentColor); animation: brain-trace 1.1s steps(22, end) 1 forwards;
+}
+@keyframes brain-trace { 0% { stroke-dashoffset: 100; opacity: 1; } 92% { opacity: 1; } 100% { stroke-dashoffset: 9; opacity: 0; } }
+.brain-graph-node[data-on-path="true"] .brain-node-ring { opacity: 0.7; }
+.brain-node-settle { fill: none; stroke: currentColor; stroke-width: 2; transform-box: fill-box; transform-origin: center;
+  animation: brain-settle 0.5s steps(6, end) 1.05s both; }
+@keyframes brain-settle { from { opacity: 0; transform: scale(1.8); } to { opacity: 1; transform: scale(1); } }
+.brain-graph.is-still .brain-path-trace { animation: none; opacity: 0; }
+.brain-graph.is-still .brain-node-settle { animation: none; opacity: 1; }

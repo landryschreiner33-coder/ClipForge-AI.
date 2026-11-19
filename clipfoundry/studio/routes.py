@@ -568,6 +568,7 @@ def library(kind: str = "", q: str = "") -> list[dict]:
                         "name": p["name"], "status": p["status"], "stage": p.get("stage"),
                         "progress": p.get("progress"), "message": p.get("message"), "error": p.get("error"),
                         "clip_count": p.get("clip_count") or 0, "updated_at": p["updated_at"],
+                        "duration": round(p.get("duration") or 0),  # the source video's length, 0 = not read yet
                         "thumbnail": f"/api/projects/{p['id']}/thumbnail" if p.get("source_path") else "",
                         "href": f"#/project/{p['id']}"})
     if kind in ("", "full_video", "short"):
@@ -582,8 +583,11 @@ def library(kind: str = "", q: str = "") -> list[dict]:
             asset = db.fetch("assets", first) if first else None
             pictured = bool(asset and asset.get("thumb_path") and Path(asset["thumb_path"]).is_file())
             draft = video_setup.is_draft(v)  # still being planned with ClipForge AI: it opens on the setup page
+            # the newest finished render's measured length; 0 while nothing is rendered
+            seconds = db.scalar("SELECT json_extract(info, '$.duration') FROM studio_artifacts WHERE project_id = ? "
+                                "AND kind = 'final' ORDER BY revision DESC LIMIT 1", (v["id"],))
             out.append({"id": v["id"], "kind": "full_video", "mode": shorts.WORKFLOW if short else "full_video",
-                        "name": v["name"],
+                        "name": v["name"], "duration": round(float(seconds or 0)),
                         "status": v["status"], "message": v.get("message"), "updated_at": v["updated_at"],
                         "thumbnail": f"/api/assets/{first}/thumbnail" if pictured else "",
                         "href": f"#/create/video/{v['id']}" if draft else f"#/video/{v['id']}"})

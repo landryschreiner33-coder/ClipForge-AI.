@@ -193,7 +193,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
   if (["styles", "skills", "example-videos", "memory", "talk", "agents"].includes(tab)) {
     return (
       <div className="page brain-page">
-        <PageHead kind="Brain" title="Brain" sub={BRAIN_SUB} />
+        <PageHead title="Brain" sub={BRAIN_SUB} />
         <BrainTabs current={tab} />
         {tab === "memory" && <MemoryViews current="facts" />}
         {tab === "styles" ? <StylesTab /> : tab === "skills" ? <SkillsTab /> : tab === "memory" ? <MemoryTab />
@@ -370,7 +370,6 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
         void refresh().then(() => setNodeId(`style:${saved.id}`));
       }} />}
       <PageHead
-        kind="Brain"
         title="Brain"
         sub={BRAIN_SUB}
         actions={
