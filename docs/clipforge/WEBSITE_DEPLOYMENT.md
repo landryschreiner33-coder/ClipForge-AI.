@@ -330,3 +330,43 @@ Listed as ClipForge 2026.11.16.2, dated November 16 (Landry's evening; 2026-11-1
   that choice is (it is now on both pages).
 
 Rollback: revert `3166005` on `gh-pages` with a normal commit. The 2026.11.16 files stay under All versions.
+
+## Live clips, channels and a smarter ClipForge AI — ClipForge 2026.11.19, November 19, 2026 (Claude Code)
+
+Landry wrote "Make sure all the new changes are merged and then release them". The release line
+`claude/project-thread-x72wkd` held the three finished pull requests since 2026.11.16.2: #58 (choose which channels
+each post goes to), #57 (live clip quality, split view, take turns between channels, Stop clipping) and #59 (smarter
+chat, Brain-led clip picking, longer clips, lessons from results, post text rules). PR #60 corrected the Mac notes and
+the legal pages after a fact-check and was merged as `5430f7c`, whose tree equals that of its head
+`13e1fcbb430dabfcee461fc191c04376c841dc58`, which both downloads are built from and name as their source commit.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-19-13e1fcb/ClipForge-Mac-Apple-Silicon.dmg
+  (232,165,236 bytes, SHA-256 `d1acc5df77d74d31708ef361f2f77583f56591be500008cce3cf4ead798a0a2b`). Unsigned personal preview, published unchanged from
+  [build and test run 44599070088](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44599070088)
+  (native build and bundled-app smoke passed; 3,105 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped) by
+  [publish run 44604316140](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44604316140)
+  (attempt 1 was cancelled after 15 minutes with no macOS runner; attempt 2 re-ran it).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/7122cce8084adcafb20554905c960a2ecca90ba8/ClipForge-Windows-Setup.zip
+  (50,448,541 bytes, SHA-256 `a46cd22df7f435baf311e26d40ef261c1968d08795a2d1fdedfa819036f4b333`).
+  [Windows setup check run 44599233122](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44599233122)
+  installed 2026.11.16.2 (fa5e139, raw/eceeeb1, now the check's previous release) with a synthetic setting on a Windows
+  Server 2025 runner, then this ZIP over it: same data folder and setting, this commit's page and icon, all 889 files,
+  close and reopen. No FFmpeg on the runner, so no video was processed. Record commit `036771e` on
+  `claude/clipforge-downloads`. A first build from `150978b` (before the legal fixes, raw/1286dca, check 44596262908
+  passed) is not listed.
+- **Why the DMG is smaller:** 232.2 MB against 255.8 MB for 2026.11.16.2. Nothing in the packaging changed; the
+  build installed opencv-python 5.1.0.95 (a macOS 15 wheel, 25.8 MB) instead of 5.0.0.93 (48.3 MB), since
+  `requirements.txt` asks for `opencv-python>=4.8`. The bundled app imported it in the native smoke check.
+- **Download page:** `gh-pages` commit `8809e3e` (previous `3166005`), pushed directly. Ten changes with the checked /
+  not checked lists; the "several accounts" line now says you tick which accounts each post, video or live stream
+  goes to. `build.py --check` and `--verify` passed here and in Download page run 44608126498; Pages run 44608125226.
+- **Legal pages:** the root `privacy.html` and `terms.html` are copies of `docs/legal` at 13e1fcb, effective
+  November 19, 2026. A fact-check of the release texts against the code (three checkers by area, a skeptic for each
+  checker's findings) confirmed 18 errors, all corrected before release. The privacy page now says Disconnect deletes
+  only the sign-in tokens (the account's ID, name, picture link and settings stay until the data folder is deleted;
+  the page's older Disconnect item said otherwise too), and covers split view's saved face cam position, the
+  channel share choice saved with a Make & upload request, the memory and skill words kept with a clip, the Brain
+  words sent to a model and a live recording's last minute sounds. The Terms say a Make & upload request names the
+  ticked YouTube channels and how clips are shared.
+
+Rollback: revert `8809e3e` on `gh-pages` with a normal commit. The 2026.11.16.2 files stay under All versions.
