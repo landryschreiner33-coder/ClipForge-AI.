@@ -174,7 +174,8 @@ _OR_MORE = re.compile(rf"{_NUM}{_UNIT}\s+or (?:more|over|longer)\b(?!\s+(?:than|
 # "in 45 second clips" and "in 30 seconds or less" are lengths
 _POINT_IN_CLIP = re.compile(r"\b(?:first|last|opening|final|after|every|each|by)\s+$")
 _IN_POINT = re.compile(r"\bin\s+$")
-_A_LENGTH_AFTER = re.compile(r"^\s*(?:long\s+)?(?:clips?|shorts?|videos?)\b|^\s+or (?:less|under|shorter|more|over|longer)")
+_A_LENGTH_AFTER = re.compile(r"^\s*(?:long\s+)?(?:clips?|shorts?|videos?)\b|"
+                             r"^\s+or (?:less|under|shorter|more|over|longer)")
 
 
 def _point_in_clip(low: str, m: re.Match) -> bool:

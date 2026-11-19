@@ -29,7 +29,8 @@ NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seve
 _NUM = r"(\d{1,3}|" + "|".join(NUMBERS) + ")"
 
 _SENTENCE = re.compile(r"(?<=[.!?;])\s+|\n+")
-_THING = r"(?:the |any |my )?(?:hash ?tags?|emojis?|emoticons?|call[- ]to[- ]actions?|ctas?|titles?|post text|descriptions?)"
+_THING = (r"(?:the |any |my )?(?:hash ?tags?|emojis?|emoticons?|call[- ]to[- ]actions?|ctas?|titles?|post text|"
+          r"descriptions?)")
 # "no emoji but hashtags are fine": a "but" before the next thing starts a part of its own
 _PART = re.compile(r",\s*|\s+(?:and|but)\s+(?=(?:no|never|don'?t|do not|without|always|use|add|keep|make|write)\b)"
                    rf"|\s+but\s+(?={_THING}\b)")

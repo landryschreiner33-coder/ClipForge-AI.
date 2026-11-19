@@ -149,7 +149,8 @@ def test_a_json_skill_cannot_name_a_refused_line_advice(env):
            "topics": ["titles", "hooks"], "modes": ["highlights"], "preferences": {}, "instructions": "",
            "unsupported": [{"text": bad, "why": library.ADVICE_WHY},
                            {"text": "See www.example.com for the best titles every week", "why": library.ADVICE_WHY},
-                           {"text": "Write titles that hold back the outcome of the story.", "why": library.ADVICE_WHY}]}
+                           {"text": "Write titles that hold back the outcome of the story.",
+                            "why": library.ADVICE_WHY}]}
     row = skills.save(WS, "viral-titles.json", json.dumps(doc).encode())
     db.update("skills", row["id"], enabled=1)
     stored = db.fetch("skills", row["id"])
