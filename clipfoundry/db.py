@@ -1390,6 +1390,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_discovery_retired(conn)
     _migrate_post_spacing(conn)
     _migrate_connections(conn)
+    _migrate_scheduled_accounts(conn)
     _migrate_cloud_secrets(conn)
     _migrate_uploads_taken(conn)
     _migrate_clip_lengths(conn)
@@ -1419,6 +1420,7 @@ def _migrate_clip_lengths(conn: sqlite3.Connection) -> None:
 
 
 CONNECTIONS_MIGRATION = "social_connections_migrated_v1"
+SCHEDULED_ACCOUNTS_MIGRATION = "scheduled_accounts_chosen_v1"
 UPLOADS_TAKEN_SINCE = "uploads_taken_since"
 
 
@@ -1470,6 +1472,20 @@ def _migrate_connections(conn: sqlite3.Connection) -> None:
                     conn.execute(f"UPDATE {table} SET connection_id = ? WHERE id = ?", (cid, pub["id"]))
     conn.execute("INSERT INTO autopilot_state (key,value,updated_at) VALUES (?,?,?)",
                  (CONNECTIONS_MIGRATION, json.dumps({"at": now, "version": 1}), now))
+
+
+def _migrate_scheduled_accounts(conn: sqlite3.Connection) -> None:
+    """A planned post's connection_id now means "the owner chose this account for it". Until then the column was
+    filled only by the connections migration and never read: every planned post went to the platform's default
+    account, and its approval was recorded without a connection. Clear it once, so those posts keep exactly that
+    behaviour and their approvals stay valid; publications keep theirs (the account a post really went to)."""
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (SCHEDULED_ACCOUNTS_MIGRATION,)).fetchone():
+        return
+    now = time.time()
+    cleared = conn.execute("UPDATE scheduled_publications SET connection_id = '' WHERE "
+                           "COALESCE(connection_id, '') != ''").rowcount
+    conn.execute("INSERT INTO autopilot_state (key,value,updated_at) VALUES (?,?,?)",
+                 (SCHEDULED_ACCOUNTS_MIGRATION, json.dumps({"at": now, "cleared": cleared}), now))
 
 
 def _migrate_cloud_secrets(conn: sqlite3.Connection) -> None:
@@ -2037,10 +2053,18 @@ def upsert_connection(platform: str, external_id: str, tokens: dict[str, Any], *
         raise ValueError("A connection needs the provider-confirmed account ID")
     now = time.time()
     sealed = secure.seal(json.dumps(tokens))
-    enc = _encode("social_connections", fields)
     with connect() as conn:
-        row = conn.execute("SELECT id FROM social_connections WHERE workspace_id = ? AND platform = ? AND "
+        row = conn.execute("SELECT id, info FROM social_connections WHERE workspace_id = ? AND platform = ? AND "
                            "external_id = ?", (workspace_id, platform, external_id)).fetchone()
+        if row and "info" in fields:
+            # Reconnecting clears a flag such as needs_reconnect; it must not erase the other facts recorded for
+            # this account (for example the owner's "Tick for new posts" choice). update_connection merges too.
+            try:
+                kept = json.loads(row["info"] or "{}")
+            except ValueError:
+                kept = {}
+            fields["info"] = {**(kept if isinstance(kept, dict) else {}), **(fields["info"] or {})}
+        enc = _encode("social_connections", fields)
         if row:
             cols = ", ".join(f"{k} = ?" for k in [*enc, "tokens", "status", "updated_at"])
             conn.execute(f"UPDATE social_connections SET {cols} WHERE id = ?",

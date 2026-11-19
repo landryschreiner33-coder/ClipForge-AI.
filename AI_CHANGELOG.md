@@ -1,5 +1,74 @@
 # AI changelog
 
+## Choose which channels each post goes to — 2026-11-18 (Claude Code)
+
+Landry wrote "make it so you can choose what clips or stuff goes to what channle or if it goes to all or just a few".
+Branch `claude/project-thread-rxehvi` from the release line at 56d2cbd. **Not released.**
+
+- **One picker everywhere** (`frontend/src/components/channelPicker.tsx`): every connected YouTube channel and TikTok
+  account by name and picture, a tick box each, and **All** for a platform with two or more. An account that needs
+  Reconnect is shown but can't be ticked, with the reason. **Accounts → Tick for new posts** decides which accounts
+  start ticked (stored as `social_connections.info.post_by_default`; without a choice, the default account).
+- **Prepare post** (one clip): each platform panel lists its accounts; one upload per ticked account, one after
+  another, and a refusal for one never stops the others. An account that already has the clip says so before you
+  confirm. TikTok offers Direct Post, a privacy choice and interactions only when every ticked account allows them.
+- **Post selected…** on a video's page (`postSelected.tsx`): several clips to the ticked YouTube channels in one go,
+  each with its saved post text. A clip a channel already has, or is still uploading, is left out unless you tick
+  *Post them there again*. TikTok stays on Prepare post (its rules need a check of every post).
+- **Missions → Submitted videos and Live streams**: tick the YouTube channels for each video or stream. The request
+  saves them as `source_submissions.settings.connections = {connection_id: channel ID}` in your order (max 20). All
+  is saved as the channels connected at that moment, so a channel connected later is never included. A request
+  without that key is from before this change and means the default channel only, with all its old checks.
+- **Autopilot follows the choice** (`autopilot/targets.py`, scheduler, submissions, publisher, rights, bulk review):
+  one planned post per chosen channel (`scheduled_publications.connection_id`), each with its own approval (the hash
+  now includes the connection for a bound post, and the approval names its account), its own daily limit, slots,
+  minimum gap and slot replacement, its own duplicate check, and its own Reconnect notice (`connect:<connection>`):
+  a channel that needs Reconnect holds only its own posts, and changing the default never moves a bound post.
+  Posts without a chosen account behave exactly as before (default account, platform-wide duplicate check).
+- **One-time data step** (`db._migrate_scheduled_accounts`): the 2026-11-04 connections migration wrote the default
+  connection on every planned post, and nothing read it. The first start of this version clears it once, so those
+  posts keep going to the default account and their approvals stay valid. Publications keep their account.
+- **Also fixed while here:** reconnecting an account no longer wipes what was recorded for it
+  (`db.upsert_connection` merges `info`, as `update_connection` did); Home's "Connect YouTube… N planned posts cannot
+  go out" counts only the default account's posts; Queue, the post page and bulk approval show each post's own
+  account; the *I have permission* statement says "each YouTube channel I chose" when several are ticked.
+- **Not built (no way to post these exists yet):** animated shorts and full YouTube videos have no publish path, so
+  they have no channel choice. The standing automatic-publishing permission and TikTok keep their own rules: the
+  permission covers the default channel only, and TikTok asks for your OK on every post.
+- **Second review (two independent reviewers, each finding checked by a skeptic): four confirmed, all fixed, none
+  could send a post to a wrong channel.** (1) A post to a chosen channel whose sign-in YouTube refused during the
+  upload is held with no job left to try it again; "Needs you" hid its Reconnect notice as soon as the account
+  looked connected. The notice now stays until the post is retried (`home._held_for_owner`), the same as for a post
+  without a channel. (2) The cooldown after a dynamic replacement was kept per platform and time, so a replacement
+  on one channel held the same time on every other channel; it is per account now
+  (`scheduler.replacement_blocked`). (3) A TikTok package you post yourself could not be approved on its page while
+  TikTok was signed out ("Another account is connected now"): the page named the signed-out account; it now names
+  an account only while it is connected. (4) The post page and the approve check used two definitions of "the
+  account of a post without a channel". There is one now (`autopilot/targets.py`): the post follows the default
+  account until its upload has begun, then it belongs to the account that upload began on (`begun_on`), so an
+  upload interrupted by a platform wait finishes where it started with its approval intact, and an upload record
+  that never started is cancelled and started fresh on the account the post is approved for (it used to upload to
+  the old default). Smaller points from the same review: Post selected never re-sends an upload that is still
+  under way or unconfirmed; TikTok "How to post" returns to Post directly when the account without Direct Post is
+  unticked; a TikTok inbox draft already sent is noted before sending it again; a video's status names the one
+  chosen channel that is held; the post page retries reading the accounts.
+- **Known limits, unchanged:** a platform's "wait" or daily upload limit still holds the posts of all channels of
+  that platform until it passes (`platform_limits` is per platform). With "Make & upload" and dynamic replacement,
+  a replaced post and its replacement can both stay approved (it was so before this change, with one channel too).
+- **Checks:** the cloud session's fast suite on d9cb7c9 (2,743 passed, 2 skipped; `test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, a 2.5-second timing test in code this change does
+  not touch, failed once at the start of the run and passed 3 of 3 times alone); 23 new tests in
+  `tests/test_post_to_channels.py`; `npm run build` reproduces the committed `frontend/dist`; a real-app browser
+  check against a throwaway app with three fake YouTube channels and one TikTok account (16 of 16 steps: one clip
+  to two channels, three clips to two channels with the repeat left out, each channel got each clip exactly once,
+  the channel that needs Reconnect can't be ticked, Missions sends the ticked channels, no page errors). GitHub on
+  6d51ff0 (run 44320764673): fast suite, slow suite and the Native Mac desktop app build all passed. After the
+  second review's fixes: 31 tests in `tests/test_post_to_channels.py` (8 new; 6 of them fail on the code before the
+  fixes), the 50 test files that touch the changed modules (880 passed), `tsc --noEmit`, `npm run build`, and the
+  browser check extended to 27 steps (TikTok mode switch, repeats and an upload under way in Post selected, the
+  TikTok package approved while signed out). The full suites on the final commit are on the pull request.
+- **Not verified:** real YouTube channels or TikTok accounts (fake platforms only); the screens in the Mac window on
+  Landry's computer.
+
 ## Release 2026.11.16.2: the cloud computer gets its own section in Settings — 2026-11-16 (Claude Code)
 
 Landry asked where the app lets you connect a cloud computer and wrote "i dont see a section with that make sure its

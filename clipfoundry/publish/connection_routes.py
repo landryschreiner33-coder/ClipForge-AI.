@@ -29,13 +29,26 @@ def health(acc: dict) -> dict:
     return {"state": "ok", "text": "Connected", "action": ""}
 
 
+def post_by_default(acc: dict) -> bool:
+    """Whether this account starts ticked when choosing where new posts go: the owner's own choice once made, else
+    only the platform's default account."""
+    info = acc.get("info") or {}
+    return bool(info["post_by_default"]) if "post_by_default" in info else bool(acc.get("is_default"))
+
+
 def view(acc: dict) -> dict:
     pubs = [p for p in db.select("publications", "connection_id = ?", (acc["id"],)) if p["status"] in jobs.ACTIVE]
+    state = health(acc)
+    scopes = acc.get("scopes") or []
+    tiktok_account = acc["platform"] == "tiktok"
     return {"id": acc["id"], "platform": acc["platform"], "label": LABELS.get(acc["platform"], acc["platform"]),
             "account_id": acc["external_id"], "display_name": acc.get("display_name") or "",
             "nickname": acc.get("nickname") or "", "avatar": acc.get("avatar_url") or "",
-            "scopes": acc.get("scopes") or [], "is_default": acc["is_default"], "status": acc["status"],
-            "health": health(acc), "connected_at": acc.get("connected_at"), "active_uploads": len(pubs)}
+            "scopes": scopes, "is_default": acc["is_default"], "status": acc["status"],
+            "health": state, "connected_at": acc.get("connected_at"), "active_uploads": len(pubs),
+            "post_by_default": post_by_default(acc), "postable": state["state"] == "ok",
+            "can_direct_post": tiktok_account and "video.publish" in scopes,
+            "can_inbox": tiktok_account and "video.upload" in scopes}
 
 
 def _mine(connection_id: str) -> dict:
@@ -83,6 +96,7 @@ def reconnect(connection_id: str, request: Request) -> dict:
 class ConnectionPatch(BaseModel):
     nickname: str | None = Field(default=None, max_length=60)
     make_default: bool | None = None
+    post_by_default: bool | None = None  # tick this account for new posts (Prepare post, Make clips, Missions)
 
 
 @router.patch("/api/connections/{connection_id}", dependencies=[Depends(app_request)])
@@ -93,6 +107,8 @@ def patch(connection_id: str, body: ConnectionPatch) -> dict:
         if any(ord(c) < 32 for c in nickname):
             raise HTTPException(422, "Use a plain one-line name.")
         db.update_connection(acc["id"], nickname=nickname)
+    if body.post_by_default is not None:
+        db.update_connection(acc["id"], info={"post_by_default": body.post_by_default})  # info merges
     if body.make_default:
         if acc["status"] != "connected":
             raise HTTPException(409, "Reconnect this account before making it the default.")

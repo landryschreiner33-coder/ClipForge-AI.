@@ -34,6 +34,7 @@ from . import autopublish, gate, queue, quota, rights, state, verify
 from .host import MAINTENANCE_STEPS, Job, handler
 from .providers import iso_time
 from .scheduler import _audit, _label, active_version_path, approval_problem, block_platform, blocked_until, tz
+from .targets import account_name, begun_on, item_account, same_account, usable
 
 RECONNECT_WAIT = 30 * 60
 
@@ -58,15 +59,24 @@ def _next_local_midnight(settings: dict) -> float:
 
 
 def already_published(item: dict) -> str:
-    """Why this post would be a repeat ("" if it is not)."""
+    """Why this post would be a repeat ("" if it is not). A post without a chosen account is checked against the
+    whole platform, as before accounts could be chosen. A post to a chosen account is checked against that account
+    only: posting a clip to one channel is no reason to cancel its post to another chosen channel."""
+    chosen = item.get("connection_id") or ""
     for p in db.list_publications(item["clip_id"], item["platform"]):
-        if p["status"] in ("done", "action_needed") and p.get("scheduled_id") != item["id"]:
+        if p["status"] in ("done", "action_needed") and p.get("scheduled_id") != item["id"] and \
+                same_account(p, chosen):
             return "This clip was already published on this platform."
     mine = db.fetch("clip_fingerprints", item["clip_id"], "clip_id")
     if mine:
+        posted = {p["clip_id"] for p in db.select("publications", "platform = ? AND clip_id != ? AND status IN "
+                                                  "('done', 'action_needed')", (item["platform"], item["clip_id"]))
+                  if same_account(p, chosen)}
         for o in db.select("clip_fingerprints", "clip_id != ? AND clip_id IN (SELECT clip_id FROM publications WHERE "
                                                 "platform = ? AND status IN ('done', 'action_needed'))",
                            (item["clip_id"], item["platform"])):
+            if o["clip_id"] not in posted:
+                continue
             if fingerprint.text_similarity(mine.get("text_sig") or [], o.get("text_sig") or []) >= 0.6 or \
                     fingerprint.same_video(mine.get("phash") or [], o.get("phash") or []):
                 return "A clip with the same moment was already published on this platform."
@@ -200,6 +210,20 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
     from ..publish.jobs import feature_snapshot
 
     version_row = db.get_version(version) if version else None
+    bound = {}
+    if item.get("connection_id"):
+        # The account this post was approved for; publish/jobs.connection_for refuses any other at upload time.
+        opts["approved_account"] = (item.get("approval") or {}).get("account") or item_account(item)
+        opts["approved_connection"] = item["connection_id"]
+        bound = {"connection_id": item["connection_id"]}
+    elif pub and pub.get("connection_id") and not begun_on(item) and \
+            pub["connection_id"] != db.default_connection_id(item["platform"]):
+        # Another account became the default before this upload sent anything. The post is approved for the
+        # account it goes to now, so its upload starts fresh there instead of on the account the record names.
+        db.update_publication(pub["id"], status="cancelled",
+                              message="Another account became the default before the upload started")
+        db.update("scheduled_publications", item["id"], publication_id="")
+        pub = None
     if pub:
         if not publish_jobs.transfer_started(pub) and not publish_jobs.unknown_outcome(pub):
             # A platform wait may leave a local row before any session or bytes exist. The owner can edit and
@@ -215,7 +239,7 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
                                 title=item["title"], description=item["description"], tags=item.get("tags") or [],
                                 requested_privacy=item["privacy"], video_path=video, version_id=version,
                                 options=opts, features=feature_snapshot(clip, version_row), scheduled_id=item["id"],
-                                audience=item.get("audience") or {}, delivery={"transfer": "not_started"})
+                                audience=item.get("audience") or {}, delivery={"transfer": "not_started"}, **bound)
     db.update("scheduled_publications", item["id"], publication_id=pub["id"])
     return pub
 
@@ -263,7 +287,12 @@ def _handle_error(job: Job, item: dict, exc: PublishError, settings: dict) -> No
         raise queue.Fail(str(exc), exc.fix)
     if code in ("reconnect", "not_connected", "setup", "access_token_invalid", "auth_removed", "scope",
                 "scope_not_authorized", "insufficientPermissions"):
-        _action_needed(item, f"connect:{platform}", f"Reconnect {platform.title()} to publish", str(exc), exc.fix)
+        if item.get("connection_id"):  # only this post's own account needs Reconnect; others keep posting
+            name = account_name(db.get_connection(item["connection_id"])) or "this account"
+            _action_needed(item, f"connect:{item['connection_id']}", f"Reconnect {name} to publish", str(exc),
+                           exc.fix)
+        else:
+            _action_needed(item, f"connect:{platform}", f"Reconnect {platform.title()} to publish", str(exc), exc.fix)
         raise queue.Fail(str(exc), exc.fix)
     if code in ("unaudited", "unaudited_client_can_only_post_to_private_accounts", "privacy_level_option_mismatch",
                 "duration", "spam_risk_user_banned_from_posting", "user_banned_from_posting"):
@@ -291,7 +320,7 @@ def publish(job: Job) -> dict:
     if uncertain and item["platform"] == "youtube":
         original_account = (item.get("approval") or {}).get("account") or (
             existing.get("options") or {}).get("approved_account")
-        if original_account and original_account != autopublish.account_id("youtube"):
+        if original_account and original_account != item_account(item):
             note = "Reconnect the original YouTube account to check the uncertain upload; no new upload is started."
             _set(item, "reconciling", note, "outcome_account", last_error=note,
                  fix="Reconnect the channel this post was approved for, then Refresh status.")
@@ -390,12 +419,24 @@ def publish(job: Job) -> dict:
     until, why = blocked_until(item["platform"])
     if until:
         raise queue.Wait("platform_limit", until - time.time() + 60, f"{item['platform']}: {why}")
-    acc = db.get_account(item["platform"]) or {}
-    if not acc.get("has_tokens"):
-        _action_needed(item, f"connect:{item['platform']}", f"Connect {item['platform'].title()} to publish",
-                       f"{item['platform'].title()} is not connected.", "Settings → Publishing → Connect.")
-        raise queue.Wait("not_connected", RECONNECT_WAIT, f"{item['platform'].title()} is not connected")
-    state.resolve(f"connect:{item['platform']}")
+    if item.get("connection_id"):
+        # This post's own account. Another account needing Reconnect never holds it, and it holds no other post.
+        label = "YouTube" if item["platform"] == "youtube" else "TikTok"
+        acc = db.get_connection(item["connection_id"])
+        key = f"connect:{item['connection_id']}"
+        if not usable(acc):
+            name = account_name(acc) or f"The chosen {label} account"
+            _action_needed(item, key, f"Reconnect {name} to publish", f"{label} account “{name}” is not connected.",
+                           "Accounts → Reconnect. Posts to your other accounts continue.")
+            raise queue.Wait("not_connected", RECONNECT_WAIT, f"{label} account “{name}” is not connected")
+        state.resolve(key)
+    else:
+        acc = db.get_account(item["platform"]) or {}
+        if not acc.get("has_tokens"):
+            _action_needed(item, f"connect:{item['platform']}", f"Connect {item['platform'].title()} to publish",
+                           f"{item['platform'].title()} is not connected.", "Settings → Publishing → Connect.")
+            raise queue.Wait("not_connected", RECONNECT_WAIT, f"{item['platform'].title()} is not connected")
+        state.resolve(f"connect:{item['platform']}")
     video, version = active_version_path(clip)
     if not started:  # an upload already under way is resumed, never re-judged halfway
         try:
@@ -462,7 +503,8 @@ def publish(job: Job) -> dict:
             current = {**current, "info": {**(current.get("info") or {}),
                                           "outcome_error": {"code": exc.code, "detail": str(exc), "fix": exc.fix}}}
             if exc.code in ("reconnect", "not_connected", "setup", "scope", "insufficientPermissions"):
-                state.action("connect:youtube", "publish", "Reconnect YouTube to check this upload", str(exc),
+                key = f"connect:{item['connection_id']}" if item.get("connection_id") else "connect:youtube"
+                state.action(key, "publish", "Reconnect YouTube to check this upload", str(exc),
                              exc.fix, ref_type="scheduled", ref_id=item["id"])
             unknown = youtube._outcome_unknown()
             held = PublishError(f"{exc} {unknown}", f"{exc.fix} {unknown.fix}".strip(), youtube.OUTCOME_UNKNOWN)

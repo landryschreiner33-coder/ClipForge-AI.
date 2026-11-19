@@ -32,6 +32,7 @@ from ..pipeline import artifact, fingerprint
 from ..publish import audience
 from . import autopublish, gate, learner, queue, rights, state
 from .host import Job, handler
+from .targets import begun_on, effective_connection_id, item_account, same_account
 from .scout import local_day, tz
 
 PLATFORMS = ("youtube", "tiktok")
@@ -171,12 +172,16 @@ def active_version_path(clip: dict) -> tuple[str, str]:
     return path, version
 
 
-def _published_or_active(clip_id: str, platform: str) -> bool:
-    if db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND platform = ? AND status IN "
-                 "('awaiting_approval', 'approved', 'publishing', 'reconciling', 'published')", (clip_id, platform)):
-        return True
-    return bool(db.scalar("SELECT COUNT(*) FROM publications WHERE clip_id = ? AND platform = ? AND status IN "
-                          "('done', 'action_needed', 'uploading', 'processing', 'queued')", (clip_id, platform)))
+def _published_or_active(clip_id: str, platform: str, connection_id: str = "") -> bool:
+    """Is this clip already planned or posted? Without a chosen account ("") anywhere on the platform, as before
+    accounts could be chosen; for a chosen account, on that account (see targets.same_account)."""
+    for row in db.select("scheduled_publications", "clip_id = ? AND platform = ? AND status IN ('awaiting_approval', "
+                         "'approved', 'publishing', 'reconciling', 'published')", (clip_id, platform)):
+        if same_account(row, connection_id):
+            return True
+    return any(same_account(row, connection_id) for row in db.select(
+        "publications", "clip_id = ? AND platform = ? AND status IN ('done', 'action_needed', 'uploading', "
+        "'processing', 'queued')", (clip_id, platform)))
 
 
 def _repeat_of_published(clip: dict) -> str:
@@ -220,7 +225,9 @@ def audience_reminders(settings: dict) -> None:
 
 
 def candidates(settings: dict, now: float) -> list[dict]:
-    """(clip, platform) pairs ready to be scheduled, with their scores."""
+    """(clip, platform, connection) triples ready to be scheduled, with their scores. A submitted video's request
+    names its YouTube channels: one candidate per channel. Other clips go to each platform's default account
+    (connection_id "")."""
     out = []
     rows = db.select("clips", "status = 'ready' AND project_id IN (SELECT id FROM projects WHERE origin IN "
                               "('autopilot', 'live'))", (), "created_at")
@@ -230,10 +237,11 @@ def candidates(settings: dict, now: float) -> list[dict]:
         source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
         from . import submissions
 
-        submitted_platforms = submissions.target_platforms(source or {}, settings)
-        if settings.get("autopilot_input_mode", "submitted") == "submitted" and submitted_platforms is None:
+        submitted = submissions.target_connections(source or {})
+        if settings.get("autopilot_input_mode", "submitted") == "submitted" and submitted is None:
             continue  # input-only mode never admits an older discovered/backlog clip to a new posting plan
-        source_platforms = submitted_platforms if submitted_platforms is not None else platforms
+        destinations = [("youtube", cid) for cid in submitted] if submitted is not None else \
+            [(p, "") for p in platforms]
         try:
             rights.gate(source, "schedule", settings)
         except rights.RightsBlocked:
@@ -244,20 +252,29 @@ def candidates(settings: dict, now: float) -> list[dict]:
                 continue
         sc = db.fetch("clip_scores", clip["id"], "clip_id") or {}
         retention, _ = learner.expected_retention(sc.get("retention"))
-        for platform in source_platforms:
-            if not settings.get("autopilot_allow_republish") and _published_or_active(clip["id"], platform):
+        ready: dict[str, dict | None] = {}  # platform -> its selected text, checked once for every account
+        for platform, connection_id in destinations:
+            if not settings.get("autopilot_allow_republish") and \
+                    _published_or_active(clip["id"], platform, connection_id):
                 continue
-            if not rights.scheduling_allowed(source, platform, settings)[0]:
-                continue  # review drafts may lack reuse coverage; explicit blocks still win
-            meta = db.select("metadata_candidates", "clip_id = ? AND platform = ? AND selected = 1",
-                             (clip["id"], platform))
-            if not meta or not gate.schedulable(clip, platform, meta[0]["id"])[0]:
-                continue  # not packaged, or the final quality gate has not passed this file and text
+            if platform not in ready:
+                ready[platform] = None
+                if not rights.scheduling_allowed(source, platform, settings)[0]:
+                    continue  # review drafts may lack reuse coverage; explicit blocks still win
+                meta = db.select("metadata_candidates", "clip_id = ? AND platform = ? AND selected = 1",
+                                 (clip["id"], platform))
+                if not meta or not gate.schedulable(clip, platform, meta[0]["id"])[0]:
+                    continue  # not packaged, or the final quality gate has not passed this file and text
+                ready[platform] = meta[0]
+            selected = ready[platform]
+            if selected is None:
+                continue
             signal = db.fetch("trend_signals", (source or {}).get("signal_id") or "") if source and \
                 source.get("signal_id") else None
             urgency = (signal or {}).get("score") or 0.0
-            out.append({"clip": clip, "platform": platform, "meta": meta[0], "source": source,
-                        "scores": {"clip": sc.get("clip", clip.get("score")), "packaging": meta[0]["score"],
+            out.append({"clip": clip, "platform": platform, "connection_id": connection_id, "meta": selected,
+                        "source": source,
+                        "scores": {"clip": sc.get("clip", clip.get("score")), "packaging": selected["score"],
                                    "trend": sc.get("trend"), "source": sc.get("source"),
                                    "diversity": sc.get("diversity"), "retention": retention},
                         "urgency": max(0.0, min(1.0, urgency / 100))})
@@ -266,7 +283,10 @@ def candidates(settings: dict, now: float) -> list[dict]:
 
 # ------------------------------------------------------------------ planning
 class Plan:
-    """Occupied slots and daily counts, built from the stored items."""
+    """Occupied slots and daily counts, built from the stored items. Each account (platform and connection) has its
+    own daily limit, slots and minimum gap; a post without a connection of its own counts for the platform's default
+    account, so with one account per platform this is the same as per platform. The daily target of unique clips is
+    shared by all accounts."""
 
     def __init__(self, settings: dict, now: float):
         self.settings = settings
@@ -275,39 +295,62 @@ class Plan:
                                                          "'reconciling', 'published') AND planned_at IS NOT NULL")
         self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 30))
         self.held = 0  # replacements held back by the cooldown
+        self.defaults = {p: db.default_connection_id(p) for p in PLATFORMS}
+        self._began: dict[str, str] = {}  # post id -> the account its upload already went to ("" when none)
+
+    def account(self, platform: str, connection_id: str = "") -> tuple[str, str]:
+        """The (platform, connection) a post's slot belongs to."""
+        if not connection_id:
+            connection_id = self.defaults[platform] if platform in self.defaults else \
+                db.default_connection_id(platform)
+        return platform, connection_id
+
+    def _of(self, item: dict) -> tuple[str, str]:
+        """The account a stored post counts for: its own, else the one its upload went to, else the default (the
+        same rule as targets.effective_connection_id, read once per post)."""
+        own = item.get("connection_id") or ""
+        if not own and item.get("publication_id"):
+            key = item.get("id") or ""
+            if key not in self._began:
+                self._began[key] = begun_on(item)
+            own = self._began[key]
+        return self.account(item["platform"], own)
 
     def occupies(self, item: dict) -> bool:
         """A pending swap shares its slot with the item it would replace, so it takes no slot of its own."""
         return not (item.get("replaces") and any(o["id"] == item["replaces"] and o["status"] in ACTIVE
                                                  for o in self.items))
 
-    def _counts(self, platform: str, day: str) -> tuple[int, set]:
+    def _counts(self, platform: str, day: str, connection_id: str = "") -> tuple[int, set]:
         n, clips = 0, set()
+        mine = self.account(platform, connection_id)
         for it in self.items:
             if not self.occupies(it):
                 continue
             if local_day(self.settings, it["planned_at"]) != day:
                 continue
             clips.add(it["clip_id"])
-            n += it["platform"] == platform
+            n += it["platform"] == platform and self._of(it) == mine
         return n, clips
 
-    def free(self, platform: str, t: float, clip_id: str) -> bool:
+    def free(self, platform: str, t: float, clip_id: str, connection_id: str = "") -> bool:
         day = local_day(self.settings, t)
-        count, clips = self._counts(platform, day)
+        count, clips = self._counts(platform, day, connection_id)
         limit = daily_limit(self.settings, platform)
         if limit is not None and count >= limit:
             return False
         target = int(self.settings.get("autopilot_daily_target") or 0)
         if target > 0 and clip_id not in clips and len(clips) >= target:
             return False
+        mine = self.account(platform, connection_id)
         return all(abs(it["planned_at"] - t) >= self.gap for it in self.items if it["platform"] == platform
-                   and self.occupies(it))
+                   and self._of(it) == mine and self.occupies(it))
 
-    def best_slot(self, platform: str, clip_id: str, urgency: float, timing: Timing) -> tuple[float, dict] | None:
+    def best_slot(self, platform: str, clip_id: str, urgency: float, timing: Timing,
+                  connection_id: str = "") -> tuple[float, dict] | None:
         if int(self.settings.get(f"autopilot_{platform}_daily_limit") or 0) == 0 and \
                 int(self.settings.get("autopilot_daily_target") or 0) == 0:
-            return self.continuous_slot(platform, clip_id, timing)
+            return self.continuous_slot(platform, clip_id, timing, connection_id)
         start = self.now + 60.0 * (LOCK_MINUTES + 5)
         blocked, _ = blocked_until(platform, self.now)
         start = max(start, blocked)
@@ -318,7 +361,7 @@ class Plan:
         today = _local(self.now, self.settings).date()
         for d in range(HORIZON_DAYS + 1):
             for t in grid(self.settings, today + dt.timedelta(days=d), per_day):
-                if t < start or not self.free(platform, t, clip_id):
+                if t < start or not self.free(platform, t, clip_id, connection_id):
                     continue
                 q, note = timing.quality(_local(t, self.settings))
                 days_out = (t - self.now) / 86400
@@ -328,7 +371,8 @@ class Plan:
                                        "local": _local(t, self.settings).isoformat(timespec="minutes")})
         return (best[1], best[2]) if best else None
 
-    def continuous_slot(self, platform: str, clip_id: str, timing: Timing) -> tuple[float, dict] | None:
+    def continuous_slot(self, platform: str, clip_id: str, timing: Timing,
+                        connection_id: str = "") -> tuple[float, dict] | None:
         """Earliest permitted slot, without an artificial review delay or a finite daily posting grid.
 
         Existing posts keep their times; optional spacing, owner hours and reported platform limits still bind.
@@ -341,8 +385,9 @@ class Plan:
         end_h = int(self.settings.get("autopilot_active_end", 24))
         if end_h <= start_h:
             return None
+        mine = self.account(platform, connection_id)
         occupied = sorted(it["planned_at"] for it in self.items
-                          if it["platform"] == platform and self.occupies(it))
+                          if it["platform"] == platform and self._of(it) == mine and self.occupies(it))
         for offset in range(HORIZON_DAYS + 1):
             day = today + dt.timedelta(days=offset)
             base = dt.datetime.combine(day, dt.time(start_h), tz(self.settings)).timestamp()
@@ -353,7 +398,7 @@ class Plan:
                 for taken in occupied:
                     if abs(taken - when) < self.gap:
                         when = taken + self.gap
-            if when >= end or not self.free(platform, when, clip_id):
+            if when >= end or not self.free(platform, when, clip_id, connection_id):
                 continue
             quality, history = timing.quality(_local(when, self.settings))
             return when, {"quality": round(quality, 3), "note": "Continuous posting: earliest available time; "
@@ -385,7 +430,8 @@ def _meta_fields(c: dict, settings: dict) -> dict:
         submitted_fields = submissions.post_fields(c.get("source") or {})
         return {"title": meta["title"], "description": meta["description"], "tags": meta["tags"] or [],
                 **(submitted_fields or {"privacy": stamp["visibility"], "options": {"made_for_kids": None}, "audience": stamp})}
-    route = audience.tiktok_route(settings, db.get_account("tiktok"))
+    account = db.get_connection(c["connection_id"]) if c.get("connection_id") else db.get_account("tiktok")
+    route = audience.tiktok_route(settings, account if account and account["status"] != "disconnected" else None)
     return {"title": meta["title"], "description": meta["caption"], "tags": meta["hashtags"] or [], "privacy": "",
             "options": {"mode": route, "allow_comment": False, "allow_duet": False, "allow_stitch": False,
                         "disclose": False}, "audience": stamp}
@@ -398,6 +444,7 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
     final, why = final_score(scores, learner.weights())
     item = db.insert("scheduled_publications", {
         "clip_id": c["clip"]["id"], "source_id": (c["source"] or {}).get("id", ""), "platform": c["platform"],
+        "connection_id": c.get("connection_id") or "",
         "metadata_id": c["meta"]["id"], **_meta_fields(c, settings), "planned_at": planned_at,
         "timezone": settings.get("autopilot_timezone") or "America/Chicago", "slot": slot, "final_score": final,
         "scores": {**scores, "explanation": why}, "status": "awaiting_approval", "replaces": replaces,
@@ -413,19 +460,22 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
     return item
 
 
-def replaceable(platform: str, now: float) -> list[dict]:
-    """Future posts that dynamic replacement may swap out, weakest first (outside the freeze window, not a swap
-    themselves, and without a stronger post already proposed for their slot)."""
-    return db.select("scheduled_publications", "platform = ? AND status IN ('awaiting_approval', 'approved') AND "
+def replaceable(platform: str, now: float, connection_id: str = "") -> list[dict]:
+    """Future posts of this account that dynamic replacement may swap out, weakest first (outside the freeze window,
+    not a swap themselves, and without a stronger post already proposed for their slot). A post for one account
+    never takes another account's slot."""
+    rows = db.select("scheduled_publications", "platform = ? AND status IN ('awaiting_approval', 'approved') AND "
                                                 "planned_at > ? AND replaced_by = '' AND replaces = '' AND id NOT IN "
                                                 "(SELECT replaces FROM scheduled_publications WHERE replaces != '' AND "
                                                 "status IN ('awaiting_approval', 'approved', 'publishing', "
                                                 "'reconciling'))",
                      (platform, now + 60 * LOCK_MINUTES), "final_score ASC")
+    mine = effective_connection_id({"platform": platform, "connection_id": connection_id})
+    return [row for row in rows if effective_connection_id(row) == mine]
 
 
-def weakest_replaceable(platform: str, now: float) -> dict | None:
-    rows = replaceable(platform, now)
+def weakest_replaceable(platform: str, now: float, connection_id: str = "") -> dict | None:
+    rows = replaceable(platform, now, connection_id)
     return rows[0] if rows else None
 
 
@@ -440,9 +490,15 @@ def replacement_blocked(weak: dict, clip_id: str, settings: dict, now: float) ->
     if db.scalar("SELECT COUNT(*) FROM slot_replacements WHERE replaced_id = ? AND clip_id = ?", (weak["id"], clip_id)):
         return "this clip was already proposed for this slot"
     hours = cooldown_hours(settings)
-    last = db.scalar("SELECT MAX(created_at) FROM slot_replacements WHERE platform = ? AND (ABS(slot_at - ?) < 60 OR "
-                     "replaced_id = ? OR replacement_id = ?)", (weak["platform"], weak["planned_at"], weak["id"],
-                                                                weak["id"]))
+    last = float(db.scalar("SELECT MAX(created_at) FROM slot_replacements WHERE platform = ? AND (replaced_id = ? OR "
+                           "replacement_id = ?)", (weak["platform"], weak["id"], weak["id"])) or 0)
+    # A slot is one account's time: the same time on another chosen channel is another slot, with its own cooldown.
+    mine = effective_connection_id(weak)
+    for row in db.select("slot_replacements", "platform = ? AND ABS(slot_at - ?) < 60",
+                         (weak["platform"], weak["planned_at"])):
+        other = db.fetch("scheduled_publications", row["replaced_id"])
+        if other is None or effective_connection_id(other) == mine:  # a deleted post counts, as before
+            last = max(last, float(row["created_at"] or 0))
     if hours and last and now - float(last) < hours * 3600:
         return f"its slot was part of a replacement less than {hours:g} hours ago"
     return ""
@@ -453,7 +509,7 @@ def try_replace(c: dict, settings: dict, now: float, plan: Plan) -> dict | None:
     if not settings.get("autopilot_dynamic_replacement"):
         return None
     threshold = float(settings.get("autopilot_replacement_threshold") or 15)
-    for weak in replaceable(c["platform"], now):
+    for weak in replaceable(c["platform"], now, c.get("connection_id") or ""):
         probe = final_score({**c["scores"], "publish_opportunity": (weak.get("scores") or {}).get(
             "publish_opportunity")}, learner.weights())
         if probe[0] < (weak["final_score"] or 0) * (1 + threshold / 100):
@@ -513,7 +569,8 @@ def _plan_new(settings: dict, now: float) -> dict:
     for c in cands:
         c["rank"], _ = final_score({**c["scores"], "publish_opportunity": 50.0}, learned)
     for c in sorted(cands, key=lambda c: c["rank"], reverse=True):
-        slot = plan.best_slot(c["platform"], c["clip"]["id"], c["urgency"], timings[c["platform"]])
+        slot = plan.best_slot(c["platform"], c["clip"]["id"], c["urgency"], timings[c["platform"]],
+                              c.get("connection_id") or "")
         if slot:
             plan.add(create_item(c, slot[0], slot[1], settings, now))
             created += 1
@@ -562,6 +619,8 @@ def approval_basis(item: dict, quick: bool = False) -> dict | None:
     if not sha:
         return None
     data = {k: item.get(k) for k in ("platform", "title", "description", "tags", "privacy", "options")}
+    if item.get("connection_id"):  # a post bound to its own account; unbound posts keep their earlier hash
+        data["connection_id"] = item["connection_id"]
     stamp = item.get("audience") or {}
     data["audience"] = {k: stamp.get(k) for k in ("intent", "policy_version", "group", "group_version")}
     if item.get("reuse_confirmation"):
@@ -579,8 +638,9 @@ def approval_record(item: dict, **fields: object) -> dict | None:
     basis = approval_basis(item)
     if not basis:
         return None
+    bound = {"connection_id": item["connection_id"]} if item.get("connection_id") else {}
     return {**fields, "hash": artifact.sha256_json(basis), "scheme": APPROVAL_SCHEME,
-            "video_sha256": basis["video_sha256"], "account": autopublish.account_id(item["platform"])}
+            "video_sha256": basis["video_sha256"], "account": item_account(item), **bound}
 
 
 def publication_unstarted(item: dict) -> bool:
@@ -665,7 +725,7 @@ def approval_problem(item: dict, quick: bool = False) -> str:
     if appr.get("scheme") != APPROVAL_SCHEME:
         return ("approved before ClipForge checked who may watch it" if appr.get("scheme") == 2 else
                 "approved before ClipForge checked the exact video file")
-    now_account = autopublish.account_id(item["platform"])
+    now_account = item_account(item)  # the post's own account; an unbound post goes to the default account
     if appr.get("account") and now_account and appr["account"] != now_account:
         return "another account is connected now than the one it was approved for"
     stamp = item.get("audience") or {}
@@ -745,6 +805,10 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     if not autopublish.same_account(consent):
         _note(item, "Held for your review: automatic publishing was turned on for another channel than the one "
                     "connected now")
+        return False
+    if item.get("connection_id") and item_account(item) != autopublish.account_id(item["platform"]):
+        # The permission names the default channel only; a post planned for another chosen channel is the owner's.
+        _note(item, "Held for your review: automatic publishing was turned on for another channel than this post's")
         return False
     clip = db.get_clip(item["clip_id"]) or {}
     report = gate.report_for(clip) if clip else None
@@ -932,10 +996,12 @@ def reschedule(item_id: str, planned_at: float) -> dict:
         raise ValueError("This post can no longer be moved")
     settings = db.get_settings()
     gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 0))
+    account = effective_connection_id(item)
     for other in db.select("scheduled_publications", "platform = ? AND id != ? AND status IN ('awaiting_approval', "
                                                      "'approved', 'publishing', 'reconciling', 'published')",
                            (item["platform"], item_id)):
-        if other["planned_at"] and abs(other["planned_at"] - planned_at) < gap:
+        if other["planned_at"] and abs(other["planned_at"] - planned_at) < gap and \
+                effective_connection_id(other) == account:  # each account keeps its own gap
             raise ValueError(f"Less than {gap / 60:.0f} minutes from another {item['platform']} post "
                              f"(“{other['title'][:40]}”)")
     local = _local(planned_at, settings)
@@ -977,8 +1043,7 @@ def lead_seconds(item: dict, settings: dict) -> float:
 
 
 def _spacing_key(item: dict) -> str:
-    account = (item.get("approval") or {}).get("account") or (
-        db.get_account(item["platform"]) or {}).get("account_id") or ""
+    account = (item.get("approval") or {}).get("account") or item_account(item)
     return f"upload_spacing:{item['platform']}:{account}"
 
 
@@ -1036,11 +1101,12 @@ def space_pending_posts(settings: dict, now: float) -> int:
     changed = 0
     for item in sorted(pending, key=lambda row: (row["planned_at"], row["id"])):
         when = max(now, item["planned_at"])
-        if plan.free(item["platform"], item["planned_at"], item["clip_id"]):
+        if plan.free(item["platform"], item["planned_at"], item["clip_id"], item.get("connection_id") or ""):
             plan.add(item)
             continue
         plan.now = when
-        slot = plan.best_slot(item["platform"], item["clip_id"], 0.0, Timing(item["platform"], settings))
+        slot = plan.best_slot(item["platform"], item["clip_id"], 0.0, Timing(item["platform"], settings),
+                              item.get("connection_id") or "")
         if not slot:
             plan.add(item)
             continue
@@ -1168,7 +1234,7 @@ def process_due(settings: dict, now: float) -> dict:
     for item in db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved') AND planned_at IS "
                                                     "NULL"):
         timing = Timing(item["platform"], settings)
-        slot = plan.best_slot(item["platform"], item["clip_id"], 0.0, timing)
+        slot = plan.best_slot(item["platform"], item["clip_id"], 0.0, timing, item.get("connection_id") or "")
         if slot:
             db.update("scheduled_publications", item["id"], planned_at=slot[0], slot=slot[1], replaces="",
                       audit=_audit(item, "rescheduled", f"New time {slot[1]['local']}"))

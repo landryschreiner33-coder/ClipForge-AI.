@@ -1,5 +1,26 @@
 # Implementation status
 
+## Choose which channels each post goes to — 2026-11-18 (Claude Code)
+
+Branch `claude/project-thread-rxehvi` from the release line at 56d2cbd. Prepare post, Post selected… and Missions
+(submitted videos and live streams) let the owner tick the YouTube channels and TikTok accounts a post goes to, or
+All; Autopilot plans one post per chosen channel. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-18, on d9cb7c9 | `python -m pytest -m "not slow" -q` | 2743 passed, 2 skipped, 1 failed, 32 deselected (1785 s); the failure, `test_an_nvenc_encode_waits_while_the_gpu_is_transcribing` (a 2.5-second timing test, code not touched), passed 3 of 3 times alone |
+| 2026-11-18, on d9cb7c9 | `python -m pytest tests/test_post_to_channels.py -q` | 23 passed |
+| 2026-11-18 | `cd frontend && npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-18 | browser check against a throwaway app with fake channels | 16 of 16 steps passed, no page errors |
+| 2026-11-18, on 6d51ff0 | GitHub run 44320764673: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | all three passed |
+| 2026-11-18, after the second review's fixes | `python -m pytest tests/test_post_to_channels.py -q` | 31 passed (8 new; 6 fail on the code before the fixes) |
+| 2026-11-18, after the second review's fixes | `python -m pytest -m "not slow"` on the 50 test files that touch the changed modules | 880 passed, 12 deselected |
+| 2026-11-18, after the second review's fixes | `npx tsc --noEmit`, `npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-18, after the second review's fixes | browser check against a throwaway app with fake channels | 27 of 27 steps passed, no page errors |
+
+The full suites and the Native Mac desktop app run on the final commit are on the pull request. Not verified: real
+YouTube channels and TikTok accounts; the screens in the Mac window.
+
 ## Clip live streams while they are live, several at once — 2026-11-16 (Claude Code)
 
 PR #52, branch `claude/project-thread-09o53d` from the release line at cef8add. Missions → Live streams records

@@ -360,6 +360,8 @@ export interface Publication {
   id: string;
   clip_id: string;
   platform: Platform;
+  /** The account it went to; empty on an old upload, which went to the platform's default account. */
+  connection_id?: string;
   mode: "direct" | "inbox";
   status: "queued" | "uploading" | "processing" | "done" | "action_needed" | "failed" | "cancelled";
   progress: number;
@@ -392,7 +394,9 @@ export const api = {
     req<Publication>("POST", `/api/clips/${clipId}/publish/${platform}`, body),
   publications: (clipId: string) => req<Publication[]>("GET", `/api/clips/${clipId}/publications`),
   cancelPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/cancel`),
-  tiktokCreator: () => req<TikTokCreator>("GET", "/api/publish/tiktok/creator"),
+  /** The account's posting options, read fresh from TikTok (the default account when no connection is named). */
+  tiktokCreator: (connectionId?: string) => req<TikTokCreator>("GET", `/api/publish/tiktok/creator${connectionId
+    ? `?${new URLSearchParams({ connection_id: connectionId })}` : ""}`),
   refreshStats: (pubId: string) => req<Publication>("POST", `/api/publications/${pubId}/stats`),
   linkTikTok: (pubId: string, url: string) => req<Publication>("POST", `/api/publications/${pubId}/link`, { url }),
   /** You shared the private YouTube video with your invited viewers (your word: YouTube does not report it). */
