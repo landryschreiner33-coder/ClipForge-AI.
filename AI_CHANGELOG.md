@@ -41,7 +41,7 @@ pull request #59. **Not released.** Framing and the split view from the same mes
   of moment, clips that showed it with clips that did not. A clear difference (6 clips and 3 videos on each side,
   past a bar split over the kinds tested and read from Student's t with the error taken over videos, view counts
   compared only when read at about the same age) becomes
-  a memory "From your results: look for …" that clip picking and the chat read. On pure noise about 2-4% of runs
+  a memory "From your results: look for …" that clip picking and the chat read. On pure noise about 1-3% of runs
   make a lesson. Forget it and it stays forgotten while the numbers say the same; switch it off or rewrite it and it is
   left alone.
 - **Titles, post text and hashtags** (`brain/poststyle.py`, `pipeline/postpack.py`, `autopilot/packaging.py`): what
@@ -117,7 +117,13 @@ pull request #59. **Not released.** Framing and the split view from the same mes
   general post text rules but not one kept for a single video (`autopilot/live.py` was left to the live thread).
 - **Not verified:** a real model's answers with the larger brief; Landry's Mac; real streams; lessons on real
   posted results (tested with recorded stand-in results only).
-- **Checks:** CHECKS_PLACEHOLDER
+- **Checks:** on e932640, `pytest -m "not slow"` 3105 passed, 2 skipped (27 min) and `pytest -m slow` 31 passed,
+  1 skipped (21 min), each alone on the machine; earlier the same on b523866 (3084 passed) and cb646fd (3050
+  passed). `npm run build` reproduces the committed `frontend/dist` (rebuilt after the release line came in; no
+  frontend file changed since). The review checks' 271 owner sentences read as meant (75 about picking, 41 about
+  lengths, 155 about post text), and the fifth check's 18 new test cases fail on the fourth check's code.
+  Lesson simulations: noise alone makes a lesson in 0.5-3% of runs (200 runs each), real gaps are found in 94-100
+  of 100.
 
 ## Live clips: better moments, split view, split between channels, Stop clipping — 2026-11-18 (Claude Code)
 
