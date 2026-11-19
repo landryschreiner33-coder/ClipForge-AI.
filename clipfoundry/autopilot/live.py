@@ -168,6 +168,12 @@ class Session:
                                         source_url=src.get("url", ""), status="processing",
                                         options={**project_options(settings), **live_pick.choices(src, settings)})
             db.update("sources", src["id"], project_id=project["id"])
+        elif "live_framing" not in (project.get("options") or {}):
+            # A stream that was being recorded before streams had their own framing choice: it goes on with the
+            # layout from Settings as it started (its card says No split view), not with a split view mid-stream.
+            db.update_project(project["id"], options={**(project.get("options") or {}), "live_framing": "off",
+                                                      "split_view": "off"})
+            project = db.get_project(project["id"]) or project
         from . import submissions
 
         try:

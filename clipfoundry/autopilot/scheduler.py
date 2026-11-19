@@ -792,7 +792,11 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     from . import submissions
 
     if submissions.for_source(db.fetch("sources", item.get("source_id") or "")):
-        return submissions.auto_approve(item, settings, now)
+        approved = submissions.auto_approve(item, settings, now)
+        if approved and item.get("replaces"):  # like any approved replacement, it takes the weaker post's slot
+            _take_slot(item["id"], db.fetch("scheduled_publications", item["id"]) or item, now,
+                       "approved under the video's upload request")
+        return approved
 
     if rights.review_before_publish(settings):
         return False

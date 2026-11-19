@@ -198,7 +198,8 @@ function SubmittedRow({ item, timezone, disabled, act }: {
         <p className="tiny faint">Added {when(source.created_at || item.added_at, timezone)}
           {source.auto_upload ? ` · YouTube ${source.privacy === "public" ? "Public" : "Private"}`
             : " · Stays on this PC"}
-          {source.auto_upload && channelNames(source).length > 0 && ` to ${nameList(channelNames(source))}`}</p>
+          {source.auto_upload && channelNames(source).length > 0 && ` to ${nameList(channelNames(source))}`}
+          {source.auto_upload && source.split === "turns" && ", taking turns"}</p>
       </div>
       <Pill tone={tone}>{label}</Pill>
     </div>

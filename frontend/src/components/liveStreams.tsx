@@ -266,7 +266,7 @@ function StreamRow({ item, timezone, disabled, act }: {
           {item.submission.auto_upload && channelNames(item.submission).length > 0
             && ` to ${nameList(channelNames(item.submission))}`}
           {item.submission.split === "turns" && ", taking turns"}
-          {` · ${item.live.pick_label} · ${item.live.framing_label}`}
+          {[item.live.pick_label, item.live.framing_label].filter(Boolean).map((label) => ` · ${label}`).join("")}
           {ended && canAddAgain(item) && " · Add the link again to record its next stream"}</p>
       </div>
       <Pill tone={tone} icon={icon} className={item.live.recording ? "pulse" : ""}>{word}</Pill>

@@ -566,3 +566,25 @@ def test_a_stream_keeps_the_choices_it_was_added_with(data):  # noqa: F811
         {"layout": "auto", "live_framing": "auto", "live_pick": "best"}
     assert live_pick.choices({"intake": {"live_choices": {"framing": "auto", "pick": "best"}}},
                                db.get_settings()) == {"layout": "auto", "live_framing": "auto", "live_pick": "best"}
+
+
+def test_a_stream_recording_since_before_the_choice_keeps_its_layout(data):  # noqa: F811
+    """A stream that was being recorded before streams had a framing choice: its card says No split view, and its
+    next clips are planned that way too (not with the Settings' own split view)."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import live, submissions
+    from clipfoundry.pipeline import render
+
+    src = going_live(add_live())
+    project = db.create_project("Older stream", origin="live", source_id=src["id"], status="processing",
+                                options={"live_pick": "best"})
+    db.update("sources", src["id"], project_id=project["id"])
+    assert db.get_settings()["split_view"] == "auto"
+    sess = live.Session(db.fetch("sources", src["id"]), db.get_settings())
+    opts = sess.project["options"]
+    assert opts["live_framing"] == "off" and opts["split_view"] == "off" and opts["live_pick"] == "best"
+    planned = render.cam_layout(render.effective_options(db.get_settings(), opts, {}),
+                                render.layout_chosen(sess.project, {"edit": {}}))
+    assert planned == db.get_settings()["layout"]
+    shown = next(row for row in submissions.live_items() if row["id"] == src["id"])
+    assert shown["live"]["framing_label"] == "No split view"
