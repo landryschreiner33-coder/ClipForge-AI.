@@ -162,7 +162,7 @@ It covers that one broadcast only, never the channel's later streams.
   or *no split view*. When ClipForge finds a face cam laid over the picture (`pipeline/reframe.find_cam`), the clip
   shows the face cam across the top, a strip for the headline and the captions under it, and below that the
   **whole picture** at full width, nothing cut off, over a blurred fill (`reframe.split_panels`). Settings →
-  Defaults → **Under the face cam** switches every split view to *Zoomed in* (the picture's middle fills
+  Defaults → **Under the face cam** switches new split views to *Zoomed in* (the picture's middle fills
   everything under the cam, captions on the line between), and the clip editor has the same choice for one clip.
   Without a face cam the clip uses the layout from Settings. This also fixes clips that used to park on the corner
   holding the face cam. Split view is not only for streams: any clip whose layout nobody chose (no choice in the
