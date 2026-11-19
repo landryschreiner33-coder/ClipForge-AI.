@@ -9,21 +9,23 @@
    same canvas colour, so there is no bright flash). */
 :root, :root[data-palette="studio"] {
   color-scheme: dark;
-  --canvas: #0A0C12; --surface: #11151E; --raised: #181D28; --hover: #202633; --border: #2A3142;
-  --control-border: #7D879B; --text: #F5F6FA; --text-2: #D0D5E0; --text-3: #A8B2C5; --disabled: #8C95A8;
-  --on-primary: #0B0D14; --focus: #7FD3FF;
+  /* deep navy space, warm white type, thin blue-grey dividers (the space studio, design/space-studio) */
+  --canvas: #060A18; --surface: #0B1226; --raised: #111B35; --hover: #182444; --border: #26324F;
+  --control-border: #7C89A8; --text: #F8F4EC; --text-2: #D7DBE8; --text-3: #A7B2CC; --disabled: #8C95A8;
+  --on-primary: #0B0D14; --focus: #8FE3FF;
   --good: #46D6C4; --good-tint: #0F2E2B; --warn: #F2B84B; --warn-tint: #33280F; --bad: #FF7A85; --bad-tint: #3A1B22;
-  --info: #6FB8FF; --info-tint: #13283F; --neutral: #D0D5E0; --neutral-tint: #1D2331;
-  --frame: #05060A;
+  --info: #7CC4FF; --info-tint: #13283F; --neutral: #D7DBE8; --neutral-tint: #1A2440;
+  --frame: #03050C;
 }
 :root[data-palette="midnight"] { --canvas: #070B18; --surface: #0E1529; --raised: #151D3B; --hover: #1C2548; --border: #28365F; --neutral-tint: #172142; }
 :root[data-palette="graphite"] { --canvas: #0D0E10; --surface: #151619; --raised: #1C1D21; --hover: #24262B; --border: #34363C; --neutral-tint: #212226; }
 :root[data-palette="plum"] { --canvas: #0F0A16; --surface: #180F22; --raised: #20162D; --hover: #2A1F3A; --border: #382B4C; --neutral-tint: #231A31; }
 
-/* Accents: each checked at >= 4.5:1 as text on every palette's surfaces, and for the dark text on an accent button. */
-:root, :root[data-accent="violet"] { --primary: #9A7CFF; --primary-hover: #B29BFF; --primary-tint: #241D45; }
+/* Accents: each checked at >= 4.5:1 as text on every palette's surfaces, and for the dark text on an accent button.
+   Glacier (the id stays "blue") is the default: the space studio's cyan controls. */
+:root, :root[data-accent="blue"] { --primary: #6CCFF6; --primary-hover: #95DEFA; --primary-tint: #0D2A3B; }
+:root[data-accent="violet"] { --primary: #9A7CFF; --primary-hover: #B29BFF; --primary-tint: #241D45; }
 :root[data-accent="teal"] { --primary: #2DD4BF; --primary-hover: #5EEAD4; --primary-tint: #0F2E2B; }
-:root[data-accent="blue"] { --primary: #4FA3FF; --primary-hover: #7DBBFF; --primary-tint: #12263F; }
 :root[data-accent="coral"] { --primary: #FF8A5B; --primary-hover: #FFA884; --primary-tint: #3A2117; }
 :root[data-accent="green"] { --primary: #3DD68C; --primary-hover: #6BE3A8; --primary-tint: #10301F; }
 :root[data-accent="pink"] { --primary: #FF6FB5; --primary-hover: #FF96C8; --primary-tint: #3A1730; }

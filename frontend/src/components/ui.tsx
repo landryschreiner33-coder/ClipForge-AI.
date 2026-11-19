@@ -47,6 +47,11 @@ const PATHS = {
   zip: "M6 3h9l4 4v14H6zM11 3v2M11 7v2M11 11v2M10 15h2v3h-2z",
   copy: "M8 8h12v12H8zM4 16V4h12",
   cloud: "M7 18a4 4 0 0 1-.5-8 6 6 0 0 1 11.5 1.5A3.5 3.5 0 0 1 17.5 18z",
+  clapper: "M4 10h16v10H4zM4 10l1-5h15l-1 5M9.5 5L8 10M14.5 5L13 10M19.5 5L18 10",
+  brain: "M9.5 4.5A2.5 2.5 0 0 0 7 7a2.5 2.5 0 0 0-2.5 4A3 3 0 0 0 6 16.5 2.5 2.5 0 0 0 9.5 19.5V4.5zM14.5 4.5A2.5 2.5 0 0 1 17 7a2.5 2.5 0 0 1 2.5 4 3 3 0 0 1-1.5 5.5 2.5 2.5 0 0 1-3.5 3V4.5zM9.5 10H7.5M14.5 10h2M9.5 14.5H8M14.5 14.5H16",
+  layers: "M12 3l9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5",
+  bars: "M6 20v-7M12 20V5M18 20v-10",
+  satellite: "M8 8l4 4M5 5l3 3-3 3-3-3zM16 16l3 3-3 3-3-3zM11 11l2 2M14 5a5 5 0 0 1 5 5M14 8a2 2 0 0 1 2 2",
   // older names, kept so existing parts keep working
   dashboard: "M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-6h4v6",
   create: "M12 5v14M5 12h14",
@@ -246,11 +251,17 @@ export function EmptyState({ icon = "film", title, children, actions, level = 2 
 export type Crumb = { label: ReactNode; href?: string };
 
 /** The page's kind label, its one H1 (focused after navigation), one supporting line and at most one action. */
+/** The page's name as the masthead shows it (App.tsx). A page title that only repeats it stays in the page for screen
+ * readers and keyboard focus, but is not drawn twice. */
+export const MastheadTitle = createContext("");
+
 export function PageHead({ kind, title, sub, actions, crumbs }: {
   kind?: ReactNode; title: ReactNode; sub?: ReactNode; actions?: ReactNode; crumbs?: Crumb[];
 }) {
+  const masthead = useContext(MastheadTitle);
+  const same = typeof title === "string" && title === masthead;
   return (
-    <div className="page-head">
+    <div className={`page-head${same ? " title-in-masthead" : ""}`}>
       <div>
         {crumbs && crumbs.length > 0 && (
           <nav className="crumbs" aria-label="Breadcrumb">
@@ -263,7 +274,7 @@ export function PageHead({ kind, title, sub, actions, crumbs }: {
           </nav>
         )}
         {kind && <span className="kind-label">{kind}</span>}
-        <h1 tabIndex={-1} className="break">{title}</h1>
+        <h1 tabIndex={-1} className={same ? "sr-only" : "break"}>{title}</h1>
         {sub && <p className="muted">{sub}</p>}
       </div>
       {actions && <div className="actions">{actions}</div>}

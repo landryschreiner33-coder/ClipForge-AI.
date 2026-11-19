@@ -3,7 +3,8 @@
  * compares them). Everything role-specific the office draws lives here, so pages never branch on a role id:
  * palette, silhouette parts, equipment, signature work animation, home station and manager.
  *
- * Sprites are drawn from these parts by sprites.ts on a 48×64 pixel cell (see design/robots/README.md).
+ * The ship draws each robot from the crew art in public/space (design/space-studio/README.md); these parts and
+ * palettes still colour the details panels and the team page.
  */
 
 export type Rank = "director" | "manager" | "worker";

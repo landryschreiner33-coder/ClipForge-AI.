@@ -1,14 +1,13 @@
-/** Furnished PixiJS living studio. Real feed states drive work, reports and handoffs. */
-import { Application, Assets, Container, Graphics, Texture } from "pixi.js";
-import { CAST, BY_ID, Dir, RoomId } from "./cast";
-import { ROOM_ACCENT } from "./draw";
-import { Snapshot } from "./api";
-import { BreakActivity, CORE_AT, Pt, ROBOT_SCALE, ROOMS, STATION, WORLD } from "./world";
-import { Pose } from "./sprites";
-import { createRobot } from "./StudioArt";
-import { createBrainCore } from "./BrainCore";
-import { cachedLightPool, createLoungeDecor, skylineWindow } from "./LoungeDecor";
+/** The living ship, drawn with Canvas 2D from the pixel art in public/space (design/space-studio holds the tools that
+ * made it). Real office states light the rooms, wake the consoles and move the crew; the engines, CORE's idle rings,
+ * idle fidgets and lounge life are decoration. Everything holds one still picture when motion is reduced, the page is
+ * hidden, or the feed is paused or lost (AGENTS.md rule 14): the caller passes `still` and draws less often. */
+import { BY_ID, Dir, RoomId } from "./cast";
+import { RoleState, Snapshot } from "./api";
+import { BreakActivity, CONSOLE, HATCH, Pt, ROOM, ROOMS, STATION, VIEW, WORLD } from "./world";
+import { ART, CELL, CONSOLE_ART, EXHAUST_ART, FrameName, frameIndex, Pose, spaceImage } from "./crew";
 import type { OfficeDuty } from "./DepartmentDuty";
+import SHIP from "../space/ship-world.json";
 
 export interface SceneActor {
   id: string; x: number; y: number; pose: Pose; dir: Dir; selected: boolean;
@@ -19,374 +18,407 @@ export interface SceneActor {
   duty?: OfficeDuty;
 }
 export interface SceneHandoff { id: number; from: Pt; to: Pt; progress: number }
-type RobotArt = ReturnType<typeof createRobot>;
-const INK = "#101925", WOOD = "#b89570", WOOD_EDGE = "#80644d";
-const FLOOR: Record<RoomId, string> = {
-  lounge: "#343e42", control: "#343b49", brain: "#353448", intake: "#30423e", research: "#464039",
-  story: "#354256", editing: "#423644", quality: "#3a403f", sound: "#3c394e", publishing: "#34433f",
-};
-const px = (g: Graphics, x: number, y: number, w: number, h: number, color: string, alpha = 1) => {
-  g.rect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)).fill({ color, alpha });
-};
-const box = (g: Graphics, x: number, y: number, w: number, h: number, color: string, edge = INK) => {
-  px(g, x, y, w, h, edge); px(g, x + 1, y + 1, w - 2, h - 2, color);
-};
-function plant(g: Graphics, x: number, y: number, tall = false) {
-  px(g, x - 6, y + 7, 17, 3, "#07101b", .3);
-  box(g, x - 2, y, 12, 10, "#b77d59"); px(g, x - 1, y + 1, 10, 2, "#dfb18e");
-  px(g, x + 3, y - (tall ? 23 : 12), 2, tall ? 25 : 14, "#77995e");
-  for (const [dx, dy, w, h] of tall ? [[-8, -24, 10, 8], [3, -29, 9, 9], [7, -17, 10, 7], [-7, -13, 10, 7]]
-    : [[-5, -10, 8, 6], [3, -16, 8, 8], [6, -8, 8, 6]]) {
-    box(g, x + dx, y + dy, w, h, "#537a58", "#233e38");
-    px(g, x + dx + 1, y + dy + 1, w - 3, 2, "#91b47a");
-  }
+/** Short-lived cues the page saw happen: DOCK's beacon when a clip arrives for review. */
+export interface SceneCues { dockUntil?: number }
+export type CoreMode = "offline" | "paused" | "active" | "standby";
+
+const OX = -VIEW.x, OY = -VIEW.y;
+/** Characters step at ten frames a second, like hand-drawn pixel animation. */
+const STEP = 100;
+const BUSY: RoleState[] = ["working", "retrying", "reviewing"];
+const ENGINE_MS = [96, 121, 147];
+const CORE_TOP = 47, CORE_SPLIT = 44;
+
+function hash(text: string) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return h >>> 0;
 }
-function rug(g: Graphics, x: number, y: number, w: number, h: number, color: string) {
-  box(g, x, y, w, h, color, "#232b36");
-  px(g, x + 3, y + 3, w - 6, 1, "#ede1c0", .18);
-  px(g, x + 3, y + h - 4, w - 6, 1, "#ede1c0", .18);
-  for (let xx = x + 8; xx < x + w - 5; xx += 8) px(g, xx, y + 5, 1, h - 10, "#13232a", .08);
+function canvas(w: number, h: number) {
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h));
+  return c;
 }
-function shelf(g: Graphics, x: number, y: number, w = 28, h = 32) {
-  box(g, x, y, w, h, "#76645b");
-  const books = ["#b88377", "#c2ab7c", "#729cae", "#779e84", "#ac91bd"];
-  for (let row = 0; row < 2; row++) {
-    const sy = y + 3 + row * Math.floor(h / 2);
-    px(g, x + 1, sy + 10, w - 2, 2, "#433b41");
-    for (let j = 0; j < Math.floor((w - 5) / 4); j++) {
-      box(g, x + 3 + j * 4, sy + j % 2, 3, 10 - j % 2, books[(j + row) % books.length]);
-      px(g, x + 3 + j * 4, sy + 2, 1, 1, "#e4d5b0");
-    }
-  }
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("The ship pictures took too long to load")), ms);
+    promise.then(v => { clearTimeout(timer); resolve(v); }, e => { clearTimeout(timer); reject(e); });
+  });
 }
-function windowPanel(g: Graphics, x: number, y: number, w = 36) {
-  box(g, x - 2, y - 2, w + 4, 23, "#172638", "#131e2b");
-  box(g, x, y, w, 18, "#41606a", "#819293");
-  px(g, x + 2, y + 2, w - 4, 5, "#a8c5bf", .36);
-  px(g, x + Math.floor(w / 2), y + 1, 2, 16, "#8b9391");
-  px(g, x + 1, y + 9, w - 2, 1, "#707e83");
-  px(g, x - 3, y + 18, w + 6, 3, "#a5a493");
-  g.poly([x + 2, y + 21, x + w - 2, y + 21, x + w + 14, y + 57, x + 18, y + 57])
-    .fill({ color: "#cce4d8", alpha: .045 });
-}
-function chairBack(g: Graphics, p: Pt, color: string, rest = false) {
-  const w = rest ? 34 : 30;
-  px(g, p.x - w / 2 + 2, p.y - 3, w + 1, 6, "#09131f", .24);
-  box(g, p.x - w / 2, p.y - 34, w, 22, color, "#1a2530");
-  px(g, p.x - w / 2 + 2, p.y - 32, w - 4, 3, "#ccddd0", .22);
-  px(g, p.x - w / 2 + 2, p.y - 29, 2, 14, "#18232b", .23);
-  box(g, p.x - w / 2 + 1, p.y - 17, w - 2, 12, color, "#24303a");
-  px(g, p.x - w / 2 + 3, p.y - 16, w - 6, 2, "#d8d2b3", .14);
-  px(g, p.x - 9, p.y - 4, 2, 7, "#253142"); px(g, p.x + 7, p.y - 4, 2, 7, "#253142");
-}
-function deskBack(g: Graphics, p: Pt, w: number) {
-  px(g, p.x - w / 2 + 2, p.y - 11, w + 2, 17, "#091421", .25);
-  px(g, p.x - w / 2 + 4, p.y - 16, 4, 18, "#253140");
-  px(g, p.x + w / 2 - 8, p.y - 16, 4, 18, "#253140");
-  box(g, p.x - w / 2 + 2, p.y - 20, w - 4, 12, WOOD_EDGE);
-}
-function deskFront(g: Graphics, p: Pt, w: number, accent: string) {
-  box(g, p.x - w / 2 - 1, p.y - 22, w + 2, 12, WOOD);
-  px(g, p.x - w / 2 + 1, p.y - 21, w - 2, 2, "#e0bf96");
-  px(g, p.x - w / 2 + 2, p.y - 12, w - 4, 4, WOOD_EDGE);
-  px(g, p.x - w / 2 + 4, p.y - 10, w - 8, 1, "#c6a681", .5);
-  box(g, p.x - 10, p.y - 21, 20, 4, "#5d6872");
-  for (let j = 0; j < 6; j++) px(g, p.x - 8 + j * 3, p.y - 20, 2, 1, "#b4bbc0");
-  box(g, p.x + w / 2 - 11, p.y - 23, 6, 5, "#d3c6ae");
-  px(g, p.x + w / 2 - 9, p.y - 22, 2, 2, accent, .7);
-}
-function monitor(g: Graphics, lights: Graphics, p: Pt, accent: string) {
-  const x = p.x - 20, y = p.y - 57, w = 26;
-  box(g, x, y, w, 18, "#435267");
-  px(g, x + 2, y + 2, w - 4, 12, "#12283b");
-  px(g, x + 1, y + 1, w - 2, 1, "#81909c");
-  px(g, x + 12, y + 18, 3, 5, "#263243");
-  box(g, x + 6, y + 22, 15, 3, "#636f7c");
-  px(lights, x + 3, y + 3, w - 6, 10, accent, .24);
-  px(lights, x + 4, y + 5, 4, 3, accent, .7);
-  px(lights, x + w - 5, y + 15, 2, 1, accent, .85);
-}
+type Art = { ship: HTMLImageElement; lights: HTMLImageElement; crew: HTMLImageElement; consoles: HTMLImageElement;
+  exhaust: HTMLImageElement; core: HTMLImageElement };
 
 export class StudioScene {
-  private app: Application;
-  private robots = new Map<string, RobotArt>();
-  private lights = new Map<RoomId, Graphics>();
-  private roomHighlights = new Map<RoomId, Graphics>();
-  private selector = new Graphics();
-  private racks = new Graphics();
-  private rackLamps: Pt[] = [];
-  private core = createBrainCore();
-  private actors = new Container();
-  private transfers = new Graphics();
-  private skyline: Texture | null;
-  private croppedTextures: Texture[] = [];
-  private lounge: ReturnType<typeof createLoungeDecor> | null = null;
+  private ctx: CanvasRenderingContext2D;
+  private base: HTMLCanvasElement;
+  private bloom: HTMLCanvasElement;
+  private glows = new Map<string, HTMLCanvasElement>();
+  private side = new Map<string, "left" | "right">();
   private destroyed = false;
   private brainBusy = false;
   private lastActualBrainBusy: boolean | undefined;
   private brainSuppressed = false;
 
-  private constructor(app: Application, skyline: Texture | null) { this.app = app; this.skyline = skyline; }
-  static async create(canvas: HTMLCanvasElement): Promise<StudioScene> {
-    const app = new Application();
-    let scene: StudioScene | undefined;
-    try {
-      await app.init({ canvas, width: WORLD.w, height: WORLD.h, resolution: 1, antialias: false,
-        autoStart: false, preference: "webgl", preserveDrawingBuffer: true, backgroundAlpha: 0,
-        powerPreference: "low-power" });
-      // This optional decoration cannot hold the first office frame indefinitely. Assets owns the shared texture;
-      // a request finishing after the deadline only populates its cache, with no late scene mutation or ticker.
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const requestedSkyline = Assets.load<Texture>("/office-art/skyline.png").catch(() => null);
-      const skyline = await Promise.race([requestedSkyline, new Promise<null>(resolve => {
-        timer = setTimeout(() => resolve(null), 1500);
-      })]);
-      if (timer !== undefined) clearTimeout(timer);
-      if (skyline) skyline.source.scaleMode = "nearest";
-      scene = new StudioScene(app, skyline);
-      scene.build();
-      return scene;
-    } catch (error) {
-      try {
-        if (scene) scene.destroy();
-        else app.destroy(false, { children: true });
-      } catch { /* init may not have completed */ }
-      throw error;
-    }
+  private constructor(cv: HTMLCanvasElement, private art: Art) {
+    const ctx = cv.getContext("2d");
+    if (!ctx) throw new Error("Canvas drawing is unavailable");
+    this.ctx = ctx;
+    cv.width = VIEW.w; cv.height = VIEW.h;
+    // The hull, rooms and furniture never change: draw them once.
+    this.base = canvas(VIEW.w, VIEW.h);
+    const b = this.base.getContext("2d")!;
+    b.imageSmoothingEnabled = false;
+    b.drawImage(art.ship, OX, OY, WORLD.w, WORLD.h);
+    // A soft bloom made from the lit pixels: shrink, then grow back smoothly (works in every browser).
+    const small = canvas(VIEW.w / 6, VIEW.h / 6), s = small.getContext("2d")!;
+    s.imageSmoothingEnabled = true;
+    s.drawImage(art.lights, OX / 6, OY / 6, WORLD.w / 6, WORLD.h / 6);
+    this.bloom = canvas(VIEW.w, VIEW.h);
+    const bl = this.bloom.getContext("2d")!;
+    bl.imageSmoothingEnabled = true; bl.imageSmoothingQuality = "high";
+    bl.drawImage(small, 0, 0, VIEW.w, VIEW.h);
+    bl.globalAlpha = .55; bl.imageSmoothingEnabled = false;
+    bl.drawImage(art.lights, OX, OY, WORLD.w, WORLD.h);
+    // Every light on the ship glows a little all the time; working rooms glow more (see draw).
+    b.globalCompositeOperation = "lighter"; b.globalAlpha = .22;
+    b.drawImage(this.bloom, 0, 0);
+    b.globalCompositeOperation = "source-over"; b.globalAlpha = 1;
   }
-  private foreground(g: Graphics, feet: number) {
-    g.zIndex = feet + 1;
-    this.actors.addChild(g);
-  }
-  private window(g: Graphics, x: number, y: number, w = 36, section = .5) {
-    windowPanel(g, x, y, w);
-    const cropped = skylineWindow(g, this.skyline, x + 2, y + 2, w - 4, 12, section);
-    if (cropped) this.croppedTextures.push(cropped);
-  }
-  private build() {
-    const g = new Graphics();
-    this.app.stage.addChild(g);
-    px(g, 0, 0, WORLD.w, WORLD.h, "#1c293a");
-    for (let y = 0; y < WORLD.h; y += 16) for (let x = 0; x < WORLD.w; x += 24) {
-      px(g, x + 1, y + 1, 23, 15, "#28374a");
-      if ((x / 24 + y / 16) % 4 === 0) px(g, x + 3, y + 3, 5, 1, "#71829a", .12);
-    }
-    // Inset hall light strips mark the real clear circulation space, without drawing fake job paths.
-    for (const [y, x1, x2] of [[280, 8, 952], [446, 8, 952], [144, 440, 664]]) {
-      px(g, x1, y, x2 - x1, 1, "#94a9bd", .14);
-      px(g, x1, y + 1, x2 - x1, 3, "#9dbfbe", .035);
-    }
-    this.actors.sortableChildren = true;
-    for (const r of ROOMS) {
-      const accent = ROOM_ACCENT[r.id], x = r.x, y = r.y;
-      px(g, x + 4, y + 6, r.w, r.h, "#08101b", .3);
-      box(g, x, y, r.w, r.h, FLOOR[r.id], "#142234");
-      for (let yy = y + 20; yy < y + r.h - 1; yy += 12) {
-        px(g, x + 3, yy, r.w - 6, 1, "#152333", .17);
-        for (let xx = x + 16 + ((yy - y) % 24 ? 0 : 22); xx < x + r.w - 3; xx += 44)
-          px(g, xx, yy - 10, 1, 10, "#142435", .12);
-      }
-      // Layered ambient light is decorative and static. Work lights below remain tied to real roles.
-      for (let layer = 0; layer < 5; layer++)
-        px(g, x + 10 + layer * 9, y + 18 + layer * 5, r.w - 20 - layer * 18, r.h - 28 - layer * 10,
-          r.id === "lounge" ? "#d1c394" : "#d5dded", .012);
-      px(g, x + 1, y + 1, r.w - 2, 8, "#47556a");
-      px(g, x + 1, y + 1, r.w - 2, 1, "#8291a2", .55);
-      px(g, x + 1, y + 8, r.w - 2, 3, "#1b2b3b");
-      px(g, x + 1, y + 10, 3, r.h - 11, "#536074");
-      px(g, x + r.w - 4, y + 10, 3, r.h - 11, "#23354b");
-      px(g, x + 4, y + r.h - 3, r.w - 8, 2, "#1d2c3c");
-      px(g, x + 6, y + 10, r.w - 12, 1, accent, .24);
-      const d = r.door;
-      if (d.y === y + r.h) {
-        px(g, d.x - 17, d.y - 4, 34, 8, "#344153");
-        px(g, d.x - 17, d.y - 3, 2, 7, "#809094"); px(g, d.x + 15, d.y - 3, 2, 7, "#809094");
-      } else {
-        px(g, d.x - 4, d.y - 56, 8, 64, "#2b3b4e");
-        px(g, d.x - 4, d.y - 57, 8, 2, "#849296"); px(g, d.x - 4, d.y + 7, 8, 2, "#6c797f");
-        px(g, d.x - 2, d.y - 55, 4, 61, "#2b3b4e");
-      }
-      const glow = new Graphics();
-      px(glow, x + 6, y + 11, r.w - 12, 2, accent, .3);
-      this.lights.set(r.id, glow); this.app.stage.addChild(glow);
-      const pulse = new Graphics();
-      pulse.rect(x + 2, y + 2, r.w - 4, r.h - 4).stroke({ color: accent, width: 1, alpha: .7 });
-      pulse.visible = false; this.roomHighlights.set(r.id, pulse); this.app.stage.addChild(pulse);
 
-      if (r.id === "control") rug(g, x + 43, y + 65, 108, 52, "#525040");
+  static async create(cv: HTMLCanvasElement): Promise<StudioScene> {
+    const names = ["ship.png", "ship-lights.png", "crew.png", "consoles.png", "exhaust.png", "core.png"];
+    const [ship, lights, crew, consoles, exhaust, core] = await withTimeout(Promise.all(names.map(spaceImage)), 12000);
+    return new StudioScene(cv, { ship, lights, crew, consoles, exhaust, core });
+  }
 
-      if (r.id === "lounge") {
-        this.lounge = createLoungeDecor(g, this.actors, this.skyline, chairBack);
-      } else {
-        for (const c of CAST.filter(character => character.room === r.id)) {
-          const p = STATION[c.id], width = c.id === "command" ? 74 : 56;
-          chairBack(g, p, c.rank === "director" ? "#766047" : "#526772");
-          deskBack(g, p, width); monitor(g, glow, p, accent);
-          const front = new Graphics(); deskFront(front, p, width, accent);
-          this.foreground(front, p.y);
-        }
-      }
-      if (r.id !== "lounge") cachedLightPool(g, x + r.w / 2, y + r.h * .55,
-        r.w * .36, r.h * .2, r.id === "brain" ? "#b6a0da" : "#e6d3ac", .04);
-      switch (r.id) {
-        case "control":
-          this.window(g, x + 55, y + 19, 78);
-          shelf(g, x + 10, y + 23, 25, 35); plant(g, x + 165, y + 61, true);
-          box(g, x + 152, y + 21, 22, 21, "#66594d");
-          px(g, x + 155, y + 24, 16, 15, "#cfb685"); px(g, x + 162, y + 27, 2, 10, "#695c49");
-          break;
-        case "brain":
-          rug(g, x + 45, y + 54, 175, 112, "#424759");
-          this.window(g, x + 18, y + 21, 29); this.window(g, x + r.w - 48, y + 21, 29);
-          shelf(g, x + 9, y + 59, 30, 46); shelf(g, x + r.w - 40, y + 61, 29, 45);
-          plant(g, x + 21, y + 142, true); plant(g, x + r.w - 27, y + 143, true);
-          // Archive cabinets flank the pedestal and never masquerade as performance data.
-          for (const dx of [43, 206]) {
-            box(g, x + dx, y + 127, 23, 28, "#54536a");
-            for (let row = 0; row < 3; row++) {
-              box(g, x + dx + 2, y + 130 + row * 7, 19, 5, "#373e53");
-              px(g, x + dx + 10, y + 132 + row * 7, 4, 1, "#aea3ba");
-            }
-          }
-          this.core.container.position.set(CORE_AT.x, CORE_AT.y);
-          break;
-        case "research":
-          // a media wall: picture, footage and sound tiles (decoration; it never shows search results)
-          for (let j = 0; j < 4; j++) {
-            box(g, x + 22 + j * 38, y + 14, 30, 13, "#6d6253");
-            px(g, x + 24 + j * 38, y + 16, 26, 9, ["#2c4a5c", "#4a3b5c", "#2f5246", "#5c4a2c"][j]);
-            px(g, x + 28 + j * 38, y + 19, 8, 3, "#d9c9a8", .45);
-          }
-          plant(g, x + r.w - 20, y + 66); break;
-        case "quality":
-          for (const dx of [14, 65]) {
-            box(g, x + dx, y + 23, 42, 39, "#465261");
-            px(g, x + dx + 2, y + 25, 38, 2, "#91a0a8", .5);
-            for (let j = 0; j < 4; j++) {
-              box(g, x + dx + 4, y + 29 + j * 7, 34, 5, "#263549");
-              this.rackLamps.push({ x: x + dx + 7, y: y + 31 + j * 7 });
-              px(g, x + dx + 13, y + 31 + j * 7, 18, 1, "#718395", .6);
-            }
-          }
-          shelf(g, x + 146, y + 22, 43, 34); break;
-        case "publishing":
-          // the posting calendar (decoration only: planned posts are listed in the room panel)
-          box(g, x + 32, y + 26, 144, 36, "#beaf8e"); px(g, x + 35, y + 29, 138, 5, "#877464");
-          for (let row = 0; row < 2; row++) for (let col = 0; col < 9; col++)
-            box(g, x + 39 + col * 14, y + 39 + row * 10, 10, 7, "#e0d2b4", "#a49880");
-          this.window(g, x + 290, y + 24, 72);
-          for (const [dx, dy, w] of [[408, 28, 21], [418, 46, 22], [386, 38, 18]]) {
-            box(g, x + dx, y + dy, w, 18, "#ae8e69"); px(g, x + dx + Math.floor(w / 2), y + dy + 1, 2, 15, "#dac396");
-            box(g, x + dx + 3, y + dy + 4, 6, 5, "#d6cfb5");
-          }
-          plant(g, x + 21, y + 88, true); break;
-        case "intake":
-          this.window(g, x + 67, y + 22, 65); this.window(g, x + 170, y + 22, 65);
-          plant(g, x + 16, y + 59, true); shelf(g, x + r.w - 36, y + 22, 25, 30); break;
-        case "story":
-          for (let j = 0; j < 3; j++) {
-            box(g, x + 38 + j * 73, y + 23, 51, 20, "#738491");
-            px(g, x + 41 + j * 73, y + 26, 45, 14, "#273d51");
-            px(g, x + 47 + j * 73, y + 30, 10, 6, "#9ebdc2", .45);
-            px(g, x + 62 + j * 73, y + 30, 18, 1, "#a3b5bc", .45);
-          }
-          break;
-        case "editing":
-          shelf(g, x + 11, y + 20, 35, 30);
-          for (let j = 0; j < 3; j++) {
-            box(g, x + 82 + j * 62, y + 23, 43, 21, "#666077");
-            box(g, x + 85 + j * 62, y + 26, 37, 15, "#253748");
-            for (const dx of [0, 5, 10]) px(g, x + 88 + j * 62 + dx, y + 28, 3, 2, "#bc94b0", .65);
-          }
-          break;
-        case "sound":
-          shelf(g, x + 16, y + 23, 40, 34); shelf(g, x + 152, y + 23, 40, 34);
-          box(g, x + 78, y + 24, 48, 26, "#88758a"); px(g, x + 81, y + 27, 42, 20, "#dbd0bd");
-          for (const dy of [32, 38, 43]) px(g, x + 87, y + dy, dy === 43 ? 22 : 30, 1, "#726579");
-          break;
-        default: break;
-      }
+  /** A soft round light, made once per colour and size. */
+  private glow(color: string, radius: number) {
+    const key = `${color}:${radius}`;
+    let g = this.glows.get(key);
+    if (!g) {
+      g = canvas(radius * 2, radius * 2);
+      const c = g.getContext("2d")!, grad = c.createRadialGradient(radius, radius, 0, radius, radius, radius);
+      grad.addColorStop(0, color); grad.addColorStop(.35, `${color}88`); grad.addColorStop(1, `${color}00`);
+      c.fillStyle = grad; c.fillRect(0, 0, radius * 2, radius * 2);
+      this.glows.set(key, g);
     }
-    // Cache all static floor, furniture backs and ambient lighting once.
-    g.cacheAsTexture({ resolution: 1, antialias: false });
-    if (this.lounge) this.app.stage.addChild(this.lounge.container);
-    this.app.stage.addChild(this.core.container, this.racks, this.selector, this.actors, this.transfers);
-    for (const c of CAST) {
-      const art = createRobot(c); art.container.scale.set(ROBOT_SCALE);
-      this.robots.set(c.id, art); this.actors.addChild(art.container);
-    }
+    return g;
+  }
+  private light(x: number, y: number, radius: number, color: string, alpha: number) {
+    if (alpha <= 0.01) return;
+    const ctx = this.ctx, r = Math.round(radius), g = this.glow(color, r);
+    ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = Math.min(1, alpha);
+    ctx.drawImage(g, Math.round(x + OX - r), Math.round(y + OY - r));
+    ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
   }
 
   draw(snap: Snapshot, actors: SceneActor[], t: number, still: boolean, pulseUntil: Map<RoomId, number>,
-    coreBusy: boolean, offline = false, handoffs: SceneHandoff[] = []) {
+    coreBusy: boolean, offline = false, handoffs: SceneHandoff[] = [], cues: SceneCues = {}) {
     if (this.destroyed) return;
-    const busy = new Set(snap.roles.filter(r => r.state === "working" && BY_ID[r.id]).map(r => BY_ID[r.id].room));
-    for (const [id, lights] of this.lights) lights.alpha = busy.has(id) && !offline ? .9 : .22;
-    for (const [id, highlight] of this.roomHighlights) {
-      const until = pulseUntil.get(id) || 0;
-      highlight.visible = until > t;
-      highlight.alpha = still ? .5 : Math.min(.7, Math.max(0, (until - t) / 900));
-    }
-    const paused = ["paused", "pausing"].includes(snap.run.state) || snap.brain?.state === "paused";
+    const ctx = this.ctx;
+    const step = Math.floor(t / STEP) * STEP;
+    const states = new Map(snap.roles.map(r => [r.id, r.state]));
+    const busyRooms = new Set<RoomId>();
+    for (const r of snap.roles) if (BUSY.includes(r.state) && BY_ID[r.id]) busyRooms.add(BY_ID[r.id].room);
+    const runPaused = ["paused", "pausing"].includes(snap.run.state);
+    const paused = runPaused || snap.brain?.state === "paused";
     const actualBrainBusy = snap.brain?.state === "evaluating" || snap.brain?.activity?.state === "working"
-      || busy.has("brain");
+      || busyRooms.has("brain");
+    // A still picture keeps a short cue at its frozen phase, while a real change of state still shows.
     if (paused || offline) this.brainBusy = false;
     else if (!still || this.lastActualBrainBusy === undefined || this.brainSuppressed) {
       this.brainBusy = coreBusy || actualBrainBusy;
     } else if (actualBrainBusy !== this.lastActualBrainBusy) this.brainBusy = actualBrainBusy;
     this.lastActualBrainBusy = actualBrainBusy;
     this.brainSuppressed = paused || offline;
-    // Retain transient cues at their frozen phase, while genuine snapshot state changes stay visible.
-    const mode = offline ? "offline" : paused ? "paused" : this.brainBusy ? "active" : "standby";
-    this.core.update(t, still, mode);
-    this.lounge?.update(t, still || offline || ["paused", "pausing"].includes(snap.run.state));
-    this.racks.clear();
-    const colors: Record<string, string> = {
-      healthy: "#8bbc96", degraded: "#dcc080", error: "#e08788", unknown: "#71849c",
-    };
-    for (let j = 0; j < Math.min(this.rackLamps.length, snap.health.checks.length); j++) {
-      const p = this.rackLamps[j];
-      px(this.racks, p.x, p.y, 3, 2, offline ? colors.unknown : colors[snap.health.checks[j].status] || colors.unknown);
-    }
-    this.selector.clear();
-    const present = new Set(actors.map(a => a.id));
-    for (const [id, art] of this.robots) art.container.visible = present.has(id);
-    for (const actor of actors) {
-      const art = this.robots.get(actor.id);
-      if (!art) continue;
-      art.container.position.set(Math.round(actor.x), Math.round(actor.y));
-      art.container.zIndex = actor.y;
-      art.animate(actor.pose, t, still, actor.dir, actor.posture || "stand",
-        actor.breakActivity, actor.breakPhase || 0, actor.duty === "supervising" || actor.supervising || false);
-      if (actor.selected) {
-        const x = Math.round(actor.x), y = Math.round(actor.y);
-        this.selector.poly([x - 19, y - 4, x, y - 8, x + 19, y - 4, x, y + 3])
-          .fill({ color: "#c9b98c", alpha: .14 }).stroke({ color: "#e5cf96", width: 1 });
+    const coreMode: CoreMode = offline ? "offline" : paused ? "paused" : this.brainBusy ? "active" : "standby";
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, VIEW.w, VIEW.h);
+    ctx.imageSmoothingEnabled = false;
+    this.engines(step, still, offline);
+    ctx.drawImage(this.base, 0, 0);
+
+    // Room lights: a working room is lit; the rest keep their resting glow.
+    for (const r of ROOMS) {
+      if (r.id === "lounge") continue;
+      const lit = busyRooms.has(r.id) && !offline;
+      let alpha = lit ? .62 : 0;
+      if (lit && !still) alpha += .08 * Math.sin((t + hash(r.id) % 900) / 650);
+      if (r.id === "brain" && coreMode === "active") alpha = Math.max(alpha, .5);
+      if (alpha > 0) {
+        ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = alpha;
+        ctx.drawImage(this.bloom, r.x + OX, r.y + OY, r.w, r.h, r.x + OX, r.y + OY, r.w, r.h);
       }
     }
-    // The single card exists only during the controller's genuine pass phase; it never invents a handoff.
-    this.transfers.clear();
-    for (const handoff of handoffs) {
-      const p = Math.max(0, Math.min(1, handoff.progress));
-      const x = Math.round(handoff.from.x + (handoff.to.x - handoff.from.x) * p);
-      const y = Math.round(handoff.from.y + (handoff.to.y - handoff.from.y) * p - 22 - Math.sin(Math.PI * p) * 3);
-      if (!still && p > .1 && p < .9) {
-        const dx = Math.sign(handoff.to.x - handoff.from.x);
-        px(this.transfers, x - dx * 10 - 2, y, 4, 1, "#d8cbb0", .3);
-        px(this.transfers, x - dx * 7 - 1, y - 2, 3, 1, "#d8cbb0", .5);
-      }
-      box(this.transfers, x - 5, y - 5, 10, 10, "#efe4c9", "#263142");
-      px(this.transfers, x - 3, y - 3, 6, 2, "#ad89c3");
-      px(this.transfers, x - 3, y + 1, 5, 1, "#74818a");
+    ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+    this.core(step, t, still, coreMode);
+    this.dockBeacon(t, still, (cues.dockUntil || 0) > t && !offline, states.get("dock"));
+
+    // Consoles and robots, nearest last.
+    const items: { y: number; draw: () => void }[] = [];
+    const where = new Map(actors.map(a => [a.id, a]));
+    for (const [id, at] of Object.entries(CONSOLE)) {
+      if (!at) continue;
+      const room = BY_ID[id]?.room, row = CONSOLE_ART.rows.indexOf(room);
+      if (row < 0) continue;
+      const a = where.get(id), state = states.get(id) || "unavailable", home = STATION[id], r = ROOM[room];
+      const inRoom = !!a && a.x >= r.x && a.x <= r.x + r.w && a.y >= r.y && a.y <= r.y + r.h;
+      const atDesk = !!a && Math.abs(a.x - home.x) + Math.abs(a.y - home.y) < 6;
+      const working = atDesk && (state === "working" || state === "retrying") && !offline;
+      let col = !inRoom || state === "unavailable" || offline ? 0 : 1;
+      if (working) col = 2 + (still ? 1 : Math.floor((step + hash(id) % 400) / 125) % 4);
+      items.push({ y: at.y - .5, draw: () => {
+        const [cw, ch] = CONSOLE_ART.cell;
+        ctx.drawImage(this.art.consoles, col * cw, row * ch, cw, ch,
+          Math.round(at.x - cw / 2 + OX), Math.round(at.y - ch + 1 + OY), cw, ch);
+        if (working) this.light(at.x, at.y - 14, 16, r.accent, .55);
+      } });
     }
-    this.app.renderer.render(this.app.stage);
+    for (const a of actors) items.push({ y: a.y, draw: () => this.robot(a, states.get(a.id) || "unavailable", step,
+      still, offline) });
+    items.sort((p, q) => p.y - q.y);
+    for (const item of items) item.draw();
+
+    // Work passed from one robot to the next: a real handoff only, drawn while the controller passes it.
+    for (const h of handoffs) {
+      const p = Math.max(0, Math.min(1, h.progress));
+      const x = h.from.x + (h.to.x - h.from.x) * p, y = h.from.y + (h.to.y - h.from.y) * p - 24
+        - Math.sin(Math.PI * p) * 6;
+      this.paper(x, y);
+    }
+    // A room that just received a decision outlines itself briefly.
+    for (const r of ROOMS) {
+      const until = pulseUntil.get(r.id) || 0;
+      if (until <= t) continue;
+      ctx.globalAlpha = still ? .7 : Math.min(.85, Math.max(0, (until - t) / 900));
+      ctx.strokeStyle = r.accent; ctx.lineWidth = 3;
+      ctx.strokeRect(r.x + OX + 3, r.y + OY + 3, r.w - 6, r.h - 6);
+      ctx.globalAlpha = 1;
+    }
+    if (offline) {
+      ctx.fillStyle = "rgba(6, 10, 24, .38)";
+      ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+    }
   }
+
+  private engines(step: number, still: boolean, offline: boolean) {
+    const ctx = this.ctx, [w, h] = EXHAUST_ART.cell;
+    SHIP.engines.forEach(([x, y], i) => {
+      const k = still ? (i * 2) % EXHAUST_ART.count : Math.floor((step + i * 377) / ENGINE_MS[i]) % EXHAUST_ART.count;
+      const flicker = still ? 1 : .86 + .14 * (((k * 7 + i * 3) % 5) / 4);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = (offline ? .45 : 1) * flicker;
+      ctx.drawImage(this.art.exhaust, 0, k * h, w, h, x - w + OX, y - h / 2 + OY, w, h);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+      this.light(x - 6, y, 34, "#7fdcff", (offline ? .2 : .45) * flicker);
+    });
+  }
+
+  private core(step: number, t: number, still: boolean, mode: CoreMode) {
+    const ctx = this.ctx, img = this.art.core;
+    const cx = SHIP.core.x, cy = SHIP.core.y, left = Math.round(cx - img.width / 2 + OX);
+    const top = Math.round(cy - img.height / 2 + OY);
+    const strength = { active: .75, standby: .38, paused: .2, offline: .08 }[mode];
+    this.light(cx, cy - 16, 64, "#b46cff", strength);
+    const bob = still || mode === "paused" || mode === "offline" ? 0
+      : Math.round(Math.sin(step / (mode === "active" ? 420 : 900)) * 1.6);
+    ctx.globalAlpha = mode === "offline" ? .55 : 1;
+    // The projector stays put; the brain floats above it.
+    ctx.drawImage(img, 0, CORE_SPLIT, img.width, img.height - CORE_SPLIT, left, top + CORE_SPLIT, img.width,
+      img.height - CORE_SPLIT);
+    ctx.drawImage(img, 0, 0, img.width, CORE_TOP, left, top + bob, img.width, CORE_TOP);
+    ctx.globalAlpha = 1;
+    if (mode === "offline") return;
+    // Orbiting rings around the brain, and rings the projector sends up while CORE works.
+    const brainY = cy - 22 + bob + OY, x = cx + OX;
+    const turn = still ? .6 : t / (mode === "active" ? 2200 : 7000) * Math.PI * 2;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineWidth = 1.5;
+    for (const [rx, ry, tilt, offset] of [[46, 10, -.16, 0], [40, 13, .22, Math.PI * .8]]) {
+      ctx.strokeStyle = "#a678ff"; ctx.globalAlpha = .28 + strength * .25;
+      ctx.beginPath(); ctx.ellipse(x, brainY, rx, ry, tilt, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "#e7d2ff"; ctx.globalAlpha = .45 + strength * .4;
+      const a = turn + offset;
+      ctx.beginPath(); ctx.ellipse(x, brainY, rx, ry, tilt, a, a + .9); ctx.stroke();
+    }
+    if (mode === "active") {
+      const baseY = cy + 8 + OY;
+      for (let i = 0; i < 3; i++) {
+        const p = still ? (i + 1) / 4 : ((t / 1500) + i / 3) % 1;
+        ctx.strokeStyle = "#c79bff"; ctx.globalAlpha = (1 - p) * .7;
+        ctx.beginPath(); ctx.ellipse(x, baseY - p * 34, 14 + p * 24, 3 + p * 5, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+  }
+
+  private dockBeacon(t: number, still: boolean, acknowledging: boolean, state: RoleState | undefined) {
+    const x = HATCH.x, y = HATCH.y - 30, ctx = this.ctx;
+    const uploading = state === "working" || state === "retrying";
+    let alpha = uploading ? .35 : .12;
+    if (acknowledging) alpha = still ? .9 : .45 + .5 * Math.max(0, Math.sin(t / 110));
+    else if (uploading && !still) alpha += .15 * Math.sin(t / 500);
+    this.light(x, y, 26, "#ffb347", alpha);
+    ctx.fillStyle = acknowledging || uploading ? "#ffd27a" : "#8a6a3a";
+    ctx.fillRect(Math.round(x - 3 + OX), Math.round(y - 2 + OY), 6, 4);
+    if (acknowledging && !still) {
+      // a turning beam, like a lighthouse
+      const a = (t / 420) % (Math.PI * 2);
+      ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = .35; ctx.fillStyle = "#ffb347";
+      ctx.beginPath(); ctx.moveTo(x + OX, y + OY);
+      ctx.arc(x + OX, y + OY, 42, a, a + .45); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+    }
+  }
+
+  private frame(a: SceneActor, state: RoleState, t: number, still: boolean): { frame: FrameName; dx: number } {
+    const seed = hash(a.id);
+    const toward: FrameName = (CONSOLE[a.id]?.x ?? STATION[a.id].x + 1) < STATION[a.id].x ? "look_left" : "look_right";
+    if (a.pose === "walk" || a.pose === "carry") {
+      if (a.dir === "left" || a.dir === "right") this.side.set(a.id, a.dir);
+      const side = this.side.get(a.id) || "right";
+      if (still) return { frame: side === "left" ? "look_left" : "look_right", dx: 0 };
+      return { frame: `walk_${side}_${Math.floor(t / 170) % 2 ? "b" : "a"}` as FrameName, dx: 0 };
+    }
+    if (a.pose === "work" || a.pose === "retry" || a.pose === "approved") {
+      if (still) return { frame: "work_2", dx: 0 };
+      const ms = a.pose === "retry" ? 90 : 125;
+      const cycle: FrameName[] = a.pose === "approved" ? ["work_1", "work_2", "work_3", "work_3", "work_3", "work_2"]
+        : ["work_0", "work_1", "work_2", "work_3", "work_3", "work_3", "work_2", "work_1", "work_0", "work_0", toward,
+          toward];
+      return { frame: cycle[Math.floor((t + seed % 1500) / ms) % cycle.length], dx: 0 };
+    }
+    if (still) return { frame: "idle", dx: 0 };
+    if (a.pose === "review" || a.pose === "wait") {
+      const cycle: FrameName[] = ["idle", "look_left", "look_left", "idle", "look_right", "look_right"];
+      return { frame: cycle[Math.floor((t + seed % 2000) / 450) % cycle.length], dx: 0 };
+    }
+    if (a.pose === "rework") return { frame: Math.floor(t / 500) % 2 ? "look_left" : "idle", dx: 0 };
+    if (a.pose === "error") return { frame: Math.floor(t / 600) % 2 ? "blink" : "idle", dx: 0 };
+    if (a.pose === "paused" || a.pose === "unavailable" || state === "unavailable") return { frame: "idle", dx: 0 };
+    if (a.breakActivity) return this.breakFrame(a, t, seed);
+    // Idle crew blink, look around and shift their weight, each on its own clock.
+    const period = 4800 + seed % 3200, u = (t + seed) % period, round = Math.floor((t + seed) / period);
+    if (u < 130) return { frame: "blink", dx: 0 };
+    if (round % 3 === 1) {
+      if (u >= 1800 && u < 2500) return { frame: "look_left", dx: 0 };
+      if (u >= 2500 && u < 3100) return { frame: "look_right", dx: 0 };
+    }
+    if (round % 3 === 2 && u >= 2000 && u < 3400) return { frame: "idle", dx: seed & 1 ? 1 : -1 };
+    return { frame: "idle", dx: 0 };
+  }
+
+  private breakFrame(a: SceneActor, t: number, seed: number): { frame: FrameName; dx: number } {
+    const phase = a.breakPhase || 0;
+    switch (a.breakActivity) {
+      case "rest": return { frame: phase > .45 && phase < .8 ? "blink" : "idle", dx: 0 };
+      case "read": return { frame: Math.floor((t + seed) / 900) % 2 ? "look_left" : "look_right", dx: 0 };
+      case "arcade": {
+        const cycle: FrameName[] = ["look_left", "look_left", "idle", "look_right", "idle", "look_left"];
+        return { frame: cycle[Math.floor((t + seed) / 260) % cycle.length], dx: 0 };
+      }
+      case "boardgame": {
+        const k = Math.floor((t + seed) / 1300) % 3;
+        return { frame: k === 0 ? "look_right" : k === 1 ? "look_left" : "idle", dx: 0 };
+      }
+      default: return { frame: (t + seed) % 3600 < 140 ? "blink" : "idle", dx: 0 };
+    }
+  }
+
+  private robot(a: SceneActor, state: RoleState, step: number, still: boolean, offline: boolean) {
+    const art = ART[a.id];
+    if (!art) return;
+    const ctx = this.ctx;
+    const { frame, dx } = this.frame(a, state, step, still);
+    const seated = a.posture === "rest" && !!a.breakActivity;
+    const x = Math.round(a.x + dx), y = Math.round(a.y);
+    if (a.selected) this.marker(x, y, step, still);
+    // a soft shadow grounds the robot on the floor
+    ctx.fillStyle = "rgba(6, 8, 20, .35)";
+    ctx.beginPath(); ctx.ellipse(x + OX, y + OY, art.w * .36, 3, 0, 0, Math.PI * 2); ctx.fill();
+    const dim = offline ? .7 : state === "unavailable" || a.pose === "unavailable" ? .5 : a.pose === "paused" ? .78 : 1;
+    const sx = frameIndex(frame) * CELL.w, sy = art.row * CELL.h;
+    // seated robots tuck their feet behind the sofa or table
+    const cut = seated ? 6 : 0;
+    ctx.globalAlpha = dim;
+    ctx.drawImage(this.art.crew, sx, sy, art.w, art.h - cut, Math.round(x - art.cx + OX),
+      Math.round(y - art.foot + OY + (seated ? 4 : 0)), art.w, art.h - cut);
+    ctx.globalAlpha = 1;
+    if (frame.startsWith("work_") && !offline) {
+      const k = Number(frame.slice(5));
+      for (const [gx, gy, r, color] of art.glows[k] || []) {
+        this.light(x - art.cx + gx, y - art.foot + gy, Math.max(4, r * 2.2), color, .75);
+      }
+    }
+    if (a.pose === "carry") this.paper(x + 10, y - 18);
+    if (a.breakActivity && (!still || a.breakActivity === "read")) this.prop(a, x, y, art.h);
+    if (state === "error" && !offline) {
+      if (still || Math.floor(step / 400) % 2 === 0) this.light(x, y - art.h - 5, 8, "#ff5d6c", .9);
+      ctx.fillStyle = "#ff5d6c";
+      ctx.fillRect(x - 2 + OX, y - art.h - 7 + OY, 4, 4);
+    }
+  }
+
+  /** Small things robots hold on a break: a cup, a snack, a book or a game piece. */
+  private prop(a: SceneActor, x: number, y: number, height: number) {
+    const ctx = this.ctx, phase = a.breakPhase || 0, chest = y - height * .42;
+    const px = (dx: number, dy: number, w: number, h: number, color: string) => {
+      ctx.fillStyle = color; ctx.fillRect(Math.round(x + dx + OX), Math.round(dy + OY), w, h);
+    };
+    switch (a.breakActivity) {
+      case "drink": {
+        const lift = phase > .3 && phase < .55 ? 6 : 0;
+        px(9, chest - lift, 4, 5, "#eef3ff"); px(9, chest - lift, 4, 1, "#7a4a2a"); px(13, chest - lift + 1, 1, 2, "#eef3ff");
+        break;
+      }
+      case "snack": {
+        const lift = phase > .35 && phase < .55 ? 6 : 0;
+        px(9, chest - lift, 4, 3, "#ffcf5a"); px(10, chest - lift - 1, 2, 1, "#ffe9a8");
+        break;
+      }
+      case "read":
+        px(-6, chest + 1, 5, 6, "#5b8cff"); px(1, chest + 1, 5, 6, "#5b8cff");
+        px(-5, chest + 2, 4, 4, "#f2f5ff"); px(1, chest + 2, 4, 4, "#f2f5ff");
+        break;
+      case "boardgame":
+        px(-7 + Math.floor(phase * 4) * 3, y - 8, 3, 3, phase > .5 ? "#ff6fae" : "#7fe3ff");
+        break;
+      case "arcade":
+        this.light(x, y - height - 2, 10, phase > .5 ? "#7fe3ff" : "#ff6fae", .35);
+        break;
+      default: break;
+    }
+  }
+
+  private paper(x: number, y: number) {
+    const ctx = this.ctx, left = Math.round(x - 4 + OX), top = Math.round(y - 5 + OY);
+    ctx.fillStyle = "#1a2040"; ctx.fillRect(left - 1, top - 1, 10, 12);
+    ctx.fillStyle = "#f4f1e6"; ctx.fillRect(left, top, 8, 10);
+    ctx.fillStyle = "#9a7cff"; ctx.fillRect(left + 1, top + 1, 6, 2);
+    ctx.fillStyle = "#8d96ab"; ctx.fillRect(left + 1, top + 5, 5, 1); ctx.fillRect(left + 1, top + 7, 4, 1);
+  }
+
+  private marker(x: number, y: number, step: number, still: boolean) {
+    const ctx = this.ctx, bob = still ? 0 : Math.floor(step / 300) % 2;
+    ctx.fillStyle = "rgba(108, 207, 246, .2)"; ctx.strokeStyle = "#6ccff6"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(x + OX, y + OY + 1, 17, 5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // a pointer over the head so the chosen robot is easy to find at whole-ship size
+    const top = y - 58 - bob + OY;
+    ctx.fillStyle = "#081226";
+    ctx.beginPath(); ctx.moveTo(x - 7 + OX, top - 1); ctx.lineTo(x + 7 + OX, top - 1); ctx.lineTo(x + OX, top + 9);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#6ccff6";
+    ctx.beginPath(); ctx.moveTo(x - 5 + OX, top); ctx.lineTo(x + 5 + OX, top); ctx.lineTo(x + OX, top + 7);
+    ctx.closePath(); ctx.fill();
+  }
+
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.core.destroy();
-    this.app.destroy(false, { children: true });
-    for (const texture of this.croppedTextures) texture.destroy(false);
-    this.lounge?.destroy();
+    this.glows.clear();
+    this.base.width = this.base.height = 0;
+    this.bloom.width = this.bloom.height = 0;
   }
 }

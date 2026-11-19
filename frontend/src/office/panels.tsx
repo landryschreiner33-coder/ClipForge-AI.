@@ -9,7 +9,7 @@ import { brainApi, BrainSummary, Health, HealthStatus, office, OfficeDecision, O
   Snapshot, staleHealth } from "./api";
 import Portrait from "./Portrait";
 import { Card, STATE_WORDS } from "./OfficeMap";
-import { Pose } from "./sprites";
+import { Pose } from "./crew";
 
 // ------------------------------------------------------------------ small shared pieces
 export const time = (ts: number | null | undefined, seconds = false) => ts

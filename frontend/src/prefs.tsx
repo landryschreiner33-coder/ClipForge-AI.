@@ -14,7 +14,7 @@ export type Appearance = { palette: "studio" | "midnight" | "graphite" | "plum";
   remember_style: boolean;
   /** Make a YouTube video: ClipForge AI asks questions when something is unclear, or just does it. */
   video_setup_mode: "ask" | "auto" };
-export const DEFAULT_APPEARANCE: Appearance = { palette: "studio", accent: "violet", density: "comfortable",
+export const DEFAULT_APPEARANCE: Appearance = { palette: "studio", accent: "blue", density: "comfortable",
   text_size: "standard", motion: "system", office_size: "expanded", pinned: [], clips_mode: "highlights",
   remember_style: true, video_setup_mode: "ask" };
 const DEFAULT = DEFAULT_APPEARANCE;

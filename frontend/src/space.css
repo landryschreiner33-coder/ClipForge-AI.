@@ -1,0 +1,242 @@
+/* The space studio (2026-11-19, design/space-studio/README.md): deep navy space with fine stars and blue-violet
+   nebulae, warm white type, thin blue-grey dividers and glacier-cyan controls. Loaded after styles.css and theme.css;
+   colours come from the theme tokens, so every palette and accent still applies. The brightest art (the black hole,
+   the ship's lights) stays away from text and inputs, and nothing here moves unless motion is allowed. */
+
+/* ------------------------------------------------------------------ the sky behind every page */
+.cf-shell {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--canvas) 30%, transparent), color-mix(in srgb, var(--canvas) 62%, transparent) 70%),
+    url("/space/sky.jpg") center top / cover fixed no-repeat, var(--canvas);
+}
+/* Pages full of forms and lists keep a calmer, darker sky; the Studio shows it brightest. */
+.cf-shell:not([data-page="studio"]) {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--canvas) 55%, transparent), color-mix(in srgb, var(--canvas) 82%, transparent) 60%),
+    url("/space/sky.jpg") center top / cover fixed no-repeat, var(--canvas);
+}
+
+/* ------------------------------------------------------------------ the left rail */
+.cf-side {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--canvas) 86%, transparent), color-mix(in srgb, var(--canvas) 58%, transparent));
+  border-right: 1px solid var(--line); box-shadow: none; padding: var(--s5) var(--s3) var(--s4); gap: var(--s5);
+}
+.cf-side .brand { flex-direction: column; gap: 6px; padding: 0 0 var(--s4); border-bottom: 1px solid var(--line); min-height: 0; }
+.brand img { border-radius: 10px; box-shadow: 0 0 0 1px var(--line-strong), 0 0 24px -6px color-mix(in srgb, var(--primary) 45%, transparent); }
+.brand-name { font-size: 1.25rem; color: var(--text); }
+.cf-side .nav { flex: 1; gap: 4px; }
+.nav a { min-height: 44px; padding: 0 14px; gap: 12px; font-size: 1rem; color: var(--text-2); transition: background-color 120ms ease, color 120ms ease; }
+.nav a .icon { width: 20px; height: 20px; color: var(--text-3); }
+.nav a:hover { background: color-mix(in srgb, var(--raised) 75%, transparent); }
+.nav a[aria-current="page"] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 22%, var(--surface)), color-mix(in srgb, var(--primary) 8%, transparent));
+  color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 28%, transparent);
+}
+.nav a[aria-current="page"]::before {
+  left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--primary);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 70%, transparent);
+}
+.nav a.nav-bottom { margin-top: auto; }
+.nav a.nav-bottom::after { content: ""; position: absolute; left: 6px; right: 6px; top: calc(-1 * var(--s3)); border-top: 1px solid var(--line); }
+.cf-side .nav a.nav-bottom { margin-top: auto; }
+.cf-side > .btn { min-height: 32px; font-size: var(--fs-tiny); }
+.side-foot { margin-top: 0; }
+.cf-shell.collapsed .cf-side .brand { border-bottom: 0; }
+
+/* ------------------------------------------------------------------ the masthead: title, slim black hole, Autopilot, Make */
+.cf-top {
+  height: auto; min-height: 76px; padding: var(--s3) var(--s6); gap: var(--s4); position: sticky; top: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--canvas) 88%, transparent), color-mix(in srgb, var(--canvas) 64%, transparent));
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
+}
+.cf-top .page-title { font-size: 1.75rem; line-height: 1.15; color: var(--text); letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* On the Studio the masthead floats on the sky, so the big black hole can rise behind it */
+.cf-shell[data-page="studio"] .cf-top { background: none; border-bottom: 0; backdrop-filter: none; -webkit-backdrop-filter: none;
+  position: relative; z-index: auto; }
+.cf-shell[data-page="studio"] .cf-top .page-title { font-size: 2.25rem; }
+.masthead-hole { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(260px, 26vw); z-index: 0; }
+.cf-top > :not(.masthead-hole) { position: relative; z-index: 1; }
+.autopilot-pill { min-height: 40px; padding: 0 16px; gap: 8px; border-radius: var(--r-pill); font-size: var(--fs-body); font-weight: 600;
+  background: color-mix(in srgb, var(--canvas) 70%, transparent); border: 1px solid var(--line-strong); color: var(--text); text-decoration: none; }
+.autopilot-pill:hover { border-color: var(--control-border); }
+.autopilot-pill .state-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-3); flex: none; }
+.autopilot-pill.good .state-dot { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.autopilot-pill.warn .state-dot { background: var(--warn); }
+.autopilot-pill.bad .state-dot { background: var(--bad); }
+.make-btn { min-height: 40px; padding: 0 18px; font-size: 1rem; border-radius: 12px; box-shadow: 0 0 22px -6px color-mix(in srgb, var(--primary) 70%, transparent); }
+@media (max-width: 1023px) {
+  .cf-top { padding: var(--s2) var(--s4); min-height: 60px; }
+  .cf-top .page-title, .cf-shell[data-page="studio"] .cf-top .page-title { font-size: 1.25rem; }
+  .masthead-hole { display: none; }
+}
+
+/* ------------------------------------------------------------------ the black hole */
+.black-hole { position: relative; aspect-ratio: 710 / 246; background: url("/space/blackhole.png") center / contain no-repeat; pointer-events: none; }
+.black-hole .glint {
+  position: absolute; inset: 0; overflow: hidden; mix-blend-mode: screen;
+  -webkit-mask: url("/space/blackhole-glow.png") center / contain no-repeat; mask: url("/space/blackhole-glow.png") center / contain no-repeat;
+}
+/* light travelling along the disk: a long, slow loop, as befits distant scenery */
+.black-hole .glint::before, .black-hole .glint::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -24%; width: 24%;
+  background: linear-gradient(90deg, transparent, rgba(255, 238, 205, 0.9) 50%, transparent); animation: bh-travel 11s linear infinite;
+}
+.black-hole .glint::after { width: 14%; left: -14%; opacity: 0.55; animation-duration: 17s; animation-delay: -6s; animation-direction: reverse; }
+@keyframes bh-travel { from { transform: translateX(0); } to { transform: translateX(520%); } }
+html[data-page-hidden="true"] .black-hole .glint::before, html[data-page-hidden="true"] .black-hole .glint::after { animation-play-state: paused; }
+:root[data-motion="reduced"] .black-hole .glint { display: none; }
+
+/* ------------------------------------------------------------------ surfaces over the sky */
+.panel, .card, .office-panel, .settings-frame, .dialog { background-color: color-mix(in srgb, var(--surface) 90%, transparent); }
+.page-head { border-bottom-color: var(--line); }
+.page-head.title-in-masthead { padding-bottom: 0; border-bottom: 0; }
+.page-head.title-in-masthead > div:first-child:not(:has(> :not(h1))) { display: contents; }
+.btn-primary { box-shadow: 0 0 18px -8px color-mix(in srgb, var(--primary) 80%, transparent); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.btn, .pill, .chip, .seg button, input, select, textarea { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 140ms ease; }
+:root[data-motion="reduced"] .btn, :root[data-motion="reduced"] .nav a { transition: none; }
+
+/* ------------------------------------------------------------------ the ship: canvas, targets and the tools beneath */
+.office-world[data-smooth="true"] canvas { image-rendering: auto; }
+.office-map { background: transparent; border: 0; }
+.office-map .room-sign { opacity: 0; transition: opacity 140ms ease; }
+.office-map .room-hit:hover .room-sign, .office-map .room-hit:focus-visible .room-sign, .office-map .room-hit.on .room-sign,
+.office-map[data-tags="all"] .room-sign { opacity: 1; }
+.office-map[data-tags="chosen"] .robot-tag { opacity: 0; }
+.office-map[data-tags="chosen"] .robot-hit:hover .robot-tag, .office-map[data-tags="chosen"] .robot-hit:focus-visible .robot-tag,
+.office-map[data-tags="chosen"] .robot-hit.on .robot-tag { opacity: 1; }
+.office-map .robot-hit .robot-state { opacity: 0; }
+.office-map .robot-hit:is(:hover, :focus-visible, .on) .robot-state,
+.office-map .robot-hit:is([data-state="error"], [data-state="retrying"], [data-state="waiting"]) .robot-state,
+.office-map[data-tags="all"] .robot-state { opacity: 1; }
+.office-map .room-hit:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.office-map .room-hit:focus-visible, .office-map .room-hit.on { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: 10px; }
+.office-map .robot-hit:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.office-map .robot-hit:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.office-map .brain-core-hit > span { opacity: 0; transition: opacity 140ms ease; }
+.office-map .brain-core-hit:is(:hover, :focus-visible) > span, .office-map[data-tags="all"] .brain-core-hit > span { opacity: 1; }
+.ship-missing { position: absolute; left: 50%; bottom: 8%; transform: translateX(-50%); max-width: 90%; padding: 6px 12px;
+  border: 1px solid var(--line-strong); border-radius: 8px; background: color-mix(in srgb, var(--canvas) 88%, transparent); color: var(--text-2); }
+.office-map[data-renderer="plain"] .room-hit { border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent); }
+.office-map[data-renderer="plain"] .room-sign, .office-map[data-renderer="plain"] .robot-tag { opacity: 1; }
+
+/* ------------------------------------------------------------------ type: the pixel art stays in the pictures */
+.office-page h1, .team-page h1, .op-head h2, .op-name b, .cb-title, .dept-card h3, .team-group h2, .team-card b,
+.office-studio .studio-title { font-family: var(--font); font-weight: 700; letter-spacing: -0.01em; }
+.office-studio .cb-title { color: var(--text); }
+
+/* ------------------------------------------------------------------ the row beneath the ship */
+.office-map-legend .lounge-life-caption {
+  position: static; margin-left: auto; padding: 0; border: 0; background: none; color: var(--text-3); font-size: var(--fs-tiny);
+}
+.office-map-legend.simple { gap: var(--s3); padding: var(--s3) 0 0; background: none; border: 0; color: var(--text-2); font-size: var(--fs-body); }
+.office-map-legend.simple > * + *:not(.handoff-note):not(.lounge-life-caption) { position: relative; }
+.office-map-legend.simple > .ship-tool::before {
+  content: ""; position: absolute; left: calc(-1 * var(--s3) / 2 - 1px); top: 9px; bottom: 9px; border-left: 1px solid var(--line-strong);
+}
+.office-map-legend.simple .office-camera select {
+  min-height: 40px; height: 40px; padding: 0 36px 0 16px; border-radius: 12px; font-size: 1rem; font-weight: 600; max-width: 220px;
+  border: 1.5px solid color-mix(in srgb, var(--primary) 70%, transparent); background-color: color-mix(in srgb, var(--canvas) 70%, transparent);
+}
+.ship-tool {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--text-2); font: inherit; font-size: 1rem; cursor: pointer;
+}
+.ship-tool:hover { color: var(--text); background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.ship-tool[aria-pressed="true"] { color: var(--text); background: color-mix(in srgb, var(--primary) 16%, transparent); }
+.ship-tool .icon { width: 18px; height: 18px; color: var(--text-2); }
+.ship-tool.switch { gap: 8px; min-height: 40px; }
+.ship-tool.switch .track { margin-left: 4px; }
+
+/* robots: real status icons show for real states; an idle or absent robot keeps its picture clear */
+.office-map .robot-hit:not([data-state="idle"]):not([data-state="unavailable"]) .robot-state { opacity: 1; }
+
+/* ------------------------------------------------------------------ the Studio page */
+.page.studio-space { max-width: 1480px; display: grid; gap: var(--s6); }
+.studio-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 380px); gap: var(--s6); align-items: start; }
+.studio-ship { position: relative; display: grid; gap: var(--s3); min-width: 0; }
+.studio-sky { position: relative; height: clamp(96px, 13vw, 168px); margin-top: calc(-1 * clamp(56px, 6vw, 92px)); pointer-events: none; }
+.studio-sky .black-hole { position: absolute; left: 50%; top: 0; width: min(560px, 62%); transform: translateX(-50%); }
+.ship-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s2) var(--s4); }
+.ship-head h2 { margin: 0; font-size: clamp(1.5rem, 2.2vw, 2.125rem); letter-spacing: -0.02em; }
+.ship-count { padding-left: var(--s4); border-left: 1px solid var(--line-strong); color: var(--text-2); font-size: clamp(1.0625rem, 1.4vw, 1.375rem); }
+.ship-live { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: var(--fs-small); }
+.ship-live .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.ship-live.on .state-dot { background: var(--good); box-shadow: 0 0 6px var(--good); }
+.ship-head .spacer { flex: 1; }
+.studio-space .office-map-frame { background: none; border: 0; box-shadow: none; }
+.studio-space .office-map { aspect-ratio: 1608 / 768; min-height: 0; height: auto; }
+.studio-space.ship-compact .studio-ship .office-map-frame { max-width: 860px; }
+.ship-loading { min-height: 240px; display: grid; place-items: center; }
+.ship-hidden { padding: var(--s5) 0; display: grid; gap: var(--s2); }
+
+.studio-today {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3) 0; margin-top: var(--s3); padding-top: var(--s4);
+  border-top: 1px solid var(--line-strong);
+}
+.studio-today > a, .studio-today > span { display: inline-flex; align-items: baseline; gap: 10px; padding: 4px var(--s5); color: var(--text-2);
+  text-decoration: none; font-size: 1.0625rem; border-left: 1px solid var(--line-strong); min-height: 44px; align-items: center; }
+.studio-today > a:first-child { padding-left: 0; border-left: 0; }
+.studio-today > a b { color: var(--text); font-size: 1.875rem; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+.studio-today > a:hover { color: var(--text); }
+.studio-today > a:hover b { color: var(--primary); }
+.studio-compute { margin-left: auto; gap: 8px !important; border-left: 0 !important; padding-right: 0 !important; }
+.studio-compute .icon { width: 20px; height: 20px; }
+.studio-compute .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.studio-compute.good .state-dot { background: var(--good); }
+.studio-compute.warn .state-dot { background: var(--warn); }
+.studio-compute.bad .state-dot { background: var(--bad); }
+
+.studio-side { display: grid; gap: var(--s5); align-content: start; min-width: 0; padding-top: var(--s2); }
+.studio-side > section + section, .studio-side > section + .studio-next { padding-top: var(--s5); border-top: 1px solid var(--line-strong); }
+.studio-side h2 { margin: 0 0 var(--s3); font-size: clamp(1.375rem, 1.8vw, 1.875rem); letter-spacing: -0.02em; }
+.now-making { display: grid; gap: var(--s3); }
+.now-making h2 { margin-bottom: 0; }
+.now-thumb { display: block; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: var(--raised);
+  border: 1px solid var(--line-strong); }
+.now-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 200ms ease; }
+.now-thumb:hover img { transform: scale(1.03); }
+.thumb-empty { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-3); }
+.now-title h3 { margin: 0; font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.01em; }
+.now-title .muted { font-size: 1rem; }
+.now-step { display: flex; justify-content: space-between; gap: var(--s3); margin: 0; font-size: 1.0625rem; color: var(--text); }
+.now-step b { font-variant-numeric: tabular-nums; }
+.now-making .bar { height: 10px; border-radius: 5px; }
+.now-making .bar > span, .now-making .bar > div { border-radius: 5px; box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 60%, transparent); }
+.now-crew { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--s2); }
+.now-empty { margin: 0; font-size: 1.0625rem; line-height: 1.5; }
+.btn-outline { background: transparent; border: 1.5px solid var(--text-2); color: var(--text); min-height: 44px; font-size: 1rem; }
+.btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+.now-making .btn-wide { min-height: 46px; font-size: 1.0625rem; }
+.studio-queue ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s3); }
+.queue-row { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: var(--s3); align-items: center; padding: 4px;
+  margin: -4px; border-radius: 10px; color: var(--text); text-decoration: none; }
+.queue-row:hover { background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.queue-row img, .queue-row .thumb-empty { width: 112px; height: 63px; object-fit: cover; border-radius: 8px; background: var(--raised);
+  border: 1px solid var(--line); }
+.queue-row b { font-size: 1.0625rem; }
+.queue-row .muted { font-size: 0.9375rem; }
+.studio-next { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin: 0; font-size: 1.0625rem; }
+.studio-next .icon { width: 22px; height: 22px; color: var(--text-2); }
+.studio-next a { margin-left: auto; }
+.ship-details { display: grid; gap: var(--s3); min-width: 0; }
+.ship-details .op-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--s2); padding: 0; min-height: 0; border: 0; }
+.ship-details .op-head h2 { margin: 0; font-size: 1.625rem; }
+.ship-details .op-body { padding: 0; max-height: none; overflow: visible; }
+.studio-band { display: grid; gap: var(--s4); padding-top: var(--s5); border-top: 1px solid var(--line); }
+.studio-band h2 { margin: 0; font-size: 1.375rem; }
+
+@media (max-width: 1100px) {
+  .studio-grid { grid-template-columns: minmax(0, 1fr); }
+  .studio-sky { height: 84px; margin-top: -24px; }
+  .studio-side { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s5) var(--s6); }
+  .studio-side > section + section, .studio-side > section + .studio-next { padding-top: 0; border-top: 0; }
+  .studio-compute { margin-left: 0; }
+}
+@media (max-width: 640px) {
+  .studio-sky { display: none; }
+  .studio-today > a, .studio-today > span { padding: 4px var(--s3); font-size: 0.9375rem; }
+  .studio-today > a b { font-size: 1.375rem; }
+  .ship-head .btn { display: none; }
+}

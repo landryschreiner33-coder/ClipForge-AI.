@@ -11,8 +11,8 @@ const PALETTES: { id: Appearance["palette"]; name: string; note: string; swatch:
   { id: "graphite", name: "Graphite", note: "Neutral grey", swatch: ["#0E0F11", "#18191C", "#212226"] },
   { id: "plum", name: "Plum", note: "Dark purple", swatch: ["#100B17", "#1A1325", "#231A31"] },
 ];
-const ACCENTS: [string, string, string][] = [["violet", "Violet", "#9A7CFF"], ["teal", "Teal", "#2DD4BF"],
-  ["blue", "Blue", "#4FA3FF"], ["coral", "Coral", "#FF8A5B"], ["green", "Green", "#3DD68C"], ["pink", "Pink", "#FF6FB5"]];
+const ACCENTS: [string, string, string][] = [["blue", "Glacier", "#6CCFF6"], ["violet", "Violet", "#9A7CFF"],
+  ["teal", "Teal", "#2DD4BF"], ["coral", "Coral", "#FF8A5B"], ["green", "Green", "#3DD68C"], ["pink", "Pink", "#FF6FB5"]];
 const PANEL_NAMES: Record<string, string> = { needs_you: "Needs you", pinned: "Pinned projects",
   current: "Current project", office: "Robot office", recent: "Recent projects", publishing: "Publishing",
   preview: "Preview", outputs: "Clips or sequence", transcript: "Look and sound", guidance: "Used from your Brain" };

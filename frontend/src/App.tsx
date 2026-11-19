@@ -1,7 +1,8 @@
 import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText } from "./api";
 import { ap } from "./autopilot";
-import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, toast, ToastHost, useMenu } from "./components/ui";
+import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, MastheadTitle, toast, ToastHost, useMenu } from "./components/ui";
+import { BlackHole } from "./components/BlackHole";
 import { leaveGuard, leaveTo, navigate, setLeaveAsker, useRoute, type Route } from "./router";
 import { autopilotState, StatusProvider, useStatus } from "./status";
 import { MotionProvider } from "./motion";
@@ -92,7 +93,7 @@ export default function App() {
 
 function Shell({ me }: { me: Me }) {
   const route = useRoute();
-  const { namesVersion, customizing, setCustomizing } = useAppearance();
+  const { namesVersion } = useAppearance();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("clipforge.sidebar") === "collapsed";
@@ -154,14 +155,14 @@ function Shell({ me }: { me: Me }) {
   const fix = st?.home.posts?.fix || 0;
   const nav = (
     <>
-      <NavLink href="#/" icon="home" label="Studio" on={active === "studio"} />
-      <NavLink href="#/projects" icon="film" label="Projects" on={active === "projects"} />
-      <NavLink href="#/brain/styles" icon="spark" label="Brain" on={active === "brain"} />
-      <NavLink href="#/publishing/review" icon="posts" label="Publishing" on={active === "publishing"}
+      <NavLink href="#/" icon="clapper" label="Studio" on={active === "studio"} />
+      <NavLink href="#/projects" icon="folder" label="Projects" on={active === "projects"} />
+      <NavLink href="#/brain/styles" icon="brain" label="Brain" on={active === "brain"} />
+      <NavLink href="#/publishing/review" icon="layers" label="Publishing" on={active === "publishing"}
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>
           : fix ? <span className="count bad" title={`${fix} need you to settle something`}><span className="sr-only">, need you: </span>{fix}</span> : null} />
       <NavLink href="#/accounts" icon="user" label="Accounts" on={active === "accounts"} />
-      <NavLink href="#/settings/appearance" icon="settings" label="Settings" on={active === "settings"} />
+      <NavLink href="#/settings/appearance" icon="settings" label="Settings" on={active === "settings"} bottom />
     </>
   );
   const foot = (
@@ -174,7 +175,7 @@ function Shell({ me }: { me: Me }) {
   );
   const brand = (
     <a className="brand" href="#/" aria-label="ClipForge, Studio">
-      <Logo />
+      <Logo size={40} />
       <span className="brand-name" aria-hidden="true">ClipForge</span>
     </a>
   );
@@ -195,7 +196,7 @@ function Shell({ me }: { me: Me }) {
         e.preventDefault();
         main.current?.focus();
       }}>Skip to content</a>
-      <div className={`cf-shell${collapsed ? " collapsed" : ""}`}>
+      <div className={`cf-shell${collapsed ? " collapsed" : ""}`} data-page={section || "studio"}>
         <aside className="cf-side" aria-label="ClipForge">
           {brand}
           <nav className="nav" aria-label="Main">{nav}</nav>
@@ -210,9 +211,14 @@ function Shell({ me }: { me: Me }) {
               <Icon name="menu" />Menu
             </button>
             <p className="page-title">{SECTION_TITLE[section] || "ClipForge"}</p>
+            {/* the Studio draws its own large black hole in the sky; every other page keeps a slim one up here */}
+            {section !== "" && <BlackHole size="small" className="masthead-hole" />}
             <span className="spacer" />
+            <a href="#/missions" id="top-state" className={`pill autopilot-pill ${state.tone} hide-xs`} aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
+              <span className="state-dot" aria-hidden="true" />Autopilot: {state.word}
+            </a>
             <div className="make-menu" ref={makeMenu.wrap} onKeyDown={makeMenu.onKey}>
-              <button ref={makeMenu.button} type="button" className="btn btn-primary btn-small" aria-haspopup="menu"
+              <button ref={makeMenu.button} type="button" className="btn btn-primary make-btn" aria-haspopup="menu"
                 aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
                 <div role="menu" aria-label="Make">
@@ -223,11 +229,6 @@ function Shell({ me }: { me: Me }) {
                 </div>
               )}
             </div>
-            <button type="button" className="btn btn-small btn-icon" aria-label="Customize studio" title="Customize studio"
-              aria-haspopup="dialog" aria-expanded={customizing} onClick={() => setCustomizing(true)}><Icon name="sliders" /></button>
-            <a href="#/missions" id="top-state" className={`pill ${state.tone} hide-xs`} aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
-              <Icon name="autopilot" />Autopilot: {state.word}
-            </a>
             {me.mode === "cloud" && <>
               <span className="who clamp-1" title={me.name}>{me.name}</span>
               <button type="button" className="btn btn-small" onClick={() => void signOut()}>Sign out</button>
@@ -253,7 +254,9 @@ function Shell({ me }: { me: Me }) {
                 </Banner>
               )}
             </div>
-            <div key={namesVersion} style={{ display: "contents" }}>{page(route)}</div>
+            <MastheadTitle.Provider value={SECTION_TITLE[section] || ""}>
+              <div key={namesVersion} style={{ display: "contents" }}>{page(route)}</div>
+            </MastheadTitle.Provider>
           </main>
         </div>
       </div>
@@ -276,9 +279,10 @@ function Shell({ me }: { me: Me }) {
   );
 }
 
-function NavLink({ href, icon, label, on, extra }: { href: string; icon: IconName; label: string; on: boolean; extra?: ReactNode }) {
+function NavLink({ href, icon, label, on, extra, bottom = false }: { href: string; icon: IconName; label: string; on: boolean;
+  extra?: ReactNode; bottom?: boolean }) {
   return (
-    <a href={href} className={`nav-item ${on ? "active" : ""}`} aria-current={on ? "page" : undefined}>
+    <a href={href} className={`nav-item${on ? " active" : ""}${bottom ? " nav-bottom" : ""}`} aria-current={on ? "page" : undefined}>
       <Icon name={icon} />
       <span>{label}</span>
       {extra}
