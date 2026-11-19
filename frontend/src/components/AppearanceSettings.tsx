@@ -1,11 +1,10 @@
-import { useMotion } from "../motion";
-import { deviceClass, Panel, useAppearance } from "../prefs";
-import { Icon } from "./ui";
-
-const PALETTE_NAMES: Record<string, string> = { studio: "Studio", midnight: "Midnight", graphite: "Graphite", plum: "Plum" };
-const OFFICE_WORDS: Record<string, string> = { full: "Full", calm: "Calm", low_power: "Low power" };
-const MOTION_WORDS: Record<string, string> = { system: "Follow system", full: "Full", reduced: "Reduced" };
-const cap = (s: string) => s[0].toUpperCase() + s.slice(1).replace("_", " ");
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { motionChoice, OfficeActivity, useMotion } from "../motion";
+import { Appearance, deviceClass, Panel, useAppearance } from "../prefs";
+import { PREVIEW_MESSAGE } from "../preview";
+import { ACCENTS, PALETTES } from "./Customize";
+import { Icon, IconName, Segmented } from "./ui";
+import "./AppearanceSettings.css";
 
 /** The panels saved for this device class (desktop, tablet or phone) for one screen, as Customize studio previews
  * or saved them. */
@@ -15,25 +14,163 @@ export function useLayout(screen: string): { panels: Panel[]; visible: (id: stri
   return { panels, visible: (id) => panels.find((p) => p.id === id)?.visible !== false };
 }
 
-/** Settings → Appearance: what is chosen now, and the one place to change it (Customize studio). */
+/**
+ * Settings → Appearance (the space studio, 2026-11-19): each choice applies and saves at once, beside a live preview of
+ * the Studio on a desktop, tablet or phone. Motion is the same switch as Reduce motion under the ship (motionChoice).
+ * Customize studio keeps the panel layouts, which are saved for each kind of device.
+ */
 export default function AppearanceSettings() {
-  const { appearance, state, retry, setCustomizing } = useAppearance();
+  const { appearance, set, state, retry, setCustomizing } = useAppearance();
   const motion = useMotion();
+  const accent = ACCENTS.find(([id]) => id === appearance.accent);
   return (
-    <section className="panel" aria-labelledby="ap-look">
-      <div className="panel-head"><h2 id="ap-look">Appearance</h2>
-        <span className={`save-state ${state === "failed" ? "bad" : ""}`} aria-live="polite">
-          {state === "saving" ? "Saving…" : state === "failed" ? <>Not saved. <button type="button" className="link-btn" onClick={retry}>Retry</button></> : "Saved"}</span></div>
-      <p className="small">ClipForge has one dark design. Choose its colours, spacing, text size, the Studio page's panels
-        and motion in Customize studio, with a live preview.</p>
-      <dl className="facts small">
-        <div><dt>Colours</dt><dd>{PALETTE_NAMES[appearance.palette]} with {cap(appearance.accent)}</dd></div>
-        <div><dt>Spacing and text</dt><dd>{cap(appearance.density)}, {cap(appearance.text_size)} text</dd></div>
-        <div><dt>Office on the Studio page</dt><dd>{cap(appearance.office_size)}</dd></div>
-        <div><dt>Motion (this browser)</dt><dd>{MOTION_WORDS[motion.animationMode]}; office animation {OFFICE_WORDS[motion.officeActivity]}</dd></div>
-        <div><dt>Layouts</dt><dd>Kept separately for desktop, tablet and phone (this is a {deviceClass()})</dd></div>
-      </dl>
-      <button type="button" className="btn btn-primary" onClick={() => setCustomizing(true)}><Icon name="sliders" />Customize studio</button>
+    <div className="ap-space">
+      <section className="ap-form" aria-labelledby="ap-look">
+        <div className="ap-head">
+          <h2 id="ap-look">Appearance</h2>
+          <span className={`ap-saved ${state}`} aria-live="polite">
+            {state === "saving" ? "Saving…" : state === "failed"
+              ? <>Not saved. <button type="button" className="link-btn" onClick={retry}>Try again</button></>
+              : <><Icon name="check" />Saved</>}
+          </span>
+        </div>
+        <div className="ap-row">
+          <span className="ap-label" id="ap-accent">Accent color</span>
+          <div className="ap-control ap-accents">
+            <div className="ap-swatches" role="radiogroup" aria-labelledby="ap-accent">
+              {ACCENTS.map(([id, name, hex]) => (
+                <label key={id} className={`ap-swatch${appearance.accent === id ? " on" : ""}`} title={name}>
+                  <input type="radio" name="ap-accent" value={id} aria-label={name} checked={appearance.accent === id}
+                    onChange={() => set({ accent: id })} />
+                  <i style={{ background: hex }} aria-hidden="true" />
+                </label>
+              ))}
+            </div>
+            <span className="ap-accent-name" aria-hidden="true">{accent ? accent[1] : appearance.accent}</span>
+          </div>
+        </div>
+        <Choice id="ap-palette" label="Background" value={appearance.palette}
+          onChange={(v) => set({ palette: v as Appearance["palette"] })}
+          options={PALETTES.map((p) => [p.id, `${p.name}: ${p.note.toLowerCase()}`])} />
+        <Choice id="ap-density" label="Spacing" value={appearance.density}
+          onChange={(v) => set({ density: v as Appearance["density"] })}
+          options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} />
+        <Choice id="ap-text" label="Text size" value={appearance.text_size}
+          onChange={(v) => set({ text_size: v as Appearance["text_size"] })}
+          options={[["standard", "Standard"], ["large", "Large"], ["larger", "Larger"]]} />
+        <Choice id="ap-ship" label="Ship view" value={appearance.office_size}
+          onChange={(v) => set({ office_size: v as Appearance["office_size"] })}
+          options={[["expanded", "Expanded"], ["compact", "Compact"]]}
+          hint="Compact is shorter and opens a robot's or room's details when you pick one." />
+        <div className="ap-row">
+          <span className="ap-label" id="ap-motion">Motion</span>
+          <div className="ap-control">
+            <Segmented labelledBy="ap-motion" value={motion.reduceMotion ? "reduced" : "full"}
+              onChange={(v) => motion.setAnimationMode(motionChoice(v === "full", motion.systemReducedMotion))}
+              options={[{ value: "full", label: "Full" }, { value: "reduced", label: "Reduced" }]} />
+            <p className="ap-hint">The same switch as Reduce motion under the ship, saved in this browser.
+              {motion.systemReducedMotion && motion.reduceMotion ? " Your computer asks for less motion." : ""}</p>
+          </div>
+        </div>
+        <Choice id="ap-life" label="Robot activity" value={motion.officeActivity}
+          onChange={(v) => motion.setOfficeActivity(v as OfficeActivity)}
+          options={[["full", "Full"], ["calm", "Calm"], ["low_power", "Low power"]]}
+          hint="Real work always shows. Calm stops the robots' breaks, games and snacks; Low power keeps them still and
+            redraws the ship once a second." />
+        <div className="ap-foot">
+          <button type="button" className="btn btn-outline" onClick={() => setCustomizing(true)}>
+            <Icon name="layers" />Customize studio</button>
+          <span className="ap-foot-note">Layouts are saved by device (this is a {deviceClass()}).</span>
+        </div>
+      </section>
+      <StudioPreview />
+    </div>
+  );
+}
+
+/** One labelled choice: a list that applies as soon as it changes. */
+function Choice({ id, label, value, options, onChange, hint }: {
+  id: string; label: string; value: string; options: [string, string][]; onChange: (v: string) => void; hint?: ReactNode;
+}) {
+  return (
+    <div className="ap-row">
+      <label className="ap-label" htmlFor={id}>{label}</label>
+      <div className="ap-control">
+        <select id={id} value={value} onChange={(e) => onChange(e.target.value)}
+          aria-describedby={hint ? `${id}-hint` : undefined}>
+          {options.map(([v, words]) => <option key={v} value={v}>{words}</option>)}
+        </select>
+        {hint && <p className="ap-hint" id={`${id}-hint`}>{hint}</p>}
+      </div>
+    </div>
+  );
+}
+
+type Device = "desktop" | "tablet" | "phone";
+const DEVICES: Record<Device, { w: number; h: number; label: string; icon: IconName }> = {
+  desktop: { w: 1440, h: 900, label: "Desktop", icon: "screen" },
+  tablet: { w: 820, h: 1180, label: "Tablet", icon: "tablet" },
+  phone: { w: 390, h: 844, label: "Phone", icon: "phone" },
+};
+
+/**
+ * The Studio itself in a frame at a desktop, tablet or phone size, scaled to fit. It reads the same projects, robots
+ * and work as the Studio page and shows this page's appearance (or Customize's draft); it is inert, so it cannot be
+ * clicked or tabbed into, and it never saves anything (preview.ts).
+ */
+function StudioPreview() {
+  const { appearance } = useAppearance();
+  const [device, setDevice] = useState<Device>(() => deviceClass());
+  const box = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLIFrameElement | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => setWidth(el.clientWidth);
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+  const send = useCallback(() => {
+    frame.current?.contentWindow?.postMessage({ type: PREVIEW_MESSAGE, appearance }, window.location.origin);
+  }, [appearance]);
+  useEffect(send, [send]);
+  useEffect(() => {
+    const ready = (e: MessageEvent) => {
+      if (e.source === frame.current?.contentWindow && e.data?.type === `${PREVIEW_MESSAGE}:ready`) send();
+    };
+    window.addEventListener("message", ready);
+    return () => window.removeEventListener("message", ready);
+  }, [send]);
+  const frameRef = useCallback((el: HTMLIFrameElement | null) => {
+    frame.current = el;
+    el?.setAttribute("inert", "");  // React 18 has no inert prop; set as the frame appears
+  }, []);
+  const d = DEVICES[device];
+  const scale = width ? Math.min(width / d.w, 560 / d.h) : 0;
+  return (
+    <section className="ap-preview" aria-labelledby="ap-preview-h">
+      <h2 id="ap-preview-h">Studio preview</h2>
+      <p className="sr-only">A live picture of your Studio with these choices, at the size you pick below. It cannot be
+        clicked.</p>
+      <div className="ap-preview-box" ref={box} style={{ height: Math.round(d.h * scale) || undefined }}>
+        <div className={`ap-device ${device}`} style={{ width: Math.round(d.w * scale), height: Math.round(d.h * scale) }}>
+          {scale > 0 && (
+            <iframe key={device} ref={frameRef} title="Studio preview" src="/?preview=studio#/" width={d.w} height={d.h}
+              tabIndex={-1} aria-hidden="true" style={{ transform: `scale(${scale})` }} />
+          )}
+        </div>
+      </div>
+      <div className="ap-devices" role="radiogroup" aria-label="Preview size">
+        {(Object.keys(DEVICES) as Device[]).map((k) => (
+          <label key={k} className={device === k ? "on" : ""}>
+            <input type="radio" name="ap-device" value={k} checked={device === k} onChange={() => setDevice(k)} />
+            <Icon name={DEVICES[k].icon} />{DEVICES[k].label}
+          </label>
+        ))}
+      </div>
     </section>
   );
 }

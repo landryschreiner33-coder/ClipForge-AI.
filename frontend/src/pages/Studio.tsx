@@ -5,7 +5,7 @@ import { BlackHole } from "../components/BlackHole";
 import { Banner, Icon, IconName, ProgressBar, toast } from "../components/ui";
 import { DeleteProjectButton } from "../components/DeleteProject";
 import { useAppearance } from "../prefs";
-import { useMotion } from "../motion";
+import { motionChoice, useMotion } from "../motion";
 import { timeLabel } from "../components/postShared";
 import { useStatus } from "../status";
 import { LibraryItem, studio } from "../studio";
@@ -182,7 +182,7 @@ function StudioShip({ feed, snap, sel, setSel, dockCue }: {
 }) {
   const { reduceMotion, systemReducedMotion, setAnimationMode, officeActivity } = useMotion();
   const connected = !!feed.snap && !feed.lost && !feed.error && feed.lastOk !== null;
-  const toggleMotion = () => setAnimationMode(reduceMotion ? (systemReducedMotion ? "full" : "system") : "reduced");
+  const toggleMotion = () => setAnimationMode(motionChoice(reduceMotion, systemReducedMotion));
   return (
     <>
       <div className="ship-head">

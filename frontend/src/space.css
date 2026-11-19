@@ -378,3 +378,9 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
   .projects-live { padding-left: 0; border-left: 0; padding-top: var(--s5); border-top: 1px solid var(--line-strong); }
   .projects-order { margin-left: 0; }
 }
+
+/* ------------------------------------------------------------------ the Studio preview frame (preview.ts) */
+/* Inside Settings → Appearance's preview the page shows no scroll bars; the frame is a still picture of the top. */
+html[data-preview], html[data-preview] body { overflow: hidden; }
+html[data-preview] * { scrollbar-width: none; }
+html[data-preview] *::-webkit-scrollbar { display: none; }

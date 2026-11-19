@@ -32,6 +32,12 @@ function storedActivity(): OfficeActivity {
   }
 }
 
+/** Full or Reduced, set the same way by the Studio's Reduce motion switch and Settings → Appearance → Motion, so the two
+ * always agree: Full follows the system when the system allows motion, and overrides it when the system asks for less. */
+export function motionChoice(full: boolean, systemReducedMotion: boolean): AnimationMode {
+  return full ? (systemReducedMotion ? "full" : "system") : "reduced";
+}
+
 const MotionContext = createContext<MotionState | null>(null);
 
 function preference() {
