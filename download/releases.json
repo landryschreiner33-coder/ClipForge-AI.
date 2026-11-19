@@ -2,53 +2,126 @@
   "schema": 2,
   "current": {
     "name": "ClipForge",
-    "version": "2026.11.16.2",
-    "date": "2026-11-16",
-    "source_commit": "fa5e1396eaec78387b5ab22432926e9fed4e0773",
-    "summary": "The cloud computer for pictures and video now has its own place in Settings, so it is easy to find.",
+    "version": "2026.11.19",
+    "date": "2026-11-19",
+    "source_commit": "13e1fcbb430dabfcee461fc191c04376c841dc58",
+    "summary": "Live clips put quality over quantity with a split view for face cams, you choose which channels each post goes to, and ClipForge AI uses your Brain to pick fuller clips and write post text your way.",
     "changes": [
       {
-        "title": "Settings › Cloud computer",
-        "text": "The cloud computer you can rent by the hour to make pictures and video clips (added in 2026.11.13.2) now has its own entry in the Settings list. Open **Settings › Cloud computer** and press **Use a cloud computer** to see the box for your cloud computer’s web address and the step-by-step RunPod guide. **Settings › Pictures, video, voice** points to it too, and messages about the cloud computer now name it. Nothing else changed."
+        "title": "Live clips: quality over quantity",
+        "text": "When you add a stream in **Missions › Live streams**, **How picky** chooses how many clips it makes while the stream is live. **Only the best moments** (the default) listens for six minutes first, then makes about three clips an hour: each has to beat most of the stream so far, ClipForge waits two minutes after a strong moment ends in case a better one follows, and a standout moment can add one more. **Balanced** makes about six an hour, each above the stream’s average, and **Every good moment** works as before, a clip for every moment that passes the minimum quality. When the stream ends, the check of the full recording can still add clips until the stream has about three per recorded hour, or your **Clips per source** (5 unless you changed it) if that is more. Live clips now keep a moment’s build-up and ending instead of only its strongest few seconds. The stream’s card says why no clip was made when it passes over a moment. **Settings › Advanced** holds the starting choices for new streams."
+      },
+      {
+        "title": "Stop clipping",
+        "text": "A live stream’s row has **Stop clipping**: ClipForge stops recording that stream and makes no more clips from it, neither now nor from the full recording. The clips already made stay, and with **Make & upload clips** they still go through the final checks and upload at their planned times. It cannot be undone for that stream. If you added a channel’s page (for example `twitch.tv/name` or `youtube.com/@name/live`) or a stream address, add the link again to clip its stream from then on; a link to one YouTube live video cannot be added again."
+      },
+      {
+        "title": "Split view for videos with a face cam",
+        "text": "When a stream or gameplay video has a face cam over the picture, its clips now show the face cam across the top and the whole picture below it, with the captions on the line between. **Settings › Defaults › Split view** turns this off for new clips of the videos you add, and **Under the face cam** chooses **Whole picture** (the default) or **Zoomed in**. A live stream follows its own **Split view** choice, made when you add it; new streams start with **Settings › Advanced › Live streams: split view**. The clip editor’s **Layout** offers **Split view** and **Split if face cam** for one clip. A layout you chose for a video or clip always wins, and clips made before the update keep their look when you re-render them."
+      },
+      {
+        "title": "Choose which channels each post goes to",
+        "text": "Every connected YouTube channel and TikTok account is listed with a tick box, and **All** for a platform with two or more. On **Prepare post**, a clip uploads to each ticked account, one after another. **Post selected…** on a video’s page sends several clips at once to the ticked YouTube channels, each with its saved post text, and leaves out a clip a channel already has unless you tick **Post them there again**; TikTok posts stay on Prepare post. In **Missions**, you tick the YouTube channels for each video or live stream you add. **Accounts › Tick for new posts** decides which accounts start ticked. With **Make & upload clips**, Autopilot plans one post per ticked channel, each approved on its own (automatically when it passes the final checks) with its own daily limit, posting gap and Reconnect notice, so a channel that needs Reconnect holds only its own posts."
+      },
+      {
+        "title": "Share clips between channels",
+        "text": "With two or more YouTube channels ticked for a video or stream in Missions, **How the clips are shared between these channels** offers **Every channel gets every clip** or taking turns: each clip goes to one channel only, and the channels take turns so they get about the same number. A clip never moves to another channel once it has one."
+      },
+      {
+        "title": "A smarter ClipForge AI in chat",
+        "text": "The chat now reads sixteen built-in playbooks (new ones for titles, post text and hashtags, and gaming and stream clips), a guide to ClipForge itself that says where everything is and links the page, and the advice of the skills you switched on in **Brain › Skills**. It answers questions like “how do I clip a live stream?” even without an AI model, and says what it read. With a model it can also look up a clip’s words and score and your settings."
+      },
+      {
+        "title": "Clip picking follows your Brain",
+        "text": "Your memories, imported lessons, viral examples and the advice of your skills are read into the kinds of moment to look for or pass over (funny moments, big reactions, stories, small talk, ad reads and more). They move a clip’s score by about 8 points out of 100 at most (about 4 for one kind of moment), so they mostly change the order of close calls; a moment just under your **Minimum Viral Potential** can be lifted over it, and one just over it can drop under. A length you told it (“clips at least 40 seconds”) sets the lengths for that run. Click a clip’s picture on its video’s page to see what your Brain changed, and **Brain › Memory** counts each use."
+      },
+      {
+        "title": "Longer, fuller clips",
+        "text": "The default clip lengths are now 25, 45 and 90 seconds for the shortest, ideal and longest clip. If your settings still had the old 15, 30 and 60 seconds, they change to the new lengths once; if you had changed any of the three, your lengths stay as they are. A moment’s strongest lines now come with their build-up and ending while the talk stays on the subject, never across a change of subject or a pause of more than three seconds."
+      },
+      {
+        "title": "Lessons from your results",
+        "text": "When enough of your posted clips are at least two days old and have at least 10 views, the learning job compares clips that showed a kind of moment with clips that did not. It learns from TikTok’s numbers and from numbers you add in **Brain › Performance history** (**Add feedback / import**); YouTube’s own numbers count only if Google approved your project for it (**Settings › Advanced › Google approved derived metrics**). A clear difference, across several clips and videos on each side, becomes a memory such as “From your results: look for …” that clip picking and the chat read. Forget it and it stays forgotten; switch it off or rewrite it and ClipForge leaves it alone."
+      },
+      {
+        "title": "Titles, post text and hashtags your way",
+        "text": "What you told ClipForge AI about post text is followed in every title and description it writes. Letter case, no emoji, how many hashtags and no call to action are always applied. For title length and a question as the title, it picks one of the clip’s own lines that fits, when there is one. It never adds words that were not said in the clip. Hashtags that say nothing about the video, such as #fyp and #viral, are dropped, and a clip gets five at most."
       }
     ],
     "checked": [
-      "2,721 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code. The 31 checks that render real video and audio ran on GitHub’s Linux machine.",
-      "The new Settings page was opened in a browser with the cloud computer off and on, on a phone-sized window, and while switching between Settings pages.",
+      "3,105 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code. The 31 checks that render real video and audio ran on GitHub’s Linux machine, among them live streams played in real time that upload clips while still live.",
+      "Live clip picking, split view, sharing clips between channels, the channel picker, Brain-led picking and lessons from results were tested with stand-in streams, a face cam drawn by the tests, stand-in channels and recorded stand-in results.",
+      "This page’s notes, the Mac notes, the Privacy Policy and the Terms were checked claim by claim against this version’s code, and what was wrong was corrected before release.",
       "The Mac app was built, opened and tested with its own video tools, Keychain and window on an Apple-silicon Mac with macOS 15 in GitHub’s test service. The DMG on this page is that exact build.",
       "The Windows setup was installed in GitHub’s test service over the previous version: it kept the same data folder and settings, opened the app, and closed and reopened cleanly. Every installed file was compared with the exact source."
     ],
     "not_checked": [
-      "A real rented cloud computer: it is on your RunPod account and costs money while it is on. The first test picture you make in Settings › Cloud computer checks the whole path.",
-      "Your own computer, its graphics card, and real uploads to your accounts.",
-      "ClipForge AI and the picture, video and voice makers with your own projects and footage on your computer.",
+      "Real live streams on Twitch, Kick or YouTube, and real face cams and overlays. How many clips each How picky level makes is a first setting and may need tuning after your own streams.",
+      "Real uploads to two or more of your channels, and a real TikTok account.",
+      "ClipForge AI’s answers with a real AI model, and lessons from your real posted results.",
+      "Your own computer, its graphics card, and your own projects and footage.",
       "Whether Windows security accepts the setup without asking. If it reports a threat, stop and read what it found; do not turn protection off.",
       "Apple’s notarization. macOS will ask once before opening the app."
     ],
     "files": {
       "windows": {
         "file": "ClipForge-Windows-Setup.zip",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/eceeeb15fe63eb892cfe375adfda532e135925f4/ClipForge-Windows-Setup.zip",
-        "bytes": 50221270,
-        "sha256": "e6f0c8014cb44f38fe98e5807dea5674c875ab4a339e164dc28bd31a32aea859",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/7122cce8084adcafb20554905c960a2ecca90ba8/ClipForge-Windows-Setup.zip",
+        "bytes": 50448541,
+        "sha256": "a46cd22df7f435baf311e26d40ef261c1968d08795a2d1fdedfa819036f4b333",
         "kind": "ZIP",
         "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44020274850",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44599233122",
         "tested_label": "Windows install check"
       },
       "mac": {
         "file": "ClipForge-Mac-Apple-Silicon.dmg",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-16-2-fa5e139/ClipForge-Mac-Apple-Silicon.dmg",
-        "bytes": 255828420,
-        "sha256": "d8b6ba86d1d38d75e30e3c7f9f922470dfbf82f2156f836e513d56ec80c6d530",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-19-13e1fcb/ClipForge-Mac-Apple-Silicon.dmg",
+        "bytes": 232165236,
+        "sha256": "d1acc5df77d74d31708ef361f2f77583f56591be500008cce3cf4ead798a0a2b",
         "kind": "DMG",
         "requires": "Apple silicon, macOS 15 or newer",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44018676801",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44599070088",
         "tested_label": "Mac build and test run"
       }
     }
   },
   "previous": [
+    {
+      "name": "ClipForge",
+      "version": "2026.11.16.2",
+      "date": "2026-11-16",
+      "source_commit": "fa5e1396eaec78387b5ab22432926e9fed4e0773",
+      "summary": "The cloud computer for pictures and video now has its own place in Settings, so it is easy to find.",
+      "changes": [
+        {
+          "title": "Settings › Cloud computer",
+          "text": "The cloud computer you can rent by the hour to make pictures and video clips (added in 2026.11.13.2) now has its own entry in the Settings list. Open **Settings › Cloud computer** and press **Use a cloud computer** to see the box for your cloud computer’s web address and the step-by-step RunPod guide. **Settings › Pictures, video, voice** points to it too, and messages about the cloud computer now name it. Nothing else changed."
+        }
+      ],
+      "files": {
+        "windows": {
+          "file": "ClipForge-Windows-Setup.zip",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/eceeeb15fe63eb892cfe375adfda532e135925f4/ClipForge-Windows-Setup.zip",
+          "bytes": 50221270,
+          "sha256": "e6f0c8014cb44f38fe98e5807dea5674c875ab4a339e164dc28bd31a32aea859",
+          "kind": "ZIP",
+          "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44020274850",
+          "tested_label": "Windows install check"
+        },
+        "mac": {
+          "file": "ClipForge-Mac-Apple-Silicon.dmg",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-16-2-fa5e139/ClipForge-Mac-Apple-Silicon.dmg",
+          "bytes": 255828420,
+          "sha256": "d8b6ba86d1d38d75e30e3c7f9f922470dfbf82f2156f836e513d56ec80c6d530",
+          "kind": "DMG",
+          "requires": "Apple silicon, macOS 15 or newer",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44018676801",
+          "tested_label": "Mac build and test run"
+        }
+      }
+    },
     {
       "name": "ClipForge",
       "version": "2026.11.16",

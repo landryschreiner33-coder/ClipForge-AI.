@@ -23,7 +23,7 @@
 </header>
 <main class="wrap doc">
 <h1>Privacy Policy</h1>
-<p class="meta">ClipFoundry · Effective November 16, 2026</p>
+<p class="meta">ClipFoundry · Effective November 19, 2026</p>
 
 <section class="box" aria-labelledby="short">
   <h2 id="short">The short version</h2>
@@ -96,18 +96,25 @@
     <tr><td>Your videos and clips</td><td>A copy of each video you add or Autopilot uses (a file added from this computer is
       used where it is; see below), clips, thumbnails and
       ClipFoundry's own exports. A file submitted through Missions is first copied under
-      <code>submitted/&lt;id&gt;/</code> in the data folder; your own original is not changed</td>
+      <code>submitted/&lt;id&gt;/</code> in the data folder; your own original is not changed. For split view (on
+      by default for a video with a face cam over the picture), where the face cam and the face sit in the picture
+      is worked out on this computer and saved in that video's project folder; nothing about it is sent anywhere</td>
       <td>Project outputs: until you delete the video in ClipFoundry or the data folder. The separate submitted
       original copy remains after project deletion or cancellation, until you delete the data folder</td></tr>
     <tr><td>Submitted-video upload requests</td><td>The source link or copied-file location and identity, original
-      SHA-256 fingerprint, bound project, current reuse/credit fingerprint, exact confirmation wording, chosen
-      YouTube account, visibility, audience, genuine kids answer and your reuse basis/details, creation and any
+      SHA-256 fingerprint, bound project, current reuse/credit fingerprint, exact confirmation wording, the
+      YouTube channels you ticked for it (one or several) and, with several, whether every channel gets every clip
+      or the clips are split between them, visibility, audience, genuine kids answer and your reuse basis/details, creation and any
       revocation time. Each qualifying post has its own exact-file/text approval bound to this request.
       These records are separate from Brain and never become editing lessons or verified source ownership</td>
       <td>Until you delete the data folder. Canceling stops future work and retains history; it does not remove
       completed clips or posts already on YouTube</td></tr>
     <tr><td>Transcripts and clip text</td><td>The words spoken in your videos, captions, hooks, titles, descriptions,
-      hashtags, edits and versions</td><td>Until you delete the video</td></tr>
+      hashtags, edits and versions; and with each clip why it was picked: its score's reasons, the kinds of moment
+      it shows, what your Brain added or took away (with the words, up to 160 characters, of each memory or skill
+      line that steered it; this copy stays with the clip after you forget that memory), and which of your rules its
+      post text follows</td>
+      <td>Until you delete the video</td></tr>
     <tr><td>Audio processing measurements</td><td>Each newly rendered clip records its local loudness and peak
       measurements, the volume adjustment used and audio timestamp checks. Audio measurement stays on your computer and creates no
       separate saved recording</td><td>Until you delete the video</td></tr>
@@ -116,10 +123,13 @@
       checkpoint</td><td>Deleted after the new render or restoration finishes successfully. If recovery cannot
       finish safely, kept until it succeeds or you delete the video or data folder</td></tr>
     <tr><td>Connected accounts</td><td>Sign-in tokens for YouTube and TikTok, your channel or profile name, a link to
-      its picture, account IDs and the permissions you granted. When you press Test connection: its time and result
+      its picture, account IDs, the permissions you granted and whether the account starts ticked for new posts.
+      When you press Test connection: its time and result
       (what the platform answered, or its error), with a short fingerprint of the sign-in it tested, never the sign-in
-      itself</td><td>Until you disconnect the account. The last Test connection result: until you delete the data
-      folder</td></tr>
+      itself</td><td>Sign-in tokens: until you disconnect the account. The name, picture link, account IDs, granted
+      permissions and whether the account starts ticked stay after you disconnect (reconnecting the same account
+      brings the tick back), until you delete the data folder. The last Test connection result: until you delete the
+      data folder</td></tr>
     <tr><td>Python setup environment backups</td><td>When the Windows launcher replaces an incompatible
       environment, it preserves the old dependency files and Python environment metadata in a local
       <code>.venv-backup-*</code> folder. An unsuccessful replacement may also leave a
@@ -205,7 +215,9 @@
       approved content or your explicit manual times. A local per-account timestamp and logical post ID prevent
       already queued new transfers from starting together after restarts. Existing transfer identity is retained.
       Submitted-video input is now the default. An explicit Make &amp; upload clips request authorizes only new
-      qualifying YouTube clips from its input, with no separate manual review of every clip. Existing backlog and
+      qualifying YouTube clips from its input, uploaded once to each YouTube channel you ticked for that input
+      (or, when you chose to split the clips between the channels, to one of them in turn),
+      with no separate manual review of every clip. Existing backlog and
       other inputs remain outside that request. A valid saved request supplies that same source reuse statement
       in Queue review without retyping it; each post still binds its exact bytes, text and destination. It never
       marks the source as verified ownership or stores permission text as Brain guidance.
@@ -276,7 +288,14 @@
   Compatible split HLS capture uses one temporary local relay per stream for both video and audio, sharing the
   existing download limit and URL checks. Each stream's recorded minutes, its joined recording, its clips and its live
   checkpoint are kept in that stream's project in the data folder. With Make &amp; upload clips, clips that pass the
-  final checks upload during the stream and afterwards only to the YouTube account you chose for that stream. An empty ended platform capture may check for its public recording through
+  final checks upload during the stream and afterwards only to the YouTube channels you ticked for that stream; if you
+  chose to split the clips between them, each clip goes to one of those channels only. How picky the stream is and
+  whether its clips get a split view are saved with the stream. To judge how lively a moment sounds, the sound of each
+  recorded minute is also kept as a small file in that stream's project for about 15 minutes and then deleted; the
+  last of them are deleted when the recording is finished (if you cancel the stream or its recording fails, those
+  last files stay in its project until a later try finishes the recording or you delete the video). For split view, where the face cam sits in the picture is worked out on this
+  computer and saved in the project's folder; nothing about it is sent anywhere. Stop clipping ends the recording and
+  makes no more clips; it deletes nothing, and clips already made still upload. An empty ended platform capture may check for its public recording through
   the same supported downloader. Attempt counts, requested wait deadlines and completion state are stored with
   the live checkpoint to survive restarts. Existing partial captures are not replaced. Checkpoints follow the
   existing project/data-folder retention; this adds no browser cookies, login scraping or new service.
@@ -420,8 +439,11 @@
   ClipForge AI is the assistant you talk with in Brain and in each video's chat. It keeps, in the same data folder:
   each chat's messages (yours, its answers and its helper agents' answers, the steps it took, the OK and No buttons it
   showed with what became of them, and a copy of the memories each answer used, saved or forgot), the newest 200 per
-  chat, until you press Clear this chat or delete its video; the memories you or it saved, with a record of the
-  answers that used them, until you forget them in Brain → Memory or ask it to (asking forgets every memory that says
+  chat, until you press Clear this chat or delete its video; the memories you or it saved (among them the lessons
+  it writes from your posts' results once enough of them have real numbers: which kinds of moment did better or worse,
+  each starting "From your results:", changed or removed when the numbers no longer say it, and not written again
+  after you forget one while the numbers say the same), with a record of the
+  answers, clips and post text that used them, until you forget them in Brain → Memory or ask it to (asking forgets every memory that says
   those words; asked in one video's chat, a note that another video keeps under the same words stays when the same
   words are also kept for this video or for more than one video), press Undo on the answer that saved one (only while it is as that answer saved it),
   or delete the
@@ -485,18 +507,27 @@
       time you talk with ClipForge AI or one of its helper agents</td><td>Text only: never your files, their pictures
       or their sound. To make clips: the video's name, the words said in it (read in order, a part at a time), the
       words said in its strongest moments (up to 12 by default) with the sentence just before each one and each
-      moment's length, the memories and know-how that fit, and a one-line summary of the kinds of clips you usually
+      moment's length, the memories and know-how that fit, the advice lines of your switched-on skills that fit, one
+      line about the kinds of moment your Brain says to look for or pass over (in ClipForge's own words, with up to
+      three words from each subject your memories name, for example "clips about crypto"), and a one-line
+      summary of the kinds of clips you usually
       keep, learned from the clips you leave out, put back, export or publish, so moments can be found and scored; and
-      the words said in each clip, so titles and captions can be written. The other features send the words and
+      the words said in each clip, with the advice lines of your switched-on skills about titles, post text and
+      hashtags and your rules for how post text looks in ClipForge's own words (for example "titles in lower case";
+      never the note you wrote), so titles and captions can be written. The other features send the words and
       details they work on (for example your brief or topic, the words
       said with their times, and the list of clips); the editor, smart editing, FilmCraft and the script writer also
       send the memories and know-how that fit. When you talk with ClipForge AI: your message and the conversation so
       far (the oldest messages are left out first when it does not fit); your standing rules (up to 8) and the other
-      memories and know-how that fit it; today's date and the time on this computer; your projects' names with their
+      memories and know-how that fit it, with the parts of its built-in guide to the app and the advice lines of your
+      switched-on skills that fit; today's date and the time on this computer; your projects' names with their
       kind, counts, status and age; the details of the chat's video and of the projects it looks at (a video's brief,
       its script's name, each part's label, often a file's name, with the words said in it, and its status note; a
-      clips project's clip titles, scores and lengths); your helper agents' names and jobs (and, for the helper doing
-      a job, its instructions); and the results of the looking steps it takes (such as what is running). When you plan
+      clips project's clip titles, scores and lengths, and for a clip it reads, the words said in it, its title,
+      on-screen hook, post text, hashtags and why it was picked); your helper agents' names and jobs (and, for the
+      helper doing a job, its instructions); and the results of the looking steps it takes (such as what is running,
+      your editing choices in Settings, how many memories and skills you have and how many skills are switched on,
+      the names of your connected YouTube and TikTok accounts and how many posts are in each state). When you plan
       a video in Make a YouTube video: your idea and the conversation, the plan so far (also what you set by hand),
       your file names and lengths, what is said in your videos, your standing rules and the other memories that fit
       your idea, built-in know-how and your helper agents' notes, never where your files are (a helper agent that
@@ -612,8 +643,8 @@
   of the videos it found, and the statistics of your own posts. It does this each time it starts and about once an
   hour while Autopilot is on. Your own posts' statistics are kept longer only if you turn on "Google approved derived
   metrics" in Settings because Google approved your project to keep them, and only while your channel stays connected.
-  Some YouTube information is kept longer: your channel's name and picture link, until you disconnect; your channel's
-  name in the saved wording of the automatic-publishing permission (if you ever turned it on), the title, channel and
+  Some YouTube information is kept longer: your channel's name and picture link, until you delete the data folder
+  (also after you disconnect, see section 2); your channel's name in the saved wording of the automatic-publishing permission (if you ever turned it on), the title, channel and
   link of each video Autopilot worked on, and the ID and link of each of your posts, until you delete the data
   folder; and video titles in Autopilot's event history (90 days) and in the background log file (until you
   delete it).
@@ -695,10 +726,11 @@
     Disconnect this phone clears that browser's key and displayed status. It does not revoke a copied key;
     unpair from the PC to revoke access. Clearing phone browser storage also removes its saved key.</li>
   <li><b>Disconnect an account:</b> Settings → Accounts → Disconnect. ClipFoundry tries to cancel its access on the
-    platform, then deletes the sign-in tokens and the account's ID, name and picture link on your computer. If you turned on
-    automatic publishing or made an input-scoped upload request, the recorded channel identity stays in its
-    saved wording/history. It deletes
-    them even if cancelling did not work, and it doesn't tell you whether cancelling worked, so to be sure, also
+    platform, then deletes the sign-in tokens on your computer. The account's ID, name, picture link and settings
+    (such as whether it starts ticked for new posts) stay until you delete the data folder, so your post history
+    keeps its name. If you turned on automatic publishing or made an input-scoped upload request, the recorded
+    channel identity stays in its saved wording/history. It deletes
+    the tokens even if cancelling did not work, and it doesn't tell you whether cancelling worked, so to be sure, also
     remove access on the platform (sections 4 and 5). While an account needs to be reconnected, Disconnect is not
     shown; you can still remove access on the platform. Your post history stays until you delete the data folder.
     YouTube statistics are deleted as section 4 says. TikTok statistics stay until you delete the data folder.</li>
