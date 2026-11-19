@@ -1,5 +1,33 @@
 # AI handoff
 
+## Release 2026.11.19 published — 2026-11-19 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wrote "Make sure all the new changes are merged and then release them". ClipForge
+2026.11.19 is on the download page for Mac and Windows. New since 2026.11.16.2: live clips put quality over quantity
+(How picky, Stop clipping, split view for face cams), you tick which channels each post, video or live stream goes to
+and clips can take turns between channels (PRs #57, #58), and ClipForge AI knows more in chat, picks clips with the
+Brain, makes longer clips, learns from posted results and writes post text the owner's way (PR #59). A fact-check
+before the release corrected 18 claims in the notes and legal pages (PR #60).
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `5430f7c` (PR #60), whose
+  tree equals that of `13e1fcb`, the source commit of both downloads; Mac release
+  `clipforge-mac-2026-11-19-13e1fcb`; Windows ZIP at `raw/7122cce` on `claude/clipforge-downloads` (record commit
+  `036771e`); `gh-pages` `8809e3e`; every URL, size, hash and run in
+  [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 44599070088 on 13e1fcb (macOS 15 native build and bundled-app
+  smoke; 3,105 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped); Windows setup check 44599233122;
+  `build.py --check` and `--verify`; the release texts checked claim by claim against the code.
+- **Privacy page correction worth knowing:** Disconnect deletes only an account's sign-in tokens; its ID, name,
+  picture link and settings stay in the data folder until the folder is deleted (`db.disconnect_connection` keeps
+  the row). The page said otherwise before. If Landry wants Disconnect to forget the account fully, that
+  is a code change, and the page would change with it.
+- **Not verified (needs Landry's computer):** real Twitch, Kick or YouTube streams and real face cams; how many clips
+  each How picky level makes on real streams; real uploads to two or more channels; a real TikTok account; a real
+  model's answers with the larger brief; lessons from real posted results; the screens in the Mac window.
+- **Next release:** new work starts from `claude/project-thread-x72wkd` at 5430f7c (or the records merge after it). A
+  second release on November 19 would be `2026.11.19.2`; on November 20, `2026.11.20`. The publish job waited for a
+  macOS runner again: attempt 1 was cancelled after 15 minutes ("not acquired by Runner"), re-run failed jobs worked.
+
 ## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry said the chat "does not know a lot of stuff", that clipping should use the Brain

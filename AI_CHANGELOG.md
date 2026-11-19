@@ -1,5 +1,38 @@
 # AI changelog
 
+## Release 2026.11.19: live clips, channels and a smarter ClipForge AI — 2026-11-19 (Claude Code)
+
+Landry wrote "Make sure all the new changes are merged and then release them". The release line already held the
+three finished pull requests since 2026.11.16.2: #58 (choose which channels each post goes to, `3bb861f`), #57 (live
+clip quality, split view, take turns between channels, Stop clipping, `afc0c1f`) and #59 (smarter chat, Brain-led
+clip picking, longer clips, lessons from results, post text rules, `d3a72c7`). No other finished pull request was open
+(#46 is an unfinished draft; #20 and #15 are older branch-to-default PRs). PR #60 (`13e1fcb`, texts only) was merged
+as `5430f7c` (same tree); both downloads are built from 13e1fcb. Every URL, size, hash and run:
+[docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+
+- **Fact-check before release** (three checkers by feature area, a skeptic per checker's findings; 18 confirmed, all
+  corrected): the privacy page now says Disconnect deletes only the sign-in tokens (the account's ID, name, picture
+  link and settings, also "Tick for new posts", stay until the data folder is deleted: `db.disconnect_connection`
+  keeps the row; the page's older Disconnect item said otherwise too); split view saves `cam.json` for any video with a
+  face cam; a Make & upload request saves whether clips are split between channels; a clip keeps up to 160 characters
+  of each memory or skill line that steered it, also after the memory is forgotten; the Brain line sent to a model
+  holds up to three words per subject the owner's memories name; a canceled or failed live recording keeps its last
+  minute sounds until a later try finishes it or the video is deleted. The Terms say a Make & upload request names
+  the ticked YouTube channels and how clips are shared. Both pages are effective November 19, 2026. Mac notes and
+  download page text: Stop clipping also stops the recording, a live stream has its own Split view choice (Settings ›
+  Defaults › Split view does not affect streams), Post selected is YouTube only, about three live clips an hour while
+  live (a standout adds one; the full-recording check can add more), the Brain moves a score by about 8 points at most
+  and can lift a moment over the bar, lessons need 10 views and use YouTube's own numbers only with Google approved
+  derived metrics, title length and question rules pick one of the clip's own lines.
+- **Checks on 13e1fcb:** Native Mac desktop app run 44599070088 (macOS 15 native build and bundled-app smoke; fast
+  3,105 passed, 2 skipped; slow 31 passed, 1 skipped); Windows setup check 44599233122 (installed 2026.11.16.2 first).
+  The first build from 150978b (before the legal fixes; check 44596262908 passed, raw/1286dca) is not listed.
+- **Mac:** release `clipforge-mac-2026-11-19-13e1fcb`, the unchanged DMG from run 44599070088, published by run
+  44604316140. **Windows:** `raw/7122cce` on `claude/clipforge-downloads` (record commit `036771e`). **Download page
+  and legal pages:** `gh-pages` `8809e3e`.
+- **Not verified:** real Twitch, Kick or YouTube streams and real face cams; real uploads to two or more channels; a
+  real TikTok account; a real model's answers; lessons from real posted results; Landry's Mac.
+
 ## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code)
 
 Landry wrote "improve the ai when i talk to it it does not know a lot of stuff and is dumb make sure it is smarter
