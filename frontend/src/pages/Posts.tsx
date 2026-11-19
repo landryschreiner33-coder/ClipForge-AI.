@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { plural, zoneLine } from "../format";
+import { plural, zoneLine, zoneOf } from "../format";
 import { useStatus } from "../status";
 import {
   checkSummary, inInbox, loadPosts, mainAction, okOutdated, Post, PostAction, PostActionDialog, postStatus, timeLabel,
@@ -10,6 +10,7 @@ import { BulkApproval, PostInlinePreview } from "../components/BulkApproval";
 import {
   EmptyState, Icon, LinkTabs, MenuItem, MoreMenu, PageHead, Pill, PLATFORM_LABEL, PlatformName, Skel, Thumb, usePoll,
 } from "../components/ui";
+import type { ReactNode } from "react";
 import "./posts.css";
 
 const VIEWS = ["review", "scheduled", "published", "history", "problems", "results"];
@@ -24,15 +25,15 @@ const INTRO: Record<string, string> = {
     "again behind your back.",
 };
 const EMPTY: Record<string, [string, string]> = {
-  review: ["Nothing waits for your OK", "When Autopilot plans a post, it shows up here for your OK."],
+  review: ["Review queue clear", "New posts that need your OK appear here."],
   scheduled: ["Nothing is scheduled", "Prepared posts appear here with a planned time, including drafts awaiting review."],
   published: ["Nothing uploaded yet", "Posts appear here after uploading or after you record a manual post."],
   history: ["No history yet", "Published, canceled and replaced posts appear here."],
   problems: ["No problems", "Every post went out, or is waiting for its time or your OK."],
 };
 const VIEW_TITLE: Record<string, string> = {
-  review: "Ready for your review", scheduled: "Your posting agenda", published: "Uploads and confirmed posts",
-  history: "Posting history", problems: "Let's get these moving", results: "How your posts performed",
+  review: "Review queue", scheduled: "Schedule", published: "Published posts",
+  history: "Posting history", problems: "Problems to fix", results: "How your posts performed",
 };
 
 /** A ready-to-post package: you post it in the TikTok app (nothing was uploaded). */
@@ -54,6 +55,9 @@ const GROUPS: { id: string; label: string; test: (p: Post) => boolean }[] = [
  * Posts: every planned and published post (one clip on one platform). Needs review, Scheduled, Published (with the
  * canceled and replaced ones as History), Problems and Results. Each row has one action, which opens the post's page,
  * and a More menu. A selected YouTube batch gets one exact-file review before approval.
+ *
+ * The space studio's dock (2026-11-19): the tabs carry their counts once the posts are loaded (never a 0 before
+ * that), the time zone sits in a pill beside them, and the post with the earliest planned time waits at the right.
  */
 export default function Posts({ view }: { view?: string }) {
   const v = VIEWS.includes(view || "") ? view! : "review";
@@ -80,11 +84,13 @@ export default function Posts({ view }: { view?: string }) {
     ? current.includes(id) || current.length >= 50 ? current : [...current, id]
     : current.filter((entry) => entry !== id));
   const count = (k: string) => items.filter(VIEW_OF[k]).length;
-  const faint = (n: number) => (n ? <span className="faint tiny">{n}</span> : null);
+  // a plain number beside the name; Needs review and Problems show theirs as a badge when something waits
+  const plain = (n: number) => (data ? <span className="tab-n">{n}</span> : null);
   const tabs = [
-    { id: "review", href: "#/publishing/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
-    { id: "scheduled", href: "#/publishing/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
-    { id: "published", href: "#/publishing/published", label: <>Published {faint(count("published"))}</> },
+    { id: "review", href: "#/publishing/review", label: <>Needs review {count("review") ? null : plain(0)}</>,
+      count: count("review"), countTone: "warn" as const },
+    { id: "scheduled", href: "#/publishing/scheduled", label: <>Scheduled {plain(count("scheduled"))}</> },
+    { id: "published", href: "#/publishing/published", label: <>Published {plain(count("published"))}</> },
     {
       id: "problems", href: "#/publishing/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
     },
@@ -96,46 +102,53 @@ export default function Posts({ view }: { view?: string }) {
   };
 
   return (
-    <div className="page posts-page">
-      <PageHead title="Publishing"
-        sub={<>
-          Every planned and published post, each with the exact account it goes to. {zoneLine(tz)}
-        </>}
-        actions={accounts.length > 1 && (
-          <label className="field"><span className="sr-only">Show posts for</span>
-            <select value={acct} onChange={(e) => setAcct(e.target.value)} aria-label="Show posts for">
-              <option value="">All accounts</option>
-              {accounts.map((a) => <option key={a.connection_id} value={a.connection_id}>{a.name || a.connection_id}</option>)}
-            </select></label>
-        )} />
-      <LinkTabs label="Publishing sections" tabs={tabs} current={v === "history" ? "published" : v} />
-      <div className="post-ledger-heading">
-        <div className="stack">
-          <span className="kind-label">Posting desk</span>
-          <h2>{VIEW_TITLE[v]}</h2>
+    <div className="page posts-page pub-space">
+      <PageHead title="Publishing" />
+      <div className="pub-bar">
+        <LinkTabs label="Publishing sections" tabs={tabs} current={v === "history" ? "published" : v} />
+        <div className="pub-bar-end">
+          {accounts.length > 1 && (
+            <label className="pub-account"><span className="sr-only">Show posts for</span>
+              <select value={acct} onChange={(e) => setAcct(e.target.value)} aria-label="Show posts for">
+                <option value="">All accounts</option>
+                {accounts.map((a) => (
+                  <option key={a.connection_id} value={a.connection_id}>{a.name || a.connection_id}</option>
+                ))}
+              </select></label>
+          )}
+          <span className="pub-zone" title={zoneLine(tz)}>
+            <Icon name="clock" /><span className="sr-only">{zoneLine(tz)}</span>
+            <span aria-hidden="true">{zoneOf(tz) || "This computer's time"}</span>
+          </span>
         </div>
-        {data && v !== "results" && <span className="small muted">{plural(count(v), "post")}</span>}
       </div>
-      {v === "results" ? <PostResults posts={items} /> : !data ? (
-        error ? (
-          <EmptyState icon="alert" title="Posts could not be loaded"
-            actions={<button type="button" className="btn" onClick={refresh}><Icon name="refresh" />Try again</button>}>
-            {error}
-          </EmptyState>
+      <div className={`pub-layout${v === "results" ? " pub-wide" : ""}`}>
+        <section className="pub-main" aria-labelledby="pub-title">
+        <h2 id="pub-title" className="pub-title">{VIEW_TITLE[v]}</h2>
+        {v === "results" ? <PostResults posts={items} /> : !data ? (
+          error ? (
+            <EmptyState icon="alert" title="Posts could not be loaded"
+              actions={<button type="button" className="btn" onClick={refresh}>
+                <Icon name="refresh" />Try again</button>}>
+              {error}
+            </EmptyState>
+          ) : (
+            <div className="panel tight" aria-busy="true">
+              <span className="sr-only" role="status">Loading posts…</span>
+              {[0, 1, 2].map((i) => <Skel key={i} className="skel-line" style={{ height: 56 }} />)}
+            </div>
+          )
         ) : (
-          <div className="panel tight" aria-busy="true">
-            <span className="sr-only" role="status">Loading posts…</span>
-            {[0, 1, 2].map((i) => <Skel key={i} className="skel-line" style={{ height: 56 }} />)}
-          </div>
-        )
-      ) : (
-        <PostList view={v} items={items.filter(VIEW_OF[v])} autoPublish={data.autoPublish} capped={data.capped}
-          setupStarted={st?.home.setup.started ?? true} tz={tz}
-          selected={selected} onSelect={toggle} onSelectVisible={(checked) => setSelected(checked
-            ? selectable.slice(0, 50).map((p) => p.id) : [])} onClear={() => setSelected([])}
-          onApprove={(ids) => setBulkIds([...ids])}
-          onAction={(action, post) => setDialog({ action, post })} />
-      )}
+          <PostList view={v} items={items.filter(VIEW_OF[v])} autoPublish={data.autoPublish} capped={data.capped}
+            setupStarted={st?.home.setup.started ?? true} tz={tz}
+            selected={selected} onSelect={toggle} onSelectVisible={(checked) => setSelected(checked
+              ? selectable.slice(0, 50).map((p) => p.id) : [])} onClear={() => setSelected([])}
+            onApprove={(ids) => setBulkIds([...ids])}
+            onAction={(action, post) => setDialog({ action, post })} />
+        )}
+        </section>
+        {v !== "results" && <NextPost items={items} known={!!data} tz={tz} here={v === "scheduled"} />}
+      </div>
       {dialog && (
         <PostActionDialog action={dialog.action} post={dialog.post} tz={tz}
           account={dialog.post.account?.name || st?.platforms?.[dialog.post.platform]?.name}
@@ -170,7 +183,7 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, selected
     onApprove={onApprove} onAction={onAction} />;
   return (
     <>
-      <p className="small muted post-list-intro">{intro}</p>
+      {items.length > 0 && <p className="small muted post-list-intro">{intro}</p>}
       {reviewing && items.length > 0 && <div className="post-bulk-toolbar" aria-label="Batch approval">
         <SelectVisible count={youtubeCount} selected={selected.length} onChange={onSelectVisible} />
         <span className="small muted bulk-selection-count" role="status">{selected.length} selected{selected.length === 50 ? " · batch limit reached" : ""}</span>
@@ -189,11 +202,8 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, selected
         </label>
       )}
       {!items.length ? (
-        <EmptyState icon="posts" title={emptyTitle}
-          actions={view === "review" && !setupStarted
-            ? <a className="btn" href="#/setup">Set up Autopilot</a> : undefined}>
-          {emptyText}
-        </EmptyState>
+        <DockEmpty title={emptyTitle} text={emptyText}
+          action={view === "review" && !setupStarted ? <a className="btn" href="#/setup">Set up Autopilot</a> : undefined} />
       ) : view === "problems" ? (
         GROUPS.map((g) => {
           const list = items.filter(g.test);
@@ -222,6 +232,72 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, selected
         <p className="tiny faint">Showing the newest 500 finished posts. Older ones are kept but not listed here.</p>
       )}
     </>
+  );
+}
+
+/** An empty list: the dock with its robot waiting (decoration only), what is missing and, before setup, the next
+ * step. */
+function DockEmpty({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
+  return (
+    <div className="pub-empty">
+      <span className="pub-dock" aria-hidden="true"><img src="/space/dock-scene.png" alt="" width={629} height={334} />
+        <i className="pub-beacon" /></span>
+      <h3>{title}</h3>
+      <p>{text}</p>
+      {action}
+    </div>
+  );
+}
+
+/** The scheduled post with the earliest planned time (it may already be late, and its status says why), or what is
+ * missing. Follows the account filter, like the lists. */
+function NextPost({ items, known, tz, here }: { items: Post[]; known: boolean; tz?: string; here: boolean }) {
+  const { st } = useStatus();
+  const next = items.filter((p) => VIEW_OF.scheduled(p) && !!p.planned_at)
+    .sort((a, b) => (a.planned_at || 0) - (b.planned_at || 0))[0];
+  const s = next && postStatus(next);
+  const account = next && (next.account?.name || st?.platforms?.[next.platform]?.name);
+  const title = next && (next.title || next.clip.title || "Untitled post");
+  return (
+    <aside className="pub-next" aria-labelledby="pub-next-h">
+      <h2 id="pub-next-h">Next scheduled post</h2>
+      {!known ? <Skel className="pub-next-skel" /> : !next ? (
+        <div className="pub-next-empty">
+          <p>Nothing is scheduled yet.</p>
+          <p className="small muted">When a post gets a planned time, it shows here.</p>
+        </div>
+      ) : (
+        <div className="pub-next-card">
+          <a className="pub-next-thumb" href={`#/post/${next.id}`} tabIndex={-1} aria-hidden="true">
+            <PosterFrame src={next.clip.has_thumbnail ? next.clip.thumbnail_url : null} />
+          </a>
+          <h3 className="clamp-2"><a href={`#/post/${next.id}`}>{title}</a></h3>
+          <p className="pub-next-time">
+            <Icon name="calendar" /><span className="tnum">{timeLabel(next.planned_at, tz)}</span></p>
+          <ul className="pub-next-facts">
+            <li><PlatformName platform={next.platform} /></li>
+            {account && <li><Icon name="user" /><span className="sr-only">Account: </span>{account}</li>}
+            <li><Pill tone={s!.tone} icon={s!.icon}>{s!.word}</Pill></li>
+          </ul>
+          {!here && (
+            <a className="btn btn-outline pub-next-all" href="#/publishing/scheduled">View schedule<Icon name="arrow" /></a>
+          )}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+/** A clip's picture in a wide frame: the whole picture, with a blurred copy filling the sides of a tall one. */
+function PosterFrame({ src }: { src?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  if (!src || failed) return <span className="pub-poster missing"><Icon name="film" />No preview yet</span>;
+  return (
+    <span className="pub-poster">
+      <span className="pub-poster-fill" style={{ backgroundImage: `url("${src}")` }} />
+      <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
+    </span>
   );
 }
 
