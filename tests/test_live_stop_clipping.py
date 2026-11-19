@@ -182,6 +182,71 @@ def test_stop_clipping_while_the_full_recording_is_analyzed_keeps_the_live_clip(
     assert db.get_clip("after-2")["status"] == "superseded" and db.get_clip(old["id"])["status"] == "ready"
 
 
+def test_stop_clipping_after_a_better_cut_took_the_live_clips_place_keeps_the_better_cut(data, monkeypatch):
+    """The closing step put a better cut in a live clip's place and then failed before it finished. Stop clipping
+    is pressed while it waits to run again: the re-run must keep the better cut, or the moment has no clip."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, intake, live, queue
+
+    src = going_live(add_live())
+    sess = live.Session(src, db.get_settings())
+    sess.segments = [{"name": "r001_00000.mkv", "start": 0.0, "end": 120.0}]
+    sess.offset = 120.0
+    sess.save()
+    _joined_file(sess)
+    project_id = sess.project["id"]
+    db.update("sources", src["id"], live_status="ended", status="analyzing")
+    old = live_clip(project_id, data, start=20.0, end=40.0, score=60.0)
+    db.insert("scheduled_publications", {"clip_id": old["id"], "source_id": src["id"], "platform": "youtube",
+                                         "status": "awaiting_approval", "planned_at": 4102444800})
+    story = {"structure": {"hook": True, "context": True, "payoff": True}}
+    chosen = [{"start": 20, "end": 40, "score": 75, "analysis": story},   # a better cut of the live clip's moment
+              {"start": 50, "end": 70, "score": 80, "analysis": story}]
+    pdir = data / "prepared"
+    pdir.mkdir()
+    monkeypatch.setattr(live.process, "prepare", lambda *args: SimpleNamespace(id=project_id, pdir=pdir, opts={},
+                                                                               meta={"duration": 120.0}))
+    monkeypatch.setattr(live.process, "candidate_pool", lambda *args: [])
+    monkeypatch.setattr(live.process, "evaluate_select", lambda *a, **kw: chosen)
+    monkeypatch.setattr(live, "screen_stories", lambda p, rows, settings: rows)
+    monkeypatch.setattr(live, "plan_clips", lambda p, rows, keep, src_id: rows)
+    fails = [True]
+
+    def fingerprint(*args):
+        if fails:
+            fails.pop()
+            raise RuntimeError("the clip's picture could not be read for its fingerprint")
+
+    monkeypatch.setattr(live, "store_fingerprint", fingerprint)
+
+    def create(p, keep, ctx, replace_existing=True, durable=False):
+        return [db.get_clip(f"after-{k}") or db.create_clip(p.id, id=f"after-{k}", start=m["start"], end=m["end"],
+                                                           status="queued", score=m["score"])
+                for k, m in enumerate(keep)]
+
+    def render(p, rows, ctx, **kw):
+        for row in rows:
+            out = pdir / f"{row['id']}.mp4"
+            out.write_bytes(b"rendered")
+            db.update_clip(row["id"], status="ready", output_path=str(out))
+
+    monkeypatch.setattr(live.process, "create_clips", create)
+    monkeypatch.setattr(live.process, "render_clips", render)
+    row = queue.enqueue("post_live", {"source_id": src["id"], "project_id": project_id}, priority=80,
+                        idem_key=f"post_live:{src['id']}:{project_id}", ref=("source", src["id"]))
+    with pytest.raises(RuntimeError):
+        live.post_live(host.Job(queue.get(row["id"]), "test"))  # failed after the better cut took over
+    assert db.get_clip(old["id"])["status"] == "superseded" and db.get_clip("after-0")["status"] == "ready"
+    db.update("worker_jobs", row["id"], status="retrying")  # what the worker host does with an unexpected error
+    assert intake.item(db.fetch("sources", src["id"]))["can_stop_clipping"]
+    intake.action(src["id"], "stop_clipping")
+    out = live.post_live(host.Job(queue.get(row["id"]), "test"))
+    assert out["stopped"]
+    assert db.get_clip("after-0")["status"] == "ready"  # the moment keeps its better cut
+    assert db.get_clip("after-1")["status"] == "ready"
+    assert db.get_clip(old["id"])["status"] == "superseded"
+
+
 def test_stop_clipping_before_the_stream_started_ends_the_input(data, recorder, monkeypatch):
     from clipfoundry import db
     from clipfoundry.autopilot import intake, live, queue
@@ -243,3 +308,22 @@ def test_stop_clipping_through_the_app_and_after_stop_recording(data, recorder, 
         db.update("worker_jobs", row["id"], status="failed")
     intake.action(src["id"], "retry")
     assert intake.clipping_stopped(src["id"]) and intake.finish_requested(src["id"])
+
+
+def test_stop_clipping_pressed_while_a_minute_is_searched_makes_no_clip(data, recorder, monkeypatch):
+    """The search of a minute takes a while. A press during it must not be followed by a new clip."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import intake, live
+
+    src, job, rec, asked = recording(monkeypatch, minutes=1)
+    sess = live.Session(db.fetch("sources", src["id"]), db.get_settings())
+
+    def found_while_pressed(sess, job):
+        intake.action(src["id"], "stop_clipping")  # pressed while this minute was being searched
+        return {"r": {"start": 10.0, "end": 40.0}, "sents": [], "loud": None}
+
+    made = []
+    monkeypatch.setattr(live, "detect", found_while_pressed)
+    monkeypatch.setattr(live, "make_live_clip", lambda *args: made.append(args))
+    live._clip_minute(sess, job)  # noqa: SLF001 - the step under test
+    assert made == [] and sess.note == live.live_pick.NOTES["stopped"]

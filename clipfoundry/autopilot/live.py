@@ -208,6 +208,8 @@ class Session:
         self.final: dict = st.get("final") or {}
         # The best score heard in each recorded minute: the stream's own measure of what a strong moment is.
         self.minute_best: dict[str, float] = st.get("minute_best") or {}
+        # Strong moments of the last search that are not clips yet, the one waited for first (live_pick.keep).
+        self.held: list[dict] = st.get("held") or []
         self.note: str = st.get("note") or ""  # why no clip is being made right now, in plain words
         self.voices: dict[tuple[float, float], dict | None] = {}  # this run's voice readings, by moment
         # A crash after the database render commit but before this checkpoint must not rediscover the same moment.
@@ -235,7 +237,8 @@ class Session:
                                                 "stopped_by_owner": self.stopped_by_owner,
                                                 "offline_since": self.offline_since, "broadcast": self.broadcast,
                                                 "alive_at": self.alive_at, "final": self.final,
-                                                "minute_best": self.minute_best, "note": self.note})
+                                                "minute_best": self.minute_best, "held": self.held,
+                                                "note": self.note})
         if not self.archive_recovery.get("complete"):
             write_json(self.pdir / "transcript.json", {**self.transcript, "duration": self.offset})
             write_json(self.pdir / "loudness.json", {"hop": 0.1, "db": self.env})
@@ -659,22 +662,32 @@ def detect(sess: Session, job: Job) -> dict | None:
     floor = max(float(sess.settings.get("autopilot_min_quality") or 0), float(opts.get("min_score", 50))) \
         + pace["above"]
     taken = [*sess.clips, *({"start": a, "end": b} for a, b in sess.skipped)]
+
+    def shared(start: float, end: float) -> float:  # seconds of this stretch that a clip already shows
+        return max((min(end, k["end"]) - max(start, k["start"]) for k in taken), default=0.0)
+
+    def knowing(a: int, b: int) -> tuple[dict, list]:  # the options for these sentences, and what the Brain added
+        local, used = knowledge.selection_options(
+            {"title": sess.project.get("name") or "", "caption_text": " ".join(
+                sentence["text"] for sentence in sents[a:b + 1])}, opts, sess.settings)
+        if not any("target_duration" in item["decisions"] for item in used):
+            used += opts.get("brain_duration_knowledge") or []
+        return local, used
+
     rated: list[dict] = []
     for c in cand_mod.find_candidates(words, sents, loud, opts, pool_size=live_pick.POOL):
         job.check()
         if any(live_pick.overlaps(c, k) for k in taken):
             continue
-        local, used = knowledge.selection_options(
-            {"title": sess.project.get("name") or "", "caption_text": " ".join(
-                sentence["text"] for sentence in sents[c["s0"]:c["s1"] + 1])}, opts, sess.settings)
-        if not any("target_duration" in item["decisions"] for item in used):
-            used += opts.get("brain_duration_knowledge") or []
+        local, used = knowing(c["s0"], c["s1"])
         core = max((virality.analyze(a, b, sents, feats, words, loud, local)
                     for a, b in virality.variants(c["s0"], c["s1"], sents, local, feats)), key=lambda x: x["raw"])
-        # ... and the same moment with its build-up and its ending, when that is about as strong (live_pick.fuller)
+        # ... and the same moment with its build-up and its ending, when that is about as strong (live_pick.fuller).
+        # What is added must not show a clip's footage again: the moment as found may share a little with a clip
+        # (OVERLAP of its length); a longer version may share that much and no more.
+        allowed = max(1.0, shared(core["start"], core["end"]))
         wider = [(a, b) for a, b in live_pick.fuller(core["s0"], core["s1"], sents, feats, local)
-                 if not any(live_pick.overlaps({"start": sents[a]["start"], "end": sents[b]["end"]}, k)
-                            for k in taken)]
+                 if shared(sents[a]["start"], sents[b]["end"]) <= allowed]
         versions = [v for v in (core, *(virality.analyze(a, b, sents, feats, words, loud, local) for a, b in wider))
                     if not v["blocked"] and not clip_reason(v, sess.settings)]
         if not versions:
@@ -693,6 +706,24 @@ def detect(sess: Session, job: Job) -> dict | None:
             r["fuller"] = {"from": round(core["end"] - core["start"], 1), "to": round(r["end"] - r["start"], 1)}
         r["brain_knowledge"] = used
         rated.append(r)
+    # A minute later the search may cut the same speech differently. The moments remembered from the last search
+    # (the one the picker waits for among them) are rated again as they were, so waiting never loses a moment.
+    for kept in sess.held:
+        job.check()
+        a = next((k for k, s in enumerate(sents) if abs(s["start"] - kept["start"]) < 0.05), None)
+        b = next((k for k, s in enumerate(sents) if abs(s["end"] - kept["end"]) < 0.05), None)
+        if a is None or b is None or b < a or any((a, b) == (other["s0"], other["s1"]) for other in rated) \
+                or any(live_pick.overlaps(kept, k) for k in taken):
+            continue  # no longer in the window, found again by the search, or a clip by now
+        local, used = knowing(a, b)
+        r = virality.analyze(a, b, sents, feats, words, loud, local)
+        if r["blocked"] or clip_reason(r, sess.settings):
+            continue
+        r["live"] = live_pick.rate(r, sents, words, loud, emb)
+        if kept.get("fuller"):
+            r["fuller"] = kept["fuller"]
+        r["brain_knowledge"] = used
+        rated.append(r)
     # The voice is read for the few strongest only: it costs the most, and it can only decide between them.
     for r in sorted(rated, key=lambda item: item["live"]["score"], reverse=True)[:live_pick.VOICE_TOP]:
         job.check()
@@ -706,8 +737,9 @@ def detect(sess: Session, job: Job) -> dict | None:
         if r["end"] <= edge - EDGE_MARGIN:  # a moment still being said is rated again when it is complete
             minute = str(int(r["start"] // SEGMENT_SECONDS))
             sess.minute_best[minute] = max(float(sess.minute_best.get(minute) or 0.0), r["live_score"])
-    found, why = live_pick.choose(rated, clips=sess.clips, edge=edge, unit=SEGMENT_SECONDS, floor=floor, pace=pace,
-                                  minute_best=sess.minute_best, edge_margin=EDGE_MARGIN)
+    found, why, waited = live_pick.choose(rated, clips=sess.clips, edge=edge, unit=SEGMENT_SECONDS, floor=floor,
+                                          pace=pace, minute_best=sess.minute_best, edge_margin=EDGE_MARGIN)
+    sess.held = live_pick.keep(rated, found, waited, floor)
     _listening(sess, why)
     return {"r": found, "sents": sents, "loud": loud} if found else None
 
@@ -1213,6 +1245,9 @@ def _clip_minute(sess: Session, job: Job) -> None:
         _listening(sess, "stopped")
         return
     found = detect(sess, job)
+    if found and _clipping_stopped(sess.src["id"]):  # pressed while this minute was being searched
+        _listening(sess, "stopped")
+        return
     if found:
         make_live_clip(sess, found, job)
 
@@ -1727,8 +1762,9 @@ def post_live(job: Job) -> dict:
             continue  # a failed replacement must leave the usable live clip available
         if halted:
             # "Stop clipping": the live clip and its upload stay as they are; the second cut of the same moment
-            # is not kept next to it.
-            if not _published(new["id"]):
+            # is not kept next to it. When an earlier run of this step had already put the better cut in the live
+            # clip's place, the better cut is what is kept: dropping it now would leave the moment with no clip.
+            if old["status"] != "superseded" and not _published(new["id"]):
                 db.update_clip(new["id"], status="superseded", error="Clipping was stopped by you; the live clip "
                                                                      "of this moment is kept")
             continue

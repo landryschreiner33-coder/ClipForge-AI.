@@ -9,7 +9,8 @@ clips an hour, far more than the posting pace uploads, and the weak ones go out 
 * settled: it ended a while ago (`hold`) and nothing stronger is still being said, so the better of two moments
   close together is the one taken;
 * within the pace: so many clips per recorded hour (`per_hour`) and so far apart (`gap`), not in the first minutes
-  (`warm`). One standout moment an hour may go over the pace.
+  (`warm`). One standout moment an hour may go over the pace, once the stream has been heard long enough to
+  say what stands out in it.
 
 The score is the same kind of estimate as a recorded video's Clip Score (Viral Potential with bounded, explained
 adjustments), plus how lively the moment sounds compared with the rest of the stream: louder than usual, a shout,
@@ -48,6 +49,7 @@ VOICE_TOP = 4        # ... of which this many get their voice listened to
 LIFT = (-2.0, 8.0)   # what a lively or flat sound can change, in points
 LIVELY_USUAL = 0.2   # the liveliness of an ordinary minute: neither helps nor hurts
 OVERLAP = 0.15       # a moment sharing more than this of its length with a clip is that clip again
+HELD = 4             # strong moments remembered from one minute's search to the next (`keep`)
 # A moment is found as its strongest few sentences, so a clip of it sits near the shortest length allowed: the
 # punchline without what led up to it. The fuller version of the same moment is clipped instead when the estimate
 # says it is about as strong.
@@ -191,18 +193,19 @@ def fullest(versions: list[dict], opts: dict) -> dict:
 
 
 def choose(rated: list[dict], *, clips: list[dict], edge: float, unit: float, floor: float, pace: dict,
-           minute_best: dict, edge_margin: float) -> tuple[dict | None, str]:
+           minute_best: dict, edge_margin: float) -> tuple[dict | None, str, dict | None]:
     """The moment to clip now, or None and why not: "warming" (the stream just started), "nothing" (no moment),
     "floor" (none strong enough), "stream" (none strong enough for this stream), "pace" (the hour's clips are
     made), "gap" (too close to a clip), "settling" (the strongest moment is still being said or may be topped:
-    wait for it). The reason is the strongest moment's: that is what the owner is waiting for.
+    wait for it). The reason is the strongest moment's: that is what the owner is waiting for. The third value is
+    the moment that is waited for, if any: the caller must still know it a minute later (`keep`).
 
     `rated` are moments with "start", "end" and "live_score"; `clips` the stream's clips so far; `edge` how much
     of the stream is recorded; `unit` the length of a recorded minute in seconds."""
     if edge < pace["warm"] * unit:
-        return None, "warming"
+        return None, "warming", None
     if not rated:
-        return None, "nothing"
+        return None, "nothing", None
     made = sum(1 for c in clips if c["start"] > edge - 60 * unit)
     usual = stream_bar(minute_best, pace["top"])
     # Each clip already made this hour raises the bar for the next one, so the hour's clips are not simply the
@@ -210,13 +213,15 @@ def choose(rated: list[dict], *, clips: list[dict], edge: float, unit: float, fl
     share = pace["top"] + (1.0 - pace["top"]) * min(1.0, made / pace["per_hour"]) if pace["per_hour"] else pace["top"]
     bar = stream_bar(minute_best, share)
     hold = max(edge_margin, pace["hold"] * unit)
-    reason = ""
+    reason, waited = "", None
     for r in sorted(rated, key=lambda item: item["live_score"], reverse=True):
         score = float(r["live_score"])
         if score < floor:
             reason = reason or "floor"
             break
-        standout = score >= max(floor, usual or 0.0) + STANDOUT
+        # A standout is measured against the stream itself. Until enough of the stream was heard there is no such
+        # measure, and a merely good opening must not spend the hour's clips side by side.
+        standout = usual is not None and score >= max(floor, usual) + STANDOUT
         if bar is not None and score < bar and not standout:
             reason = reason or "stream"
             break
@@ -229,12 +234,24 @@ def choose(rated: list[dict], *, clips: list[dict], edge: float, unit: float, fl
             reason = reason or "gap"
             continue
         if r["end"] > edge - hold:
+            waited = waited or r
             if pace["hold"] > 0:
-                return None, reason or "settling"  # wait for it rather than take a weaker moment now
+                return None, reason or "settling", waited  # wait for it rather than take a weaker moment now
             reason = reason or "settling"
             continue  # no hold-back: a moment still being said only waits for its own turn
-        return r, "taken"
-    return None, reason or "floor"
+        return r, "taken", waited
+    return None, reason or "floor", waited
+
+
+def keep(rated: list[dict], found: dict | None, waited: dict | None, floor: float) -> list[dict]:
+    """The moments to remember until the next minute's search: the one that is waited for, then the strongest
+    others that are strong enough for a clip. The search cuts a stretch of speech differently once more of it was
+    said, so a moment it found a minute ago may not come back as the same moment; without this, the moment the
+    picker waited for was lost and the weaker one it had declined was clipped instead."""
+    others = sorted((r for r in rated if r is not found and r is not waited and r["live_score"] >= floor),
+                    key=lambda r: r["live_score"], reverse=True)
+    return [{"start": r["start"], "end": r["end"], **({"fuller": r["fuller"]} if r.get("fuller") else {})}
+            for r in ([waited] if waited else []) + others][:HELD]
 
 
 NOTES = {

@@ -17,9 +17,19 @@ def moment(start, score, length=30.0):
     return {"start": float(start), "end": float(start) + length, "live_score": float(score)}
 
 
-def pick(rated, *, edge, clips=(), name="best", floor=55.0, history=None):
+def choose(rated, *, edge, clips=(), name="best", floor=55.0, history=None):
     return live_pick.choose(rated, clips=list(clips), edge=float(edge), unit=MINUTE, floor=floor,
                             pace=live_pick.rule(name), minute_best=history or {}, edge_margin=15.0)
+
+
+def pick(rated, **kw):
+    """The moment taken and why (`choose` without the moment waited for)."""
+    return choose(rated, **kw)[:2]
+
+
+def heard(minutes=live_pick.MIN_HISTORY, score=60.0):
+    """A stream's own history: `minutes` rated minutes whose best moment scored `score`."""
+    return {str(k): score for k in range(minutes)}
 
 
 def test_unknown_choice_means_the_best_moments_only():
@@ -40,6 +50,7 @@ def test_the_stronger_of_two_close_moments_is_waited_for():
     """A good moment is ready, a better one just happened: nothing is taken until the better one has settled."""
     ready, forming = moment(300, 62), moment(520, 80)
     assert pick([ready, forming], edge=10 * MINUTE) == (None, "settling")  # ended 50 s ago: hold is 2 minutes
+    assert choose([ready, forming], edge=10 * MINUTE)[2] is forming  # the caller is told which one is waited for
     found, _ = pick([ready, forming], edge=12 * MINUTE)
     assert found is forming
     # without the stronger one the ready moment is taken at once
@@ -57,8 +68,10 @@ def test_clips_keep_their_distance_unless_a_moment_stands_out():
                 )[0]["start"] == 400  # far enough from the clip at 700 s
     # the reason given is the strongest moment's, not a weaker one's further down
     assert pick([moment(400, 60), moment(100, 40)], edge=10 * MINUTE, clips=made) == (None, "gap")
-    standout = moment(400, 55 + live_pick.STANDOUT)
-    assert pick([standout], edge=10 * MINUTE, clips=made)[0] is standout
+    standout = moment(400, 60 + live_pick.STANDOUT)
+    assert pick([standout], edge=10 * MINUTE, clips=made, history=heard())[0] is standout
+    # what stands out is measured against the stream: before enough of it was heard, nothing does
+    assert pick([standout], edge=10 * MINUTE, clips=made) == (None, "gap")
 
 
 def test_an_hour_gets_three_clips_and_one_standout():
@@ -66,8 +79,10 @@ def test_an_hour_gets_three_clips_and_one_standout():
     edge = 45 * MINUTE
     assert pick([moment(2400, 65)], edge=edge, clips=made) == (None, "pace")
     standout = moment(2400, 75)
-    assert pick([standout], edge=edge, clips=made)[0] is standout
-    assert pick([moment(2500, 90)], edge=edge, clips=[*made, {"start": 2400.0, "end": 2430.0}]) == (None, "pace")
+    assert pick([standout], edge=edge, clips=made, history=heard())[0] is standout
+    assert pick([standout], edge=edge, clips=made) == (None, "pace")  # no history yet: no standout either
+    assert pick([moment(2500, 90)], edge=edge, clips=[*made, {"start": 2400.0, "end": 2430.0}],
+                history=heard()) == (None, "pace")
     # an hour later the first clips no longer count
     assert pick([moment(4300, 65)], edge=75 * MINUTE, clips=made)[0]["start"] == 4300
     # the other choices: six an hour, or no limit
@@ -219,10 +234,36 @@ def test_live_picker_waits_instead_of_taking_the_weaker_moment(stream):
 
     again = live.Session(db.fetch("sources", sess.src["id"]), sess.settings)  # saved with the stream
     assert again.note == live_pick.NOTES["settling"] and again.minute_best == sess.minute_best
+    assert again.held == sess.held and 500 <= sess.held[0]["start"] < 530  # the moment waited for comes first
     sess.offset += 120.0
     sess.env += [-25.0] * 1200
     found = live.detect(sess, job)
     assert found and 500 <= found["r"]["start"] < 530 and sess.note == live_pick.NOTES["taken"]
+
+
+def test_a_moment_waited_for_is_not_lost_when_the_search_cuts_the_speech_differently(stream):
+    """A minute later the search may no longer return the moment the picker waited for (more was said, so it cuts
+    the same speech another way). The moment is remembered and rated again, and the weaker one is not taken."""
+    from clipfoundry.autopilot import live
+
+    moments = [(200, 70.0), (500, 90.0)]
+    sess, job = stream(10, moments)
+    assert live.detect(sess, job) is None and sess.note == live_pick.NOTES["settling"]
+    moments.remove((500, 90.0))  # the next search does not find it again
+    sess.offset += 120.0
+    sess.env += [-25.0] * 1200
+    found = live.detect(sess, job)
+    assert found and 500 <= found["r"]["start"] < 530 and found["r"]["viral_potential"] == 90.0
+    assert found["r"]["explanation"][0].startswith("Viral Potential 90")
+
+
+def test_moments_remembered_between_searches_are_few_and_strong():
+    weak, good, best, taken = moment(100, 50), moment(200, 70), moment(300, 90), moment(400, 80)
+    many = [moment(500 + 40 * k, 60 + k) for k in range(8)]
+    kept = live_pick.keep([weak, good, best, taken, *many], taken, best, 55.0)
+    assert kept[0]["start"] == 300 and len(kept) == live_pick.HELD          # the one waited for first
+    assert all(k["start"] not in (100, 400) for k in kept)                  # neither weak nor already taken
+    assert live_pick.keep([], None, None, 55.0) == []
 
 
 def test_live_picker_makes_few_clips_from_a_long_ordinary_stream(stream, monkeypatch):
@@ -383,6 +424,18 @@ def test_a_fuller_version_never_runs_into_a_clip_already_made(stream, monkeypatc
     assert found["start"] >= 199.0 and "fuller" not in found  # the build-up is the earlier clip: not shown twice
 
 
+def test_a_fuller_version_never_shows_a_short_clip_again(stream, monkeypatch):
+    """A short clip just before the moment: the longer version shares only a small part of its own length with
+    it, but every second of that is the clip's footage again."""
+    from clipfoundry.autopilot import live
+
+    sess, job = stream(10, [(200, 80.0)], autopilot_live_pick="most", **LONGER)
+    told_in_full(monkeypatch, back=8, on=0)
+    sess.clips.append({"id": "short", "start": 190.0, "end": 195.0, "score": 90.0})
+    found = live.detect(sess, job)["r"]
+    assert found["start"] >= 195.0 and "fuller" not in found
+
+
 def test_a_fuller_version_too_weak_for_the_stream_leaves_the_moment_as_found(stream, monkeypatch):
     from clipfoundry import db
     from clipfoundry.autopilot import live
@@ -410,7 +463,7 @@ def test_two_moments_that_are_one_story_are_rated_once(stream, monkeypatch):
 
     monkeypatch.setattr(live.virality, "analyze", analyze)
     monkeypatch.setattr(live_pick, "rate", lambda r, *a, **kw: {"score": r["viral_potential"], "why": ["estimate"]})
-    monkeypatch.setattr(live_pick, "choose", lambda rated, **kw: (seen.extend(rated) or rated[0], "taken"))
+    monkeypatch.setattr(live_pick, "choose", lambda rated, **kw: (seen.extend(rated) or rated[0], "taken", None))
     assert live.detect(sess, job)["r"]["s0"] == 40
     assert [(r["s0"], r["s1"]) for r in seen] == [(40, 60)]
 
