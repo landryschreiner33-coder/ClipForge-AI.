@@ -22,6 +22,18 @@ OUTPUT_W, OUTPUT_H = 1080, 1920
 CAPTION_STYLES = ["clean", "bold", "high_energy", "minimal"]
 TRACKING_MODES = ["auto", "center", "face", "speaker", "screen", "manual"]
 LAYOUTS = ["fill", "fit"]
+# What one clip can be framed as: the two above, plus split view (the face cam on top, the rest of the picture
+# below). "auto" makes a split view only when a face cam is found, "split" whenever a face is. They are chosen
+# per live stream and per clip, not in Settings: the full-video editor and saved styles know only LAYOUTS.
+CLIP_LAYOUTS = LAYOUTS + ["auto", "split"]
+# Settings → Split view: "auto" looks for a face cam in every clip whose layout nobody chose (render.cam_layout).
+SPLIT_VIEWS = ["auto", "off"]
+# What is under the cam in a split view: the whole picture, or its middle zoomed in to fill (reframe.split_panels)
+SPLIT_GAMES = ["whole", "zoom"]
+LIVE_PICKS = ["best", "balanced", "most"]   # how picky a live stream is (autopilot/live_pick.py)
+# How a live stream's clips are framed: "auto" and "split" as above (without a face cam the clip gets the layout
+# from Settings), "off" never makes a split view.
+LIVE_FRAMINGS = ["auto", "split", "off"]
 SILENCE_MODES = ["off", "light", "aggressive"]
 CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
 AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]
@@ -114,6 +126,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "highlight_words": True,
     "tracking": "auto",
     "layout": "fill",
+    "split_view": "auto",             # a video with a face cam gets a split view (the cam on top, the picture below)
+    "split_game": "whole",            # ... showing the whole picture under the cam ("zoom": its middle, filling)
     "silence": "light",
     "remove_fillers": True,           # with silence cleanup: an "um"/"uh" goes together with the pause around it
     "auto_zoom": True,                # subtle push-ins on sentences with an emphasized word
@@ -169,6 +183,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # swap a day per slot keeps the plan, and the approvals it needs, from changing back and forth
     "autopilot_replacement_cooldown_hours": 24.0,
     "autopilot_live_monitoring": True,  # authorized live sources only (the rights gate applies as always)
+    # Live streams: what a new stream starts with; each stream keeps the choice made when it was added.
+    "autopilot_live_pick": "best",      # how picky: best (few, strongest), balanced, most (every good moment)
+    "autopilot_live_framing": "auto",   # split view: auto (when a face cam is found), split (always), off
     "autopilot_learning": True,
     # Brain (autopilot/brain.py): the guards on audience-driven strategy changes (section 14 of the build brief)
     "brain_paused": False,              # keep collecting results, change no strategy
@@ -320,6 +337,10 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "layout" and v not in LAYOUTS:
             continue
+        elif key == "split_view" and v not in SPLIT_VIEWS:
+            continue
+        elif key == "split_game" and v not in SPLIT_GAMES:
+            continue
         elif key == "silence" and v not in SILENCE_MODES:
             continue
         elif key == "clean_sound" and v not in CLEAN_SOUND_MODES:
@@ -361,6 +382,10 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
         elif key == "autopilot_input_mode" and v not in ({"submitted"} if DISCOVERY_RETIRED else
                                                           {"submitted", "discovery"}):
             continue  # discovery is retired: an old client asking for it keeps the submitted-input mode
+        elif key == "autopilot_live_pick" and v not in LIVE_PICKS:
+            continue
+        elif key == "autopilot_live_framing" and v not in LIVE_FRAMINGS:
+            continue
         elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:
             continue
         elif key in ("audience_youtube", "audience_tiktok") and v not in AUDIENCE_INTENTS:

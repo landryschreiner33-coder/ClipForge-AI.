@@ -42,6 +42,11 @@ ABOVE_GAP = 28                                    # pixels between the captions 
 ABOVE_SCALES = (1.0, 0.9, 0.8)
 TWO_LINES_EM = 2.0
 TWO_LINES_SPARE = 6                               # pixels to spare on top of that
+# Split view (render.py: the face cam on top, the rest of the picture below): captions in their usual place, the
+# lower third, sit across the line where the two pictures meet, so they cover neither the face nor the middle of
+# the game, and that line is inside the band the phone apps leave clear. The headline would cover the face at the
+# top, so it starts just under the line and the captions move under it while it shows.
+SEAM_HOOK_GAP = 44                                # pixels between the line and the headline's first text line
 
 
 def above_picture(picture_top: float | None, size: int, ceiling: float) -> tuple[int, int] | None:
@@ -63,12 +68,22 @@ def hook_size(text: str) -> int:
     return next(size for limit, size in HOOK_SIZES if n <= limit)
 
 
-def hook_bottom(text: str) -> float:
-    """Where the headline's box ends, in pixels from the top of the frame."""
+def hook_bottom(text: str, top: float | None = None) -> float:
+    """Where the headline's box ends, in pixels from the top of the frame (`top`: where it starts, if not at the
+    usual place)."""
     px = hook_size(text)
     width = len(" ".join(text.split())) * HOOK_CHAR_EM * px
     lines = max(1, math.ceil(width / (OUTPUT_W - 2 * HOOK_MARGIN)))
-    return OUTPUT_H * HOOK_TOP + (1.1 * lines + 0.15) * px
+    return (OUTPUT_H * HOOK_TOP if top is None else top) + (1.1 * lines + 0.15) * px
+
+
+def seam_line(opts: dict) -> float | None:
+    """Pixels from the top to the line between a split view's two pictures (None: not a split view)."""
+    try:
+        share = float(opts.get("picture_seam"))
+    except (TypeError, ValueError):
+        return None
+    return OUTPUT_H * share if 0.05 < share < 0.95 else None
 
 
 def hex_to_ass(color: str, alpha: int = 0) -> str:
@@ -135,7 +150,14 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     align, margin_frac = POSITIONS.get(opts.get("caption_position", "bottom"), POSITIONS["bottom"])
     margin_v = int(OUTPUT_H * margin_frac)
     hook_on = bool(opts.get("hook_overlay", True)) and hook_text.strip()
-    under_hook = int(hook_bottom(hook_text) + HOOK_GAP) if hook_on else 0
+    seam = seam_line(opts)
+    # a split view that keeps the whole picture has a strip for the text: the headline starts at its top
+    hook_top = None if seam is None else int(opts["seam_hook_top"]) if opts.get("seam_hook_top") is not None \
+        else int(seam + SEAM_HOOK_GAP)
+    under_hook = int(hook_bottom(hook_text, hook_top) + HOOK_GAP) if hook_on else 0
+    # In a split view the face cam is at the top: captions placed at the top would cover the face, so they go on
+    # the line between the two pictures like bottom ones (middle ones already sit about there).
+    on_seam = seam is not None and opts.get("caption_position", "bottom") in ("bottom", "top")
     if opts.get("caption_position") == "above":
         ceiling = under_hook or OUTPUT_H * POSITIONS["top"][1]
         placed = above_picture(opts.get("picture_top"), size, ceiling)
@@ -166,7 +188,7 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
         f"Style: Caption,{p['font']},{size},{primary},{highlight},{outline_col},{back},{bold_flag},0,0,0,100,100,"
         f"1,0,1,{p['outline']},{p['shadow']},{align},90,90,{margin_v},1",
         f"Style: Hook,Poppins ExtraBold,{hook_px},&H00FFFFFF,&H00FFFFFF,&H00000000,&H28161616,-1,0,0,0,100,100,0,0,3,"
-        f"18,0,8,{HOOK_MARGIN},{HOOK_MARGIN},{int(OUTPUT_H * HOOK_TOP)},1",
+        f"18,0,8,{HOOK_MARGIN},{HOOK_MARGIN},{int(OUTPUT_H * HOOK_TOP) if hook_top is None else hook_top},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -181,6 +203,11 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     below = under_hook if align == POSITIONS["top"][0] and under_hook > margin_v else 0
 
     def caption_at(start: float) -> str:
+        if on_seam:
+            # centred on the line, whatever the number of caption lines; under the headline while it shows
+            place = f"\\an8\\pos({OUTPUT_W // 2},{under_hook})" if start < hook_end else \
+                f"\\an5\\pos({OUTPUT_W // 2},{int(seam)})"
+            return f"Caption,,0,0,0,,{{{place}}}"
         return f"Caption,,0,0,{below if start < hook_end else 0},,"
 
     if opts.get("captions_enabled", True):

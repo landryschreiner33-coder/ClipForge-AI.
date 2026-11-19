@@ -1,1 +1,0 @@
-import{e as i,C as e}from"./ParticleBuffer-CUi0DNEM.js";import{AccessibilitySystem as t,accessibilityTarget as a,DOMPipe as m,EventSystem as r,FederatedContainer as s}from"./index-Bdp0AOTC.js";import"./webworkerAll-C2TZAYRy.js";import"./index-BgHOCr0X.js";i.add(t);i.mixin(e,a);i.add(m);i.add(r);i.mixin(e,s);

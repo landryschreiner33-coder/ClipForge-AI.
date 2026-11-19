@@ -52,7 +52,9 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
         : slug === "live" ? <LiveStreams timezone={st.timezone} stopped={st.paused} enabled={st.enabled}
           gapMinutes={Number(st.settings.autopilot_min_gap_minutes ?? 30)}
           maxGb={Number(st.settings.autopilot_max_source_gb || 8)}
-          maxMinutes={Number(st.settings.autopilot_max_source_minutes || 240)} refreshStatus={refresh} />
+          maxMinutes={Number(st.settings.autopilot_max_source_minutes || 240)}
+          livePick={String(st.settings.autopilot_live_pick || "best")}
+          liveFraming={String(st.settings.autopilot_live_framing || "auto")} refreshStatus={refresh} />
         : slug === "activity" ? <ActivityView st={st} refresh={refresh} />
           : slug === "sources" ? <SourcesView st={st} refreshStatus={refresh} />
             : <Overview st={st} lost={lost} since={since} refresh={refresh} setData={setData} />}

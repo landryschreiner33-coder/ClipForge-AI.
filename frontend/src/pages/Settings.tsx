@@ -531,6 +531,20 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
           <Seg k="layout" c={c}
             options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" }]} />
         </SettingRow>
+        <SettingRow k="split_view" label="Split view" group
+          hint={"When a video has a face cam laid over the picture (a stream or gameplay recording), the clip shows "
+            + "the face cam on top and the picture below it. Videos without one use the layout above. A layout you "
+            + "choose for one video or clip always wins."}>
+          <Seg k="split_view" c={c}
+            options={[{ value: "auto", label: "When there is a face cam" }, { value: "off", label: "Off" }]} />
+        </SettingRow>
+        <SettingRow k="split_game" label="Under the face cam" group
+          hint={s.split_game === "zoom"
+            ? "The middle of the picture fills everything below the face cam; its sides are cut off."
+            : "All of the picture stays in view, as wide as the clip, over a blurred background."}>
+          <Seg k="split_game" c={c}
+            options={[{ value: "whole", label: "Whole picture" }, { value: "zoom", label: "Zoomed in" }]} />
+        </SettingRow>
         <SettingRow k="clean_sound" label="Clean up the sound"
           hint="Background noise, hum, breaths, uneven levels and voice polish. Auto leaves music alone." group>
           <Seg k="clean_sound" c={c}

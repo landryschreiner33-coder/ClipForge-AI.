@@ -81,7 +81,10 @@ def test_live_capture_and_post_live_analysis(talk_video, data, monkeypatch):
     from clipfoundry.autopilot import host, live, queue, rights
     from clipfoundry.pipeline import transcribe as tr
 
+    # "Every good moment": this short recording is about the recorder and the hand-over to the full-recording
+    # check. The default (few, strong clips) waits several minutes first; its rules are in test_live_pick.py.
     db.save_settings({"autopilot_enabled": True, "autopilot_live_monitoring": True, "autopilot_clips_per_source": 3,
+                      "autopilot_live_pick": "most",
                       "autopilot_min_quality": 40, "encoder": "x264", "x264_preset": "ultrafast",
                       "min_duration": 12.0, "max_duration": 45.0, "target_duration": 25.0})
     monkeypatch.setattr(live, "SEGMENT_SECONDS", 10)

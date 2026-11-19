@@ -35,6 +35,7 @@ export interface ClipEdit {
   end?: number;
   tracking?: string;
   layout?: string;
+  split_game?: string;
   crop_x?: number;
   zoom?: number;
   caption_style?: string;

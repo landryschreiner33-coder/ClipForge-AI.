@@ -437,6 +437,23 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Whole gameplay and longer live clips (2026-11-18):** Landry asked to "see the full gamplay and face cam like a
+split veiw or how other apps have it" and for clips that "arent so short and ... are actually longer and more
+engaging". Keep: a split view shows the whole picture under the face cam unless *Zoomed in* is chosen; any clip with
+a face cam gets a split view unless somebody chose its layout or Settings → Split view is Off (a chosen layout is
+never overridden: `render.layout_chosen`); a live clip keeps its moment's build-up and ending when that is about as
+strong, never across a change of subject or a long silence and never over the longest clip length
+(`live_pick.fuller`); live clips read the ordinary clip length Settings and have no lengths of their own.
+
+**Live clip quality continuation (2026-11-17):** Landry asked for better live moments with quality over quantity,
+fixed framing with a split view (face cam one half, gameplay the other, if needed), clips split between channels,
+and a way to stop clipping at any time while the scheduled clips still upload. Keep: each stream's own choices
+(`intake.live_choices`: how picky, split view) are copied to its project and never change mid-stream; the default is
+few, strong clips (`autopilot/live_pick.py`); split view is used only when a face cam is found, else the Settings
+layout; "split between channels" sends each clip to exactly one of the chosen channels and a clip never changes
+channel (`submissions.clip_turn`); Stop clipping never cancels, deletes or un-approves anything already made, and is
+not taken back by Try again. Scores stay labelled estimates. Details: docs/AUTOPILOT.md, *Clip live streams*.
+
 **Live streams continuation (2026-11-16):** Landry asked to clip streams while they are live, with Autopilot
 uploading the clips during the live, and to clip several streams at once. Missions → Live streams takes several
 links; each is its own input with its own Make & upload request, recorded and clipped while live and uploaded during

@@ -208,7 +208,8 @@
       approved content or your explicit manual times. A local per-account timestamp and logical post ID prevent
       already queued new transfers from starting together after restarts. Existing transfer identity is retained.
       Submitted-video input is now the default. An explicit Make &amp; upload clips request authorizes only new
-      qualifying YouTube clips from its input, uploaded once to each YouTube channel you ticked for that input,
+      qualifying YouTube clips from its input, uploaded once to each YouTube channel you ticked for that input
+      (or, when you chose to split the clips between the channels, to one of them in turn),
       with no separate manual review of every clip. Existing backlog and
       other inputs remain outside that request. A valid saved request supplies that same source reuse statement
       in Queue review without retyping it; each post still binds its exact bytes, text and destination. It never
@@ -280,7 +281,13 @@
   Compatible split HLS capture uses one temporary local relay per stream for both video and audio, sharing the
   existing download limit and URL checks. Each stream's recorded minutes, its joined recording, its clips and its live
   checkpoint are kept in that stream's project in the data folder. With Make &amp; upload clips, clips that pass the
-  final checks upload during the stream and afterwards only to the YouTube account you chose for that stream. An empty ended platform capture may check for its public recording through
+  final checks upload during the stream and afterwards only to the YouTube channels you ticked for that stream; if you
+  chose to split the clips between them, each clip goes to one of those channels only. How picky the stream is and
+  whether its clips get a split view are saved with the stream. To judge how lively a moment sounds, the sound of each
+  recorded minute is also kept as a small file in that stream's project for about 15 minutes and then deleted; the
+  last of them are deleted when the recording is finished. For split view, where the face cam sits in the picture is worked out on this
+  computer and saved in the project's folder; nothing about it is sent anywhere. Stop clipping ends the recording and
+  makes no more clips; it deletes nothing, and clips already made still upload. An empty ended platform capture may check for its public recording through
   the same supported downloader. Attempt counts, requested wait deadlines and completion state are stored with
   the live checkpoint to survive restarts. Existing partial captures are not replaced. Checkpoints follow the
   existing project/data-folder retention; this adds no browser cookies, login scraping or new service.

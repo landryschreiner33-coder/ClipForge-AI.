@@ -1,6 +1,7 @@
 import { Settings } from "../api";
+import { LIVE_FRAMINGS, LIVE_PICKS } from "../submissions";
 import {
-  Check, FieldCtx, NumInput, Seg, SettingRow, SettingsPanel, Switch, TextInput,
+  Check, FieldCtx, NumInput, Seg, Select, SettingRow, SettingsPanel, Switch, TextInput,
 } from "./settingsFields";
 
 /**
@@ -78,6 +79,17 @@ export function AutopilotSettings({ s, set, errors, saved }: {
         <SettingRow k="autopilot_live_monitoring" label="Live monitoring"
           hint="Clip authorized live sources while they run" {...row}>
           <Switch k="autopilot_live_monitoring" c={c} />
+        </SettingRow>
+        <SettingRow k="autopilot_live_pick" label="Live streams: how picky"
+          hint={"What a new live stream starts with; you can change it for each stream when you add it. "
+            + (LIVE_PICKS.find(o => o.value === s.autopilot_live_pick)?.hint || "")} {...row}>
+          <Select k="autopilot_live_pick" c={c} options={LIVE_PICKS.map(({ value, label }) => ({ value, label }))} />
+        </SettingRow>
+        <SettingRow k="autopilot_live_framing" label="Live streams: split view"
+          hint={"What a new live stream starts with. "
+            + (LIVE_FRAMINGS.find(o => o.value === s.autopilot_live_framing)?.hint || "")} {...row}>
+          <Select k="autopilot_live_framing" c={c}
+            options={LIVE_FRAMINGS.map(({ value, label }) => ({ value, label }))} />
         </SettingRow>
         <SettingRow k="autopilot_learning" label="Learning"
           hint="Use your real results to adjust times, topics and scores" {...row}>
