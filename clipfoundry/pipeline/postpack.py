@@ -33,9 +33,18 @@ HASHTAG_LIMIT = 5        # three to five specific hashtags do more than a long r
 ADVICE_CHARS = 600       # what a model reads of the owner's skills before it writes post text
 # Hashtags that say nothing about the video. They are left out even when the speaker says the word ("this went
 # viral"): a hashtag is there to say what the clip is about.
-GENERIC_TAGS = {"fyp", "foryou", "foryoupage", "fy", "viral", "trending", "trend", "explore", "explorepage",
-                "xyzbca", "follow", "like", "likes", "subscribe", "video", "videos", "clip", "clips", "shorts",
-                "short", "reels", "tiktok", "youtube", "content"}
+GROWTH_TAGS = {"fyp", "foryou", "foryoupage", "fy", "viral", "trending", "trend", "explore", "explorepage",
+               "xyzbca", "follow", "like", "likes", "subscribe"}
+# Where a clip is posted, or what it is: no hashtag, unless the clip is about it ("YouTube Shorts or TikTok?"),
+# which its title shows.
+MEDIUM_TAGS = {"video", "videos", "clip", "clips", "shorts", "short", "reels", "tiktok", "youtube", "content"}
+GENERIC_TAGS = GROWTH_TAGS | MEDIUM_TAGS
+
+
+def generic_tag(word: str, lead: set[str] | frozenset[str] = frozenset()) -> bool:
+    """A hashtag word that says nothing about this clip; `lead`: the content words of its title."""
+    word = word.lstrip("#").lower()
+    return word in GROWTH_TAGS or (word in MEDIUM_TAGS and word not in lead)
 
 # Call-to-action templates. They ask for an action and make no statement about the clip.
 CTAS = {
@@ -197,7 +206,7 @@ def hashtags_for(clip_text: str, global_df: Counter | None = None, n_docs: int =
     appear in `prefer` (the title) rank first."""
     lead = set(content_tokens(prefer))
     kws = [k for k in keywords(clip_text, global_df, n_docs, top=HASHTAG_LIMIT * 4)
-           if k.isalpha() and k not in WEAK_TAGS and k not in GENERIC_TAGS and not k.endswith(("ly", "est"))]
+           if k.isalpha() and k not in WEAK_TAGS and not generic_tag(k, lead) and not k.endswith(("ly", "est"))]
     kws.sort(key=lambda k: k not in lead)  # stable: keeps the keyword order otherwise
     tags = [f"#{k}" for k in kws]
     return [t for t in dict.fromkeys(tags) if not hashtag_problems(t, clip_text)][:HASHTAG_LIMIT]
@@ -331,7 +340,10 @@ def _merge_ai(base: dict, ai: dict, clip_text: str) -> tuple[dict, int]:
             base[key] = v
             used += 1
     tags = ["#" + re.sub(r"[^\w]", "", str(t)) for t in (ai.get("hashtags") or []) if re.sub(r"[^\w]", "", str(t))]
-    tags = [t for t in tags if not hashtag_problems(t, clip_text) and t.lstrip("#").lower() not in GENERIC_TAGS]
+    titles = base.get("titles") or []
+    rec = base.get("recommended_title") or 0
+    lead = set(content_tokens(titles[rec] if 0 <= rec < len(titles) else ""))
+    tags = [t for t in tags if not hashtag_problems(t, clip_text) and not generic_tag(t, lead)]
     if tags:
         base["hashtags"] = list(dict.fromkeys(tags + base["hashtags"]))[:HASHTAG_LIMIT]
         used += 1

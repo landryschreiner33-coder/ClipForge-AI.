@@ -54,6 +54,28 @@ def _say(text: str, **kw) -> dict:
     ("Keep the description short.", {}),
     ("Pick funny moments, not small talk.", {}),
     ("Titles under 900 characters.", {}),        # a slip of the pen, not a wish
+    # a "no" before a "no" asks for the thing; a rule about which hashtags is not one about how many
+    ("Don't forget the hashtags.", {}),
+    ("Don't forget to add a call to action.", {}),
+    ("Never forget emojis in the post.", {}),
+    ("No generic hashtags like #fyp or #viral.", {}),
+    ("Don't put hashtags in the title.", {}),
+    ("Don't use the same hashtags on every clip.", {}),
+    # each part of a sentence is about what it names
+    ("Thumbnail text in capitals, title in lower case.", {"title_case": "lower"}),
+    ("Captions on screen in all caps, titles normal.", {}),
+    ("Keep the description in lower case, titles normal.", {"text_case": "lower"}),
+    ("Short clips, longer titles.", {}),
+    ("Keep the on-screen captions under 6 words, titles can be long.", {}),
+    ("In titles, use lower case", {"title_case": "lower"}),
+    # what the owner allows is not banned by the list before it
+    ("No emoji in titles, hashtags welcome.", {"emoji": False}),
+    ("No call to action, hashtags are good.", {"cta": False}),
+    ("No hashtags, emoji are fine.", {"tags": 0}),
+    # "capitals" alone asks for all capitals only when refused
+    ("Proper names in titles should keep their capitals.", {}),
+    ("Titles can have capital letters again.", {}),
+    ("Titles should use capital letters at the start of each word.", {"title_case": "title"}),
 ])
 def test_what_the_owner_says_about_post_text_is_read_into_choices(said, choices):
     assert poststyle.read(said) == choices
@@ -166,6 +188,30 @@ def test_hashtags_say_what_the_clip_is_about():
     tags = postpack.hashtags_for(" ".join(sents))
     assert "#sourdough" in tags and "#starter" in tags
     assert not {"#viral", "#tiktok", "#video"} & set(tags) and len(tags) <= postpack.HASHTAG_LIMIT == 5
+    # a clip about the platforms keeps them: its title says that is its subject
+    about = "YouTube Shorts or TikTok? I post clips on YouTube and TikTok every day."
+    tags = postpack.hashtags_for(about, prefer="YouTube Shorts or TikTok?")
+    assert {"#youtube", "#tiktok"} <= set(tags) and "#viral" not in tags
+    assert postpack.generic_tag("#fyp", {"fyp"}) and not postpack.generic_tag("#tiktok", {"tiktok"})
+
+
+def test_story_clips_follow_the_rules_kept_for_their_video():
+    from story_fixtures import three_stories
+    from test_story_clips import _plan
+
+    from clipfoundry.studio import story_review
+
+    transcript, _ = three_stories()
+    result, words = _plan(transcript, 720.0, "whole")
+    p = db.create_project("stories", status="ready", clip_mode="full_stories", duration=720.0,
+                          options={"story_split": "whole"})
+    story_review.save(p, result)
+    _say("Titles in lower case. No hashtags.", scope=f"project:{p['id']}")
+    project = db.get_project(p["id"])
+    first = db.select("story_proposals", "project_id = ? AND kind = 'story'", (p["id"],), "position")[0]
+    one = story_review.create_clip(project, first, words, {})          # made again from Review, on its own
+    made = [one] + story_review.auto_clips(project, words, db.get_settings())
+    assert len(made) == 3 and all(c["title"] == c["title"].lower() and c["hashtags"] == [] for c in made)
 
 
 def test_autopilots_packages_follow_the_rules_too(monkeypatch):

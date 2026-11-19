@@ -94,8 +94,8 @@ SECTIONS: tuple[Section, ...] = (
         ("clip", "clips", "clipping", "highlights", "full story", "story parts", "podcast", "moments",
          "shorts from", "turn into", "make clips", "upload a video", "drop"), "make_clips"),
     Section("links", "Clips from a link", (
-        "Paste a public video link on Make clips, or use Make → Make clips → from a link for a link with its own "
-        "transcript file.",
+        "Paste a public video link on Make clips (Video link). Your own transcript file works only with a video "
+        "file: Make clips → add the video with its transcript.",
         "Only public videos work: nothing private, members-only or behind a sign-in.",
         "A live link is recorded like a live stream."),
         ("link", "links", "url", "youtube link", "paste", "download", "import", "twitch vod", "vod", "from youtube"),
@@ -176,10 +176,12 @@ SECTIONS: tuple[Section, ...] = (
          "trash", "rename", "my videos", "my clips", "files"), "projects"),
     Section("publishing", "Posting to YouTube and TikTok", (
         "Connect your channels on Accounts (Add YouTube account, Add TikTok account); add as many as you have.",
-        "Prepare post on a clip sets its title, post text, hashtags, the accounts and the time.",
+        "Prepare post on a clip shows the exact file with its title, post text and hashtags; tick the accounts and "
+        "press a platform's button to post it now.",
         "Publishing shows every post: Needs review, Scheduled, Published, History, Problems and Results.",
-        "YouTube uploads happen by themselves once a clip passes its final check; a TikTok post waits for your OK "
-        "on each one.",
+        "YouTube clips post by themselves only for a video you added with Make & upload clips, once each passes its "
+        "final check; other posts wait under Publishing → Needs review for your OK, and a TikTok post always waits "
+        "for your OK.",
         "A failed post is under Publishing → Problems with the reason and what to do."),
         ("post", "posts", "posting", "publish", "upload", "uploads", "schedule", "scheduled", "queue", "tiktok",
          "youtube", "shorts", "channel", "channels", "account", "connect", "reconnect", "failed", "problem",
@@ -201,8 +203,9 @@ SECTIONS: tuple[Section, ...] = (
     Section("brain", "The Brain: what ClipForge AI learns from", (
         "Brain → Memory is what I remember about how you like things; Skills are imported guides; Notes and "
         "Example notes are your own written advice; Example videos and Styles are looks to copy.",
-        "Clip picking, titles, post text and my answers read all of them. What you told me wins over a skill, and "
-        "a skill wins over my built-in know-how.",
+        "Clip picking and editing read all of them on this computer; titles, post text and my answers read your "
+        "memories and switched-on skills, never your notes or example notes as you wrote them. What you told me "
+        "wins over a skill, and a skill wins over my built-in know-how.",
         "Once posts have real numbers, I compare which kinds of moment did better and keep it as a memory that "
         "starts “From your results:”. Clip picking follows it until you switch it off or forget it.",
         "Decisions shows what the Brain changed and Performance history how your posts did."),

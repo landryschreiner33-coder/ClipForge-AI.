@@ -52,6 +52,21 @@ BLOCKED = [
 CODE_FENCE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)")
 
 
+def _listed_refused(entry: dict, blocked: list[dict]) -> bool:
+    """A JSON skill's own "unsupported" line gets the same checks as a line of instructions: a refused one is moved
+    to the refused lines and a link is kept as text, whatever reason the file gives. Only a line that passes may
+    stay readable advice (brain/library.py reads it)."""
+    text = str(entry.get("text") or "")
+    low = text.lower()
+    why = next((w for pattern, w in BLOCKED if pattern.search(low)), None)
+    if why:
+        blocked.append({"text": text[:300], "why": why})
+        return True
+    if re.search(r"https?://|www\.", low):
+        entry["why"] = "links are kept as text and never fetched"
+    return False
+
+
 def _seconds(text: str) -> float | None:
     m = re.search(r"(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b", text)
     if not m or not re.search(r"\b(length|long|duration|runtime|keep (it|videos?)|target|around|about)\b", text):
@@ -164,6 +179,7 @@ def parse(filename: str, data: bytes) -> dict:
     meta: dict = {}
     explicit: dict = {}
     unsupported: list[dict] = []
+    blocked_early: list[dict] = []
     if fmt == "json":
         try:
             doc = json.loads(text)
@@ -185,7 +201,8 @@ def parse(filename: str, data: bytes) -> dict:
             raise SkillError("preferences must be an object.")
         explicit, problems = capabilities.clean(prefs)
         unsupported += [{"text": p, "why": "not an editing choice ClipForge applies"} for p in problems]
-        unsupported += [u for u in doc.get("unsupported") or [] if isinstance(u, dict) and "text" in u]
+        listed = [u for u in doc.get("unsupported") or [] if isinstance(u, dict) and "text" in u]
+        unsupported += [u for u in listed if not _listed_refused(u, blocked_early)]
         body = doc.get("instructions") or ""
         if not isinstance(body, str):
             raise SkillError("instructions must be text.")
@@ -195,7 +212,7 @@ def parse(filename: str, data: bytes) -> dict:
         meta.setdefault("topics", [])
     supported: dict = dict(explicit)
     sources: dict[str, list] = {k: [{"line": "preferences", "value": v}] for k, v in explicit.items()}
-    blocked: list[dict] = []
+    blocked: list[dict] = blocked_early
     in_code, code_lang, code_lines = False, "", []
     for raw in body.splitlines():
         fence = CODE_FENCE.match(raw)

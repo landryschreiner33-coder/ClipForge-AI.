@@ -106,7 +106,8 @@ _CLAUSE = re.compile(r"(?<=[.;!?])\s+|\s+but\s+|\n+")
 _VERSUS = re.compile(r"(?<!pass)\s+over\s+(?!\d)|\s+(?:instead of|rather than)\s+|,\s*(?:and\s+)?not\s+")
 _VERSUS_REACH = 30  # how far into the passed-over side a kind still belongs to it
 _NO = (r"never|avoid\w*|don'?t|do not|doesn'?t|no|not|without|skip\w*|less|fewer|hate\w*|dislike\w*|exclud\w*|"
-       r"ban|banned|reject\w*|steer clear|stay away|leave out|pass over")
+       r"ban|banned|reject\w*|steer clear|stay away|leave out|pass over|bur(?:y|ies|ying|ied)|hid(?:e|es|ing|den)|"
+       r"forg[eo]t\w*")
 _NEG = re.compile(rf"\b(?:{_NO})\b")
 # "banter does not provoke debate": the kind after such a verb is what is missing, not what to pass over
 _CAUSE = re.compile(r"\b(?:provok\w*|caus\w*|creat\w*|spark\w*|start\w*|trigger\w*|draws?|drew|driv\w*|earn\w*|"
@@ -114,7 +115,8 @@ _CAUSE = re.compile(r"\b(?:provok\w*|caus\w*|creat\w*|spark\w*|start\w*|trigger\
 # Nobody's advice is to look for these; only the owner's own words can ask for them.
 UNWANTED = ("smalltalk", "promo", "swearing")
 # an owner's own verbs for leaving something out; in imported advice "cut" is also how a clip is made
-_NEG_OWNER = re.compile(rf"\b(?:{_NO}|cut|cuts|cutting|drop\w*|remov\w*|trim\w*|stop\w*)\b")
+_NEG_OWNER = re.compile(rf"\b(?:{_NO}|(?:cut|cuts|cutting|drop\w*|remov\w*|trim\w*|stop\w*)"
+                        r"(?!\s+(?:more|clips?|shorts?|highlights?|out (?:clips?|shorts?|more))\b))\b")
 _PICK = re.compile(r"\b(?:clips?|clipping|clipped|moments?|pick\w*|choos\w*|chose|highlights?|excerpts?|segments?|"
                    r"select\w*|shorts)\b")
 _PREFER = re.compile(r"\b(?:like|likes|love|loves|want|wants|prefer\w*|favou?r\w*|more|best|always|do well|"
@@ -158,6 +160,12 @@ _WORD_NUMBERS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
                  "twenty": "20", "thirty": "30", "forty": "40", "forty-five": "45", "fifty": "50", "sixty": "60",
                  "ninety": "90"}
 LONGER, SHORTER = 1.3, 0.75  # "make the clips longer" with no number
+# "no more than 60 seconds", "don't make clips longer than 30 seconds": a "no" just before turns the bound around
+_LEN_NEG = re.compile(r"\b(?:no|not|never|don'?t|do not|doesn'?t|isn'?t|aren'?t|shouldn'?t|mustn'?t|can'?t|"
+                      r"won'?t)(?:\s+[^\s,.;:!?]+){0,3}\s*$")
+_FLIP = {"min": "max", "max": "min"}
+# "grab attention in the first 10 seconds", "a cut every 3 seconds": a time inside the clip, not how long it is
+_POINT_IN_CLIP = re.compile(r"\b(?:first|last|opening|final|after|every|each|in|by)\s+$")
 
 
 def _seconds(value: str, unit: str | None) -> float:
@@ -187,13 +195,16 @@ def _length(low: str) -> dict:
         out["min"], out["max"] = min(a, b), max(a, b)
     else:
         for key, pattern in (("min", _AT_LEAST), ("max", _AT_MOST), ("target", _ABOUT_LONG)):
-            m = pattern.search(low)
-            if m:
-                out[key] = _seconds(m.group(1), m.group(2))
+            for m in pattern.finditer(low):
+                if _POINT_IN_CLIP.search(low[:m.start(1)]):
+                    continue
+                said = _FLIP[key] if key in _FLIP and _LEN_NEG.search(low[:m.start()]) else key
+                out.setdefault(said, _seconds(m.group(1), m.group(2)))
         if not out:
-            m = _BARE_LONG.search(low)
-            if m:
-                out["target"] = _seconds(m.group(1), m.group(2))
+            for m in _BARE_LONG.finditer(low):
+                if not _POINT_IN_CLIP.search(low[:m.start(1)]):
+                    out["target"] = _seconds(m.group(1), m.group(2))
+                    break
     out = {k: v for k, v in out.items() if SHORTEST <= v <= LONGEST}
     if not out:
         if _LONGER.search(low) and not _SHORTER.search(low):
@@ -230,13 +241,43 @@ def lengths(st: dict, shortest: float, longest: float, ideal: float) -> tuple[fl
 
 
 # ------------------------------------------------------------------ reading a line
+# Where a "no" stops reaching: the line turns to what it does want ("no intros, just funny moments", "less talking,
+# more reactions", "drop the banter, keep the reactions", "skip the intro and go straight to the reactions").
+_RESET = re.compile(r"\b(?:just|only|instead|rather|but|keep\w*|focus\w* on|stick to|straight to|"
+                    r"(?<!\bno )(?<!\bany )more|and (?:go|keep|focus|pick|show|use|find|look|stick|leave in|add|"
+                    r"include)\w*)\b")
+_NEG_JUST_BEFORE = re.compile(rf"\b(?:{_NO})\b(?:\s+\S+)?\s*$")   # "don't keep the intro": still a "no"
+# After a comma a list of what is left out goes on ("no swearing, small talk or ads"); anything else turns away,
+# and so does a kind that starts a sentence of its own ("..., the funny moments are what my fans want").
+_LIST_GOES_ON = re.compile(r"(?:or |and |nor )?(?:the |any |all )?(?:" + "|".join(k.names for k in KINDS) + r")\b"
+                           r"(?:\s+(?:moments?|clips?|parts?|bits?|ones?|stuff|reads?|segments?))?"
+                           r"\s*(?:[,.;!?]|$|(?:or|and|nor|in|from|on|out of)\b)")
+# A line about where a clip starts or ends ("never end clips on a question") says nothing about which moments to pick.
+_CUT_POINT = re.compile(r"\b(?:end|ends|ending|ended|start|starts|starting|open|opens|opening|begin\w*|"
+                        r"cut off|cuts off)\s+(?:(?:my|the|your|a|each|every|all)\s+)?(?:clips?\s+|shorts?\s+|"
+                        r"videos?\s+)?(?:on|with|before|after|at|in the middle of|mid|right (?:on|after|before))\b")
+
+
+def _scope(part: str, at: int) -> str:
+    """The words before a kind of moment that a "no" can come from: since the line last turned to what it wants."""
+    before = part[:at]
+    start = 0
+    for m in _RESET.finditer(before):
+        if not _NEG_JUST_BEFORE.search(before[:m.start()]):
+            start = max(start, m.end())
+    for m in re.finditer(r",\s*", before):     # a colon explains what came before it: it does not turn away
+        if not _LIST_GOES_ON.match(part[m.end():]):
+            start = max(start, m.end())
+    return before[start:]
+
+
 def _kinds_in(part: str, owner: bool, flipped_until: int = 0) -> dict[str, int]:
     """The kinds of moment a part of a clause names, each with +1 (look for it) or -1 (pass it over)."""
     neg = _NEG_OWNER if owner else _NEG
     out: dict[str, int] = {}
     for kid, pattern in _NAMES.items():
         for m in pattern.finditer(part):
-            before = part[:m.start()]
+            before = _scope(part, m.start())
             sign = -1 if len(neg.findall(before)) % 2 else 1
             if sign < 0 and _CAUSE.search(before):
                 continue
@@ -281,6 +322,8 @@ def read(text: object, *, owner: bool = False, about_picking: bool = False) -> d
         picking = bool(_PICK.search(clause))
         if _EDITING.search(clause) and (owner or not picking):
             continue                     # "no music under funny moments" is about the music, not the moments
+        if _CUT_POINT.search(clause):
+            continue                     # "never end clips on a question" is about the cut, not the moment
         if not (picking or about_picking or (owner and (_PREFER.search(clause) or _LEAVE_OUT.search(clause)))):
             continue
         found: dict[str, int] = {}
@@ -307,6 +350,21 @@ def read(text: object, *, owner: bool = False, about_picking: bool = False) -> d
 
 
 # ------------------------------------------------------------------ the whole Brain
+LESSON_STARTS = "From your results:"  # brain/lessons.STARTS
+
+
+def lesson_of(row: dict) -> dict:
+    """The lesson a memory still holds as brain/lessons.py wrote it; {} once the owner rewrote its words (then the
+    words are theirs and are read like any other memory)."""
+    data = row.get("data") or {}
+    learned = data.get("lesson") or {}
+    if learned.get("kind") not in BY_ID or not learned.get("sign"):
+        return {}
+    text = str(row.get("text") or "")
+    written = data.get("text")
+    return learned if (text == written if written else text.startswith(LESSON_STARTS)) else {}
+
+
 def _memory_lines(ws: str, project_id: str) -> list[dict]:
     from . import memories
 
@@ -314,8 +372,8 @@ def _memory_lines(ws: str, project_id: str) -> list[dict]:
     for row in memories.candidates(ws, project_id=project_id, mode="clips", kinds=memories.LASTING):
         tags = {str(t).lower() for t in (row.get("tags") or [])}
         source = row.get("source") or "said"
-        learned = (row.get("data") or {}).get("lesson") or {}
-        if learned.get("kind") in BY_ID and learned.get("sign") and str(row["text"]).startswith("From your results:"):
+        learned = lesson_of(row)
+        if learned:
             # a lesson from the owner's results (brain/lessons.py) says what it means as data: no prose to read
             out.append({"id": row["id"], "from": "memory", "owner": False, "rule": False, "text": row["text"],
                         "level": "results_strong" if learned.get("strong") else "results", "about": True,

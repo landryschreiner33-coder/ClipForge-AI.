@@ -61,9 +61,13 @@ def _fuller(r: dict, sentences: list[dict], feats: list[dict], words: list[dict]
     (virality.grown). A version that would be kept out of the results never replaces one that would not."""
     if r["dur"] >= float(opts.get("target_duration") or 0.0):
         return r
+    bar = float(opts.get("min_score", 50))
+    passes = not r["blocked"] and r["viral_potential"] >= bar
     best, best_key = r, r["raw"] - virality.short_of_ideal(r, opts)
     for a, b in virality.grown(r["s0"], r["s1"], sentences, opts, feats):
         x = virality.analyze(a, b, sentences, feats, words, loud, opts)
+        if passes and (x["blocked"] or x["viral_potential"] < bar):
+            continue  # the fuller version would be left out of the results: keep the clip that would be made
         key = x["raw"] - virality.short_of_ideal(x, opts)
         if key > best_key and (not x["blocked"] or r["blocked"]):
             best, best_key = x, key

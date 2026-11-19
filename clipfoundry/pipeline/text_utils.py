@@ -61,7 +61,11 @@ TRANSITION_PHRASES = ["anyway", "moving on", "move on", "let's move", "next week
                       "that is all", "on another note", "speaking of which", "by the way", "let's talk about",
                       "next up", "switching gears", "one more thing", "last thing", "before we get into",
                       "before we start", "let's get into", "let's jump", "back to", "furthermore", "my next point",
-                      "the next point", "on to the next", "what else", "the other thing i wanted"]
+                      "the next point", "on to the next"]
+# Words that move on to something else only when a sentence opens with them ("What else? Oh, the camera."); said in
+# passing ("I didn't know what else to do") they are part of the story.
+TRANSITION_OPENERS = re.compile(r"^(?:\W*(?:ok(?:ay)?|right|alright|so|and|oh|um|uh)\b,?\s*)*"
+                                r"(?:what else|the other thing i wanted)\b")
 
 # Sentences that set something up (great openers, weak endings).
 SETUP_PHRASES = ["let me tell you", "here's", "here is", "what if", "i'll tell you", "let me explain", "let me show",

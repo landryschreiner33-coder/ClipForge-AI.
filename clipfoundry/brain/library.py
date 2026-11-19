@@ -176,9 +176,20 @@ _BUILTIN = _builtin()
 
 def skill_lines(row: dict) -> list[str]:
     """A skill's advice as plain lines: only what the importer kept as readable text, never a refused line, a link
-    or a contradicted choice."""
-    return [str(u.get("text") or "").strip() for u in (row.get("unsupported") or [])
-            if isinstance(u, dict) and u.get("why") == ADVICE_WHY and str(u.get("text") or "").strip()]
+    or a contradicted choice. The importer's checks run again here, so a skill kept before they covered a line
+    (or a file that names a reason of its own) cannot put a refused line in front of a model."""
+    from ..studio.skills import BLOCKED
+
+    out = []
+    for u in row.get("unsupported") or []:
+        text = str(u.get("text") or "").strip() if isinstance(u, dict) else ""
+        if not text or u.get("why") != ADVICE_WHY:
+            continue
+        low = text.lower()
+        if re.search(r"https?://|www\.", low) or any(pattern.search(low) for pattern, _ in BLOCKED):
+            continue
+        out.append(text)
+    return out
 
 
 def _skill_entry(row: dict) -> Entry | None:

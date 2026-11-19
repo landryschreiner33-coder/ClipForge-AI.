@@ -31,11 +31,22 @@ _NUM = r"(\d{1,3}|" + "|".join(NUMBERS) + ")"
 _SENTENCE = re.compile(r"(?<=[.!?;])\s+|\n+")
 _PART = re.compile(r",\s*|\s+(?:and|but)\s+(?=(?:no|never|don'?t|do not|without|always|use|add|keep|make|write)\b)")
 _NEG = re.compile(r"\b(no|not|never|don'?t|do not|doesn'?t|without|stop|avoid|skip|drop|leave out|hate|zero)\b")
+# "don't forget the hashtags", "never skip the emoji": a "no" before a "no" asks for the thing
+_NEG_COUNT = re.compile(r"\b(no|not|never|don'?t|do not|doesn'?t|without|stop|avoid|skip|drop|leave out|hate|zero|"
+                        r"forg[eo]t\w*|miss\w*|lose)\b")
+_NEAR = 5                        # words before the thing that a "no" must sit in
+_OK = re.compile(r"\b(welcome|fine|ok(?:ay)?|good|great|allowed|yes|please|use|add|keep|want|love|like)\b")
 _TITLE = re.compile(r"\btitles?\b")
 _TEXT = re.compile(r"\b(post texts?|descriptions?|post captions?|written captions?|caption under)\b")
+# what else a part of a sentence can be about: then a title rule needs the part to name titles itself
+_ELSEWHERE = re.compile(r"\b(thumbnails?|on[- ]screen|captions?|subtitles?|clips?|videos?|hooks?|overlays?|"
+                        r"text on (?:the )?(?:video|screen))\b")
 _LOWER = re.compile(r"\b(lower[- ]?case|all lower|small letters)\b")
-_CAPS = re.compile(r"\b(all[- ]?caps|upper[- ]?case|all capitals|in capitals|in caps|capital letters|capitals)\b")
-_EACH = re.compile(r"\b(title case|capitali[sz]e (each|every) word|every word capitali[sz]ed)\b")
+_UPPER = re.compile(r"\b(all[- ]?caps|upper[- ]?case|all capitals|in all capitals|in capitals|in caps)\b")
+# bare "capitals" is about shouting only when it is refused ("no capitals"); "keep their capitals" is not a rule
+_CAPITALS = re.compile(r"\b(capital letters|capitals)\b")
+_EACH = re.compile(r"\b(title case|capitali[sz]e (each|every) word|every word capitali[sz]ed|"
+                   r"capital letters? (?:at the start of|for|on) (?:each|every) word)\b")
 _EMOJI_WORD = re.compile(r"\b(emojis?|emoticons?|smileys?)\b")
 _TAG = r"hash ?tags?"
 _TAG_WORD = re.compile(rf"\b{_TAG}\b")
@@ -64,8 +75,17 @@ def _number(word: str) -> int:
 
 
 def _negated(part: str, at: int, carried: bool) -> bool:
-    """A "no" before the words in the same part of the sentence, or handed on by a list ("no hashtags, emoji")."""
-    return bool(_NEG.search(part[:at])) or carried
+    """A "no" just before the words in the same part of the sentence, or handed on by a list ("no hashtags,
+    emoji"). Two of them ("don't forget the hashtags") ask for the thing."""
+    near = " ".join(part[:at].split()[-_NEAR:])
+    return bool(len(_NEG_COUNT.findall(near)) % 2) or carried
+
+
+# "no generic hashtags", "don't use the same hashtags on every clip", "no hashtags in the title": a rule about
+# which hashtags or where, not about how many
+_TAG_WHICH = re.compile(rf"\b(?:generic|same|similar|repeated|irrelevant|random|spammy|banned|broad|big|popular|"
+                        rf"trending)\s+(?:\w+\s+)?{_TAG}\b|\b{_TAG}\s+(?:like|such as|that|which|"
+                        rf"in (?:the |my |a )?titles?|on every|from)\b|#\w")
 
 
 def read(text: str) -> dict:
@@ -73,22 +93,25 @@ def read(text: str) -> dict:
     or the call to action); a "no" counts only inside its own part of the sentence."""
     out: dict = {}
     for sentence in _SENTENCE.split(str(text or "").lower().replace("’", "'")):
-        on_title, on_text = bool(_TITLE.search(sentence)), bool(_TEXT.search(sentence))
+        said_title, said_text = bool(_TITLE.search(sentence)), bool(_TEXT.search(sentence))
         was_no = False
         for part in _PART.split(sentence):
             if not part or not part.strip():
                 continue
-            # "no hashtags, emoji or links": a part that starts with the next thing goes on with the list
-            carried = was_no and not _NEG.search(part) and bool(_NEXT.match(part))
+            # "no hashtags, emoji or links": a part that starts with the next thing goes on with the list, unless
+            # it allows it ("no emoji in titles, hashtags welcome")
+            carried = was_no and not _NEG.search(part) and bool(_NEXT.match(part)) and not _OK.search(part)
             was_no = bool(_NEG.search(part)) or carried
-            for rx, yes, no in ((_LOWER, "lower", None), (_EACH, "title", None), (_CAPS, "upper", "sentence")):
+            # what this part is about: its own words first ("thumbnail text in capitals, title in lower case")
+            on_title, on_text = bool(_TITLE.search(part)), bool(_TEXT.search(part))
+            if not (on_title or on_text or _ELSEWHERE.search(part)):
+                on_title, on_text = said_title, said_text
+            for rx, yes, no in ((_LOWER, "lower", None), (_EACH, "title", None), (_UPPER, "upper", "sentence"),
+                                (_CAPITALS, None, "lower")):
                 m = rx.search(part)
                 if not m or not (on_title or on_text):
                     continue
-                neg = _negated(part, m.start(), carried)
-                value = no if neg else yes
-                if neg and rx is _CAPS and not m.group(0).startswith(("all", "upper")):
-                    value = "lower"          # "no capitals" asks for small letters; "no all caps" only for no shouting
+                value = no if _negated(part, m.start(), carried) else yes
                 if not value:
                     continue
                 if on_title:
@@ -108,6 +131,8 @@ def read(text: str) -> dict:
                     n, least = _number(count.group(2)), bool(count.group(1))
                 elif _FEWER.search(part):
                     n = FEWER_TAGS
+                elif _TAG_WHICH.search(part):
+                    n = None
                 else:
                     n = 0 if _negated(part, m.start(), carried) else None
                 if n is not None and not least:   # "at least 5" cannot be promised: the clip may not say five things

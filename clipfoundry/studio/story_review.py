@@ -170,13 +170,25 @@ def story_edit(project: dict, row: dict) -> dict:
     return edit
 
 
+def with_post_style(project: dict, settings: dict) -> dict:
+    """The settings with what the Brain says about post text for this video, read once for a batch of clips: a
+    rule kept for this video holds for its story clips as for its highlights (process._options reads the same)."""
+    if isinstance(settings.get("post_style"), dict):
+        return settings
+    from ..brain import poststyle
+
+    ws = str(project.get("workspace_id") or "local")
+    return {**settings, "workspace_id": ws, "post_style": poststyle.build(ws, str(project.get("id") or ""))}
+
+
 def create_clip(project: dict, row: dict, words: list[dict], settings: dict, from_pipeline: bool = False) -> dict:
     """One clip for one story (or one part of it): its whole interval, captions from its own words, a grounded post
     package. A story part keeps its story's title with "(Part N)" and shows "Part N" at the top."""
     start, end = row["start_ms"] / 1000, row["end_ms"] / 1000
     sents = _story_text(words, start, end)
     df = scoring.document_frequencies([{"text": s} for s in sents]) if sents else {}
-    post = postpack.generate(sents, "", [], "story", {**settings, **(project.get("options") or {})}, df,
+    settings = with_post_style(project, {**settings, **(project.get("options") or {})})
+    post = postpack.generate(sents, "", [], "story", settings, df,
                              max(1, len(sents))) if sents else {"title": row["title"], "hashtags": []}
     parts, part = int(row.get("parts") or 0), int(row.get("part") or 0)
     if parts > 1:  # the series keeps one name: the story's title and the part's number
@@ -233,6 +245,7 @@ def auto_clips(project: dict, words: list[dict], settings: dict) -> list[dict]:
     rows = db.select("story_proposals", "project_id = ? AND kind = 'story' AND included = 1 AND clip_id = ''",
                      (project["id"],), "position")
     # each row read again: splitting a longer story moves the positions of the stories after it
+    settings = with_post_style(project, settings)
     return [create_clip(project, part, words, settings, from_pipeline=True)
             for r in rows for part in capped(project, db.fetch("story_proposals", r["id"]) or r, words)]
 
@@ -408,7 +421,7 @@ def create_selected(project_id: str, ids: list[str] | None = None) -> list[dict]
     else:
         rows = [r for r in rows if r["included"]]
     words = load_words(project)
-    settings = db.get_settings()
+    settings = with_post_style(project, db.get_settings())
     made = []
     for r in rows:
         r = db.fetch("story_proposals", r["id"]) or r  # positions move when a longer story before it is split

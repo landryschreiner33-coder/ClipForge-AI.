@@ -25,11 +25,14 @@ from ..pipeline.text_utils import PROMO_PHRASES, STORY_MARKERS, count_phrases
 from . import memories, steer
 
 TAG = "from results"
-STARTS = "From your results:"
+STARTS = steer.LESSON_STARTS
 MIN_WITH = 6          # clips that showed the kind ...
 MIN_WITHOUT = 6       # ... and clips that did not, in one comparable audience
-MIN_SOURCES = 3       # ... from at least this many different videos, so one good video is not a lesson
-CLEAR = 2.0           # the difference must be this many standard errors
+MIN_SOURCES = 3       # ... each side from at least this many different videos, so one video is not a lesson
+# How clear a difference must be: what two (and, for a strong lesson, three) standard errors mean on many clips.
+# Each run tests every kind of moment at once and has only a few clips, so the bar is split over the kinds tested
+# and read from Student's t with the few clips' degrees of freedom: noise alone rarely makes a lesson.
+CLEAR = 2.0
 STRONG = 3.0
 MIN_EFFECT = {"watched": 3.0, "views": 0.1}  # points watched; log10 of views (about a quarter more or fewer)
 STATE = "brain:lessons"
@@ -64,10 +67,13 @@ def _outcomes(settings: dict, now: float) -> dict[tuple, dict]:
     """Per comparable audience: what is compared ("watched": the share of the clip people watched, where most
     clips have it; otherwise "views") and each clip's value. Same guards as autopilot/brain.evidence."""
     from ..autopilot import brain as results
-    from ..autopilot.learner import destination_cohort, usable
+    from ..autopilot.learner import REFERENCE_AGE_H, destination_cohort, usable
 
     min_views = int(settings.get("brain_min_views") or 10)
     latest: dict[tuple, dict[str, dict]] = defaultdict(dict)
+    # Views only grow, so view counts are compared at one age: each clip's reading closest to 48 hours, as the
+    # posting learner does (learner._snapshot). The share watched settles early and is read at its latest.
+    at_age: dict[tuple, dict[str, dict]] = defaultdict(dict)
     for o in db.select("brain_observations", "", (), "observed_at"):
         if o["provenance"] == "tester_feedback" or not o.get("platform") or not o.get("clip_id"):
             continue
@@ -77,7 +83,11 @@ def _outcomes(settings: dict, now: float) -> dict[tuple, dict]:
             continue
         if (o.get("metrics") or {}).get("views") is None or o["metrics"]["views"] < min_views:
             continue
-        latest[(o["platform"], o["cohort"], int(o.get("group_version") or 0))][o["clip_id"]] = o
+        key = (o["platform"], o["cohort"], int(o.get("group_version") or 0))
+        latest[key][o["clip_id"]] = o
+        held = at_age[key].get(o["clip_id"])
+        if not held or abs(float(o["age_hours"]) - REFERENCE_AGE_H) < abs(float(held["age_hours"]) - REFERENCE_AGE_H):
+            at_age[key][o["clip_id"]] = o
     out: dict[tuple, dict] = {}
     for (platform, cohort, gv), clips in latest.items():
         if cohort not in results.STRATEGY_COHORTS or cohort != destination_cohort(platform, settings):
@@ -88,10 +98,65 @@ def _outcomes(settings: dict, now: float) -> dict[tuple, dict]:
         if len(watched) >= 0.8 * len(clips):
             what, values = "watched", {cid: float(o["metrics"]["avg_view_percentage"]) for cid, o in watched.items()}
         else:
+            clips = at_age[(platform, cohort, gv)]
             what, values = "views", {cid: math.log10(float(o["metrics"]["views"]) + 1) for cid, o in clips.items()}
         out[(platform, cohort, gv)] = {"what": what, "clips": {cid: {"value": v, "at": clips[cid]["observed_at"]}
                                                               for cid, v in values.items()}}
     return out
+
+
+# ------------------------------------------------------------------ Student's t, without extra packages
+def _beta_cf(a: float, b: float, x: float) -> float:
+    """The continued fraction of the incomplete beta function (Lentz's method)."""
+    tiny = 1e-300
+    c, d = 1.0, 1.0 - (a + b) * x / (a + 1.0)
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    h = d
+    for m in range(1, 300):
+        for num in (m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m)),
+                    -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))):
+            d = 1.0 + num * d
+            d = 1.0 / (d if abs(d) > tiny else tiny)
+            c = 1.0 + num / c
+            c = c if abs(c) > tiny else tiny
+            h *= d * c
+        if abs(d * c - 1.0) < 1e-12:
+            break
+    return h
+
+
+def _beta_inc(a: float, b: float, x: float) -> float:
+    """The regularized incomplete beta function I_x(a, b)."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log1p(-x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _beta_cf(a, b, x) / a
+    return 1.0 - front * _beta_cf(b, a, 1.0 - x) / b
+
+
+def t_two_sided(t: float, df: float) -> float:
+    """The chance of a t statistic at least this far from zero, either way, when there is no difference."""
+    return _beta_inc(df / 2.0, 0.5, df / (df + t * t))
+
+
+def t_bar(p: float, df: float) -> float:
+    """The t statistic whose two-sided chance is p."""
+    lo, hi = 0.0, 1.0
+    while t_two_sided(hi, df) > p and hi < 1e6:
+        hi *= 2.0
+    for _ in range(100):
+        mid = (lo + hi) / 2.0
+        lo, hi = (mid, hi) if t_two_sided(mid, df) > p else (lo, mid)
+    return hi
+
+
+def _side_df(pts: list[dict], n_eff: float) -> float:
+    """Degrees of freedom one side's clips stand on: clips of one video move together, so a side counts no more
+    than its videos."""
+    return max(1.0, min(n_eff, len({p["source"] for p in pts})) - 1.0)
 
 
 def compare(pts: list[dict], what: str) -> list[dict]:
@@ -99,22 +164,33 @@ def compare(pts: list[dict], what: str) -> list[dict]:
     `pts`: autopilot/brain._points rows with their clip's `kinds`."""
     from ..autopilot import brain as results
 
-    found = []
+    tested = []
     for kind in steer.KINDS:
         have = [p for p in pts if kind.id in p["kinds"]]
         rest = [p for p in pts if kind.id not in p["kinds"]]
-        if len(have) < MIN_WITH or len(rest) < MIN_WITHOUT or len({p["source"] for p in have}) < MIN_SOURCES:
+        if len(have) < MIN_WITH or len(rest) < MIN_WITHOUT:
             continue
-        mean_a, se_a, _ = results._stats(have)  # noqa: SLF001 - the same weighted statistics
-        mean_b, se_b, _ = results._stats(rest)  # noqa: SLF001
+        if min(len({p["source"] for p in have}), len({p["source"] for p in rest})) < MIN_SOURCES:
+            continue
+        tested.append((kind, have, rest))
+    found = []
+    for kind, have, rest in tested:
+        mean_a, se_a, n_a = results._stats(have)  # noqa: SLF001 - the same weighted statistics
+        mean_b, se_b, n_b = results._stats(rest)  # noqa: SLF001
         diff = mean_a - mean_b
-        z = diff / max(1e-9, math.sqrt(se_a ** 2 + se_b ** 2))
-        if abs(z) < CLEAR or abs(diff) < MIN_EFFECT[what]:
+        var_a, var_b = se_a ** 2, se_b ** 2
+        t = diff / max(1e-9, math.sqrt(var_a + var_b))
+        df_a, df_b = _side_df(have, n_a), _side_df(rest, n_b)
+        df = (var_a + var_b) ** 2 / max(1e-18, var_a ** 2 / df_a + var_b ** 2 / df_b)  # Welch
+        df = min(max(df, 1.0), df_a + df_b)
+        clear = t_bar(math.erfc(CLEAR / math.sqrt(2)) / len(tested), df)
+        if abs(t) < clear or abs(diff) < MIN_EFFECT[what]:
             continue
         if diff > 0 and kind.id in steer.UNWANTED:
             continue  # only the owner's own words can ask for small talk, ad reads or swearing
-        found.append({"kind": kind.id, "sign": 1 if diff > 0 else -1, "strong": abs(z) >= STRONG, "what": what,
-                      "diff": round(diff, 3), "z": round(z, 2), "with": len(have), "without": len(rest)})
+        strong = abs(t) >= t_bar(math.erfc(STRONG / math.sqrt(2)) / len(tested), df)
+        found.append({"kind": kind.id, "sign": 1 if diff > 0 else -1, "strong": strong, "what": what,
+                      "diff": round(diff, 3), "z": round(t, 2), "with": len(have), "without": len(rest)})
     return found
 
 
@@ -132,13 +208,20 @@ def text_of(lesson: dict, platform: str) -> str:
 
 
 def _mine(ws: str) -> dict[str, dict]:
-    """The lesson memories of a workspace by kind of moment (switched on or off)."""
+    """The lesson memories of a workspace by kind of moment (switched on or off, the owner's rewrites too)."""
     out = {}
     for row in db.select("brain_memories", "workspace_id = ?", (ws,), "created_at"):
         lesson = (row.get("data") or {}).get("lesson") or {}
         if lesson.get("kind") and TAG in (row.get("tags") or []):
             out[lesson["kind"]] = row
     return out
+
+
+def _forget(ws: str, memory_id: str) -> None:
+    try:
+        memories.forget(ws, memory_id)
+    except memories.Invalid:
+        pass  # the owner forgot it a moment ago: it is gone either way
 
 
 def learn(settings: dict | None = None, now: float | None = None) -> dict:
@@ -175,24 +258,26 @@ def learn(settings: dict | None = None, now: float | None = None) -> dict:
             text, old, before = text_of(lesson, platform), mine.get(kind), was.get(kind) or {}
             if before.get("id") and not old and before.get("sign") == lesson["sign"]:
                 continue  # the owner forgot this lesson: the same numbers do not bring it back
-            if old and (not old.get("enabled") or not str(old["text"]).startswith(STARTS)):
+            if old and (not old.get("enabled") or not steer.lesson_of(old)):
                 was[kind] = {"id": old["id"], "sign": lesson["sign"]}
                 continue  # switched off, or rewritten in the owner's words: theirs now
             if old and old["text"] == text:
+                was[kind] = {"id": old["id"], "sign": lesson["sign"]}
                 continue
             if old:
-                memories.forget(ws, old["id"])
+                _forget(ws, old["id"])
             row = memories.remember(ws, text, kind="fact", source="did", tags=[TAG, "clip picking"],
-                                    data={"lesson": lesson})
+                                    data={"lesson": lesson, "text": text})
             was[kind] = {"id": row["id"], "sign": lesson["sign"]}
             report["changed" if old else "added"].append(text)
         for kind, old in mine.items():
-            if kind in now_holds or not old.get("enabled") or not str(old["text"]).startswith(STARTS):
+            if kind in now_holds or not old.get("enabled") or not steer.lesson_of(old):
                 continue
-            memories.forget(ws, old["id"])  # the numbers no longer say it
+            _forget(ws, old["id"])  # the numbers no longer say it
             was.pop(kind, None)
             report["dropped"].append(old["text"])
         known[ws] = was
+        state.put(STATE, known)  # at once, so a later failure cannot leave a lesson's id unrecorded
         report["lessons"] += len(_mine(ws))
     state.put(STATE, known)
     for text in report["added"] + report["changed"]:
