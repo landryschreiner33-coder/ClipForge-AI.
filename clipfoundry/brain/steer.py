@@ -173,7 +173,7 @@ _OR_LESS = re.compile(rf"{_NUM}{_UNIT}\s+or (?:less|under|shorter)\b(?!\s+(?:tha
 # "clips 30 sec max", but in "min 30 sec max 60 sec" each bound has its own number: a number that follows a bound
 # word belongs to it, and a bound word followed by a number is the next bound's
 _OWN_BOUND = "".join(f"(?<!{w} )" for w in ("min", "max", "minimum", "maximum", "least", "most", "than", "then",
-                                              "over", "under", "above", "below", "within", "to", "of"))
+                                              "over", "under", "above", "below", "within"))
 _MAX_AFTER = re.compile(rf"{_OWN_BOUND}{_NUM}{_UNIT}\s+(?:max(?:imum)?|tops|at (?:the )?most)\b(?!\s*\d)")
 _MIN_AFTER = re.compile(rf"{_OWN_BOUND}{_NUM}{_UNIT}\s+(?:min(?:imum)?|at (?:the )?least)\b(?!\s*\d)")
 _OR_MORE = re.compile(rf"{_NUM}{_UNIT}\s+or (?:more|over|longer)\b(?!\s+(?:than|\d))")

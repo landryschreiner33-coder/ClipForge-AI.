@@ -217,6 +217,8 @@ def test_the_owners_rule_outweighs_lessons_and_one_source_speaks_once():
     ("keep clips min 15s max 45s", {"min": 15.0, "max": 45.0}),
     ("clips max 60 seconds min 30 seconds", {"min": 30.0, "max": 60.0}),
     ("clips at least 20 sec at most 60 sec", {"min": 20.0, "max": 60.0}),
+    ("keep clips to 30 sec max", {"max": 30.0}),
+    ("clips of 30 sec max", {"max": 30.0}),
 ])
 def test_clip_lengths_the_owner_asks_for(said, want):
     assert steer._length(steer._plain(said)) == want  # noqa: SLF001

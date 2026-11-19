@@ -143,6 +143,8 @@ def _say(text: str, **kw) -> dict:
     ("I never know what to write for the post text myself please add a question in the title", {"question": 1}),
     ("no clue what im doing with this stuff honestly titles in lower case look cool", {"title_case": "lower"}),
     ("I dont mind hashtags", {}),
+    ("dont use hashtags just add emojis", {"tags": 0}),
+    ("never put emojis just put hashtags", {"emoji": False}),
     ("Don't use hashtags that much.", {"tags": poststyle.FEWER_TAGS}),
     ("Too many hashtags on my posts.", {"tags": poststyle.FEWER_TAGS}),
     # when and where a rule holds is not which hashtags
