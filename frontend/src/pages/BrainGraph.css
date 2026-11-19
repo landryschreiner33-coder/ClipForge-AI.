@@ -108,8 +108,8 @@
 .brain-graph-actions { display: flex; gap: var(--s2); }
 
 /* labels keep a dark halo so they read over the bright arms */
-.brain-node-label { paint-order: stroke; stroke: rgba(4, 6, 18, 0.88); stroke-width: 3px; stroke-linejoin: round; font-size: 11px; fill: var(--text-2); }
-.brain-graph-node.node-collection .brain-node-label { font-size: 13px; font-weight: 700; }
+.brain-node-label { paint-order: stroke; stroke: rgba(4, 6, 18, 0.88); stroke-width: 3px; stroke-linejoin: round; font-size: 12.5px; fill: var(--text-2); }
+.brain-graph-node.node-collection .brain-node-label { font-size: 15px; font-weight: 700; }
 .brain-graph-node.node-brain .brain-node-label.brain-core-word { fill: #ffe2b8; stroke: none; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; }
 .brain-graph-node.node-brain .brain-node-core { filter: drop-shadow(0 0 14px rgba(255, 200, 140, 0.85)); stroke: #ffd9a8; stroke-width: 1.5; }
 .brain-graph-edges path { opacity: 0.3; }

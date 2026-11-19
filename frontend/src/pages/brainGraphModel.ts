@@ -343,7 +343,7 @@ export function filterBrainGraph(model: BrainGraphModel, query: string, category
 /** Puts each collection's name where it covers none of its dots and not CORE's branch: the first of eight places
  * round the node with the fewest overlaps (the name's width is measured in the map's Courier letters). */
 function placeCollectionNames(nodes: BrainNode[]) {
-  const CHAR = 7.9, LINE = 15;
+  const CHAR = 9.1, LINE = 17;  // 15px Courier Prime: each letter is 0.6 of the size
   for (const group of nodes.filter((n) => n.kind === "collection")) {
     const dots = nodes.filter((n) => n.category === group.category && n !== group)
       .map((n) => ({ x: n.x - group.x, y: n.y - group.y, r: n.radius + 5 }));
