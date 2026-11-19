@@ -133,17 +133,20 @@ It covers that one broadcast only, never the channel's later streams.
   it passes, and later ones at least **Minimum gap** apart (30 minutes by default) per YouTube account, shared by all
   streams. A live clip that is approved, uploading or uploaded is never replaced by a better post-live cut.
 - **Fewer, stronger clips.** Each stream has its own **How picky** choice, made when you add it (what a new stream
-  starts with is in Settings → Advanced → Autopilot details). **Only the best moments** (the default) listens for
-  six minutes first, then makes at most about three clips for each recorded hour, at least three minutes apart. A
-  moment has to be clearly above the minimum quality and beat most of what this stream has given so far, and the bar
-  rises with every clip already made in the last hour; when a strong moment has just happened ClipForge waits up to
-  two minutes in case a better one follows. Only a standout moment (15 points above the bar) may be a fourth clip of
-  the hour. **Balanced** makes about six an hour, each above the stream's average. **Every good moment** makes a clip
-  for every moment that passes the minimum quality, as before. The live score is the Clip Score estimate plus how
-  lively the moment sounds (louder than the stream usually is, a rising or emphatic voice, laughter); to hear that,
-  each recorded minute's sound is kept as a small file for the rolling 15 minutes and deleted afterwards. The
-  stream's card says in a line why nothing is being made right now. The full-recording check afterwards keeps the
-  same minimum and the same pace over the whole stream (`autopilot/live_pick.py`). All scores are estimates.
+  starts with is in Settings → Advanced → Autopilot details). **Only the best moments** (the default) listens for six
+  minutes first, then makes at most about three clips for each recorded hour, at least three minutes apart. A moment
+  has to be clearly above the minimum quality and beat most of what this stream has given so far, and the bar rises
+  with every clip already made in the last hour; when a strong moment has just happened ClipForge waits up to two
+  minutes in case a better one follows; the moment it waits for is remembered from one minute to the next and rated
+  again, so waiting never loses it (`live_pick.keep`). Only a standout moment (15 points above the stream's own bar)
+  may be a fourth clip of the hour or come sooner than three minutes after the last one; before six minutes of the
+  stream were rated there is no such bar, so nothing counts as a standout yet. **Balanced** makes about six an hour,
+  each above the stream's average. **Every good moment** makes a clip for every moment that passes the minimum
+  quality, as before. The live score is the Clip Score estimate plus how lively the moment sounds (louder than the
+  stream usually is, a rising or emphatic voice, laughter); to hear that, each recorded minute's sound is kept as a
+  small file for the rolling 15 minutes and deleted afterwards. The stream's card says in a line why nothing is being
+  made right now. The full-recording check afterwards keeps the same minimum and the same pace over the whole stream
+  (`autopilot/live_pick.py`). All scores are estimates.
 - **The whole moment, not its strongest lines.** A moment is found as its strongest few sentences, which used to
   make clips near the shortest length allowed: the punchline without what led up to it. For each moment the picker
   now also looks at fuller versions (more of what was said before it and after it, never across a change of subject
@@ -151,7 +154,8 @@ It covers that one broadcast only, never the channel's later streams.
   live score is about as strong: every second a version is short of the length you aim for (Settings → clip length)
   counts like 0.15 points, so the build-up and the ending are kept unless they cost more than about four points. A
   moment that falls apart when it is made longer stays as it was found, and so does one whose fuller version is
-  under the stream's minimum. The clip's reasons then say *Kept the build-up and the ending: 79 s instead of 45 s*
+  under the stream's minimum, and a fuller version never shows more of a clip already made than the moment itself
+  does. The clip's reasons then say *Kept the build-up and the ending: 79 s instead of 45 s*
   (`live_pick.fuller`, `live_pick.ranked`, used in `live.detect`). Live clips follow the same clip length settings
   as every other clip; there are no separate live lengths.
 - **Split view.** Each stream also has a **Split view** choice: *when there is a face cam* (the default), *always*,
@@ -163,14 +167,24 @@ It covers that one broadcast only, never the channel's later streams.
   Without a face cam the clip uses the layout from Settings. This also fixes clips that used to park on the corner
   holding the face cam. Split view is not only for streams: any clip whose layout nobody chose (no choice in the
   clip editor or for the video, no Brain note, style or skill that decides the layout) looks for a face cam and
-  uses split view when it finds one. Settings → Defaults → **Split view** → *Off* stops that. In the clip editor,
-  Layout offers **Split view** and **Split if face cam** for any clip.
+  uses split view when it finds one. Settings → Defaults → **Split view** → *Off* stops that for new clips. A clip
+  that was already rendered keeps the look it was made with when it is rendered again (a caption fix, a version), so
+  a clip made before split view existed is not turned into one, and the clip editor shows what a new render gives.
+  An Autopilot plan keeps its layout without a face cam and its *Under the face cam* choice. In the clip editor,
+  Layout offers **Split view** and **Split if face cam** for any clip; choosing **Framing follows** something other
+  than automatic gives one picture placed as asked (the Layout shown changes with it), unless a split view is then
+  picked again. Captions placed at the top go on the line between the pictures, never on the face cam. A stream that
+  was being recorded before this update keeps the layout from Settings, as its card says (*No split view*).
 - **Split the clips between channels.** With two or more YouTube channels ticked, the request asks how the clips are
   shared: **Every channel gets every clip**, or **Split the clips between the channels**. Split means each clip is
-  uploaded to one channel only; the channels take turns (the one with the fewest of this stream's clips goes next,
-  your ticking order on a tie), so no clip appears on two of them. A clip never changes channel once it has a
-  planned post, and a channel that needs Reconnect is passed over until it is back. The agreement text names the
-  choice. Submitted videos have the same choice (`submissions.clip_turn`, stored as `settings.split = "turns"`).
+  uploaded to one channel only; the channels take turns (the one with the fewest of this stream's clips goes next;
+  on a tie, the one with the fewest clips over all your videos and streams that split their clips, then your ticking
+  order), so no clip appears on two of them and streams with one clip each still share the channels. A clip never
+  changes channel once it has a planned post or was uploaded there by hand, and a channel that needs Reconnect is
+  passed over until it is back. The agreement text names the choice, and the videos and streams lists say *taking
+  turns*. Submitted videos have the same choice (`submissions.clip_turn`, stored as `settings.split = "turns"`).
+  Known limit: a clip waits for its own channel; when that channel's planning days are full (only possible with a
+  daily limit set), it is not moved to the other channel.
 - **Stop clipping** (on the card of a stream that is recording, with a confirmation) is for when you have enough:
   the recorder stops, no more clips are made now and the full recording is not searched for more. Everything already
   made stays exactly as it is: clips keep their final checks, planned posts keep their times, and with Make & upload

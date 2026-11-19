@@ -13,6 +13,13 @@ released.
 | 2026-11-18 | the three real-recording live tests (`test_autopilot_live.py::test_live_capture_and_post_live_analysis`, `test_review_submitted_live_streams.py`, `test_zero_touch_loop.py::test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live`) | 3 passed (304 s); they set `autopilot_live_pick: "most"` because their streams last a minute |
 | 2026-11-18 | `cd frontend && npm run build` | passed; `frontend/dist` rebuilt and committed |
 | 2026-11-18 | browser check of Missions → Live streams against a throwaway app with two fake channels and two recording streams | form choices, split between channels, Stop clipping dialog and the stopped stream's card shown; no page errors |
+| 2026-11-18, on 7aad19e | GitHub run 44384825118: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | 2806 passed, 2 skipped (fast); 31 passed, 1 skipped (slow); Mac app built and passed its checks |
+| 2026-11-18 | `python -m pytest tests/test_live_pick.py -q` after the fuller live clips | 25 passed; one test runs the real analysis on a stand-in story stream (found 30-59 s, kept 58-79 s) |
+| 2026-11-18 | my live tests on a scratch merge with the clip-length branch (5da834d, PR #59) | 103 passed; live clips at 25/45/90: median 60 s at "most", 35-73 s at "best", none over 90 s |
+| 2026-11-18 | browser check of Settings → Defaults (Split view, Under the face cam) and the clip editor's Layout tab | rows shown, saved and read back; no page errors |
+| 2026-11-19 | independent review by three reviewers | 18 findings (6 medium, 12 low); fixed in 61db5c5, 83ffa92, 4cbbfb5 (one known limit, see the changelog) |
+| 2026-11-19 | the four feature test files after the fixes | 28 picker, 7 Stop clipping, 10 split between channels, 18 split view: all passed; each new test fails on the code before its fix |
+| 2026-11-19 | `npx tsc --noEmit`, `npm run build` | passed; `frontend/dist` rebuilt and committed |
 
 Not verified: real streams and face cams (the tests draw their own pictures and use stand-in recorders), real
 uploads to two channels, the screens in the Mac window.

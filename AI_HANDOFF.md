@@ -23,6 +23,11 @@ to stop clipping while the clips already made still upload. All four are in Miss
   moment's build-up and ending when the fuller version is about as strong (`live_pick.fuller`, `ranked`; numbers
   `FULL_*` in `live_pick.py`). Live clips have no lengths of their own: they read the clip length Settings, whose
   new defaults (25/45/90) belong to the thread "Make ClipForge AI smarter in chat".
+- **After the independent review (Nov 19):** the picker remembers the moment it waits for between minutes
+  (`Session.held`); no standout before the stream has its own bar; take-turns ties go by the clips over all
+  take-turns requests; a clip that was rendered keeps whether it looked for a face cam; plans keep their layout
+  without a face cam (`Framing.fallback`, `Framing.game`). Known limit: a take-turns clip waits for its own channel
+  when that channel's planning days are full. Details: the top entry of [AI_CHANGELOG.md](AI_CHANGELOG.md).
 - **Not verified (needs Landry's computer):** real Twitch, Kick and YouTube streams, real face cams and overlays,
   real uploads to two channels, the screens in the Mac window. The pick levels' numbers and the fuller-clip numbers
   are first guesses from stand-in streams; expect to tune them after real streams.
@@ -50,8 +55,8 @@ videos and live streams. Accounts has **Tick for new posts** to say which accoun
 - **Home:** `connect:<connection id>` is hidden only when the account is usable and no post to it is held without
   a live `publish:<post id>` job (`home._held_for_owner`).
 - **Known limits:** `platform_limits` (a platform's wait or daily cap) is per platform, so it holds every channel
-  of that platform. With submission approval, a replaced post and its replacement can both stay approved
-  (`submissions.auto_approve` does not take the slot); this was so before channel choice.
+  of that platform. (Fixed since in PR #57: a replacement approved under a submission now takes the weaker
+  post's slot.)
 - **Building on it:** the thread "Improve live stream clipping quality" (`claude/project-thread-82eyed`) adds
   "split between channels" by filtering the destinations per clip in `scheduler.candidates()`.
 - **Not built:** animated shorts and full YouTube videos cannot be posted from the app at all yet, so they have no

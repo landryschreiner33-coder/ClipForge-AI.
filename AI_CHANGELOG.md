@@ -67,6 +67,34 @@ clips". Branch `claude/project-thread-82eyed` (PR #57) from the release line, wi
   chat" (branch `claude/project-thread-dwz7vo`); live reads the same Settings and has no lengths of its own.
 - The release line with the merged channel picker (PR #58, 3bb861f) is merged in.
 
+**Independent review (three reviewers, Nov 19) and its fixes.** 18 findings, none high; all fixed except one known
+limit:
+
+- *Live picker.* The hold-back waited for the strongest moment, but the next minute's search could cut the same
+  speech differently and the moment was lost while the weaker one was clipped: the picker now remembers up to four
+  strong moments between minutes, the waited-for one first (`live_pick.keep`, `Session.held` in `state.json`), and
+  rates them again. Before six minutes of the stream were rated there is no standout (it used to be floor + 15, so
+  the hour's clips could be spent side by side in the first minutes). A fuller version may share no more of a clip's
+  footage than the moment itself (it was measured against its own, longer length). Stop clipping pressed during a
+  minute's search makes no clip, and a re-run of `post_live` after Stop clipping keeps a better cut that had already
+  taken a live clip's place (it used to drop it too, leaving the moment with no clip).
+- *Split between channels.* Ties are broken by the clips over every take-turns request before the ticking order
+  (inputs with one clip all went to the first channel); a clip planned again after its post was canceled counts for
+  its channel; a clip uploaded by hand to a chosen channel stays there and counts (`submissions._turns`,
+  `_turns_overall`). Outside this branch's own code: a replacement approved under a video's upload request now takes
+  the weaker post's slot (`scheduler.auto_approve` calls `_take_slot`; the channel-picker entry listed this as a
+  known limit). A link added in Live streams that is a recorded video no longer shows stream choices, the videos list
+  says *taking turns*. Known limit: a clip waits for its own channel when that channel's planning days are full
+  (only with a daily limit set).
+- *Split view.* A clip that was rendered keeps whether it looked for a face cam (`render.cam_layout(..., rendered)`),
+  so a caption fix no longer turns an older clip into a split view and Settings → Split view → Off changes only new
+  clips; the editor shows what a re-render gives. Framing chosen by hand without a layout gives one picture on plans
+  and manual clips alike, and the editor's Layout changes with it. Plans keep their layout without a face cam and
+  *Under the face cam* (`Framing.fallback`, `Framing.game`; older plans read Settings as before). Top captions go
+  on the line between the pictures. A stream recorded since before the update keeps the Settings layout
+  (`split_view: "off"`, as its card says). "Add a video with its transcript" sends a layout only when one was picked.
+- Every fix has a test that fails on the code before it (picker 4, Stop clipping 2, channels 4, split view 3 changed).
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
 Landry wrote "make it so you can choose what clips or stuff goes to what channle or if it goes to all or just a few".
