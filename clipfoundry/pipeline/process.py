@@ -60,7 +60,8 @@ def _options(project: dict, settings: dict, *, words: list[dict] | None = None) 
     opts["workspace_id"] = str(project.get("workspace_id") or "local")  # taste.py: whose choices to learn from
     opts["min_duration"] = float(opts.get("min_duration", 25))
     opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 90)))
-    opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 45))))
+    opts["target_duration"] = min(opts["max_duration"],
+                                  max(opts["min_duration"], float(opts.get("target_duration", 45))))
     opts["clip_count"] = int(opts.get("clip_count", 5))
     _brain_steer(opts, project, settings)
     from ..brain import poststyle
