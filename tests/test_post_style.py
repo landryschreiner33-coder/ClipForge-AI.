@@ -98,6 +98,8 @@ def _say(text: str, **kw) -> dict:
     ("Never drop the call to action.", {}),
     ("Don't stop asking people to follow.", {}),
     ("Skip the hashtags.", {"tags": 0}),
+    ("No emoji and skip the hashtags.", {"emoji": False, "tags": 0}),
+    ("Dont add emoji and avoid hashtags.", {"emoji": False, "tags": 0}),
     ("No, no hashtags.", {"tags": 0}),
     # a "no" reaches only over its own instruction, and "isn't" or "didn't" describe
     ("Titles shouldn't be too long and should have an emoji.", {}),
@@ -111,6 +113,13 @@ def _say(text: str, **kw) -> dict:
     ("I don't like long titles so keep them short.", {"title_max": poststyle.TITLE_SHORT}),
     ("We're not big yet so we need hashtags.", {}),
     ("I don't post every day so always add hashtags.", {}),
+    ("I'm not sure it matters much but I think adding hashtags really helps.", {}),
+    # ... and still reaches far in one instruction, and "aren't supposed to", "didn't want" are wishes
+    ("I dont want you to ever put any of those hashtags.", {"tags": 0}),
+    ("I dont want you to put any kind of emojis or hashtags in my posts.", {"emoji": False, "tags": 0}),
+    ("Titles aren't supposed to have emojis.", {"emoji": False}),
+    ("I didn't want emojis in my titles.", {"emoji": False}),
+    ("Don't use so many hashtags.", {"tags": poststyle.FEWER_TAGS}),
     # what the video's own text or length is, and some capitals, are not title rules
     ("Text in all caps on my videos, titles in lower case.", {"title_case": "lower"}),
     ("All caps on my clips, titles in lower case.", {"title_case": "lower"}),
@@ -122,6 +131,9 @@ def _say(text: str, **kw) -> dict:
     # where hashtags come from is which hashtags; "that much" is fewer
     ("Don't copy hashtags from competitors.", {}),
     ("Don't use hashtags from TikTok on YouTube.", {}),
+    ("No hashtags from tomorrow.", {"tags": 0}),
+    ("No hashtags from the description please.", {"tags": 0}),
+    ("Drop the hashtags from my posts.", {"tags": 0}),
     ("Don't use hashtags that much.", {"tags": poststyle.FEWER_TAGS}),
     ("Too many hashtags on my posts.", {"tags": poststyle.FEWER_TAGS}),
     # when and where a rule holds is not which hashtags
@@ -129,6 +141,9 @@ def _say(text: str, **kw) -> dict:
     ("No hashtags in titles or descriptions.", {"tags": 0}),
     ("Titles, lower case for every video.", {"title_case": "lower"}),
     ("Titles, lower case for all my videos.", {"title_case": "lower"}),
+    ("Titles, lower case on all my clips.", {"title_case": "lower"}),
+    ("For titles, lower case on every clip.", {"title_case": "lower"}),
+    ("Titles should have only the first letter capitalized not all caps.", {"title_case": "sentence"}),
     ("Titles, keep them under 40 characters for clips.", {"title_max": 40}),
     # a list goes on through "please"; "but" before the next thing ends it
     ("No hashtags, emoji or links please.", {"tags": 0, "emoji": False}),
@@ -256,6 +271,8 @@ def test_hashtags_say_what_the_clip_is_about():
     assert postpack.generic_tag("#youtube", subject("Going viral on TikTok and YouTube"))
     assert not postpack.generic_tag("#instagram", subject("Why I quit Instagram"))
     assert not postpack.generic_tag("#tiktok", subject("The TikTok algorithm explained"))
+    for title in ("Switching from TikTok to YouTube", "Why I left TikTok for YouTube"):   # what it compares
+        assert not {"tiktok", "youtube"} - subject(title), title
     assert postpack.generic_tag("#video", {"video"})
     said = "I quit Instagram and ninety percent of my sleep came back. Instagram took my sleep."
     assert "#instagram" in postpack.hashtags_for(said, prefer="Why I quit Instagram")

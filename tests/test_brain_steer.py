@@ -3,6 +3,7 @@ the results of posted clips become lessons the Brain picks by (brain/lessons.py)
 from __future__ import annotations
 
 import json
+import math
 import time
 
 import pytest
@@ -89,6 +90,16 @@ def _kinds(text: str, **kw) -> dict:
     ("Never pick intros or lead with small talk", {"promo": -1, "smalltalk": -1}),
     ("don't clip ads or lead with a greeting", {"promo": -1}),
     ("no intros, more reactions in my clips", {"promo": -1, "reaction": 1}),
+    # ... but "or just", "or rather" and "less ... or more" still turn to what is wanted
+    ("skip the small talk in my clips or just give me the reactions", {"smalltalk": -1, "reaction": 1}),
+    ("less small talk or more reactions in my clips", {"smalltalk": -1, "reaction": 1}),
+    ("no intros in my clips or only funny moments", {"promo": -1, "funny": 1}),
+    ("dont pick intros or rather pick reactions", {"promo": -1, "reaction": 1}),
+    # after a cut point only a bare list goes with it: a sentence that says more is read
+    ("dont start clips with a intro, funny or emotional moments get the most views", {"funny": 1, "emotional": 1}),
+    ("dont end clips on a question, funny moments and reactions work best", {"funny": 1, "reaction": 1}),
+    ("never end clips on a question, a funny moment or a reaction is better", {"funny": 1, "reaction": 1}),
+    ("never open clips with intros, swearing or banter, reactions work better", {"reaction": 1}),
     # not about which moment to pick
     ("Never end clips on a question", {}),
     ("don't end clips before the reaction", {}),
@@ -121,6 +132,8 @@ def test_imported_advice_is_read_with_care():
     assert _kinds("Never end a clip on a joke, a question, or a cliffhanger.", about_picking=True) == {}
     assert _kinds("Never open clips with a lesson, a tip or a question; open with the payoff.",
                   about_picking=True) == {}
+    assert _kinds("Never open with a greeting, reactions or surprises hook viewers best.",
+                  about_picking=True) == {"reaction": 1, "surprise": 1}
     assert _kinds("Pick clips with a hidden twist or reveal.") == {"surprise": 1}
 
 
@@ -182,6 +195,19 @@ def test_the_owners_rule_outweighs_lessons_and_one_source_speaks_once():
     ("grab attention in 8 seconds or less in every clip", {}),
     ("get to the point in 10 seconds or less in clips", {}),
     ("clips should show the payoff in 20 seconds or more", {}),
+    ("grab them in 8 seconds or less in my clips", {}),
+    # ... but the clips themselves done, kept or fitting in a time is their length
+    ("my clips should be done in 30 seconds or less", {"max": 30.0}),
+    ("I want my clips to be in 30 seconds or less", {"max": 30.0}),
+    ("my clips need to fit in 45 seconds or less", {"max": 45.0}),
+    ("keep my clips short, in 30 seconds or less", {"max": 30.0}),
+    ("my clips should be in 40 seconds or more", {"min": 40.0}),
+    # typed fast: "then" for "than", the bound after the number
+    ("my clips should not be longer then 60 seconds", {"max": 60.0}),
+    ("clips shorter then 30 seconds pls", {"max": 30.0}),
+    ("clips 30 sec max", {"max": 30.0}),
+    ("clips 60 seconds tops", {"max": 60.0}),
+    ("clips 40 seconds minimum", {"min": 40.0}),
 ])
 def test_clip_lengths_the_owner_asks_for(said, want):
     assert steer._length(steer._plain(said)) == want  # noqa: SLF001
@@ -466,22 +492,42 @@ def test_one_long_video_is_not_a_lesson_and_a_gap_inside_each_video_is_found():
                             "kinds": ["reaction"] if mine else []})
         return pts
 
-    def within(seed: int) -> list[dict]:
-        """12 videos that differ a lot in reach; inside each, the two reaction clips got twice the views."""
+    def within(seed: int, even: bool = True) -> list[dict]:
+        """12 videos that differ a lot in reach; inside each, the reaction clips got twice the views (two of four
+        clips in every video, or one to three)."""
         rnd = random.Random(seed)
         pts = []
         for v in range(12):
-            base = rnd.gauss(0, 0.6)
+            base, mine = rnd.gauss(0, 0.6), 2 if even else rnd.randint(1, 3)
             for i in range(4):
-                pts.append({"source": f"v{v}", "value": 3 + base + rnd.gauss(0, 0.15) + (0.301 if i < 2 else 0),
-                            "weight": 0.5, "kinds": ["reaction"] if i < 2 else []})
+                pts.append({"source": f"v{v}", "value": 3 + base + rnd.gauss(0, 0.15) + (0.301 if i < mine else 0),
+                            "weight": 0.5, "kinds": ["reaction"] if i < mine else []})
+        return pts
+
+    def capped(pts: list[dict]) -> list[dict]:
+        """The outlier cap of autopilot/brain._points, which keeps each value from before it as "raw"."""
+        vals = sorted(p["value"] for p in pts)
+        lo, hi = vals[int(0.1 * (len(vals) - 1))], vals[int(math.ceil(0.9 * (len(vals) - 1)))]
+        return [{**p, "raw": p["value"], "value": min(hi, max(lo, p["value"]))} for p in pts]
+
+    def volatile(seed: int) -> list[dict]:
+        """No real difference: 3 reaction videos whose reach swings a lot, 20 steady plain ones."""
+        rnd = random.Random(seed)
+        pts = []
+        for v in range(23):
+            base = rnd.gauss(0, 20 if v < 3 else 3)
+            pts += [{"source": f"v{v}", "value": 40 + base + rnd.gauss(0, 3), "weight": 3 ** -0.5,
+                     "kinds": ["reaction"] if v < 3 else []} for _ in range(3)]
         return pts
 
     for share, others in ((1.0, None), (0.9, 0.15)):  # 21% and 10% of runs made a lesson from the stream's luck
         assert sum(1 for seed in range(200) if lessons.compare(stream(seed, share, others), "watched")) <= 10
-    found = sum(1 for seed in range(100) if any(x["kind"] == "reaction" and x["sign"] > 0
-                                                for x in lessons.compare(within(seed), "views")))
-    assert found >= 90                                # was 3 in 100 when each side's error stood alone
+    for even in (True, False):                        # 3 and 11 in 100 when each side's error stood alone
+        found = sum(1 for seed in range(100) if any(x["kind"] == "reaction" and x["sign"] > 0
+                                                    for x in lessons.compare(within(seed, even), "views")))
+        assert found >= 90, even
+    # the cap flattens the few volatile videos: their error is read from the values before it (was 16% of runs)
+    assert sum(1 for seed in range(200) if lessons.compare(capped(volatile(seed)), "watched")) <= 10
 
 
 def test_an_owners_rewrite_of_a_lesson_is_theirs(audience):
@@ -520,6 +566,16 @@ def test_view_counts_read_long_after_48_hours_are_not_compared(audience):
     for source in range(3):                                # under the floor at 48 hours: left out, not read later
         _viewed(REACTION, 3, [(50, 5), (720, 110)], 20 + source)
     assert lessons.learn(db.get_settings())["lessons"] == 0
+
+
+def test_an_import_of_old_view_counts_does_not_unsettle_a_lesson(audience):
+    for source in range(4):
+        _viewed(REACTION, 3, [(50, 3000)], source)
+        _viewed(PLAIN, 3, [(50, 1000)], 10 + source)
+    assert lessons.learn(db.get_settings())["lessons"] == 1
+    for source in range(10):                               # last month's clips, counted at four weeks
+        _viewed(PLAIN, 3, [(600 + 20 * source, 1500)], 20 + source)
+    assert lessons.learn(db.get_settings()) == {"added": [], "changed": [], "dropped": [], "lessons": 1}
 
 
 def test_view_counts_imported_after_day_four_still_teach(audience):

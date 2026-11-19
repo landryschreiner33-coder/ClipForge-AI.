@@ -334,6 +334,9 @@ def edit(skill_id: str, text: str) -> dict:
         raise SkillError("Skill not found.")
     ext = {"markdown": ".md", "text": ".txt", "json": ".json"}[row["original_format"]]
     parsed = parse(f"edited{ext}", text.encode("utf-8"))
+    # the name is not edited, so the name it is found by stays with it
+    kept = [b for b in row.get("blocked") or [] if isinstance(b, dict) and str(b.get("why") or "").startswith(NAME_WHY)]
+    parsed["blocked"] = [b for b in parsed["blocked"] if not str(b.get("why") or "").startswith(NAME_WHY)] + kept
     db.update("skills", skill_id, revision=row["revision"] + 1, **{
         k: parsed[k] for k in ("description", "version", "modes", "topics", "original", "supported", "unsupported",
                                "blocked")})

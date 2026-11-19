@@ -19,10 +19,11 @@ owner's rules. **Not released.**
   ClipForge's words (`poststyle.prompt`), never the note. (4) New code that needs "what does ClipForge AI know"
   calls `library.search`, not `knowhow.select`. (5) A lesson is machine-owned only while its text equals the
   `data.text` it was written with (`steer.lesson_of`); anything else is the owner's. (6) `lessons.compare` splits its
-  bar over the kinds it tests and takes the gap's error over videos (`lessons._gap`: a jackknife leaving each video
-  out, with Satterthwaite's degrees of freedom): adding kinds of moment makes each test stricter, which is intended.
-  Do not swap in `autopilot/brain._stats` (clips counted as independent) or a per-side error (misses a gap inside
-  each video). `tests/test_brain_steer.py` holds the noise and power checks; run them after any change there.
+  bar over the kinds it tests and takes the gap's error over videos (`lessons._gap`: the gap inside each video
+  with clips on both sides when 3 or more have them, else between all clips; a jackknife leaving each video out, on
+  the values before the outlier cap ("raw"), with Satterthwaite's degrees of freedom): adding kinds of moment makes
+  each test stricter, which is intended. Do not swap in `autopilot/brain._stats` (clips counted as independent), a
+  per-side error (misses a gap inside each video) or the capped values (a few volatile videos then look steady). `tests/test_brain_steer.py` holds the noise and power checks; run them after any change there.
   (7) A skill name the importer may not show is kept in its `blocked` list ("name: …"): `skills.match_words` finds
   the skill by it, `skills.shown_name` is what a model sees.
 - **How owner lines are read** is tested sentence by sentence in `tests/test_brain_steer.py` and

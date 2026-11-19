@@ -37,6 +37,8 @@ def test_the_playbooks_are_short_plain_and_picked_by_words_and_by_job():
         assert knowhow.answer(q)["id"] == "platforms", q
     for q in ("make it work on youtube", "make it better for tiktok", "hide the watermark", "move it to the side"):
         assert "captions" not in knowhow.select(q, "change", limit=2, budget_chars=900).ids, q
+    for q in ("the side buttons hide my text", "move the text so the side buttons dont hide it"):
+        assert knowhow.select(q, "change", limit=2, budget_chars=900).ids[0] == "captions", q
     # a job gets its defaults when the words pick nothing, inside the budget, the best match first
     finish = knowhow.select("", "finish", limit=3, budget_chars=1500)
     assert finish.ids == ["colour", "effects"] and len(finish.prompt()) <= 1500

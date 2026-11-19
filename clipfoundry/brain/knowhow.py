@@ -98,6 +98,7 @@ TOPICS: tuple[Topic, ...] = (
            # the app, "are my captions hidden behind the tiktok buttons?" is about captions
            "+buttons: caption captions subtitle subtitles text words cover covers covered covering hide hides "
            "hidden hiding block blocks blocked blocking behind bottom overlap overlaps screen", "=cover the bottom",
+           "=buttons hide", "=buttons cover",       # the two words side by side: knowhow and the library both read
            "stroke", "outline", "readable", "framing", "crop", "reframe", "9:16", "vertical", "face", "faces",
            "position", "placement", "words on screen")),
     Topic("sound", "Voice and sound mix", "Levels, the voice chain, music under speech and loudness targets.",
@@ -320,14 +321,27 @@ def _strong_terms(t: Topic) -> set[str]:
     """The words a playbook is about: its title and the words a question may use for it."""
     out = _terms(t.title)
     for w in t.words:
-        if w.startswith("+"):       # a word that counts only beside others: brain/library.py reads it, not this
+        if w.startswith("+"):       # a word that counts only beside others (_BESIDE)
             continue
         out |= {x for x in _terms(w[1:]) if "_" in x} if w.startswith("=") else _terms(w)  # "=": the phrase only
     return out
 
 
+def _beside_terms(t: Topic) -> list[tuple[set[str], set[str]]]:
+    """"+buttons: text cover ...": (the word's terms, the words it counts beside). brain/library.py reads the same."""
+    out = []
+    for w in t.words:
+        if w.startswith("+"):
+            head, _, rest = w[1:].partition(":")
+            out.append((_terms(head), {x for x in _terms(rest) if "_" not in x}))
+    return out
+
+
 _STRONG = {t.id: _strong_terms(t) for t in TOPICS}
-_TERMS = {t.id: _STRONG[t.id] | _terms(" ".join((t.summary, *t.lines))) for t in TOPICS}
+_BESIDE = {t.id: _beside_terms(t) for t in TOPICS}
+_HEADS = {t.id: {x for head, _ in _BESIDE[t.id] for x in head} for t in TOPICS}
+# the head words are known words (so they count in a question), but a playbook has them only beside their company
+_TERMS = {t.id: _STRONG[t.id] | _HEADS[t.id] | _terms(" ".join((t.summary, *t.lines))) for t in TOPICS}
 _DF: dict[str, int] = {}
 for _ts in _TERMS.values():
     for _term in _ts:
@@ -349,7 +363,9 @@ def score(query: str, topic: Topic) -> float:
     total = sum(_idf(t) for t in q)
     if total <= 0:
         return 0.0
-    strong, own = _STRONG[topic.id], _TERMS[topic.id]
+    said = set(q)
+    beside = {x for head, company in _BESIDE[topic.id] if company & said for x in head}
+    strong, own = _STRONG[topic.id] | beside, (_TERMS[topic.id] - _HEADS[topic.id]) | beside
     return sum(_idf(t) * (1.0 if t in strong else WEAK) for t in q if t in own) / total
 
 

@@ -48,8 +48,12 @@ _POSTED_ON = re.compile(rf"\b(?:on|to|from|for|via|in|at|across|onto)\s+(?:the\s
 
 def title_subject(title: str) -> set[str]:
     """The content words of a title, without the platforms it names only as where the clip went."""
-    where = {w for m in _POSTED_ON.finditer(str(title or "").lower()) for w in content_tokens(m.group(1))}
-    return {w for w in content_tokens(title) if not (w in PLATFORM_TAGS and w in where)}
+    words = content_tokens(title)
+    places = [set(content_tokens(m.group(1))) for m in _POSTED_ON.finditer(str(title or "").lower())]
+    named = PLATFORM_TAGS & set(words)
+    # platforms named apart ("from TikTok to YouTube", "left TikTok for YouTube") are what the title compares
+    where = set().union(*places) if any(named <= p for p in places) else set()
+    return {w for w in words if not (w in PLATFORM_TAGS and w in where)}
 
 
 def generic_tag(word: str, lead: set[str] | frozenset[str] = frozenset()) -> bool:

@@ -194,6 +194,8 @@ def test_skills_whose_names_cannot_be_shown_stay_apart_and_are_still_found(env):
     assert f"skill:{a['id']}" in found.ids and "Post titles for TikTok" not in found.prompt()
     assert library.search("tips for viral hooks", WS).ids[0] == f"skill:{b['id']}"
     assert skills.shown_name({"name": "Post titles for TikTok"}) == "Skill"   # one stored before names were checked
+    skills.edit(a["id"], "- Name the situation, hold back the outcome and keep it short.\n")
+    assert f"skill:{a['id']}" in library.search("how should I write post titles for tiktok?", WS).ids
 
 
 def test_the_guide_says_what_the_app_really_does(env):
@@ -214,6 +216,10 @@ def test_the_guide_says_what_the_app_really_does(env):
               "post link?", "I can't find the share button to copy my tiktok link"):
         assert library.search(q, WS).ids[0] == "guide:publishing", q
     assert library.search("the share buttons on clipforge don't work", WS).ids[0] == "guide:what"
+    assert library.search("the tiktok buttons hide my text", WS).ids[0] == "captions"
+    assert library.search("the side buttons in the app are too small", WS).ids[0].startswith("guide:")
+    for q in ("where is the captions button?", "the captions button is not working"):    # ClipForge's own button
+        assert library.search(q, WS).ids[0].startswith("guide:"), q
     link = library.search("can I use my own transcript with a youtube link?", WS)
     assert "works only with a video file" in link.prompt()
     brain = library.search("what do you use to decide?", WS).prompt()

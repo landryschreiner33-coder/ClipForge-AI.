@@ -96,7 +96,9 @@ def _outcomes(settings: dict, now: float) -> dict[tuple, dict]:
     for key, clips in at_age.items():  # the floor applies to the reading compared, never to an earlier one
         kept = {cid: o for cid, o in clips.items() if o["metrics"]["views"] >= min_views}
         ages = sorted(float(o["age_hours"]) for o in kept.values())
-        mid = ages[len(ages) // 2] if ages else 0.0
+        near = sorted(ages, key=lambda a: abs(math.log(a / REFERENCE_AGE_H)))  # the band nearest 48 hours ...
+        mid = next((a for a in near if sum(a / VIEWS_AGE_SPREAD <= x <= a * VIEWS_AGE_SPREAD for x in ages)
+                    >= MIN_WITH + MIN_WITHOUT), ages[len(ages) // 2] if ages else 0.0)  # ... that holds enough
         at_age[key] = {cid: o for cid, o in kept.items()
                        if mid / VIEWS_AGE_SPREAD <= float(o["age_hours"]) <= mid * VIEWS_AGE_SPREAD}
     out: dict[tuple, dict] = {}
@@ -164,40 +166,81 @@ def t_bar(p: float, df: float) -> float:
     return hi
 
 
-def _mean(pts: list[dict]) -> float:
-    return sum(p["weight"] * p["value"] for p in pts) / sum(p["weight"] for p in pts)
+def _value(p: dict, raw: bool) -> float:
+    return float(p.get("raw", p["value"])) if raw else float(p["value"])
 
 
-def _gap(have: list[dict], rest: list[dict]) -> tuple[float, float, float]:
-    """The gap between the two sides' weighted means, the square of its standard error and its degrees of freedom.
-    Clips of one video move together (a strong video lifts all of them), so the error is the gap's own spread when
-    each video in turn is left out (a jackknife over videos): a video with clips on both sides cancels out of the
-    gap, and one long video that carries a side counts with all its weight. The degrees of freedom are the videos
-    less one, and fewer when a few videos carry the gap (Satterthwaite's estimate, from how much clips and videos
-    vary here), so one lucky video cannot pass for many."""
-    gap = _mean(have) - _mean(rest)
-    videos = sorted({p["source"] for p in have + rest})
-    g = len(videos)
-    reps = [_mean([p for p in have if p["source"] != v]) - _mean([p for p in rest if p["source"] != v])
-            for v in videos]  # each side keeps clips: compare asks for MIN_SOURCES videos on both
+def _mean(pts: list[dict], raw: bool = False) -> float:
+    return sum(p["weight"] * _value(p, raw) for p in pts) / sum(p["weight"] for p in pts)
+
+
+def _jackknife(reps: list[float]) -> float:
+    g = len(reps)
     mid = sum(reps) / g
-    var = (g - 1) / g * sum((r - mid) ** 2 for r in reps)
+    return (g - 1) / g * sum((r - mid) ** 2 for r in reps)
+
+
+def _inside(have: dict[str, list[dict]], rest: dict[str, list[dict]], videos: list[str], raw: bool) -> float:
+    """The gap inside videos: each video's own gap between its clips with and without the kind, weighted by how much
+    it can say (W_with * W_without / (W_with + W_without))."""
+    num = den = 0.0
+    for v in videos:
+        wa, wb = sum(p["weight"] for p in have[v]), sum(p["weight"] for p in rest[v])
+        k = wa * wb / (wa + wb)
+        num, den = num + k * (_mean(have[v], raw) - _mean(rest[v], raw)), den + k
+    return num / den
+
+
+def _gap(have: list[dict], rest: list[dict]) -> tuple[float, float, float, int, int]:
+    """The gap between clips with the kind and the others, the square of its standard error, its degrees of freedom
+    and the clips with and without it that it stands on.
+
+    Clips of one video move together (a strong video lifts all of them). Where at least MIN_SOURCES videos hold
+    clips on both sides (with enough clips), the gap is taken inside each of those videos, so their reach cancels
+    out; otherwise the two sides' means are compared and one long video that carries a side counts with all its
+    weight. Either way the error is the gap's own spread when each video in turn is left out (a jackknife over
+    videos), read from the values before the outlier cap (a cap that flattens a few volatile videos must not make
+    noise look certain), and the degrees of freedom are the videos less one, fewer when a few videos carry the gap
+    (Satterthwaite's estimate), so one lucky video cannot pass for many."""
+    have_v: dict[str, list[dict]] = defaultdict(list)
+    rest_v: dict[str, list[dict]] = defaultdict(list)
+    for p in have:
+        have_v[p["source"]].append(p)
+    for p in rest:
+        rest_v[p["source"]].append(p)
+    both = sorted(set(have_v) & set(rest_v))
+    n_with, n_without = sum(len(have_v[v]) for v in both), sum(len(rest_v[v]) for v in both)
+    if len(both) >= MIN_SOURCES and n_with >= MIN_WITH and n_without >= MIN_WITHOUT:
+        gap = _inside(have_v, rest_v, both, raw=False)
+        var = _jackknife([_inside(have_v, rest_v, [v for v in both if v != u], raw=True) for u in both])
+        ks = []
+        for v in both:
+            wa, wb = sum(p["weight"] for p in have_v[v]), sum(p["weight"] for p in rest_v[v])
+            ks.append(wa * wb / (wa + wb))
+        df = sum(ks) ** 2 / sum(k * k for k in ks)   # each video's part of the error goes with its weight
+        return gap, var, max(1.0, min(len(both) - 1.0, df)), n_with, n_without
+    gap = _mean(have) - _mean(rest)
+    videos = sorted(set(have_v) | set(rest_v))
+    g = len(videos)
+    # each side keeps clips when one video is left out: compare asks for MIN_SOURCES videos on both
+    var = _jackknife([_mean([p for p in have if p["source"] != v], True)
+                      - _mean([p for p in rest if p["source"] != v], True) for v in videos])
     clip_part: dict[str, float] = defaultdict(float)   # what each video's clips add to the gap's error ...
     video_part: dict[str, float] = defaultdict(float)  # ... and what the video's own level adds
     left: dict[str, list[float]] = defaultdict(list)
     for side, sign in ((have, 1.0), (rest, -1.0)):
-        w, mean = sum(p["weight"] for p in side), _mean(side)
+        w, mean = sum(p["weight"] for p in side), _mean(side, True)
         for p in side:
             clip_part[p["source"]] += (p["weight"] / w) ** 2
             video_part[p["source"]] += sign * p["weight"] / w
-            left[p["source"]].append(p["value"] - mean)
+            left[p["source"]].append(_value(p, True) - mean)
     n = sum(len(v) for v in left.values())
     within = sum(sum((x - sum(v) / len(v)) ** 2 for x in v) for v in left.values()) / max(1, n - g)
     between = sum(sum(v) ** 2 / len(v) for v in left.values()) / max(1, g - 1)
     video_var = max(0.0, (between - within) * g / n)  # how much videos differ beyond their clips (one-way ANOVA)
     parts = [max(within, 1e-12) * clip_part[v] + video_var * video_part[v] ** 2 for v in videos]
     df = sum(parts) ** 2 / max(1e-30, sum(x * x for x in parts))
-    return gap, var, max(1.0, min(g - 1.0, df))
+    return gap, var, max(1.0, min(g - 1.0, df)), len(have), len(rest)
 
 
 def compare(pts: list[dict], what: str) -> list[dict]:
@@ -214,7 +257,7 @@ def compare(pts: list[dict], what: str) -> list[dict]:
         tested.append((kind, have, rest))
     found = []
     for kind, have, rest in tested:
-        diff, var, df = _gap(have, rest)
+        diff, var, df, n_with, n_without = _gap(have, rest)
         t = diff / max(1e-9, math.sqrt(var))
         clear = t_bar(math.erfc(CLEAR / math.sqrt(2)) / len(tested), df)
         if abs(t) < clear or abs(diff) < MIN_EFFECT[what]:
@@ -223,7 +266,7 @@ def compare(pts: list[dict], what: str) -> list[dict]:
             continue  # only the owner's own words can ask for small talk, ad reads or swearing
         strong = abs(t) >= t_bar(math.erfc(STRONG / math.sqrt(2)) / len(tested), df)
         found.append({"kind": kind.id, "sign": 1 if diff > 0 else -1, "strong": strong, "what": what,
-                      "diff": round(diff, 3), "z": round(t, 2), "with": len(have), "without": len(rest)})
+                      "diff": round(diff, 3), "z": round(t, 2), "with": n_with, "without": n_without})
     return found
 
 

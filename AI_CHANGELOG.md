@@ -41,7 +41,7 @@ pull request #59. **Not released.** Framing and the split view from the same mes
   of moment, clips that showed it with clips that did not. A clear difference (6 clips and 3 videos on each side,
   past a bar split over the kinds tested and read from Student's t with the error taken over videos, view counts
   compared only when read at about the same age) becomes
-  a memory "From your results: look for …" that clip picking and the chat read. On pure noise about 3-7% of runs
+  a memory "From your results: look for …" that clip picking and the chat read. On pure noise about 2-4% of runs
   make a lesson. Forget it and it stays forgotten while the numbers say the same; switch it off or rewrite it and it is
   left alone.
 - **Titles, post text and hashtags** (`brain/poststyle.py`, `pipeline/postpack.py`, `autopilot/packaging.py`): what
@@ -83,6 +83,22 @@ pull request #59. **Not released.** Framing and the split view from the same mes
   later import cannot replace an earlier one, and they are still found by their names; the captions playbook's
   phrase words no longer pull "make it work on YouTube" to captions; "buttons" leads to captions only beside what
   they cover, never in "which share button do I press?".
+- **Fourth check** (4 checkers, a skeptic per claim; 14 confirmed, all fixed with tests; most were sentences the
+  third check's fixes read wrongly). Lessons: a gap inside every video was still mostly missed when videos held one
+  to three reaction clips, so where at least 3 videos have clips on both sides the gap is now measured inside each
+  of them (found in 100 of 100 runs either way); the error is read from the values before the outlier cap (a few
+  volatile videos made a lesson in 16% of runs, now 2%); an import of last month's counts made a 48-hour lesson
+  disappear, so counts are compared around the reading age nearest 48 hours that 12 clips share. On pure noise 2-4%
+  of runs make a lesson; 20 points on 30 videos is found in 94 of 100. Picking: "skip the small talk or just give
+  me the reactions" wants the reactions; "my clips should be done in 30 seconds or less", "no longer then 60
+  seconds" and "30 sec max" are longest lengths; after a cut point only a bare list goes with it ("don't end clips
+  on a question, funny moments and reactions work best" wants both). Post text: a "no" again reaches back through
+  its whole instruction (the eight-word limit lost "I don't want you to ever put any of those hashtags"), "so
+  many" goes on, "titles aren't supposed to have emojis" refuses; "no hashtags from tomorrow" and "from the
+  description" are refusals, not which hashtags; "Titles, lower case on all my clips" and "only the first letter
+  capitalized not all caps" are title rules; "Why I left TikTok for YouTube" keeps both platforms. Chat: "where is
+  the captions button?" goes to the app guide; "the side buttons hide my text" gets the captions playbook in edits
+  too; editing a skill keeps the refused name it is found by.
 - **Decisions:** the Brain's effect on a score is small and bounded on purpose; only the owner's own words can ask
   for small talk, ad reads or swearing; an owner's sentence about an editing subject is not a picking rule; the
   shortest clip stays a soft limit (a tight moment may run to 75% of it); clips cut from a live stream follow the

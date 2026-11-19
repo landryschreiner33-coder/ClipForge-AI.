@@ -53,6 +53,8 @@ BOOST = 1.2
 # "where is the button to change captions?", "which button do I press?": pressing one of ClipForge's buttons, so a
 # word that counts only beside others ("buttons" beside "text") does not count
 _PRESSING = re.compile(r"\b(?:which|what) (?:\w+ )?buttons?\b|\bbuttons? (?:to|for)\b|"
+                       r"\b(?:captions?|subtitles?|text|words?) buttons?\b|"
+                       r"\bwhere(?:'s| is| are)\b[^.?!]*\bbuttons?\b|"
                        r"\b(?:press|click|tap|hit|find)\w* (?:on )?(?:the |a |that |this |my )?(?:\w+ )?buttons?\b",
                        re.I)
 

@@ -144,10 +144,11 @@ everything channel content viewers audience""".split())
 _NUM = r"(\d{1,3}(?:\.\d)?)"
 _UNIT = r"\s*-?\s*(seconds?|secs?|s|minutes?|mins?|m)\b"
 _SPAN = re.compile(rf"{_NUM}(?:{_UNIT})?\s*(?:-|–|to|and)\s*{_NUM}{_UNIT}")
-_AT_LEAST = re.compile(rf"(?:at least|no shorter than|not shorter than|minimum(?: of)?|min|longer than|more than|"
-                       rf"over|above)\s+{_NUM}{_UNIT}")
-_AT_MOST = re.compile(rf"(?:at most|no longer than|not longer than|maximum(?: of)?|max|under|shorter than|"
-                      rf"less than|below|up to|within)\s+{_NUM}{_UNIT}")
+# "longer then" (a fast typist's "than") is the same bound
+_AT_LEAST = re.compile(rf"(?:at least|no shorter th[ae]n|not shorter th[ae]n|minimum(?: of)?|min|longer th[ae]n|"
+                       rf"more th[ae]n|over|above)\s+{_NUM}{_UNIT}")
+_AT_MOST = re.compile(rf"(?:at most|no longer th[ae]n|not longer th[ae]n|maximum(?: of)?|max|under|shorter th[ae]n|"
+                      rf"less th[ae]n|below|up to|within)\s+{_NUM}{_UNIT}")
 _ABOUT_LONG = re.compile(rf"(?:about|around|roughly|approximately|ideally|~)\s*{_NUM}{_UNIT}")
 _BARE_LONG = re.compile(rf"{_NUM}{_UNIT}")
 _LONGER = re.compile(r"\b(?:longer|too short|so short|not (?:so|as|that) short|more length)\b")
@@ -167,8 +168,10 @@ _LEN_NEG = re.compile(r"\b(?:no|not|never|cannot|(?:do|does|did|is|are|was|were|
                       r"its|to|should|ever|you|i|me|of|the|that|are|is|have|has|been|being|please|one|ones|all|single|"
                       r"these|those|do|does|will|would|can|could|really|actually))*\s*$")
 _FLIP = {"min": "max", "max": "min"}
-_BARE_BOUND = re.compile(r"^(?:longer than|shorter than|more than|less than|over|under|above|below)\b")
+_BARE_BOUND = re.compile(r"^(?:longer th[ae]n|shorter th[ae]n|more th[ae]n|less th[ae]n|over|under|above|below)\b")
 _OR_LESS = re.compile(rf"{_NUM}{_UNIT}\s+or (?:less|under|shorter)\b(?!\s+(?:than|\d))")   # not "or under 90"
+_MAX_AFTER = re.compile(rf"{_NUM}{_UNIT}\s+(?:max(?:imum)?|tops|at (?:the )?most)\b")   # "clips 30 sec max"
+_MIN_AFTER = re.compile(rf"{_NUM}{_UNIT}\s+(?:min(?:imum)?|at (?:the )?least)\b")
 _OR_MORE = re.compile(rf"{_NUM}{_UNIT}\s+or (?:more|over|longer)\b(?!\s+(?:than|\d))")
 # "grab attention in the first 10 seconds", "a cut every 3 seconds", "get to the action in 10 seconds or less": a
 # time inside the clip, not how long it is; "in 45 second clips" and "keep clips in 30 seconds or less" are lengths
@@ -176,7 +179,11 @@ _POINT_IN_CLIP = re.compile(r"\b(?:first|last|opening|final|after|every|each|by)
 _IN_POINT = re.compile(r"\bin\s+$")
 _CLIPS_AFTER = re.compile(r"^\s*(?:long\s+)?(?:clips?|shorts?|videos?)\b")
 _OR_BOUND_AFTER = re.compile(r"^\s+or (?:less|under|shorter|more|over|longer)")
-_CLIPS_IN = re.compile(r"\b(?:clips?|shorts?|videos?|make|keep|cut)\s+in\s+$")
+# "in" said of the clips themselves: only glue words between a clip word and it ("clips should be done in", "clips
+# that are in", "keep my clips short, in"); "clips need to get to the action in" names a point inside the clip
+_CLIPS_IN = re.compile(r"\b(?:clips?|shorts?|videos?)(?:\s*,?\s*(?:should|must|need|needs|have|has|to|be|been|are|is|"
+                       r"that|which|done|finished|fit|kept|made|all|short|shorter|please|pls|always))*\s*,?\s+in\s+$|"
+                       r"\b(?:make|keep|cut)\s+in\s+$")
 
 
 def _point_in_clip(low: str, m: re.Match) -> bool:
@@ -214,8 +221,8 @@ def _length(low: str) -> dict:
         out["min"], out["max"] = min(a, b), max(a, b)
     else:
         found: dict[int, tuple[str, re.Match]] = {}   # by where the number is: one reading per number
-        for key, pattern in (("max", _OR_LESS), ("min", _OR_MORE), ("min", _AT_LEAST), ("max", _AT_MOST),
-                             ("target", _ABOUT_LONG)):
+        for key, pattern in (("max", _OR_LESS), ("min", _OR_MORE), ("max", _MAX_AFTER), ("min", _MIN_AFTER),
+                             ("min", _AT_LEAST), ("max", _AT_MOST), ("target", _ABOUT_LONG)):
             for m in pattern.finditer(low):
                 if not _point_in_clip(low, m):
                     found.setdefault(m.start(1), (key, m))
@@ -278,7 +285,7 @@ _RESET = re.compile(r"\b(?:just|only|instead|rather|but|keep\w*|focus\w* on|stic
                     r"(?<!\bno )(?<!\bany )more|and (?:go|keep|focus|pick|show|use|find|look|stick|leave in|add|"
                     r"include)\w*)\b")
 # "never pick intros or lead with small talk", "no intros or any more small talk": the "no" goes on across "or"
-_OR_GOES_ON = re.compile(r"\b(?:or|nor)\s+(?:any\s+)?$")
+_OR_GOES_ON = re.compile(r"\b(?:or|nor)\s+(?:any\s+)?$")   # only before "lead with": "or just ..." still turns
 _ANY_KIND = re.compile(r"\b(?:" + "|".join(k.names for k in KINDS) + r")\b")
 # words around a "no" that do not end it at a comma ("never, ever clip intros", "don't, under any circumstances, ...")
 _ASIDE = re.compile(r"\b(?:ever|at all|please|really|seriously|again|under any circumstances|whatever happens|"
@@ -294,6 +301,15 @@ _LIST_GOES_ON = re.compile(r"(?:or |and |nor |like |such as |especially |includi
                            r"(?:" + "|".join(k.names for k in KINDS) + r")\b"
                            r"(?:\s+(?:moments?|clips?|parts?|bits?|ones?|stuff|reads?|segments?))?"
                            r"\s*(?:[,.;!?]|$|(?:or|and|nor|in|from|on|out of)\b)")
+# After a cut point, a piece that is only more of its list ("..., swearing or banter") goes with it; one that says
+# more ("funny or emotional moments get the most views") or starts what the owner wants ("..., funny moments and
+# reactions work best") is read.
+_ITEM = (r"(?:the |any |all |my |those |these )?(?:(?!" + _NOT_A_MODIFIER + r"\b)[a-z'-]+\s+){0,2}(?:"
+         + "|".join(k.names for k in KINDS)
+         + r")\b(?:\s+(?:moments?|clips?|parts?|bits?|ones?|stuff|reads?|segments?))?")
+_BARE_LIST = re.compile(r"(?:(?:or|and|nor|like|such as|especially|including)\s+)?" + _ITEM
+                        + r"(?:\s*(?:,\s*)?(?:or|and|nor)\s+" + _ITEM + r")*\s*[.!?]?\s*")
+_KIND_FIRST = re.compile(r"(?:(?:or|and|nor)\s+)?" + _ITEM)
 # A line about where a clip starts or ends ("never end clips on a question") says nothing about which moments to pick.
 _CUT_POINT = re.compile(r"\b(?:end|ends|ending|ended|start|starts|starting|open|opens|opening|begin\w*|"
                         r"cut off|cuts off)\s+(?:(?:my|the|your|a|each|every|all)\s+)?(?:clips?\s+|shorts?\s+|"
@@ -311,7 +327,7 @@ def _scope(part: str, at: int, neg: re.Pattern) -> str:
 
     start = 0
     for m in _RESET.finditer(before):
-        if _OR_GOES_ON.search(before[:m.start()]):
+        if m.group() == "lead with" and _OR_GOES_ON.search(before[:m.start()]):
             continue
         no = last_no(m.start())
         if no is None or any(no <= k < m.start() for k in named):
@@ -381,11 +397,17 @@ def read(text: object, *, owner: bool = False, about_picking: bool = False) -> d
             pieces = re.split(r"(\s*(?:[,;:]|\band\b|\bbut\b)\s*)", clause)
             kept = [pieces[0]] if not _CUT_POINT.search(pieces[0]) else []
             dropping = not kept          # "never end a clip on a joke, a question, or a cliffhanger": the list too
+            held: list[str] = []
             for sep, piece in zip(pieces[1::2], pieces[2::2]):
-                if _CUT_POINT.search(piece) or (dropping and _LIST_GOES_ON.match(piece)):
-                    dropping = True
+                if _CUT_POINT.search(piece):
+                    dropping, held = True, []
                     continue
-                dropping = False
+                if dropping and _BARE_LIST.fullmatch(piece):
+                    held += [sep, piece]
+                    continue
+                if dropping and held and "and" in sep and _KIND_FIRST.match(piece):
+                    kept += held if kept else held[1:]
+                held, dropping = [], False
                 kept += [sep, piece] if kept else [piece]
             clause = "".join(kept).strip()
             if not clause:
