@@ -1,8 +1,12 @@
 import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ExampleVideo, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
+import {
+  ExampleVideo, FileGoneError, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset,
+} from "../studio";
 import { Icon } from "./ui";
 
 export type Picked = { key: string; file: File; progress: UploadProgress | null; asset: Asset | null; error: string;
+  /** The file can't be read any more (moved, renamed or deleted after it was chosen): only choosing it again helps. */
+  gone?: boolean;
   /** Resume this file's upload where the server says it stopped. */
   retry?: () => void;
   /** Stop this file's upload (or take it out of the waiting line); it can be resumed later. */
@@ -48,12 +52,19 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
   const waiting = useRef<string[]>([]);
   const running = useRef(new Map<string, AbortController>());
 
+  // The page hears of every change once it is drawn, never while React is still working out the rows (calling the
+  // page's own setter from inside setRows warned "Cannot update a component while rendering a different component").
+  const told = useRef(rows);
+  const tell = useRef(onAssets);
+  tell.current = onAssets;
+  useEffect(() => {
+    if (told.current === rows) return;
+    told.current = rows;
+    tell.current(rows);
+  }, [rows]);
+
   const update = (key: string, patch: Partial<Picked>) => {
-    setRows((rs) => {
-      const next = rs.map((r) => (r.key === key ? { ...r, ...patch } : r));
-      onAssets(next);
-      return next;
-    });
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
   const pump = () => {
     while (running.current.size < PARALLEL && waiting.current.length) {
@@ -62,11 +73,12 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
       if (!file || running.current.has(key)) continue;
       const ctl = new AbortController();
       running.current.set(key, ctl);
-      update(key, { error: "" });
+      update(key, { error: "", gone: false });
       uploadFile(file, (p) => update(key, { progress: p }), ctl.signal)
         .then((asset) => { onUploaded?.(asset); update(key, { asset }); })
-        .catch((e) => update(key, { error: ctl.signal.aborted ? "Stopped. Resume upload to continue where it left off."
-          : (e as Error).message }))
+        .catch((e) => update(key, e instanceof FileGoneError ? { error: e.message, gone: true } : {
+          error: ctl.signal.aborted ? "Stopped. Resume upload to continue where it left off." : (e as Error).message,
+        }))
         .finally(() => { running.current.delete(key); pump(); });
     }
   };
@@ -85,11 +97,7 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
     waiting.current = waiting.current.filter((k) => k !== key);
     running.current.get(key)?.abort();
     files.current.delete(key);
-    setRows((rs) => {
-      const next = rs.filter((r) => r.key !== key);
-      onAssets(next);
-      return next;
-    });
+    setRows((rs) => rs.filter((r) => r.key !== key));
   };
   const add = (list: FileList | null) => {
     if (!list?.length) return;
@@ -100,12 +108,13 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
     });
     fresh.forEach((r) => files.current.set(r.key, r.file));
     onPicked?.(fresh.map((r) => r.key));  // picked on purpose, also a file picked before
-    setRows((rs) => {
-      const next = multiple ? [...rs, ...fresh.filter((f) => !rs.some((r) => r.key === f.key))] : fresh;
-      onAssets(next);
-      return next;
-    });
+    setRows((rs) => (multiple ? [...rs, ...fresh.filter((f) => !rs.some((r) => r.key === f.key))] : fresh));
     fresh.forEach((r) => start(r.key));
+  };
+  /** A file that went missing: take its row out and open the file picker, so the same video can be chosen again. */
+  const chooseAgain = (key: string) => {
+    forget(key);
+    input.current?.click();
   };
   const drop = (e: DragEvent) => {
     e.preventDefault();
@@ -124,15 +133,18 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
           {button || `Choose ${multiple ? "files" : "a file"}`}</button>
         <input ref={input} type="file" accept={accept} multiple={multiple} hidden onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
       </div>
-      {rows.length > 0 && !multiple && rows.map((r) => <UploadRow key={r.key} row={r} onRetry={() => start(r.key)} />)}
+      {rows.length > 0 && !multiple && rows.map((r) => <UploadRow key={r.key} row={r} onRetry={() => start(r.key)}
+        onChooseAgain={() => chooseAgain(r.key)} />)}
       {multiple && rows.length > 0 && <p className="small muted" aria-live="polite">
         {done} of {rows.length} uploaded{rows.length - done > PARALLEL ? ` · ${PARALLEL} at a time, the rest wait their turn` : ""}</p>}
-      {multiple && rows.map((r) => r.error && <UploadRow key={r.key} row={r} onRetry={() => start(r.key)} />)}
+      {multiple && rows.map((r) => r.error && <UploadRow key={r.key} row={r} onRetry={() => start(r.key)}
+        onChooseAgain={() => chooseAgain(r.key)} />)}
     </div>
   );
 }
 
-export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry?: () => void; extra?: React.ReactNode }) {
+export function UploadRow({ row, onRetry, onChooseAgain, extra }: { row: Picked; onRetry?: () => void;
+  onChooseAgain?: () => void; extra?: React.ReactNode }) {
   const p = row.progress;
   const retry = onRetry || row.retry;
   const sending = !row.asset && !row.error && p && p.state !== "done";
@@ -150,7 +162,10 @@ export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry?: () =
         {p && !row.asset && !row.error && <progress max={p.size} value={p.received} aria-label={`${row.file.name} upload`} />}
       </div>
       <div className="row-actions">
-        {row.error && retry && <button type="button" className="btn btn-small" onClick={retry}>Resume upload</button>}
+        {row.gone && onChooseAgain && <button type="button" className="btn btn-small btn-primary"
+          onClick={onChooseAgain}>Choose file again</button>}
+        {row.error && !row.gone && retry && <button type="button" className="btn btn-small"
+          onClick={retry}>Resume upload</button>}
         {!row.asset && !row.error && row.cancel && <button type="button" className="btn btn-small"
           aria-label={`Stop uploading ${row.file.name}`} onClick={row.cancel}>{sending ? "Stop" : "Skip"}</button>}
         {extra}

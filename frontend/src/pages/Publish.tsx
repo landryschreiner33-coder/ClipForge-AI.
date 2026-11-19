@@ -220,7 +220,7 @@ export default function PublishPage({ id }: { id: string }) {
           <a className="btn" href={`#/clip/${clip.id}`}><Icon name="edit" />Edit clip</a>
           <button type="button" className="btn" disabled={!ready || exporting} onClick={exportClip}>
             {exporting ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="download" />}
-            {exporting ? "Preparing the download…" : "Export"}
+            {exporting ? "Preparing the download…" : "Save to computer"}
           </button>
         </>} />
 
@@ -821,7 +821,8 @@ function TikTokPanel(props: PanelProps & { onExport: () => void; downloadUrl: st
       <Disclosure plain summary="Download and post it yourself">
         <ol className="steps-list">
           <li>
-            <button type="button" className="btn btn-small" onClick={onExport}><Icon name="download" />Export</button>
+            <button type="button" className="btn btn-small" onClick={onExport}><Icon name="download" />Save to
+              computer</button>
             {" "}or <a className="textlink" href={downloadUrl} download>download the MP4</a>.
           </li>
           <li>

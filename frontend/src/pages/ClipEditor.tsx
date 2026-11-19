@@ -734,7 +734,7 @@ export default function ClipEditor({ id }: { id: string }) {
         </span>}
         actions={<>
           <button type="button" className="btn" disabled={!clip.has_video} onClick={() => setDialog("export")}>
-            <Icon name="download" />Export
+            <Icon name="download" />Save to computer
           </button>
           <a className="btn" href={`#/publish/${clip.id}`}><Icon name="upload" />Prepare post</a>
         </>}
@@ -799,7 +799,7 @@ export default function ClipEditor({ id }: { id: string }) {
                   <span>
                     {videoFailed === "format"
                       ? (view === "source" ? "The cut can still be set with the timeline and words."
-                        : "Use Export to download it and watch it in another player.")
+                        : "Use Save to computer and watch it in another player.")
                       : view === "source" ? "The source file may have been moved or deleted."
                         : "The file may have been moved or deleted. Rendering the clip makes it again."}
                   </span>

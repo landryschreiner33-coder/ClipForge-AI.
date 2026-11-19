@@ -161,7 +161,8 @@ export function RemakeDialog({ p, clipCount, onClose, onDone }: {
 }
 
 /**
- * Export one clip: its MP4, or a ZIP with the MP4, its captions (SRT) and its post text. Both use the version
+ * Save to computer, for one clip: its MP4, or a ZIP with the MP4, its captions (SRT) and its post text. Saving is
+ * separate from posting: nothing goes to YouTube or TikTok from here. Both use the version
  * chosen for export and posts (the backend falls back to the original while that version isn't rendered).
  */
 export function ExportDialog({ clip, onClose }: { clip: Clip; onClose: () => void }) {
@@ -174,7 +175,7 @@ export function ExportDialog({ clip, onClose }: { clip: Clip; onClose: () => voi
   const chosen = data?.versions.find((v) => v.id === data.active && v.id && v.status === "ready" && v.has_video);
   const used = chosen || data?.versions.find((v) => v.id === "");
   return (
-    <ConfirmDialog title="Export clip" confirmLabel="Download" disabled={!data} onClose={onClose}
+    <ConfirmDialog title="Save to computer" confirmLabel="Save" disabled={!data} onClose={onClose}
       onConfirm={async () => {
         if (kind === "zip") {
           await downloadZip(clip.project_id, [clip.id]);
@@ -186,14 +187,14 @@ export function ExportDialog({ clip, onClose }: { clip: Clip; onClose: () => voi
           a.click();
           a.remove();
         }
-        toast("Download started");
+        toast("Saving it to your computer: look in your downloads");
       }}>
       <p className="muted small">
         “{clip.title}”{used ? `, the version used for export and posts (${used.label}).` : "."}
       </p>
       {err && <p className="error-text"><Icon name="alert" className="sm" />{err}</p>}
       <fieldset>
-        <legend className="sr-only">What to download</legend>
+        <legend className="sr-only">What to save</legend>
         <label className="choice-card">
           <input type="radio" name="export-kind" checked={kind === "mp4"} onChange={() => setKind("mp4")} />
           <span className="stack" style={{ gap: 2 }}>

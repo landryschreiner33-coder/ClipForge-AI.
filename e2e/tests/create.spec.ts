@@ -92,6 +92,36 @@ test.describe("a first clip in three steps", () => {
     expect(order).toBeTruthy();
   });
 
+  // The owner: "If a file is missing, name it and offer Choose file again." Here the browser can no longer read the
+  // chosen file (as when it is moved or deleted after it was chosen), so nothing is uploaded.
+  test("a video that went missing after it was chosen is named, with Choose file again", async ({ page }) => {
+    await page.addInitScript(() => {
+      const slice = Blob.prototype.slice;
+      Blob.prototype.slice = function (this: Blob, ...args: Parameters<Blob["slice"]>) {
+        const part = slice.apply(this, args);
+        if (this instanceof File && this.name === "moved-away.mp4") {
+          part.arrayBuffer = () => Promise.reject(new DOMException("The file could not be found", "NotFoundError"));
+        }
+        return part;
+      };
+    });
+    const sent: string[] = [];
+    page.on("request", (r) => r.url().includes("/api/uploads") && r.method() !== "GET" && sent.push(r.method()));
+    await page.goto("/#/create/clips");
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Choose a video", exact: true }).click();
+    await (await chooser).setFiles({ name: "moved-away.mp4", mimeType: "video/mp4", buffer: Buffer.alloc(1000) });
+    await expect(page.getByText("ClipForge can't find “moved-away.mp4” any more. It may have been moved, renamed or "
+      + "deleted.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Resume upload" })).toHaveCount(0);
+    await expect(page.locator(".mc-make")).toBeDisabled();
+    const again = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Choose file again" }).click();
+    await again;  // the file picker opens; choosing nothing leaves step 1 as it was at the start
+    await expect(page.getByText("Upload a video first.")).toBeVisible();
+    expect(sent, "nothing was uploaded").toEqual([]);
+  });
+
   test("a finished clips project says so and Review clips goes straight to the clips", async ({ page, request }) => {
     const done = (await getJson<any[]>(request, "/api/projects")).find((p) => p.status === "ready" && p.clip_count > 0);
     test.skip(!done, "no finished clips project in the library");

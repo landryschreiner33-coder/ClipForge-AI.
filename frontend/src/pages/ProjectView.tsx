@@ -430,7 +430,7 @@ function ClipCard({ c, posts, onPreview, onToggle, onExport }: {
         <div className="ccard-actions">
           <a className="btn btn-small" href={`#/clip/${c.id}`}><Icon name="edit" />Edit clip</a>
           <button type="button" className="btn btn-small" disabled={!ready} onClick={onExport}>
-            <Icon name="download" />Export
+            <Icon name="download" />Save to computer
           </button>
           {ready ? (
             <a className="btn btn-small btn-primary" href={`#/publish/${c.id}`}><Icon name="upload" />Prepare post</a>
@@ -485,7 +485,7 @@ function PreviewDialog({ c, onClose }: { c: Clip; onClose: () => void }) {
           <div className="row wrap">
             <a className="btn btn-primary" href={`#/publish/${c.id}`}><Icon name="upload" />Prepare post</a>
             <a className="btn" href={`#/clip/${c.id}`}><Icon name="edit" />Edit clip</a>
-            <a className="btn" href={clipDownloadUrl(c)} download><Icon name="download" />Download this video</a>
+            <a className="btn" href={clipDownloadUrl(c)} download><Icon name="download" />Save to computer</a>
           </div>
         </div>
       </div>
