@@ -1,5 +1,109 @@
 # AI changelog
 
+## Live clips: better moments, split view, split between channels, Stop clipping — 2026-11-18 (Claude Code)
+
+Landry wrote: "Improve the live cliping so it finds better moments, fix the fraiming of what it shows and it should be
+able to split veiw it like face cam one half and gamplay or other thing in the other half if needed, be able to choose
+what live stream clips go to what channle, and be able to split the clips between channles, make it prioritze quality
+over quanity, make it so you can have it stop clipping the stream at any time but it will still upload the scheduled
+clips". Branch `claude/project-thread-82eyed` (PR #57) from the release line, with the channel picker branch
+(`claude/project-thread-rxehvi`, PR #58) merged in, because "split between channels" builds on it. **Not released.**
+
+- **Quality over quantity** (`autopilot/live_pick.py`, `live.detect`). A live moment's score is the Clip Score
+  estimate plus how lively it sounds (-2 to +8: louder than the stream usually is, pitch, emphasis, laughter, read
+  from each minute's kept 16 kHz sound for the four strongest candidates). Three levels per stream: *Only the best
+  moments* (default: 6 minutes of listening first, about 3 clips an hour, starts 3 minutes apart, 5 points above the
+  minimum, above the stream's own 85% mark, which rises with every clip made in the last hour, and a wait of up to 2
+  minutes for a better moment), *Balanced* (6 an hour, 2 minutes apart, the 60% mark) and *Every good moment* (the
+  old behaviour). A standout (15 points above the bar) may ignore the gap and be one clip over the hour. The reason
+  nothing is made is written to the stream's card (`info.live_note`). `post_live` keeps the same floor and
+  `live_pick.total_cap`. On a stand-in half hour the old picker made 26 clips; the new default keeps 3, all in
+  the strongest quarter and the strongest among them.
+- **Framing and split view** (`pipeline/reframe.find_cam`, `split_layout`, `render`, `captions`). The old framing
+  followed the only face it found, so a stream with a corner face cam was parked on that corner. The cam's rectangle
+  is now found (steady edges, still picture against moving picture, a small steady face) and the clip shows the cam
+  across the top 30-42% and the rest of the picture below, captions on the line between. Layouts `auto` (split when
+  a cam is found) and `split` (whenever a small face is found) exist per clip and per live stream, not in Settings;
+  without a cam the clip uses the Settings layout. Stream choice: when there is a face cam (default), always, never.
+- **Split between channels** (`submissions.clip_turn`, `scheduler.candidates`). `source_submissions.settings.split =
+  "turns"` (absent means every channel gets every clip). Each clip gets one planned post: the channel that already
+  holds a post of this clip (any status), else the usable channel with the fewest of this source's clips, the
+  owner's ticking order on a tie. The agreement text and the saved consent name the choice. Videos have it too.
+- **Stop clipping** (`intake.action("stop_clipping")`, `live._clip_minute`, `post_live`, `_close_stopped`). Stops
+  the recorder, skips the picker, and closes the stream without the full-recording search (or between two renders
+  when that had begun: nothing half-made is kept, and a replacement cut never supersedes the live clip). It never
+  sets `intake.canceled`, never touches clip jobs, approvals or planned posts, and Try again does not take it back.
+- **Screens.** Live streams form: How picky, Split view; with two channels ticked, how the clips are shared; a
+  **Stop clipping** button with a dialog that says what stays. Settings → Advanced → Autopilot details: the two
+  defaults. Clip editor → Layout: Split view, Split if face cam.
+- **Stored data.** Minute sound files (`live/<minute>.wav`) live for the rolling window and are removed when the
+  recording is finished; `cam.json` in the project's folder holds where the face cam sits. Privacy page updated.
+- **Checks:** see the test log in `docs/IMPLEMENTATION_STATUS.md`. **Not verified (needs Landry's Mac):** real
+  streams and real face cams (the tests draw their own), real uploads to two channels, the screens in the Mac window.
+
+**Later the same day, three more messages from Landry, in the same pull request:**
+
+- *"fix the fraiming for clips esspecially live stream clips i want to be able to see the full gamplay and face cam
+  like a split veiw or how other apps have it"* and *"make sure the clips fraiming is fixed and you can see the
+  gameplay and face cam"*. **Split view now keeps the whole picture** (`reframe.split_panels`, `render._split_whole`):
+  the face cam across the top (28-36% of the height), a strip for the headline and the captions, then the whole
+  source picture at full width over a blurred, darkened fill. The earlier look (the picture's middle filling
+  everything under the cam) stays as *Zoomed in*. **Split view is the default for every clip with a face cam**, not
+  only live clips: `render.cam_layout` turns a layout that nobody chose into `auto`, and `render.layout_chosen` says
+  who chose (a clip edit, the video's own option, a blueprint, or a guidance decision above the Settings level).
+  New Settings (Defaults): `split_view` (`auto` | `off`) and `split_game` (`whole` | `zoom`); the clip editor has
+  *Under the face cam* for one clip (`edit.split_game`). `render_info` gains `layout_asked` and `split_game`. A
+  stream whose split view is *off* stores `split_view: "off"` in its project options.
+- *"make it so the clips arent so short and they are actually longer and more engaging"*. Measured first: on a
+  stand-in stream of minute-long stories a live clip was only the strongest 12 to 25 seconds of a story, and longer
+  length settings moved that by a few seconds only, because a moment is found as its strongest sentences and sits
+  near the shortest length allowed. **Live clips now keep the build-up and the ending** (`live_pick.fuller`,
+  `live_pick.ranked`, `live.detect`): fuller versions of each moment are analysed (never across a transition
+  phrase, a topic boundary or more than three seconds of silence, never over `max_duration`), the best few get the
+  full live rating, and the version with the best "live score minus 0.15 per second short of `target_duration`"
+  is clipped. A fuller version under the stream's floor leaves the moment as found; one that overlaps a clip
+  already made is not considered. The reasons say *Kept the build-up and the ending: 79 s instead of 45 s*. On the
+  stand-in the three best clips went from 12-17 s to 35-40 s with today's lengths and to 35-73 s at 25/45/90.
+  The clip length defaults themselves (25/45/90) and ordinary clips are the thread "Make ClipForge AI smarter in
+  chat" (branch `claude/project-thread-dwz7vo`); live reads the same Settings and has no lengths of its own.
+- The release line with the merged channel picker (PR #58, 3bb861f) is merged in.
+
+**Independent review (three reviewers, Nov 19) and its fixes.** 18 findings, none high; all fixed except one known
+limit:
+
+- *Live picker.* The hold-back waited for the strongest moment, but the next minute's search could cut the same
+  speech differently and the moment was lost while the weaker one was clipped: the picker now remembers up to four
+  strong moments between minutes, the waited-for one first (`live_pick.keep`, `Session.held` in `state.json`), and
+  rates them again. Before six minutes of the stream were rated there is no standout (it used to be floor + 15, so
+  the hour's clips could be spent side by side in the first minutes). A fuller version may share no more of a clip's
+  footage than the moment itself (it was measured against its own, longer length). Stop clipping pressed during a
+  minute's search makes no clip, and a re-run of `post_live` after Stop clipping keeps a better cut that had already
+  taken a live clip's place (it used to drop it too, leaving the moment with no clip).
+- *Split between channels.* Ties are broken by the clips over every take-turns request before the ticking order
+  (inputs with one clip all went to the first channel); a clip planned again after its post was canceled counts for
+  its channel; a clip uploaded by hand to a chosen channel stays there and counts (`submissions._turns`,
+  `_turns_overall`). Outside this branch's own code: a replacement approved under a video's upload request now takes
+  the weaker post's slot (`scheduler.auto_approve` calls `_take_slot`; the channel-picker entry listed this as a
+  known limit). A link added in Live streams that is a recorded video no longer shows stream choices, the videos list
+  says *taking turns*. Known limit: a clip waits for its own channel when that channel's planning days are full
+  (only with a daily limit set).
+- *Split view.* A clip that was rendered keeps whether it looked for a face cam (`render.cam_layout(..., rendered)`),
+  so a caption fix no longer turns an older clip into a split view and Settings → Split view → Off changes only new
+  clips; the editor shows what a re-render gives. Framing chosen by hand without a layout gives one picture on plans
+  and manual clips alike, and the editor's Layout changes with it. Plans keep their layout without a face cam and
+  *Under the face cam* (`Framing.fallback`, `Framing.game`; older plans read Settings as before). Top captions go
+  on the line between the pictures. A stream recorded since before the update keeps the Settings layout
+  (`split_view: "off"`, as its card says). "Add a video with its transcript" sends a layout only when one was picked.
+- Every fix has a test that fails on the code before it (picker 4, Stop clipping 2, channels 4, split view 3 changed).
+- *A second look at the fixes* (two reviewers) found six smaller gaps, also fixed with tests: a clip's channel is
+  taken first from a post that is planned or out, then from an upload made by hand, then from any earlier post
+  (`submissions._bound`), so a clip uploaded by hand to B after its post for A was canceled is never planned on A;
+  every count of a take-turns input counts clips, not posts (`_places`); a remembered fuller version follows the
+  same overlap rule as a fresh search (else the moment is tried as found); a re-rendered split view keeps its *Under
+  the face cam* look like its layout, and the editor shows it (`render_info.split_game`); `render_info` records the
+  one-picture layout (`layout_fallback`) that the editor uses when Framing is chosen by hand; the transcript page
+  sends a layout with a Framing it picked, so that Framing is not ignored by a split view.
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
 Landry wrote "make it so you can choose what clips or stuff goes to what channle or if it goes to all or just a few".

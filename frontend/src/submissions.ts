@@ -42,7 +42,32 @@ export interface SubmissionOptions {
   reuse_basis: "owned" | "permission" | "legal_exception" | "";
   reuse_statement: string;
   agreed: boolean;
+  /** Sent only when the chosen channels take turns: each clip goes to one of them. */
+  split?: "turns";
+  /** Live streams only: how picky this stream is and whether its clips get a split view. */
+  live_pick?: LivePick;
+  live_framing?: LiveFraming;
 }
+
+export type LivePick = "best" | "balanced" | "most";
+export type LiveFraming = "auto" | "split" | "off";
+export const LIVE_PICKS: { value: LivePick; label: string; hint: string }[] = [
+  { value: "best", label: "Only the best moments",
+    hint: "About three clips an hour at most. Each has to beat most of the stream so far, and ClipForge waits a "
+      + "couple of minutes in case a better moment follows." },
+  { value: "balanced", label: "Balanced", hint: "About six clips an hour at most, each above the stream's average." },
+  { value: "most", label: "Every good moment",
+    hint: "A clip for every moment that passes the minimum quality, as many as the stream gives." },
+];
+export const LIVE_FRAMINGS: { value: LiveFraming; label: string; hint: string }[] = [
+  { value: "auto", label: "Split view when there is a face cam",
+    hint: "When ClipForge finds a face cam in the picture, the clip shows the face cam on top and the whole "
+      + "gameplay below it. Without one, the clip uses your usual layout." },
+  { value: "split", label: "Always split view",
+    hint: "Also splits when the face is only sometimes in view. If no face is found at all, the clip uses your "
+      + "usual layout." },
+  { value: "off", label: "No split view", hint: "Every clip uses your usual layout from Settings." },
+];
 
 export interface Submission {
   id: string;
@@ -50,6 +75,8 @@ export interface Submission {
   account_id: string;
   /** The channels this request uploads to (one for a request made before channels could be chosen). */
   channels?: { id: string; name: string; account_id: string }[];
+  /** "turns": each clip goes to one of the channels, in turn. "each": every channel gets every clip. */
+  split?: "each" | "turns";
   privacy: "private" | "public";
   made_for_kids: boolean | null;
   created_at: number;
@@ -64,7 +91,12 @@ export interface SubmittedVideo extends AutopilotLink { submission: Submission }
 /** A stream added in Live streams: its recording, live clips and the uploads of its clips. */
 export interface LiveStream extends SubmittedVideo {
   live: { recording: boolean; finishing: boolean; minutes: number; live_clips: number; ended: boolean;
-    stopped: boolean };
+    stopped: boolean;
+    /** "Stop clipping" was pressed: no more clips are made; the ones made still upload. */
+    clipping_stopped: boolean;
+    pick: LivePick; pick_label: string; framing: LiveFraming; framing_label: string;
+    /** While recording: why no clip is being made right now, in plain words ("" when unknown). */
+    note: string };
 }
 export interface SubmissionResult { item: SubmittedVideo; already_added: boolean; submission: Submission }
 

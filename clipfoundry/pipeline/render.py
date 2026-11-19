@@ -31,6 +31,7 @@ SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap
 FILLER_WORD = re.compile(r"^(um+|uh+|erm+|hmm+|mm+|ah+)[,.!?]*$", re.I)
 SPEED_RANGE = (0.8, 1.25)
 PLAN_VERSION = 3  # moving-content fallback and recovery after prolonged face dropouts
+CAM_FILE = "cam.json"  # in the project's folder: the face cam found in this video (reframe.find_cam's hint)
 CAPTIONS_STEP = "Writing captions"  # progress messages that tell the office which part of the render runs
 FRAMES_STEP = "Rendering"
 
@@ -285,11 +286,44 @@ def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> lis
 
 def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
     keys = ["caption_style", "caption_position", "highlight_words", "tracking", "layout", "silence", "auto_zoom",
-            "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis", "clean_sound"]
+            "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis", "clean_sound",
+            "split_view", "split_game"]
     opts = {k: settings.get(k) for k in keys}
     opts.update({k: v for k, v in (project_opts or {}).items() if k in keys and v is not None})
     opts.update({k: v for k, v in (edit or {}).items() if v is not None})
     return opts
+
+
+def cam_layout(opts: dict, chosen: bool, rendered: dict | None = None) -> str:
+    """The layout a clip is planned with. When nobody chose this clip's layout (it is simply the one from Settings)
+    and Settings → Split view is on, the picture is first searched for a face cam ("auto"): with one the clip
+    becomes a split view, without one it gets the Settings layout as before. A layout somebody chose for this clip,
+    its video or its kind of video (the editor, the project, a style, a Brain note, story clips) stays that.
+
+    A clip that was rendered before (`rendered`, its render_info) keeps whether it looked for a face cam: a later
+    change of Settings → Split view, or an update that added it, is for new clips. So a re-render for a caption fix
+    or a version gives the look the clip editor shows, and a clip made before split view existed stays as made."""
+    layout = opts.get("layout") or "fill"
+    if layout not in config.LAYOUTS or chosen:
+        return layout
+    looks = (rendered or {}).get("layout_asked") == "auto" if (rendered or {}).get("layout") else \
+        opts.get("split_view") == "auto"
+    return "auto" if looks else layout
+
+
+def layout_chosen(project: dict, clip: dict, blueprint=None) -> bool:
+    """Whether somebody chose this clip's layout (see cam_layout), before any Brain note is asked. The plan of an
+    Autopilot clip made that call when it was written, and the clip's own editor always counts: a layout set there,
+    or a way to follow the picture (the owner is placing the crop by hand). A ClipForge project's guidance names a
+    layout in every case, so there it counts only when it is not simply the one from Settings."""
+    edit = clip.get("edit") or {}
+    if blueprint is not None or edit.get("layout") is not None or edit.get("tracking") not in (None, "auto"):
+        return True
+    guidance = project.get("guidance") or {}
+    if guidance.get("schema"):
+        return any(d.get("field") == "layout" and (d.get("from") or {}).get("level") != "settings"
+                   for d in guidance.get("decisions") or [])
+    return (project.get("options") or {}).get("layout") is not None
 
 
 # ------------------------------------------------------------ main
@@ -346,6 +380,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     fps = src_fps if 10 <= src_fps <= max_fps + 0.5 else min(max_fps, 30.0)
     opts = effective_options(settings, project.get("options") or {}, clip.get("edit") or {})
     brain_used = []
+    chosen = layout_chosen(project, clip, blueprint)
     if blueprint is not None:
         opts.update(blueprint_mod.render_options(blueprint))
         brain_used = list(blueprint.knowledge)
@@ -369,6 +404,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                                                 if key not in overrides and key != "pacing"}}
                           for item in brain_used]
             brain_used = [item for item in brain_used if item["decisions"]]
+            chosen = chosen or any("layout" in item["decisions"] for item in brain_used)
             if activity is not None:
                 activity.use(brain_used, replace=True)
         # Ranking-only notes (for example, standalone moments) select the range rather than a caption style.
@@ -412,7 +448,19 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
 
     # ---- framing plan (cached: expensive analysis is skipped on caption-only edits)
     mode = opts.get("tracking", "auto")
+    layout = cam_layout(opts, chosen, clip.get("render_info"))
+    # the layout without a face cam: the one the plan was written with, else the video's or the Settings one
+    usual = next(v for v in (opts.get("layout_fallback"), opts.get("layout"), settings.get("layout"), "fill")
+                 if v in config.LAYOUTS)
+    edit = clip.get("edit") or {}
+    if layout in reframe.SPLIT_LAYOUTS and edit.get("layout") is None and edit.get("tracking") not in (None, "auto"):
+        # The owner frames this clip by hand in the editor (Framing) and chose no layout there: one picture,
+        # placed where they asked, never a split view that would ignore it. Plans and manual clips alike.
+        layout = usual
     plan_key = f"v{PLAN_VERSION}-{start:.3f}-{end:.3f}-{mode}-{fps:.3f}-{float(opts.get('crop_x', 0.5)):.3f}"
+    if layout in reframe.SPLIT_LAYOUTS:
+        # These also look for a face cam; "fill" and "fit" plans are what they always were, under their old key.
+        plan_key += f"-{layout}"
     plan_path = clip_dir / "framing.json"
     cached = read_json(plan_path, {})
     if cached.get("key") == plan_key:
@@ -421,9 +469,19 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         ctx.progress(0.02, "Analyzing framing")
         speech = [(max(0.0, w["start"] - start), w["end"] - start) for w in words_all
                   if w["end"] > start and w["start"] < end and not FILLER_WORD.match(w["w"].strip())]
+        cam_path = Path(project["dir"]) / CAM_FILE
         plan = reframe.plan(src, start, end, src_w, src_h, mode, fps, ctx, float(opts.get("crop_x", 0.5)),
-                            speech=speech if words_all else None)
+                            speech=speech if words_all else None, layout=layout,
+                            cam_hint=read_json(cam_path, None) if layout in reframe.SPLIT_LAYOUTS else None)
         write_json(plan_path, {"key": plan_key, "plan": plan.to_json()})
+        _remember_cam(cam_path, plan)
+    split = plan.info.get("split") if plan.mode == "split" else None
+    if layout in reframe.SPLIT_LAYOUTS:
+        # What this clip is, now that the picture has been looked at. Without a face cam it gets the layout the
+        # owner uses for every other clip.
+        asked, layout = layout, "split" if split else usual
+    else:
+        asked = layout
 
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
     ctx.progress(0.03, CAPTIONS_STEP)
@@ -436,10 +494,21 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     hook_text = opts.get("hook") if opts.get("hook") is not None else clip.get("hook", "")
     # where the picture sits: captions "above" it need its top edge (fit keeps the whole frame, centred)
     dw, dh = _decode_size(src_w, src_h)
-    layout = opts.get("layout", "fill")
     fit_scale = min(OUTPUT_W / dw, OUTPUT_H / dh)
     picture_top = (OUTPUT_H - dh * fit_scale) / 2 if layout == "fit" else None
-    ass = captions.build_ass(words_out, {**opts, "picture_top": picture_top}, tl.duration, hook_text or "")
+    rendered_game = (clip.get("render_info") or {}).get("split_game")
+    if (clip.get("edit") or {}).get("split_game") is None and rendered_game in reframe.SPLIT_GAMES and \
+            not (blueprint is not None and blueprint.framing.game):
+        opts["split_game"] = rendered_game  # the look it was made with, like its layout (cam_layout)
+    if split:
+        # how the two pictures are laid out: the whole picture under the cam unless the zoomed one was asked for
+        game = opts.get("split_game") if opts.get("split_game") in reframe.SPLIT_GAMES else reframe.SPLIT_GAMES[0]
+        split = {**split, "view": reframe.split_panels(split, dw, dh, game, OUTPUT_W, OUTPUT_H)}
+    view = split["view"] if split else {}
+    ass = captions.build_ass(words_out, {**opts, "picture_top": picture_top,
+                                         "picture_seam": view["seam"] / OUTPUT_H if split else None,
+                                         "seam_hook_top": view.get("hook")},
+                             tl.duration, hook_text or "")
     (out_dir / "captions.ass").write_text(ass, encoding="utf-8")
     (out_dir / "captions.srt").write_text(captions.build_srt(words_out, opts.get("caption_style", "clean")),
                                           encoding="utf-8")
@@ -517,7 +586,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                 while written < n_out_frames and written <= out_t * fps + 0.5:
                     z = float(zc[min(written, len(zc) - 1)])
                     frame = _compose(last, plan.cx[min(k, plan.n - 1)], plan.cy[min(k, plan.n - 1)], z, dw, dh,
-                                     base_w, base_h, layout, fit_scale)
+                                     base_w, base_h, layout, fit_scale, split)
                     enc.stdin.write(frame.data)  # type: ignore[union-attr]
                     written += 1
                     if written % 15 == 0:
@@ -528,7 +597,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
             while written < n_out_frames and last is not None:
                 watch.check()
                 frame = _compose(last, plan.cx[-1], plan.cy[-1], float(zc[-1]), dw, dh, base_w, base_h, layout,
-                                 fit_scale)
+                                 fit_scale, split)
                 enc.stdin.write(frame.data)  # type: ignore[union-attr]
                 written += 1
             enc.stdin.close()  # type: ignore[union-attr]
@@ -576,6 +645,12 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                         "framing_evidence": dict(plan.info),
                         "cuts": len(plan.cuts), "encoder": encoder,
                         "crop_w": round(cw_frac, 3), "layout": layout,
+                        # what was asked for when that differs from what the picture made of it ("auto": a split
+                        # view only with a face cam), and which split view it is
+                        **({"layout_asked": asked} if asked != layout else {}),
+                        # the layout used when no face cam is found (the clip editor's one-picture layout)
+                        **({"layout_fallback": usual} if asked in reframe.SPLIT_LAYOUTS else {}),
+                        **({"split_game": view["game"]} if split else {}),
                         "fps": fps, "segments": len(segs),
                         "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),
                         "fillers_removed": fillers_cut, "speed": tl.speed, "emphasis_words": len(emphasis),
@@ -592,8 +667,84 @@ def _tail(path: Path) -> str:
         return ""
 
 
+def _remember_cam(path: Path, plan: "reframe.Plan") -> None:
+    """Keep the face cam this plan found for the video's later clips, so all of them are framed alike and a clip
+    in which the face is hidden still gets its split view. Only a cam whose own rectangle was found is kept; one
+    found somewhere else replaces it (the streamer changed the layout)."""
+    cam, split = plan.info.get("cam") or {}, plan.info.get("split") or {}
+    if plan.mode != "split" or cam.get("kind") != "border" or cam.get("from") == "earlier":
+        return
+    known = read_json(path, None) or {}
+    if known.get("box") and reframe._overlap(known["box"], split["cam"]) >= 0.75:
+        return
+    try:
+        write_json(path, {"box": split["cam"], "face": [*split["focus"], 0.0, 0.0], "kind": "border",
+                          "score": cam.get("score")})
+    except OSError:
+        log.warning("could not save the face cam's place")  # the next clip looks for it again
+
+
+def _cam_panel(frame: np.ndarray, dw: int, dh: int, split: dict, top_h: int) -> np.ndarray:
+    """As much of the cam as a panel of this height holds, the face a little above the middle."""
+    x0, y0, x1, y1 = (split["cam"][0] * dw, split["cam"][1] * dh, split["cam"][2] * dw, split["cam"][3] * dh)
+    shape = OUTPUT_W / top_h
+    cw = min(x1 - x0, (y1 - y0) * shape)
+    ch = cw / shape
+    fx, fy = split["focus"][0] * dw, split["focus"][1] * dh
+    left = min(x1 - cw, max(x0, fx - cw / 2))
+    top = min(y1 - ch, max(y0, fy - 0.42 * ch))
+    s = OUTPUT_W / cw
+    m = np.float32([[s, 0, -left * s], [0, s, -top * s]])
+    return cv2.warpAffine(frame, m, (OUTPUT_W, top_h), borderMode=cv2.BORDER_REPLICATE,
+                          flags=cv2.INTER_CUBIC if s > 1.5 else cv2.INTER_LINEAR)
+
+
+def _split_whole(frame: np.ndarray, z: float, dw: int, dh: int, split: dict, view: dict) -> np.ndarray:
+    """Split view that keeps the whole picture: the cam, a strip for the captions, then the picture as wide as the
+    output, over the same blurred fill as the "fit" layout. A zoom moves in on the picture's middle and leaves its
+    place and the cam as they are."""
+    small = cv2.resize(frame, (54, 96), interpolation=cv2.INTER_AREA)
+    out = cv2.resize(cv2.GaussianBlur(small, (0, 0), 3), (OUTPUT_W, OUTPUT_H), interpolation=cv2.INTER_LINEAR)
+    out = cv2.convertScaleAbs(out, alpha=0.45)
+    cam_y, top_h = view["cam"]
+    out[cam_y:cam_y + top_h] = _cam_panel(frame, dw, dh, split, top_h)
+    px, py, pw, ph = view["picture"]
+    s = pw / dw * z
+    m = np.float32([[s, 0, pw / 2 - dw / 2 * s], [0, s, ph / 2 - dh / 2 * s]])
+    out[py:py + ph, px:px + pw] = cv2.warpAffine(frame, m, (pw, ph), borderMode=cv2.BORDER_REPLICATE,
+                                                 flags=cv2.INTER_AREA if s < 0.7 else cv2.INTER_LINEAR)
+    return out
+
+
+def _split_view(frame: np.ndarray, cxn: float, z: float, dw: int, dh: int, split: dict) -> np.ndarray:
+    """The face cam on top and the rest of the picture below (reframe.split_layout, split_panels). A zoom moves in
+    on the lower picture only: the cam stays as it is, so the face never jumps."""
+    view = split.get("view") or reframe.split_panels(split, dw, dh, "zoom", OUTPUT_W, OUTPUT_H)
+    if view["game"] == "whole":
+        return _split_whole(frame, z, dw, dh, split, view)
+    top_h = view["cam"][1]
+    low_h = OUTPUT_H - top_h
+    out = np.empty((OUTPUT_H, OUTPUT_W, 3), np.uint8)
+    out[:top_h] = _cam_panel(frame, dw, dh, split, top_h)
+    # below: the picture's full height (less when zoomed in), as wide as the panel's shape
+    shape = OUTPUT_W / low_h
+    ch = dh * float(split["content"][3]) / z
+    cw = ch * shape
+    if cw > dw:
+        cw, ch = float(dw), dw / shape
+    cx = min(dw - cw / 2, max(cw / 2, cxn * dw))
+    s = OUTPUT_W / cw
+    m = np.float32([[s, 0, -(cx - cw / 2) * s], [0, s, -(dh / 2 - ch / 2) * s]])
+    out[top_h:] = cv2.warpAffine(frame, m, (OUTPUT_W, low_h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    line = max(2, OUTPUT_H // 480)   # a thin dark line, so two pictures of the same colour do not run together
+    out[top_h - line // 2:top_h + line - line // 2] = (12, 12, 12)
+    return out
+
+
 def _compose(frame: np.ndarray, cxn: float, cyn: float, z: float, dw: int, dh: int, base_w: float,
-             base_h: float, layout: str, fit_scale: float) -> np.ndarray:
+             base_h: float, layout: str, fit_scale: float, split: dict | None = None) -> np.ndarray:
+    if split:
+        return _split_view(frame, cxn, z, dw, dh, split)
     if layout == "fit":
         # whole frame (optionally zoomed) over a blurred, darkened fill
         vw, vh = dw / z, dh / z

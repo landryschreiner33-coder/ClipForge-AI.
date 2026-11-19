@@ -27,7 +27,8 @@ add("accounts", {
 add("defaults", {
   clip_count: "Clips per video", min_duration: "Shortest clip", max_duration: "Longest clip",
   target_duration: "Ideal clip length", caption_style: "Caption style", caption_position: "Caption position",
-  highlight_words: "Word highlight", tracking: "Framing", layout: "Layout", silence: "Silence cleanup",
+  highlight_words: "Word highlight", tracking: "Framing", layout: "Layout", split_view: "Split view",
+  split_game: "Under the face cam", silence: "Silence cleanup",
   auto_zoom: "Auto-zoom", remove_fillers: "Cut filler words", caption_emphasis: "Emphasize key words",
   hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", clean_sound: "Clean up the sound", autopilot_daily_target: "Daily clip cap",
   autopilot_active_start: "Posting hours (from)", autopilot_active_end: "Posting hours (to)", trend_topics: "Topics",

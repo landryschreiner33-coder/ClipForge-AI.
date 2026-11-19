@@ -179,6 +179,7 @@ def test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_liv
                       "encoder": "x264", "x264_preset": "ultrafast", "layout": "fit",
                       "whisper_device": "cpu", "min_duration": 12.0, "max_duration": 45.0,
                       "target_duration": 25.0,
+                      "autopilot_live_pick": "most",  # a short fixture: the default waits minutes for its first clip
                       "autopilot_max_source_gb": 0.5})  # A finite fixture needs no 8 GB remote-capture reservation.
     item = google.add_video(STREAM, "A live conversation about diets", "UCother00000001", duration="PT1M")
     item["snippet"]["liveBroadcastContent"] = "upcoming"

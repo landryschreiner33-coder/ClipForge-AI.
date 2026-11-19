@@ -144,8 +144,14 @@ def _options(options: dict) -> dict:
         available = 4000 - len(said) - len(" Details: ")
         raise ValueError(f"The reuse statement, including the selected basis, must fit within 4,000 characters. "
                          f"Shorten its details to at most {available:,} characters.")
+    split = options.get("split") or "each"
+    if split not in SPLITS:
+        raise ValueError("Choose how the clips are shared between the channels again.")
+    if split == "turns" and (chosen is None or len(chosen) < 2):
+        raise ValueError("Tick at least two YouTube channels to split the clips between them.")
     destination = {"account_id": view["account_id"]} if chosen is None else \
-        {"account_id": next(iter(chosen.values())), "connections": chosen}
+        {"account_id": next(iter(chosen.values())), "connections": chosen,
+         **({"split": "turns"} if split == "turns" else {})}  # absent means every channel gets every clip
     return {"auto_upload": True, **destination, "privacy": view["privacy"],
             "made_for_kids": options["made_for_kids"], "audience": {"intent": view["audience"]["intent"],
             "platform": "youtube", "policy_version": audience.POLICY_VERSION,
@@ -210,7 +216,22 @@ def _finished_broadcast(source: dict) -> bool:
                          "json_extract(payload, '$.source_id') = ?", (source["id"],))
 
 
-def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", live: bool = False) -> dict:
+def _live_choices(options: dict) -> dict:
+    """What the owner chose for this stream in Live streams: how picky it is and whether its clips get a split
+    view. A choice left out follows Settings; a wrong one is refused, never guessed."""
+    out = {}
+    for key, name, allowed in (("live_pick", "pick", config.LIVE_PICKS), ("live_framing", "framing",
+                                                                       config.LIVE_FRAMINGS)):
+        value = options.get(key) or ""
+        if value and value not in allowed:
+            raise ValueError("Choose how this stream is clipped again, then add it.")
+        if value:
+            out[name] = value
+    return out
+
+
+def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", live: bool = False,
+            live_choices: dict | None = None) -> dict:
     # Earlier broadcasts of the same channel link carry ":<id>" after the link's identity.
     same_identity = db.select("sources", "platform = ? AND (external_id = ? OR external_id LIKE ?)",
                               (fields["platform"], fields["external_id"], fields["external_id"] + ":%"), "created_at DESC")
@@ -243,7 +264,8 @@ def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", l
     source = {**fields, "id": source_id, "user_added": 1, "status": "queued", "status_note": "Waiting to make clips",
               "created_at": now, "updated_at": now,
               "intake": {"submitted": True, "submission_id": submission_id, "original_url": original_url,
-                         "added_at": now, "priority": intake.LINK_PRIORITY, "live_requested": bool(live)}}
+                         "added_at": now, "priority": intake.LINK_PRIORITY, "live_requested": bool(live),
+                         **({"live_choices": live_choices} if live_choices else {})}}
     cfg = {**cfg, "source_identity": _identity(source), "source_sha256": sha,
            "source_path": fields.get("local_path") or "", "bound_project_id": "", "terms_sha256": ""}
     where, others = f"YouTube channel {cfg.get('account_id')}", "other inputs"
@@ -251,6 +273,8 @@ def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", l
         names = [account_name(db.get_connection(cid)) or external for cid, external in targets(cfg).items()]
         where = f"YouTube channel {names[0]}" if len(names) == 1 else \
             f"YouTube channels {', '.join(names[:-1])} and {names[-1]}"
+        if takes_turns(cfg):
+            where += " (each clip to one of them, taking turns)"
         others = "other inputs, other YouTube channels"
     text = (f"Make clips from this video using relevant saved Brain guidance and app settings. Upload qualifying "
             f"finished clips automatically to {where} as {cfg['privacy']}, marked "
@@ -324,7 +348,8 @@ def add_link(url: str, options: dict, *, live: bool = False) -> dict:
         # The recorder reads typed links only through the guarded public HTTP relay (live.input_args).
         raise ValueError("Use the stream's web page or an https:// stream link. RTMP, SRT and RTSP addresses "
                          "cannot be recorded safely.")
-    return _create(fields, cfg, original_url=url.strip(), live=live)
+    return _create(fields, cfg, original_url=url.strip(), live=live,
+                   live_choices=_live_choices(options) if live else None)
 
 
 def add_file(file: BinaryIO, filename: str, options: dict) -> dict:
@@ -442,6 +467,125 @@ def targets(cfg: dict) -> dict[str, str]:
 
 def _legacy(cfg: dict) -> bool:
     return not isinstance((cfg or {}).get("connections"), dict)
+
+
+SPLITS = ("each", "turns")   # every chosen channel gets every clip, or each clip goes to one of them in turn
+
+
+def takes_turns(cfg: dict) -> bool:
+    """Do the request's channels share its clips, each clip going to one of them? Only with two or more channels;
+    a request that does not say gives every channel every clip, as before."""
+    return (cfg or {}).get("split") == "turns" and len(targets(cfg)) > 1
+
+
+HOLDS = ("awaiting_approval", "approved", "publishing", "reconciling", "published")  # a post that is or goes out
+UPLOADS = ("done", "action_needed", "uploading", "processing", "queued")  # an upload by hand that is or was sent
+GONE = ("canceled", "replaced")  # a post that no longer holds its clip's place
+
+
+def clip_turn(source: dict, clip: dict, dealt: dict) -> str | None:
+    """The one channel (connection ID) a clip's post goes to when its request's channels take turns; None when
+    they do not. A clip never changes channel: a post of it that is planned, approved or out, else an upload of it
+    made by hand, else whatever became of an earlier post of it (held, failed, canceled) names its channel, and the
+    next post goes there. A new clip goes to the channel that has the fewest of this input's clips so far. On a
+    tie, the channel with the fewest clips over every input whose channels take turns goes first, then the owner's
+    order: an input with one clip (or an odd number) would otherwise always give its extra clip to the first
+    channel ticked. A channel that needs Reconnect gets no new clips meanwhile (the ones it has wait for it) and
+    catches up afterwards.
+
+    `dealt` is one planning pass's memory ({} at its start): the clips given out in the pass before their posts
+    exist (`took_turn`)."""
+    cfg = (for_source(source) or {}).get("settings") or {}
+    if not cfg.get("auto_upload") or not takes_turns(cfg):
+        return None
+    chosen = targets(cfg)
+    memo = _turns(source, chosen, dealt)
+    if clip["id"] in memo["clips"]:
+        return memo["clips"][clip["id"]]
+    posts = db.select("scheduled_publications", "clip_id = ? AND platform = 'youtube'", (clip["id"],), "created_at")
+    marks = ", ".join("?" * len(UPLOADS))
+    uploads = db.select("publications", f"clip_id = ? AND platform = 'youtube' AND status IN ({marks})",
+                        (clip["id"], *UPLOADS))
+    bound = _bound(posts, uploads, chosen)
+    if bound:
+        return bound
+    overall, order = _turns_overall(dealt), list(chosen)
+    return min(memo["open"], key=lambda cid: (memo["counts"][cid], overall.get(cid, 0), order.index(cid)))
+
+
+def _bound(posts: list[dict], uploads: list[dict], chosen) -> str | None:
+    """The chosen channel a clip already belongs to, from its posts (oldest first) and its uploads made by hand."""
+    from .targets import effective_connection_id
+
+    for group in ([p.get("connection_id") for p in posts if p["status"] in HOLDS],
+                  [effective_connection_id(u) for u in uploads],
+                  [p.get("connection_id") for p in posts]):
+        cid = next((c for c in group if c in chosen), None)
+        if cid:
+            return cid
+    return None
+
+
+def _places(source: dict, chosen) -> dict[str, str]:
+    """The input's clips that hold a place on one of its chosen channels (a post that is not canceled or replaced,
+    or an upload made by hand), each with that channel (`_bound`): every clip counts once."""
+    posts: dict[str, list[dict]] = {}
+    for row in db.select("scheduled_publications", "source_id = ? AND platform = 'youtube'", (source["id"],),
+                         "created_at"):
+        posts.setdefault(row["clip_id"], []).append(row)
+    uploads: dict[str, list[dict]] = {}
+    marks = ", ".join("?" * len(UPLOADS))
+    for row in db.select("publications", f"platform = 'youtube' AND status IN ({marks}) AND clip_id IN "
+                                         "(SELECT id FROM clips WHERE project_id = ?)",
+                         (*UPLOADS, source.get("project_id") or "")):
+        uploads.setdefault(row["clip_id"], []).append(row)
+    out = {}
+    for clip_id in {*posts, *uploads}:
+        mine, by_hand = posts.get(clip_id, []), uploads.get(clip_id, [])
+        if by_hand or any(p["status"] not in GONE for p in mine):
+            cid = _bound(mine, by_hand, chosen)
+            if cid:
+                out[clip_id] = cid
+    return out
+
+
+def _turns(source: dict, chosen: dict[str, str], dealt: dict) -> dict:
+    """This pass's count of an input's clips per chosen channel (`_places`)."""
+    memo = dealt.setdefault(source["id"], {})
+    if "counts" not in memo:
+        memo["counts"], memo["counted"], memo["clips"] = {cid: 0 for cid in chosen}, set(), {}
+        for clip_id, cid in _places(source, chosen).items():
+            memo["counted"].add((clip_id, cid))
+            memo["counts"][cid] += 1
+        memo["open"] = [cid for cid in chosen if not _channel_problem(chosen, cid)] or list(chosen)
+    return memo
+
+
+def _turns_overall(dealt: dict) -> dict[str, int]:
+    """Clips per channel over every input whose channels take turns (this pass's included): the tie-breaker."""
+    if "*overall" not in dealt:
+        counts: dict[str, int] = {}
+        for row in db.select("source_submissions", "1 = 1", ()):
+            cfg = row.get("settings") or {}
+            source = db.fetch("sources", row["source_id"]) if takes_turns(cfg) else None
+            for cid in _places(source, targets(cfg)).values() if source else ():
+                counts[cid] = counts.get(cid, 0) + 1
+        dealt["*overall"] = counts
+    return dealt["*overall"]
+
+
+def took_turn(source: dict, clip: dict, connection_id: str, dealt: dict) -> None:
+    """Count a clip for its channel for the rest of this planning pass (its post may not exist yet). A clip whose
+    place on the channel is already counted (an earlier post of it that holds its place) is not counted twice; one
+    planned there again after its post was canceled or replaced is counted, so it is not dealt an extra clip."""
+    cfg = (for_source(source) or {}).get("settings") or {}
+    memo = _turns(source, targets(cfg), dealt)
+    memo["clips"].setdefault(clip["id"], connection_id)
+    if connection_id in memo["counts"] and (clip["id"], connection_id) not in memo["counted"]:
+        memo["counted"].add((clip["id"], connection_id))
+        memo["counts"][connection_id] += 1
+        overall = _turns_overall(dealt)
+        overall[connection_id] = overall.get(connection_id, 0) + 1
 
 
 def _covers(cfg: dict, item: dict) -> bool:
@@ -688,7 +832,8 @@ def item(source: dict) -> dict:
               "local_ready" if not cfg.get("auto_upload") and view["status"] in ("ready", "finished") else "creating")
     view["submission"] = {"id": row["id"], "auto_upload": cfg.get("auto_upload", False), "account_id": cfg.get("account_id", ""),
                           "privacy": cfg.get("privacy", ""), "made_for_kids": cfg.get("made_for_kids"), "created_at": row["created_at"],
-                          "status": status, "progress": counts, "hold_reason": hold, "channels": _channel_list(cfg)}
+                          "status": status, "progress": counts, "hold_reason": hold, "channels": _channel_list(cfg),
+                          "split": "turns" if cfg.get("auto_upload") and takes_turns(cfg) else "each"}
     if cfg.get("auto_upload") and counts["posts_waiting"] and view["status"] not in ("canceled", "removed"):
         view["can_cancel"] = True
     return view
@@ -717,10 +862,26 @@ def _live_view(source: dict, view: dict) -> dict:
     project = db.get_project(source.get("project_id") or "") or {}
     clips = db.select("clips", "project_id = ?", (project.get("id") or "",)) if project else []
     recording = view["status"] == "watching_live" and source.get("live_status") == "live"
+    from . import live_pick
+
+    # The stream's own choices: saved with its project once it records, before that as it was added.
+    chosen = {**live_pick.choices(source, db.get_settings()), **{k: v for k, v in (project.get("options") or {}).items()
+                                                                 if k in ("live_pick", "live_framing")}}
+    if project.get("origin") == "live" and "live_framing" not in (project.get("options") or {}):
+        chosen["live_framing"] = "off"  # a stream that was being recorded before streams had this choice
+    # A link added here that turned out to be a recorded video is clipped like any other video: the stream
+    # choices do not apply to it, so none is shown.
+    recorded = bool(project) and project.get("origin") != "live"
     return {"recording": recording, "finishing": view.get("finishing", False),
             "minutes": round(float(project.get("duration") or 0) / 60, 1) if project.get("origin") == "live" else 0.0,
             "live_clips": sum(c["status"] == "ready" and c.get("score_source") == "Live analysis" for c in clips),
-            "ended": source.get("live_status") in ("ended", "stopped"), "stopped": source.get("live_status") == "stopped"}
+            "ended": source.get("live_status") in ("ended", "stopped"), "stopped": source.get("live_status") == "stopped",
+            "clipping_stopped": bool(view.get("clipping_stopped")),
+            "pick": chosen["live_pick"], "pick_label": "" if recorded else live_pick.LABELS[chosen["live_pick"]],
+            "framing": chosen["live_framing"],
+            "framing_label": "" if recorded else live_pick.FRAMING_LABELS[chosen["live_framing"]],
+            # why no clip is being made right now, while the stream is recorded
+            "note": ((project.get("info") or {}).get("live_note") or "") if recording else ""}
 
 
 def live_items() -> list[dict]:

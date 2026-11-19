@@ -592,7 +592,7 @@ class ClipPatch(BaseModel):
 EDIT_KEYS = {"start", "end", "tracking", "layout", "crop_x", "zoom", "caption_style", "caption_position",
              "caption_size", "highlight_color", "highlight_words", "captions_enabled", "caption_words", "hook",
              "hook_overlay", "hook_seconds", "silence", "auto_zoom", "gain_db", "normalize_audio", "speed",
-             "remove_fillers", "caption_emphasis", "clean_sound"}
+             "remove_fillers", "caption_emphasis", "clean_sound", "split_game"}
 
 
 @app.patch("/api/clips/{clip_id}")
@@ -632,7 +632,9 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
                 if not finite:
                     raise HTTPException(400, f"The clip's {k} must be a time in seconds.")
         for k, v in body.edit.items():
-            if k not in EDIT_KEYS or (k == "clean_sound" and v is not None and v not in config.CLEAN_SOUND_MODES):
+            if k not in EDIT_KEYS or (k == "clean_sound" and v is not None and v not in config.CLEAN_SOUND_MODES) \
+                    or (k == "layout" and v is not None and v not in config.CLIP_LAYOUTS) \
+                    or (k == "split_game" and v is not None and v not in config.SPLIT_GAMES):
                 continue
             if v is None:
                 edit.pop(k, None)

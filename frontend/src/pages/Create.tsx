@@ -103,7 +103,11 @@ export default function Create() {
     const L = lengths.find((l) => l.value === length) || LENGTHS[1];
     return {
       clip_count: count, min_duration: L.min, max_duration: L.max, target_duration: L.target,
-      caption_style: style, tracking, layout, silence, auto_zoom: zoom, hook_overlay: hookOverlay,
+      caption_style: style, tracking, silence, auto_zoom: zoom, hook_overlay: hookOverlay,
+      // Only a layout the owner picked here belongs to this video: the Settings one leaves Settings → Split view
+      // free to give a clip with a face cam its split view. A Framing picked here asks for one picture placed that
+      // way, which a split view would ignore, so the layout goes with it.
+      ...(defaults && layout === defaults.layout && tracking === (defaults.tracking ?? "auto") ? {} : { layout }),
     };
   };
 

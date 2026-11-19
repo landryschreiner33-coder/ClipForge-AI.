@@ -43,6 +43,9 @@ def test_two_streams_record_at_once_and_upload_clips_while_still_live(env, monke
                       "autopilot_min_gap_minutes": 0, "autopilot_min_quality": 40, "autopilot_clips_per_source": 2,
                       "encoder": "x264", "x264_preset": "ultrafast", "layout": "fit", "whisper_device": "cpu",
                       "min_duration": 12.0, "max_duration": 30.0, "target_duration": 18.0,
+                      # Every good moment: these streams are a minute long, and the default (few, strong clips)
+                      # listens for several minutes before its first clip. Its rules are in test_live_pick.py.
+                      "autopilot_live_pick": "most",
                       "autopilot_max_source_gb": 0.5})
     # Two different broadcasts: identical words or pictures would rightly be held back as repeats of an upload.
     media = {url: build_speech_video(tmp / f"stream{n}", lines, repeats=repeats, flip=bool(n))

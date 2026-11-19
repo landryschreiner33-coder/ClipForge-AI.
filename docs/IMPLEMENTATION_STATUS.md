@@ -1,5 +1,35 @@
 # Implementation status
 
+## Live clips: better moments, split view, split between channels, Stop clipping — 2026-11-18 (Claude Code)
+
+PR #57, branch `claude/project-thread-82eyed` from the release line, with the channel picker branch (PR #58) merged
+in. Live streams get a per-stream pick level (few strong clips by default), a split view when a face cam is found,
+clips split between the ticked channels, and Stop clipping. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not
+released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-18 | `python -m pytest tests/test_live_pick.py tests/test_live_stop_clipping.py tests/test_split_between_channels.py tests/test_split_view.py -q` | 31 passed (13 picker, 5 Stop clipping, 6 split between channels, 7 split view) |
+| 2026-11-18 | the three real-recording live tests (`test_autopilot_live.py::test_live_capture_and_post_live_analysis`, `test_review_submitted_live_streams.py`, `test_zero_touch_loop.py::test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live`) | 3 passed (304 s); they set `autopilot_live_pick: "most"` because their streams last a minute |
+| 2026-11-18 | `cd frontend && npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-18 | browser check of Missions → Live streams against a throwaway app with two fake channels and two recording streams | form choices, split between channels, Stop clipping dialog and the stopped stream's card shown; no page errors |
+| 2026-11-18, on 7aad19e | GitHub run 44384825118: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | 2806 passed, 2 skipped (fast); 31 passed, 1 skipped (slow); Mac app built and passed its checks |
+| 2026-11-18 | `python -m pytest tests/test_live_pick.py -q` after the fuller live clips | 25 passed; one test runs the real analysis on a stand-in story stream (found 30-59 s, kept 58-79 s) |
+| 2026-11-18 | my live tests on a scratch merge with the clip-length branch (5da834d, PR #59) | 103 passed; live clips at 25/45/90: median 60 s at "most", 35-73 s at "best", none over 90 s |
+| 2026-11-18 | browser check of Settings → Defaults (Split view, Under the face cam) and the clip editor's Layout tab | rows shown, saved and read back; no page errors |
+| 2026-11-19 | independent review by three reviewers | 18 findings (6 medium, 12 low); fixed in 61db5c5, 83ffa92, 4cbbfb5 (one known limit, see the changelog) |
+| 2026-11-19 | the four feature test files after the fixes | 28 picker, 7 Stop clipping, 10 split between channels, 18 split view: all passed; each new test fails on the code before its fix |
+| 2026-11-19 | `npx tsc --noEmit`, `npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-19, on 5bf372d | GitHub run 44434195548: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | all three passed |
+| 2026-11-19 | a second look at the fixes by two reviewers | 6 smaller gaps (3 medium, 3 low), all fixed with tests |
+| 2026-11-19, after the second look | the four feature test files | 30 picker, 7 Stop clipping, 12 split between channels, 18 split view: all passed |
+| 2026-11-19, after the second look | `python -m pytest -m "not slow"` on the 29 test files near the changed code | 358 passed, 14 deselected |
+| 2026-11-19, on 47830df | GitHub run 44463238420, `pytest -m "not slow"` | 2,818 passed, 1 failed: the picker's half-hour stand-in stream gave a different third clip with 2 math threads (its repeated speech leaves the word-based meaning vectors without one answer) |
+| 2026-11-19 | `tests/test_live_pick.py` with 1, 2, 3 and 4 math threads (`OPENBLAS_NUM_THREADS`) after making the stand-in streams' meaning neutral | 30 passed each time |
+
+Not verified: real streams and face cams (the tests draw their own pictures and use stand-in recorders), real
+uploads to two channels, the screens in the Mac window.
+
 ## Choose which channels each post goes to — 2026-11-18 (Claude Code)
 
 Branch `claude/project-thread-rxehvi` from the release line at 56d2cbd. Prepare post, Post selected… and Missions
