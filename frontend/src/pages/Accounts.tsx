@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../api";
 import { Banner, ConfirmDialog, Icon, PageHead, Skel, TextPromptDialog, toast } from "../components/ui";
 import { accountName, isPostable } from "../components/channelPicker";
@@ -24,8 +24,21 @@ export default function Accounts() {
   const [renaming, setRenaming] = useState<Connection | null>(null);
   const [ticking, setTicking] = useState("");
   const [managing, setManaging] = useState("");
-  const load = useCallback(() => studio.connections().then((r) => { setRows(r.connections); setProtection(r.protection); })
-    .catch((e) => setProblem(errorText(e))), []);
+  // The satellite sends one signal pulse when an account newly reads Connected (after signing in or reconnecting).
+  const [pulse, setPulse] = useState(0);
+  const connected = useRef<Set<string> | null>(null);
+  const load = useCallback(() => studio.connections().then((r) => {
+    const ok = r.connections.filter((c) => c.health.state === "ok");
+    const before = connected.current;
+    connected.current = new Set(ok.map((c) => c.id));
+    const fresh = before ? ok.filter((c) => !before.has(c.id)) : [];
+    if (fresh.length) {
+      setPulse((n) => n + 1);
+      toast(fresh.length === 1 ? `${accountName(fresh[0])} is connected` : `${fresh.length} accounts are connected`);
+    }
+    setRows(r.connections);
+    setProtection(r.protection);
+  }).catch((e) => setProblem(errorText(e))), []);
   useEffect(() => {
     void load();
     const back = () => document.visibilityState === "visible" && void load();  // after the sign-in tab closes
@@ -85,7 +98,10 @@ export default function Accounts() {
       <section className="acc-hero" aria-labelledby="acc-youtube">
         <span className="acc-art" aria-hidden="true">
           <img className="acc-earth" src="/space/orbit.png" alt="" width={694} height={426} />
-          <img className="acc-sat" src="/space/satellite.png" alt="" width={415} height={180} />
+          <span className="acc-sat">
+            <img src="/space/satellite.png" alt="" width={415} height={180} />
+            {pulse > 0 && <i key={pulse} className="acc-pulse" />}
+          </span>
         </span>
         <h2 id="acc-youtube" className="acc-platform">
           <span className="acc-logo youtube" aria-hidden="true"><Icon name="play" fill /></span>

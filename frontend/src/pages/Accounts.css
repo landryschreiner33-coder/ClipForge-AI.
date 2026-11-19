@@ -31,6 +31,14 @@
   position: absolute; right: 10%; top: 16%; width: min(28%, 400px); height: auto;
   animation: acc-drift 14s steps(14, end) infinite alternate;
 }
+.acc-sat img { display: block; width: 100%; height: auto; }
+/* one signal pulse from the antenna when an account newly connects; Reduced motion leaves the toast alone */
+.acc-pulse {
+  position: absolute; left: 55%; top: 5%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
+  border: 2px solid #7fe8ff; box-shadow: 0 0 12px #7fe8ff; opacity: 0; animation: acc-pulse 1.6s steps(8, end) 1;
+}
+@keyframes acc-pulse { from { transform: scale(1); opacity: 1; } to { transform: scale(9); opacity: 0; } }
+:root[data-motion="reduced"] .acc-pulse { display: none; }
 /* a slow drift in small steps, like the ship's crew; it stays still when motion is reduced */
 @keyframes acc-drift { from { transform: translate(0, 0) rotate(-2deg); } to { transform: translate(-14px, 10px) rotate(1deg); } }
 .acc-skel { width: min(100%, 520px); height: 140px; margin-top: 28px; border-radius: 14px; }

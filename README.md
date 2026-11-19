@@ -431,24 +431,21 @@ stored or sent, update these pages in the same change.
 
 The app opens on the **Studio**, which includes the office: original pixel robots (layout and characters after the
 owner's reference images) whose movements follow real jobs, yours and Autopilot's. **Team** lists all 25 robots and the Brain Core; the developer
-gallery at `#/dev/robots` shows each one in four directions and every pose. How it works, the event feed and the
+gallery at `#/dev/robots` shows each one in every frame the ship uses. How it works, the event feed and the
 capability matrix: [docs/OFFICE.md](docs/OFFICE.md). The art and how to extend it:
 [design/robots/README.md](design/robots/README.md). Screenshots (first run, working, waiting, after a restart,
 paused, a controlled error state, Team): [design/robot-office/screenshots](design/robot-office/screenshots/README.md).
 
-The living pixel office uses PixiJS for proportionate furniture, seated robot rigs, actual document passes and an
-animated neural Brain. Real work gathers the whole department: workers use their own desks, managers oversee them,
-and idle teammates sit ready without invented jobs. Off-duty robots play, eat, drink and read in the lounge.
-Processing Brain art has holographic scans, moving neural trails and rising sparks. The room camera zooms in;
-Full / Reduced / Follow system controls the motion. Canvas compatibility keeps the same layout, duties and controls
-with the original robot identities. It is included in the Windows build and needs no design account or paid service.
-[Latest department screenshots and labeled animation preview](design/robot-office/departments/README.md).
-[Lounge graphics and source-editing guide](design/robot-office/lounge/README.md).
-[Preceding seated-work checkpoint](design/robot-office/living/README.md).
-[Preceding refined artwork checkpoint](design/robot-office/retro/README.md).
+Since 2026-11-19 the Studio is an animated space studio: a cutaway ship with the 25 robots and CORE, drawn with
+Canvas 2D from art cut from the owner's reference pictures, under a deep-navy sky with a painted black hole. Real work
+turns a robot to its console; engines, CORE's rings and lounge breaks are decoration. Room names and each robot's
+state are always written out, and Full / Reduced / Follow system controls the motion. It needs no design account or
+paid service. [The space studio: what changed, the art and how it is drawn](design/space-studio/README.md).
 
 ## Third-party assets
 
-* Poppins and Anton fonts: SIL Open Font License 1.1 (`clipfoundry/assets/fonts/OFL-*.txt`).
+* Poppins and Anton fonts: SIL Open Font License 1.1 (`clipfoundry/assets/fonts/OFL-*.txt`; the copies the caption
+  preview uses are in `frontend/src/assets/fonts/` with their licences).
+* Courier Prime font (the app's type): SIL Open Font License 1.1 (`frontend/src/assets/fonts/OFL-CourierPrime.txt`).
 * YuNet face detector (OpenCV Zoo): MIT (`clipfoundry/assets/models/README.txt`).
 * Test fixture face photo: public-domain NASA image.

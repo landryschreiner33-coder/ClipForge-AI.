@@ -84,52 +84,33 @@ Reset all names on the Team page asks first.
 
 `roles.role_for(kind, stage)` maps every job (and the stage it reports) to exactly one role.
 
-### Refined pixel studio
+### The space ship (2026-11-19)
 
-The map now uses **PixiJS 8.22.0**, bundled with the frontend. `StudioScene.ts` draws the office's floors, furniture,
-desk screens and Brain Core; `StudioArt.ts` authors the 25 robots from their existing identities. Stepped metal
-silhouettes, shaded bodies, different faces and role-specific equipment distinguish the cast. This is drawn pixel
-art, with crisp edges and anchored feet; it is not an external image service or a separate AI running each robot.
+The owner's space studio replaced the earlier PixiJS office. PixiJS and GSAP are no longer bundled, and neither is the
+fallback renderer. The map is now a cutaway ship with three engines, the lounge, the bridge, the CORE chamber, the main
+corridor and the production rooms below. It is drawn with Canvas 2D by `StudioScene.ts`.
 
-**GSAP 3.15.0** supplies easing curves for the authored lounge gestures: controller/button presses, moving a game
-piece, lifting and tipping a mug, taking a bite, turning a page and resting. The art uses pure `parseEase` functions
-driven by the office's own visual clock, without independent animation timelines. These tools are bundled with the
-frontend; they do not require a plugin connection, paid account or live graphics service.
-GSAP uses its standard no-charge license; the bundled copyright/license notice and links to its terms are in
-[third-party-graphics.txt](../frontend/public/third-party-graphics.txt).
+**The art.** The pictures live in `frontend/public/space/`, and the floor plan in `frontend/src/space/ship-world.json`.
+The 25 robots come from the owner's three crew sheets, each with its own work gesture (`crew.ts`).
 
-`LoungeDecor.ts` authors distinct arcade, café, board-game and sofa areas. Pixi's `BlurFilter` softens decorative
-light pools; the static floor, furniture backs and lighting are cached once, while robot outlines stay crisp.
-Windows crop the locally bundled `office-art/skyline.png`, an original skyline generated once with native image
-generation. Missing optional skyline art leaves procedural glass and the Pixi office available. Ambient arcade
-screens, café steam and game pieces are decorative, separate from actual department work lights and health readings.
+**Real work.** A robot turns to its console and its screen wakes only for a real job state from the feed. Handoffs are
+the feed's real handoffs.
 
-`OfficeMap.tsx` and `OfficeMotion.ts` supply the renderer with the poses, positions, document handoffs and reactions
-derived from the backend feed. Department screen lighting follows actual working roles, and rack indicators follow
-the health readings. Rendering does not start jobs or invent measurements. The HTML layer retains one selectable
-button per robot and per room, the state icons, details and controls; all 25 roles remain present when idle or paused.
+**Decoration.** Engine flames, CORE's idle rings, blinking, looking around and lounge breaks show no work.
 
-Team cards, robot details and the developer gallery use the same authored robot art through `Portrait.tsx`.
-`StudioPortraits.ts` owns one shared offscreen renderer and a bounded cache of rendered frames, copied into ordinary
-Canvas portraits. Opening the roster does not create a separate graphics context for each robot. CORE retains its
-original portrait drawing.
+**Labels.** Room names are always shown, and each robot's state badge sits above its head.
 
-The Pixi scene loads when the map opens. If its module or graphics initialization fails, the map restores the
-original Canvas artwork through `LivingFallback.ts` and shows *Original artwork · new graphics unavailable in this
-browser*. This path retains the furnished floor plan, lounge places, seated desks and document transfers, with
-simpler Canvas game, food, drink and reading gestures driven by the same controller phases. Robot selection,
-details, state indicators and controls remain available. Portraits also retain their original Canvas
-artwork when the refined renderer cannot load. Neither renderer needs an account, plugin connection or additional setup.
+**The HTML layer.** It keeps one button for each robot and each room, plus the details panel and the controls.
 
-Follow system uses the operating system's reduced-motion preference; **Full overrides it explicitly**. Reduced
-freezes movement and animated drawing while current state information still updates. Hidden tabs and a stale feed
-also stop motion, and the map stops drawing while it is scrolled off screen. Customize studio adds **office
-animation**: Full, Calm (no lounge activities; work and its movement stay) or Low power (still drawings refreshed about once
-a second), saved per browser, and a **compact** office for the Studio page (the map without its side panel and
-control bar until something is selected). Earlier refined-art evidence remains in
-[design/robot-office/retro/README.md](../design/robot-office/retro/README.md); the seated-work and Brain captures are in
-[design/robot-office/living/](../design/robot-office/living/). The later recreational lounge evidence belongs in
-[design/robot-office/lounge/](../design/robot-office/lounge/), with controlled animation captures labeled separately.
+**Motion.** All 25 roles stay present when idle or paused. Follow system uses the operating system's reduced-motion
+preference, and **Full overrides it explicitly**. Reduced freezes movement while current state still updates. Hidden
+tabs, a stale or paused feed and a map scrolled off screen stop drawing.
+
+**Customize studio.** It keeps **office animation** (Full, Calm or Low power, saved per browser) and the **compact**
+ship view. The Studio's Reduce motion switch and Settings → Appearance → Motion set the same choice.
+
+Art sources, tools and what was checked: [design/space-studio/README.md](../design/space-studio/README.md). Earlier
+office evidence remains in [design/robot-office/](../design/robot-office/) as history.
 
 ### Reports and decisions
 
