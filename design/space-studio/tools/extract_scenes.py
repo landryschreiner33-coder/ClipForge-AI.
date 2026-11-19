@@ -23,27 +23,6 @@ def grabcut(img, rect, iters=6, sure_fg=(), sure_bg=(), max_hole=10 ** 9):
 def soft(m, r=1.2):
     return cv2.GaussianBlur(m.astype(np.float32), (0, 0), r)
 
-# --- black hole: keep the pixels, feather an ellipse so the sky blends into ours
-def black_hole():
-    bh = cv2.imread(OUT + 'bh_crop.png')[:246]
-    h, w = bh.shape[:2]
-    yy, xx = np.mgrid[0:h, 0:w]
-    cx, cy = 355, 128
-    d = ((xx - cx) / 352.0) ** 2 + ((yy - cy) / 150.0) ** 2
-    a = np.clip((1.0 - d) / 0.35, 0, 1) ** 1.4
-    # luminance keeps the faint outer disk while the empty sky fades out
-    lum = bh.astype(np.float32).max(axis=2) / 255.0
-    a = np.maximum(a * np.clip(lum * 3.0, 0.0, 1.0), np.where(((xx - cx) / 92.0) ** 2 + ((yy - 127) / 92.0) ** 2 < 1, 1.0, 0.0) * a)
-    # the reference crop ends at the arc above and the lower ring below: fade both edges so no straight line shows
-    a *= np.clip(yy / 18.0, 0, 1) ** 1.2 * np.clip((h - 1 - yy) / 14.0, 0, 1) ** 1.2
-    rgba = np.dstack([bh[..., ::-1], (a * 255).astype(np.uint8)])
-    Image.fromarray(rgba, 'RGBA').save(OUT + 'blackhole.png')
-    # where the disk is bright: the mask for the light that travels along it (space.css .black-hole .glint)
-    glow = np.clip((lum - 0.32) / 0.5, 0, 1) * a
-    white = np.full((h, w, 3), 255, np.uint8)
-    Image.fromarray(np.dstack([white, (glow * 255).astype(np.uint8)]), 'RGBA').save(OUT + 'blackhole-glow.png')
-
-
 def scenes():
     # --- satellite: cut it out, and paint it out of the orbit background
     sat = cv2.imread(OUT + 'sat_crop.png')[:426, :694]
@@ -74,5 +53,4 @@ def scenes():
 
 
 if __name__ == '__main__':
-    black_hole()
     scenes()

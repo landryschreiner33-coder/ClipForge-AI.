@@ -153,7 +153,8 @@ if __name__ == '__main__':
     left = engines()
     print('leftmost hull x for rows 90..270:', [(y, left[y]) for y in range(90, 280, 6)])
     shutil.copy('out/ship_clean.png', f'{OUT}/ship.png')
-    for f in ['sky.jpg', 'blackhole.png', 'blackhole-glow.png', 'satellite.png', 'orbit.png', 'dock_scene.png']:
+    # the black hole is painted in code (frontend/src/components/blackHoleArt.ts); stars.py makes the star tiles
+    for f in ['sky.jpg', 'stars-near.png', 'stars-far.png', 'satellite.png', 'orbit.png', 'dock_scene.png']:
         shutil.copy(f'out/{f}', f'{OUT}/{f.replace("_", "-")}')
     json.dump(meta, open(f'{OUT}/sprites.json', 'w'), separators=(',', ':'))
     for f in sorted(os.listdir(OUT)):

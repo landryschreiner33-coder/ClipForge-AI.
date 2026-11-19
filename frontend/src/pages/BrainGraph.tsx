@@ -1,7 +1,8 @@
-import { KeyboardEvent, PointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, PointerEvent, ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useConnection } from "../components/ui";
 import { useMotion } from "../motion";
 import { BrainGraphModel, BrainNode } from "./brainGraphModel";
+import { galaxyCanvas } from "./galaxy";
 import "./BrainGraph.css";
 
 type View = { x: number; y: number; width: number; height: number };
@@ -18,6 +19,28 @@ function nodeName(node: BrainNode) {
       : node.kind;
   return `${kind}: ${node.title}`;
 }
+/** The graph's real path from CORE to a node (fewest links), for the light that travels it when you select it. */
+function pathTo(model: BrainGraphModel, target: string): string[] {
+  if (target === "brain") return [];
+  const next = new Map<string, string[]>();
+  for (const edge of model.edges) {
+    next.set(edge.from, [...(next.get(edge.from) || []), edge.to]);
+    next.set(edge.to, [...(next.get(edge.to) || []), edge.from]);
+  }
+  const from = new Map<string, string>([["brain", ""]]);
+  const queue = ["brain"];
+  while (queue.length) {
+    const at = queue.shift()!;
+    if (at === target) break;
+    for (const id of next.get(at) || []) if (!from.has(id)) { from.set(id, at); queue.push(id); }
+  }
+  if (!from.has(target)) return [];
+  const path = [target];
+  while (path[0] !== "brain") path.unshift(from.get(path[0])!);
+  return path;
+}
+/** How far the galaxy reaches from CORE, in graph units (the branches sit within about 480). */
+const GALAXY_REACH = 560;
 function bounds(model: BrainGraphModel): View {
   const xs = model.nodes.map((node) => node.x),
     ys = model.nodes.map((node) => node.y);
@@ -36,11 +59,14 @@ export default function BrainGraph({
   selected,
   empty,
   onSelect,
+  actions,
 }: {
   model: BrainGraphModel;
   selected: string;
   empty: boolean;
   onSelect: (id: string) => void;
+  /** buttons for the map's lower right corner (Teach preference) */
+  actions?: ReactNode;
 }) {
   const { reduceMotion, pageHidden } = useMotion();
   const { lost } = useConnection();
@@ -68,6 +94,38 @@ export default function BrainGraph({
   useEffect(() => {
     setView(home);
   }, [home]);
+  // the galaxy follows the map's pan and zoom; its own slow turn is decoration and stops whenever the map is still
+  const galaxy = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const el = svg.current;
+    if (!el) return;
+    const measure = () => setBox({ width: el.clientWidth, height: el.clientHeight });
+    measure();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, []);
+  useEffect(() => {
+    const host = galaxy.current?.querySelector(".brain-galaxy-spin");
+    if (host && !host.firstChild) {
+      try {
+        const art = galaxyCanvas();
+        const copy = document.createElement("canvas");
+        copy.width = art.width; copy.height = art.height;
+        copy.getContext("2d")?.drawImage(art, 0, 0);
+        host.appendChild(copy);
+      } catch {
+        /* no canvas: the map works on the plain sky */
+      }
+    }
+  }, []);
+  const fit = box.width ? Math.min(box.width / view.width, box.height / view.height) : 0;
+  const centre = { x: box.width / 2 - (view.x + view.width / 2) * fit, y: box.height / 2 - (view.y + view.height / 2) * fit };
+  const path = useMemo(() => pathTo(model, selected).map((id) => points.get(id)).filter(Boolean) as BrainNode[],
+    [model, selected, points]);
+  const pathIds = new Set(path.map((node) => node.id));
+  const selectedNode = points.get(selected);
   useEffect(() => {
     if (typeof IntersectionObserver !== "function" || !section.current) return;
     const seen = new IntersectionObserver(([entry]) => setOffscreen(!entry.isIntersecting));
@@ -146,6 +204,12 @@ export default function BrainGraph({
           {applied ? `${applied} used in the last 15 minutes` : "Still: nothing applied just now"}
         </span>
       </div>
+      <div className="brain-graph-stage">
+      <div ref={galaxy} className="brain-galaxy" aria-hidden="true" style={fit ? {
+        left: centre.x - GALAXY_REACH * fit, top: centre.y - GALAXY_REACH * fit,
+        width: GALAXY_REACH * 2 * fit, height: GALAXY_REACH * 2 * fit } : { display: "none" }}>
+        <div className="brain-galaxy-tilt"><div className="brain-galaxy-spin" /></div>
+      </div>
       <svg
         ref={svg}
         className="brain-graph-canvas"
@@ -169,9 +233,9 @@ export default function BrainGraph({
       >
         <defs>
           <radialGradient id={`${gradient}-core`}>
-            <stop offset="0" stopColor="#d9fcff" />
-            <stop offset=".35" stopColor="#68eff5" />
-            <stop offset="1" stopColor="#118399" />
+            <stop offset="0" stopColor="#140a1f" />
+            <stop offset=".72" stopColor="#1d0f2c" />
+            <stop offset="1" stopColor="#4a2a3a" />
           </radialGradient>
         </defs>
         <g className="brain-graph-edges" aria-hidden="true">
@@ -196,6 +260,13 @@ export default function BrainGraph({
             );
           })}
         </g>
+        {path.length > 1 && selectedNode && (
+          <g className="brain-path" aria-hidden="true" style={{ color: selectedNode.color }}>
+            <polyline className="brain-path-line" points={path.map((n) => `${n.x},${n.y}`).join(" ")} />
+            <polyline key={selected} className="brain-path-trace" pathLength={100}
+              points={path.map((n) => `${n.x},${n.y}`).join(" ")} />
+          </g>
+        )}
         {model.nodes.map((node) => (
           <g
             key={node.id}
@@ -206,6 +277,7 @@ export default function BrainGraph({
             aria-pressed={selected === node.id}
             className={`brain-graph-node node-${node.kind}${node.applied ? " is-applied" : ""}`}
             data-connected={connected.has(node.id)}
+            data-on-path={pathIds.has(node.id)}
             style={{ color: node.color }}
             transform={`translate(${node.x} ${node.y})`}
             onClick={() => onSelect(node.id)}
@@ -226,21 +298,28 @@ export default function BrainGraph({
               <circle className="brain-node-aura" r={node.radius + 11} />
             )}
             <circle className="brain-node-ring" r={node.radius + 4} />
+            {selected === node.id && node.kind !== "brain" && (
+              <circle key={selected} className="brain-node-settle" r={node.radius + 7} />
+            )}
             <circle
               className="brain-node-core"
               r={node.radius}
               fill={node.kind === "brain" ? `url(#${gradient}-core)` : node.color}
             />
             {node.knowledge?.state === "disabled" && <path d="M-6 6L6-6" className="brain-node-disabled" />}
-            {(allLabels || node.kind === "brain" || node.kind === "collection" || node.applied ||
-              selected === node.id || connected.has(node.id)) && (
-              <text y={node.radius + 19} textAnchor="middle" className="brain-node-label">
+            {node.kind === "brain" ? (
+              <text y={5} textAnchor="middle" className="brain-node-label brain-core-word">{node.label}</text>
+            ) : (allLabels || node.kind === "collection" || node.applied || selected === node.id
+              || connected.has(node.id)) && (
+              <text x={node.kind === "collection" ? node.radius + 10 : 0} y={node.kind === "collection" ? 4 : node.radius + 16}
+                textAnchor={node.kind === "collection" ? "start" : "middle"} className="brain-node-label">
                 {node.label}
               </text>
             )}
           </g>
         ))}
       </svg>
+      </div>
       {model.nodes.length === 1 && (
         <div className="brain-graph-empty">
           <strong>{empty ? "A space for your ideas" : "No connections match"}</strong>
@@ -252,8 +331,6 @@ export default function BrainGraph({
         </div>
       )}
       <div className="brain-graph-bottom">
-        <p id={`${gradient}-help`}>Drag to explore · Tab selects items · Arrow keys pan · + / − zoom · 0 fits
-          {Object.values(model.hidden).some(Boolean) ? " · large collections are listed in full under Saved items" : ""}</p>
         <div className="brain-graph-controls">
           <button aria-label="Zoom out" onClick={() => zoom(1.25)}>
             −
@@ -264,6 +341,9 @@ export default function BrainGraph({
           </button>
           <button onClick={() => setView(home)}>Fit graph</button>
         </div>
+        <p id={`${gradient}-help`}>Drag to explore · Tab selects items · Arrow keys pan · + / − zoom · 0 fits
+          {Object.values(model.hidden).some(Boolean) ? " · large collections are listed in full under Saved items" : ""}</p>
+        {actions && <div className="brain-graph-actions">{actions}</div>}
       </div>
     </section>
   );

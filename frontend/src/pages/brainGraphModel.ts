@@ -36,15 +36,16 @@ export type BrainGraphModel = { nodes: BrainNode[]; edges: BrainEdge[]; omitted:
   hidden: Partial<Record<GraphCategory, number>> };
 
 type Cluster = KnowledgeKind | "evidence" | RecordKind;
+// the space studio's branches (2026-11-19): amber example videos, teal skills, ice-blue recorded evidence
 const colors: Record<Cluster | "topic", string> = {
-  reference: "#41d9ca",
-  instruction: "#aa89ff",
-  example: "#f0c16a",
-  evidence: "#5daeff",
-  topic: "#79c8de",
-  style: "#c792ff",
-  skill: "#5fe0a6",
-  video: "#ff9e7a",
+  reference: "#c9b8ff",
+  instruction: "#b48cff",
+  example: "#ff9fc8",
+  evidence: "#9ad8ff",
+  topic: "#7fc8e0",
+  style: "#e09bff",
+  skill: "#2ee6c5",
+  video: "#ffb347",
   project: "#8fb4ff",
 };
 // eight clusters around the Brain, in reading order: what you saved, what it changed, what it learned from
@@ -83,14 +84,14 @@ export function buildBrainGraph(rows: Knowledge[], workspace: Workspace | null, 
     {
       id: "brain",
       title: "Your Brain",
-      label: "YOUR BRAIN",
+      label: "CORE",
       kind: "brain",
       category: "all",
-      color: "#65e7f4",
+      color: "#ffe2b8",
       x: 0,
       y: 0,
       radius: 24,
-      searchable: "your brain local memory",
+      searchable: "core your brain local memory",
     },
   ];
   const edges: BrainEdge[] = [];

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { ap, ScheduledItem } from "../autopilot";
 import { BlackHole } from "../components/BlackHole";
-import { Banner, Icon, ProgressBar, toast } from "../components/ui";
+import { Banner, Icon, IconName, ProgressBar, toast } from "../components/ui";
 import { DeleteProjectButton } from "../components/DeleteProject";
 import { useAppearance } from "../prefs";
 import { useMotion } from "../motion";
@@ -109,6 +109,7 @@ export default function Studio() {
           )}
           <TodayStrip snap={snap} review={st ? st.home.posts.review : null} />
         </section>
+        <MakeTiles />
         <aside className="studio-side" aria-label={sel ? "Details" : "Now making and what is next"}>
           {sel && snap ? (
             <ShipDetails sel={sel} setSel={setSel} snap={snap} feed={feed} />
@@ -252,6 +253,33 @@ function stageWords(i: LibraryItem): string {
   return i.message || (i.kind === "full_video" ? VIDEO_WORDS[i.status] : i.stage) || i.status;
 }
 
+/** Everything ClipForge makes, one press away (the owner, 2026-11-19: "make everything easily accessible"). The same
+ * four choices as + Make at the top of every page. */
+const MAKE_CHOICES: { href: string; icon: IconName; title: string; words: string }[] = [
+  { href: "#/create/clips", icon: "scissors", title: "Make clips", words: "Highlights, full stories or story parts" },
+  { href: "#/create/video", icon: "video", title: "Make a YouTube video", words: "Your files and your idea" },
+  { href: "#/create/short", icon: "spark", title: "Make an animated short", words: "Moving pictures and a voice-over" },
+  { href: "#/missions/live", icon: "live", title: "Clip a live stream", words: "Clips while it is still live" },
+];
+
+function MakeTiles() {
+  return (
+    <nav className="studio-make" aria-labelledby="studio-make">
+      <h2 id="studio-make">Make something</h2>
+      <ul>
+        {MAKE_CHOICES.map((c, i) => (
+          <li key={c.href}>
+            <a className={`make-tile${i === 0 ? " first" : ""}`} href={c.href}>
+              <span className="make-icon"><Icon name={c.icon} /></span>
+              <b>{c.title}</b><span className="make-words">{c.words}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 /** What is being made now: the project, its real step, progress only when measured, the robots on it and one button
  * to open it. With nothing running, a clips project that just finished says so, or the crew rests and Make clips
  * is the next step. */
@@ -268,9 +296,7 @@ function NowMaking({ item, ready, jobs, roles, loading, paused, onRobot }: {
       <section className="now-making idle" aria-labelledby="now-making">
         <h2 id="now-making">Now making</h2>
         <p className="now-empty"><b>Nothing is being made right now.</b>
-          <span className="block muted">The crew is relaxing in the lounge until you start something.</span></p>
-        <a className="btn btn-primary btn-wide" href="#/create/clips"><Icon name="film" />Make clips</a>
-        <p className="small muted">Or use <b>+ Make</b> at the top for a YouTube video, an animated short or a live stream.</p>
+          <span className="block muted">The crew is relaxing in the lounge until you pick something to make.</span></p>
       </section>
     );
   }

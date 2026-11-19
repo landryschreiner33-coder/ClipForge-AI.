@@ -68,7 +68,7 @@ def test_a_make_clips_project_moves_through_the_departments(data):
 def test_unmeasured_work_shows_no_progress(data):
     data.create_project("Interview", status="processing", stage="candidates", progress=0, message="")
     task = _states(data)["spark"]["task"]
-    assert task["progress"] is None and task["message"] == "Finding moments"
+    assert task["progress"] is None and task["message"] == "Finding the best moments"
 
 
 def test_studio_jobs_are_queued_running_and_failed_truthfully(data):

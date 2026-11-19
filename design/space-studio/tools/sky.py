@@ -1,4 +1,7 @@
-"""Deep-navy space sky: fine stars, a few sparkles and blue-violet nebula dust in a diagonal band."""
+"""Deep-navy space sky: blue-violet nebula dust in a diagonal band, bright stars, sparkles and small galaxies.
+
+Stars smaller than a pixel vanish once the page scales this picture to the window, so it carries the nebula and the
+bigger stars; stars.py makes the crisp small stars, tiled at screen size (2026-11-19: the owner wants to see the stars)."""
 import numpy as np, cv2
 from PIL import Image
 W, H = 2400, 1500
@@ -30,12 +33,15 @@ fil = np.clip((n2 - 0.5) * 3.0, 0, 1) ** 2
 n4 = fbm(W, H, seed=5, base=24, octaves=5, persistence=0.6)
 streak = np.clip((n4 - 0.52) * 5.0, 0, 1) ** 1.5
 mask = np.clip(band * 0.85 + left * 0.75, 0, 1)
-blue = np.array([28, 54, 140], np.float32); violet = np.array([86, 46, 150], np.float32); ice = np.array([90, 140, 230], np.float32)
+blue = np.array([34, 62, 160], np.float32); violet = np.array([104, 52, 172], np.float32); ice = np.array([96, 150, 240], np.float32)
+magenta = np.array([150, 60, 160], np.float32)
 mix = np.clip(n3 * 1.6 - 0.3, 0, 1)[..., None]
 neb_col = blue * (1 - mix) + violet * mix
+pink = np.clip((fbm(W, H, seed=7, base=4, octaves=5) - 0.58) * 4, 0, 1)[..., None]
+neb_col = neb_col * (1 - 0.6 * pink) + magenta * (0.6 * pink)
 neb = neb_col * (dust * mask)[..., None] * 0.95 + ice * (fil * mask * 0.35)[..., None]
 neb += np.array([60, 105, 225], np.float32) * (streak * dust * mask * 0.85)[..., None]
-img = base + neb * 0.72
+img = base + neb * 1.05
 # dark lanes inside the band
 lanes = np.clip((fbm(W, H, seed=4, base=6) - 0.55) * 4, 0, 1)
 img *= (1 - 0.45 * lanes * mask)[..., None]
@@ -53,27 +59,45 @@ def stars(n, lo, hi, size):
     if size > 0:
         layer = cv2.GaussianBlur(layer, (0, 0), size) * (2 * np.pi * size * size) * 0.6
     img += layer
-stars(26000, 0.10, 0.45, 0)
-stars(30000, 0.10, 0.50, 0)
-stars(2600, 0.35, 0.9, 0.6)
-stars(260, 0.7, 1.0, 1.1)
+stars(20000, 0.10, 0.45, 0)
+stars(5200, 0.45, 1.0, 0.7)
+stars(900, 0.75, 1.0, 1.1)
+stars(120, 0.9, 1.0, 1.8)
 # a few four-point sparkles
-for _ in range(16):
+for _ in range(34):
     x, y = int(rng.integers(40, W - 40)), int(rng.integers(40, H - 40))
-    L = int(rng.integers(8, 20)); c = np.array([255, 245, 235], np.float32) * rng.uniform(0.55, 0.9)
+    L = int(rng.integers(10, 30)); c = np.array([255, 245, 235], np.float32) * rng.uniform(0.75, 1.0)
     spark = np.zeros((2 * L + 1, 2 * L + 1), np.float32)
     k = np.arange(-L, L + 1); f = np.exp(-np.abs(k) / (L / 4.0))
     spark[L, :] = f; spark[:, L] = np.maximum(spark[:, L], f)
-    spark = cv2.GaussianBlur(spark, (0, 0), 0.7) * 1.6
+    spark = cv2.GaussianBlur(spark, (0, 0), 0.8) * 1.9
+    halo = np.zeros_like(spark); cv2.circle(halo, (L, L), 2, 1.0, -1)
+    spark += cv2.GaussianBlur(halo, (0, 0), L / 5.0) * 1.4
     img[y - L:y + L + 1, x - L:x + L + 1] += spark[..., None] * c
-# two tiny distant galaxies
-for gx, gy, ang in [(int(W * 0.18), int(H * 0.30), 25), (int(W * 0.72), int(H * 0.64), -30)]:
-    g = np.zeros((90, 90), np.float32)
-    cv2.ellipse(g, (45, 45), (26, 7), ang, 0, 360, 1.0, -1)
-    g = cv2.GaussianBlur(g, (0, 0), 4) * 0.55
-    core = np.zeros((90, 90), np.float32); cv2.circle(core, (45, 45), 2, 1.0, -1); core = cv2.GaussianBlur(core, (0, 0), 1.5) * 2
-    col = np.array([255, 200, 150], np.float32)
-    img[gy - 45:gy + 45, gx - 45:gx + 45] += (g + core)[..., None] * col * 0.5
+# small distant galaxies: a warm core and two faint arms, tilted
+for gx, gy, ang, size in [(int(W * 0.07), int(H * 0.47), 25, 0.9), (int(W * 0.74), int(H * 0.66), -30, 1.1),
+                          (int(W * 0.96), int(H * 0.30), 15, 0.7)]:
+    S = int(130 * size); c0 = S // 2
+    g = np.zeros((S, S, 3), np.float32)
+    t = np.linspace(0, 3.2 * np.pi, 900)
+    for arm in (0, np.pi):
+        r = 3 + t * S * 0.045
+        px = c0 + r * np.cos(t + arm); py = c0 + r * np.sin(t + arm)
+        for k in range(len(t)):
+            xi, yi = int(px[k]), int(py[k])
+            if 0 <= xi < S and 0 <= yi < S:
+                g[yi, xi] += np.array([150, 170, 255], np.float32) * (1 - k / len(t)) * 0.9
+    g = cv2.GaussianBlur(g, (0, 0), 3.4 * size) * 3.4
+    disk = np.zeros((S, S), np.float32); cv2.circle(disk, (c0, c0), int(S * 0.26), 1.0, -1)
+    g += cv2.GaussianBlur(disk, (0, 0), S * 0.07)[..., None] * np.array([120, 130, 220], np.float32) * 0.35
+    core = np.zeros((S, S), np.float32); cv2.circle(core, (c0, c0), max(2, int(5 * size)), 1.0, -1)
+    g += cv2.GaussianBlur(core, (0, 0), 4 * size)[..., None] * np.array([255, 214, 160], np.float32) * 2.6
+    M = cv2.getRotationMatrix2D((c0, c0), ang, 1.0)  # turn, then squash so it looks inclined
+    g = cv2.warpAffine(g, M, (S, S))
+    g = cv2.resize(g, (S, int(S * 0.42)))
+    h2 = g.shape[0]
+    y0, x0 = gy - h2 // 2, gx - S // 2
+    img[y0:y0 + h2, x0:x0 + S] += g * 0.45
 img = np.clip(img, 0, 255).astype(np.uint8)
-Image.fromarray(img).save('out/sky.jpg', quality=84, optimize=True, progressive=True)
+Image.fromarray(img).save('out/sky.jpg', quality=90, subsampling=0, optimize=True, progressive=True)
 Image.fromarray(img).resize((1200, 750), Image.LANCZOS).save('out/sky_small.png')
