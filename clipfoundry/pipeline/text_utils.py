@@ -61,7 +61,7 @@ TRANSITION_PHRASES = ["anyway", "moving on", "move on", "let's move", "next week
                       "that is all", "on another note", "speaking of which", "by the way", "let's talk about",
                       "next up", "switching gears", "one more thing", "last thing", "before we get into",
                       "before we start", "let's get into", "let's jump", "back to", "furthermore", "my next point",
-                      "the next point", "on to the next"]
+                      "the next point", "on to the next", "what else", "the other thing i wanted"]
 
 # Sentences that set something up (great openers, weak endings).
 SETUP_PHRASES = ["let me tell you", "here's", "here is", "what if", "i'll tell you", "let me explain", "let me show",

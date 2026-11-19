@@ -27,6 +27,7 @@ from collections import defaultdict
 import numpy as np
 
 from .. import db, learning
+from ..pipeline.common import log
 from ..pipeline.text_utils import tokens
 from ..publish import stats
 from ..publish.common import PublishError
@@ -401,6 +402,12 @@ def learn(job: Job) -> dict:
               "findings": [], "weights": {}, "calibration": None}
     status.update(excluded_few_views=few_views, sources=sources)
     evaluated = brain.evaluate(settings)
+    try:  # which kinds of moment did better or worse: kept as Brain memories that clip picking reads
+        from ..brain import lessons
+
+        status["lessons"] = lessons.learn(settings)
+    except Exception:  # noqa: BLE001 - a lesson that cannot be learned never stops the rest of learning
+        log.exception("Brain lessons failed")
     if len({r["cohort"] for r in allowed}) > 1:
         status["message"] = ("Public and selected-viewer results are kept separate. Shared score and timing "
                              "learning waits for one comparable audience; clip-length strategies stay per platform.")

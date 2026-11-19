@@ -48,8 +48,26 @@ def reason_text(r: dict) -> str:
     warns = [fl["label"].lower() for fl in r["flags"] if fl["severity"] == "warn"]
     if warns:
         parts.append("watch out: " + ", ".join(warns))
+    said = (r.get("brain_steer") or {}).get("why") or []
+    if said:
+        parts.append("your Brain " + said[0])
     text = "; ".join(p for p in parts if p)
     return text[:1].upper() + text[1:]
+
+
+def _fuller(r: dict, sentences: list[dict], feats: list[dict], words: list[dict], loud: Loudness, opts: dict
+            ) -> dict:
+    """The moment with its build-up and its ending, when that is not clearly weaker than its strongest lines alone
+    (virality.grown). A version that would be kept out of the results never replaces one that would not."""
+    if r["dur"] >= float(opts.get("target_duration") or 0.0):
+        return r
+    best, best_key = r, r["raw"] - virality.short_of_ideal(r, opts)
+    for a, b in virality.grown(r["s0"], r["s1"], sentences, opts, feats):
+        x = virality.analyze(a, b, sentences, feats, words, loud, opts)
+        key = x["raw"] - virality.short_of_ideal(x, opts)
+        if key > best_key and (not x["blocked"] or r["blocked"]):
+            best, best_key = x, key
+    return best
 
 
 def _dedupe(items: list[str], limit: int) -> list[str]:
@@ -113,6 +131,7 @@ def _evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: Job
             r = max((virality.analyze(a, b, sentences, feats, words, loud, local)
                      for a, b in virality.variants(*orig, sentences, local, feats)),
                     key=lambda x: x["raw"] - (0.01 if (x["s0"], x["s1"]) != orig else 0.0))
+            r = _fuller(r, sentences, feats, words, loud, local)
         s0, s1 = r["s0"], r["s1"]
         has_text = s0 >= 0
         sent_texts = [sentences[k]["text"] for k in range(s0, s1 + 1)] if has_text else []

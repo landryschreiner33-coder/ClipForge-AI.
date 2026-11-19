@@ -839,16 +839,21 @@ function Remembered({ mem, short = false }: { mem: Memory; short?: boolean }) {
   );
 }
 
-/** What the answer used (memories, know-how) and where your words went, small. */
+/** What the answer used (memories, know-how, the guide to ClipForge, your skills) and where your words went, small. */
 function Meta({ d, failed }: { d: ChatData; failed: boolean }) {
   const used = d.used || [];
-  const know = d.knowhow || [];
+  const read = d.knowhow || [];
+  const know = read.filter((k) => !k.source || k.source === "knowhow");
+  const guide = read.filter((k) => k.source === "guide");
+  const skills = read.filter((k) => k.source === "skill");
   const shows = ["change", "answer", "explain", "talk", "plan"].includes(d.tool || "");
   const sent = d.sent || d.request?.sent || "";
   return (
     <>
       {shows && used.length > 0 && <p className="cfai-meta">From your brain: {used.map((m) => `[${m.kind}] ${m.text}`).join("; ")}</p>}
       {shows && know.length > 0 && <p className="cfai-meta">From its know-how: {know.map((k) => k.title.toLowerCase()).join("; ")}</p>}
+      {shows && guide.length > 0 && <p className="cfai-meta">From its guide to ClipForge: {guide.map((k) => k.title.toLowerCase()).join("; ")}</p>}
+      {shows && skills.length > 0 && <p className="cfai-meta">From your skills: {skills.map((k) => k.title).join("; ")}</p>}
       {sent && !failed && <p className="cfai-meta"><Icon name={d.remote ? "external" : "shield"} className="xs" />{sent}</p>}
     </>
   );

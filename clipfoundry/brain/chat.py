@@ -24,7 +24,7 @@ import time
 from typing import Callable
 
 from .. import db
-from . import agents, allowance, assistant, knowhow, memories, tools
+from . import agents, allowance, assistant, library, memories, tools
 
 log = logging.getLogger("clipfoundry.brain.chat")
 
@@ -35,13 +35,15 @@ TOOLS = ("remember", "forget", "list", "explain", "change", "answer", "help", "t
 HELP = ("Right now I have no model to think with, so I only follow a few rules: I remember what you tell me "
         "(\"remember: …\", \"always …\", \"never …\"), forget it (\"forget …\"), list what I know (\"what do "
         "you know about …\") and explain my last answer (\"why …\"). In a video's chat, anything else is a change I "
-        "propose for you to apply or discard; here, I answer editing questions (hooks, pacing, captions, sound, "
-        "music, colour, effects, picking clips, export) from my built-in know-how. Set up the built-in model (free, "
-        "on this computer) and I become a real assistant: I talk with you, know your projects, do things in "
+        "propose for you to apply or discard; here, I answer editing questions (hooks, titles, captions, pacing, "
+        "sound, music, colour, picking clips, export) from my built-in know-how and questions about ClipForge "
+        "(\"how do I clip a live stream?\") from my guide to it. Set up the built-in model (free, on this "
+        "computer) and I become a real assistant: I talk with you, know your projects, do things in "
         "ClipForge when you ask, and work with your helper agents.")
 NO_MODEL = ("I need a model to think with before I can really talk. Set up the built-in model (free, it runs on this "
             "computer) with the button above, or choose an AI helper in Settings → ClipForge AI. Until then I can "
-            "remember, forget and list what you tell me, and answer editing questions from my built-in know-how.")
+            "remember, forget and list what you tell me, and answer questions about editing and about ClipForge "
+            "from my built-in know-how.")
 # whole words, and so is the "that" it leaves out, which goes only before a space, a colon or a comma, or before ".",
 # "!", "?" or "…" that end the message or a sentence: "Notes from the shoot …", "Note-taking …", "Remember that's …"
 # and "Remember that;…" keep every letter; "Remember that." leaves "." (nothing to keep) and "Remember that. My intro
@@ -388,8 +390,8 @@ def _talk(chat: dict, text: str, agent: dict | None) -> dict:
         return {"text": f"{allowance.message(settings)} Nothing was sent.", "data": {"tool": "talk"},
                 "status": "failed"}
     label = llm.provider_label(settings)
-    what = ("the conversation, the memories and know-how that fit it, your project names and the details of the "
-            "projects it looks at. Never your files or their sound.")
+    what = ("the conversation, the memories, know-how and lines of your switched-on skills that fit it, your "
+            "project names and the details of the projects and clips it looks at. Never your files or their sound.")
     sent = (f"Stays on this computer: {label} answers it." if local else f"Sent over the internet to {label}: {what}")
     data: dict = {"tool": "talk", "provider": label, "sent": sent, "remote": not local}
     role = "ai"
@@ -733,12 +735,14 @@ def _change(ws: str, pid: str, text: str, base_revision: int | None) -> dict:
 
 
 def _question(ws: str, text: str) -> dict:
-    """Without a model: the one playbook that fits the question well answers it on its own."""
-    topic = knowhow.answer(text)
-    if topic:
-        return {"text": knowhow.answer_text(topic),
-                "data": {"tool": "answer", "used": [], "knowhow": [{"id": topic["id"], "title": topic["title"],
-                                                                    "score": topic["score"]}]}}
+    """Without a model: what fits the question best in the library (a craft playbook, the guide to ClipForge or one
+    of the owner's switched-on skills) answers it in its own words, with the page to open."""
+    got = library.answer(text, ws)
+    if got:
+        data = {"tool": "answer", "used": [], "knowhow": got["found"].snapshot()}
+        if got["links"]:
+            data["links"] = got["links"]
+        return {"text": got["text"], "data": data}
     return {"text": NO_MODEL, "data": {"tool": "answer", "used": [], "knowhow": [], "setup": True}}
 
 

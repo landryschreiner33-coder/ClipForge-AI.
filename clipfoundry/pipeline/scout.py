@@ -47,8 +47,8 @@ RED_PENALTY = 6.0
 GREEN_BONUS = 2.0
 SCOUT_BONUS = 0.08          # stage-1 bonus for a moment the model named (about the weight of the relevance term)
 RESERVED = 4                # deep-stage places kept for the model's nominations
-KNOWHOW_CHARS = 1100
-MEMORY_CHARS = 500
+KNOWHOW_CHARS = 1300
+MEMORY_CHARS = 900
 FINALIST_CHARS = 700
 KINDS = ("story", "insight", "funny", "emotional", "controversial", "how_to")
 
@@ -89,12 +89,15 @@ class Brief:
     memories: str = ""
     memory_ids: list[str] = field(default_factory=list)
     taste: str = ""
+    steer: str = ""
 
     def text(self) -> str:
         parts = [f'The video: "{self.video_name[:120]}".' if self.video_name else "",
                  f"A clip is {self.min_s:.0f} to {self.max_s:.0f} seconds long, ideally about {self.target_s:.0f}."]
         if self.memories:
             parts.append(self.memories)
+        if self.steer:
+            parts.append(self.steer)
         if self.taste:
             parts.append(self.taste)
         if self.knowhow:
@@ -107,21 +110,29 @@ def brief(opts: dict, project: dict | None = None) -> Brief:
     built-in playbooks about picking a clip. Never fails the job."""
     b = Brief(str((project or {}).get("name") or opts.get("video_name") or ""), float(opts.get("min_duration", 20)),
               float(opts.get("max_duration", 60)), float(opts.get("target_duration", 35)))
+    ws = str((project or {}).get("workspace_id") or opts.get("workspace_id") or "")
+    # What the video is called is part of the question, so a gaming stream reads the gaming know-how and the
+    # owner's lessons about streams, and a podcast reads the ones about talk.
+    about = f"{b.video_name[:120]}: which moments make the best clips, what goes viral, hook, ending, stands alone"
     try:
-        from ..brain import knowhow
-        b.knowhow = knowhow.select("which moment makes a clip: hook, ending, stands alone", "clips", limit=3,
-                                   budget_chars=KNOWHOW_CHARS).prompt()
+        from ..brain import library
+        b.knowhow = library.search(about, ws, task="clips", limit=4, budget_chars=KNOWHOW_CHARS, settings=opts,
+                                   fill=True).prompt()
     except Exception:  # noqa: BLE001
         log.exception("know-how failed")
-    ws = (project or {}).get("workspace_id")
+    try:
+        from ..brain import steer
+        b.steer = steer.brief_line(opts.get("brain_steer") or {})
+    except Exception:  # noqa: BLE001
+        log.exception("the Brain's picking line failed")
     if ws:
         try:
             from .. import brain as ai_brain
-            rec = ai_brain.recall("which clips to pick from this video", ws, project_id=str(project.get("id") or ""),
-                                  mode="clips", kinds=("rule", "fact"), limit=4, budget_chars=MEMORY_CHARS)
+            rec = ai_brain.recall(about, ws, project_id=str((project or {}).get("id") or ""),
+                                  mode="clips", kinds=("rule", "fact"), limit=6, budget_chars=MEMORY_CHARS)
             b.memories, b.memory_ids = rec.prompt(), list(rec.ids)
             if rec.ids:
-                ai_brain.record_use(ws, rec.ids, "clips", str(project.get("id") or ""))
+                ai_brain.record_use(ws, rec.ids, "clips", str((project or {}).get("id") or ""))
         except Exception:  # noqa: BLE001
             log.exception("recall failed")
         try:

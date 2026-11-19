@@ -31,15 +31,38 @@ def load_words(project: dict) -> list[dict]:
     return transcribe.flatten_words(data) if data else []
 
 
+def _brain_steer(opts: dict, project: dict, settings: dict) -> None:
+    """What the owner's Brain says about picking clips (brain/steer.py), read once per run: the kinds of moment it
+    looks for or passes over, and the clip lengths the owner told it. A length the owner chose for this very
+    project (one that differs from Settings) still wins over what the Brain remembers."""
+    from ..brain import steer
+
+    st = steer.build(opts["workspace_id"], str(project.get("id") or ""))
+    opts["brain_steer"] = st
+    if not st.get("length"):
+        return
+    chosen = project.get("options") or {}
+    keys = ("min_duration", "max_duration", "target_duration")
+    if any(chosen.get(k) is not None and settings.get(k) is not None and float(chosen[k]) != float(settings[k])
+           for k in keys):
+        st["length"] = {**st["length"], "kept": "this project's own lengths"}
+        return
+    before = tuple(opts[k] for k in keys)
+    lo, hi, mid = steer.lengths(st, before[0], before[1], before[2])
+    opts["min_duration"], opts["max_duration"], opts["target_duration"] = lo, hi, mid
+    st["length"] = {**st["length"], "before": list(before), "after": [lo, hi, mid]}
+
+
 def _options(project: dict, settings: dict, *, words: list[dict] | None = None) -> dict:
     opts = dict(settings)
     opts.update({k: v for k, v in (project.get("options") or {}).items() if v is not None})
     opts["origin"] = project.get("origin") or "manual"  # Autopilot work is unattended (pipeline/nvidia.py)
     opts["workspace_id"] = str(project.get("workspace_id") or "local")  # taste.py: whose choices to learn from
-    opts["min_duration"] = float(opts.get("min_duration", 20))
-    opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 60)))
-    opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 35))))
+    opts["min_duration"] = float(opts.get("min_duration", 25))
+    opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 90)))
+    opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 45))))
     opts["clip_count"] = int(opts.get("clip_count", 5))
+    _brain_steer(opts, project, settings)
     from ..autopilot import brain, knowledge
 
     opts["brain_base_target_duration"] = opts["target_duration"]
@@ -296,6 +319,7 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
             category=r["category"], score=r["score"], scores=r["scores"], score_source=r["score_source"],
             reason=r["reason"], analysis={**virality.summary(r["analysis"]),
                                         "brain_knowledge": list(r.get("brain_knowledge") or []),
+                                        **_brain_length(p.opts),
                                         **({"judge": r["judge"]} if r.get("judge") else {}),
                                         **({"taste": r["taste"]} if r.get("taste") else {}),
                                         **({"scout": r["scout"]} if r.get("scout") else {}),
@@ -305,7 +329,32 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
             post=post, edit={}, status="queued",
             duration=round(end - start, 2), **stable,
         ))
+    _count_brain_uses(p, chosen)
     return rows
+
+
+def _brain_length(opts: dict) -> dict:
+    """The clip lengths the owner told the Brain, when they set this run's lengths: kept with each clip."""
+    length = (opts.get("brain_steer") or {}).get("length") or {}
+    if not length.get("after"):
+        return {}
+    return {"brain_length": {"by": length.get("by") or {}, "before": length["before"], "after": length["after"]}}
+
+
+def _count_brain_uses(p: Prepared, chosen: list[dict]) -> None:
+    """The memories that steered the clips just made were used: count it, so Brain → Memory shows where."""
+    from .. import brain as ai_brain
+    from ..brain import steer
+
+    try:
+        ids = steer.memory_ids(chosen)
+        by = _brain_length(p.opts).get("brain_length", {}).get("by") or {}
+        if by.get("from") == "memory" and by.get("id"):
+            ids.append(by["id"])
+        if ids:
+            ai_brain.record_use(p.opts["workspace_id"], ids, "clips", p.id)
+    except Exception:  # noqa: BLE001 - counting a use never fails the clips
+        log.exception("could not count the Brain's uses")
 
 
 def render_clips(p: Prepared, clip_rows: list[dict], ctx: JobContext, lo: float = P_SCORE,
