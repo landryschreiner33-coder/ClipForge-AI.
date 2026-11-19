@@ -1,26 +1,33 @@
 # ClipForge downloads
 
-## Windows setup (ClipForge 2026.11.16.2: the cloud computer gets its own section in Settings, November 16, 2026)
+## Windows setup (ClipForge 2026.11.19: live clips, channels and a smarter ClipForge AI, November 19, 2026)
 
 Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
 **Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
 keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
 needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `fa5e1396eaec78387b5ab22432926e9fed4e0773`: the 2026.11.16 release plus
-PR #55 (Settings, Cloud computer: the rented cloud computer for pictures and video has its own place in the Settings
-list, and Settings, Pictures, video, voice points to it). The 77 setup tests passed, and all 872 app files were
-compared with that commit (six `.bat` files differ only by the declared CRLF export).
-[Windows setup check run 44020274850](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44020274850)
-installed the previous release (f3aea38) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
-ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 872
-installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
-was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
-GPUs, the built-in model, ComfyUI and its models, a real live stream, a real rented cloud computer, the built-in
-voice, real AI keys on a PC and real uploads are not tested.
+It installs ClipForge from source commit `150978b206134584f7406de6af34a14f0263c452`: the 2026.11.16.2 release plus
+PR #58 (choose which channels each post goes to), PR #57 (live clips: quality over quantity, split view for face
+cams, take turns between channels, Stop clipping) and PR #59 (a smarter chat, clip picking that follows the Brain,
+longer clips, lessons from posted results and post text rules), with the Mac release notes for 2026.11.19 (PR #60).
+The 77 setup tests passed, and all 889 app files were compared with that commit (six `.bat` files differ only by the
+declared CRLF export). The Windows setup check installs the previous release (fa5e139) with a synthetic setting on a
+GitHub Windows Server 2025 runner, then this ZIP over it; its result is recorded in `verification-windows.json` once
+it has passed. FFmpeg is not installed there, so no video is processed on Windows; Windows 10/11 desktops, Windows
+security acceptance, GPUs, the built-in model, ComfyUI and its models, a real live stream and face cam, a real
+rented cloud computer, the built-in voice, real AI keys on a PC and real uploads to one or more channels are not
+tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+### Previous Windows setup (the cloud computer gets its own section in Settings, November 16, 2026)
+
+Source commit `fa5e1396eaec78387b5ab22432926e9fed4e0773`, kept at
+https://github.com/landryschreiner33-coder/ClipForge-AI./raw/eceeeb15fe63eb892cfe375adfda532e135925f4/ClipForge-Windows-Setup.zip
+(50,221,270 bytes, SHA-256 `e6f0c8014cb44f38fe98e5807dea5674c875ab4a339e164dc28bd31a32aea859`), checked by
+[Windows setup check run 44020274850](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44020274850).
 
 ### Previous Windows setup (clip live streams while they are live, November 16, 2026)
 

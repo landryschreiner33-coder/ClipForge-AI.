@@ -1,5 +1,14 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-19: live clips, channels and a smarter ClipForge AI (ClipForge 2026.11.19)
+
+The setup ZIP now installs source commit `150978b206134584f7406de6af34a14f0263c452`: the 2026.11.16.2 release plus
+PR #58 (choose which channels each post goes to), PR #57 (live clip quality, split view, take turns between
+channels, Stop clipping), PR #59 (smarter chat, Brain-led clip picking, longer clips, lessons from results, post
+text rules) and the Mac release notes (PR #60). start.bat is unchanged, so its pin and upgrade fixtures are the
+same. 77 launcher tests passed. All 889 app files equal the Git tree except the six declared BAT CRLF exports. The
+Windows install check now installs the 2026.11.16.2 release (fa5e139, raw/eceeeb1) first, then this one over it.
+
 ## 2026-11-17 (Nov 16 in Chicago): the cloud computer gets its own section in Settings (ClipForge 2026.11.16.2)
 
 The setup ZIP now installs source commit `fa5e1396eaec78387b5ab22432926e9fed4e0773`: the 2026.11.16 release plus
