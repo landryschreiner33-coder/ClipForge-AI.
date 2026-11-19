@@ -95,7 +95,7 @@ export default function Studio() {
     <div className={`page studio-page studio-space ship-${appearance.office_size}`}>
       <h1 className="sr-only" tabIndex={-1}>Studio</h1>
       {problem && <Banner tone="warn" title="Could not load your projects">{problem}</Banner>}
-      <div className="studio-grid">
+      <div className="studio-layout">
         <section className="studio-ship" aria-labelledby="studio-office">
           <div className="studio-sky" aria-hidden="true"><BlackHole size="large" /></div>
           {shown("office") ? (
@@ -256,7 +256,7 @@ function stageWords(i: LibraryItem): string {
 /** Everything ClipForge makes, one press away (the owner, 2026-11-19: "make everything easily accessible"). The same
  * four choices as + Make at the top of every page. */
 const MAKE_CHOICES: { href: string; icon: IconName; title: string; words: string }[] = [
-  { href: "#/create/clips", icon: "scissors", title: "Make clips", words: "Highlights, full stories or story parts" },
+  { href: "#/create/clips", icon: "scissors", title: "Make clips", words: "The best moments, or whole stories" },
   { href: "#/create/video", icon: "video", title: "Make a YouTube video", words: "Your files and your idea" },
   { href: "#/create/short", icon: "spark", title: "Make an animated short", words: "Moving pictures and a voice-over" },
   { href: "#/missions/live", icon: "live", title: "Clip a live stream", words: "Clips while it is still live" },
@@ -342,7 +342,8 @@ function NowMaking({ item, ready, jobs, roles, loading, paused, onRobot }: {
           ))}
         </div>
       )}
-      <a className={`btn btn-wide ${item ? "btn-outline" : "btn-primary"}`} href={shown.href}>
+      <a className={`btn btn-wide ${item ? "btn-outline" : "btn-primary"}`}
+        href={item ? shown.href : `${shown.href}/clips`}>
         {item ? <Icon name="external" /> : <Icon name="play" />}{open}</a>
     </section>
   );

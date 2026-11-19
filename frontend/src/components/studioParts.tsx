@@ -38,8 +38,9 @@ const PARALLEL = 3;
 /** File drop + picker. Any number of files, in as many batches as you like: each uploads in resumable chunks, a few
  * at a time, and each row shows bytes received (never a guess), with cancel and resume. `onUploaded` hears of every
  * finished upload, also one whose row is gone (another file picked instead while it was still uploading). */
-export function FileDrop({ accept, multiple, label, onAssets, onPicked, onUploaded }: { accept: string; multiple?: boolean;
-  label: string; onAssets: (rows: Picked[]) => void; onPicked?: (keys: string[]) => void; onUploaded?: (asset: Asset) => void }) {
+export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, onUploaded }: { accept: string;
+  multiple?: boolean; label: string; button?: string; onAssets: (rows: Picked[]) => void;
+  onPicked?: (keys: string[]) => void; onUploaded?: (asset: Asset) => void }) {
   const [rows, setRows] = useState<Picked[]>([]);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -119,7 +120,8 @@ export function FileDrop({ accept, multiple, label, onAssets, onPicked, onUpload
         onDragLeave={() => setOver(false)} onDrop={drop}>
         <Icon name="upload" size={28} />
         <span>{label}</span>
-        <button type="button" className="btn" onClick={() => input.current?.click()}>Choose {multiple ? "files" : "a file"}</button>
+        <button type="button" className="btn" onClick={() => input.current?.click()}>
+          {button || `Choose ${multiple ? "files" : "a file"}`}</button>
         <input ref={input} type="file" accept={accept} multiple={multiple} hidden onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
       </div>
       {rows.length > 0 && !multiple && rows.map((r) => <UploadRow key={r.key} row={r} onRetry={() => start(r.key)} />)}

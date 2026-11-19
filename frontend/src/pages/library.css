@@ -65,3 +65,19 @@
 /* add video */
 .drop-actions { display: flex; flex-wrap: wrap; gap: var(--s2); justify-content: center; }
 .next-line { flex: 1 1 260px; }
+
+/* Your clips are ready (the space studio, 2026-11-19): the next step after making clips, right under the title.
+   Review clips brings the clips' heading into view below the sticky top bar and focuses it. */
+.ready-strip {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s4); padding: var(--s4) var(--s5);
+  border: 1px solid color-mix(in srgb, var(--good) 55%, var(--line-strong)); border-radius: var(--r-panel);
+  background: color-mix(in srgb, var(--good) 8%, rgba(5, 8, 20, 0.6));
+}
+.ready-mark {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--good); color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent);
+}
+.ready-words { flex: 1 1 260px; min-width: 0; }
+.ready-words h2 { margin: 0; font-size: 1.25rem; }
+.ready-words p { margin: 2px 0 0; }
+.source-video-page #clips-h { scroll-margin-top: 112px; }

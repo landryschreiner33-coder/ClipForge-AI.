@@ -55,7 +55,7 @@ function page(route: Route) {
     case "create": return id === "video" ? <MakeVideo key={route.parts[2] || "new"} id={route.parts[2] || ""} /> : id === "short" ? <MakeShort /> : id === "transcript" ? <Create />
       : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
-    case "project": return <ProjectView id={id} key={id} />;
+    case "project": return <ProjectView id={id} key={id} focus={route.parts[2] || ""} />;
     case "clip": return <ClipEditor id={id} key={id} />;
     case "publish": return <PublishPage id={id} key={id} />;
     case "video": return <VideoReview id={id} key={id} />;
@@ -222,7 +222,7 @@ function Shell({ me }: { me: Me }) {
                 aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
                 <div role="menu" aria-label="Make">
-                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights, full stories or story parts, vertical</span></a>
+                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>The best moments, or each story from start to finish</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>Drop in your files and tell ClipForge AI your idea</span></a>
                   <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
                   <a role="menuitem" href="#/missions/live" onClick={() => setMakeOpen(false)}><b>Clip a live stream</b><span>Clips while it is live, one or several streams at once</span></a>

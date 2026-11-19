@@ -14,6 +14,7 @@ import {
   usePoll,
 } from "../components/ui";
 import { ESTIMATE_NOTE, QualitySummary, ViralPanel } from "../components/viral";
+import { useMotion } from "../motion";
 import { navigate } from "../router";
 import type { LinkProblem } from "../studio";
 import StoryReview from "../components/StoryReview";
@@ -23,7 +24,7 @@ import "./library.css";
 // The five real steps of making clips, and the backend stage names that belong to each.
 const STAGES = ["Prepare", "Transcribe", "Find moments", "Score & hooks", "Render 9:16"];
 const STAGE_STEP: Record<string, number> = {
-  queued: -1, download: 0, probe: 0, audio: 0, transcribe: 1, candidates: 2, scoring: 3, render: 4, done: 5,
+  queued: -1, download: 0, probe: 0, audio: 0, transcribe: 1, candidates: 2, stories: 2, scoring: 3, render: 4, done: 5,
 };
 
 const clipBusy = (c: Clip) => c.status === "rendering" || c.status === "queued";
@@ -54,15 +55,33 @@ function languageName(code: string): string {
   }
 }
 
-export default function ProjectView({ id }: { id: string }) {
+/** One clips project. Opened at #/project/{id}/clips (Review clips in Studio), it goes straight to the clips. */
+export default function ProjectView({ id, focus = "" }: { id: string; focus?: string }) {
   const { data: p, error, refresh, setData } =
     usePoll(() => api.project(id) as Promise<LibProject>, [id], 1500, pollWhile);
+  const { reduceMotion } = useMotion();
   const posts = useClipPosts([id]);
   const [preview, setPreview] = useState<Clip | null>(null);
   const [exporting, setExporting] = useState<Clip | null>(null);
   const [dialog, setDialog] = useState<"remake" | "delete" | null>(null);
   const [zipping, setZipping] = useState(false);
   const [posting, setPosting] = useState<Clip[] | null>(null);
+
+  // Review clips: the clips' heading comes into view and takes the keyboard focus, so Tab goes on to the first clip.
+  const reviewClips = () => {
+    const heading = document.getElementById("clips-h");
+    if (!heading) return;
+    heading.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    heading.focus({ preventScroll: true });
+  };
+  const jumped = useRef(false);
+  const clipCount = p?.clips?.length || 0;
+  useEffect(() => {
+    if (focus !== "clips" || jumped.current || !clipCount) return;
+    jumped.current = true;
+    const frame = requestAnimationFrame(reviewClips);
+    return () => cancelAnimationFrame(frame);
+  }, [focus, clipCount]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Say when the work this page shows has finished (once, not on every poll).
   const was = useRef("");
@@ -155,6 +174,17 @@ export default function ProjectView({ id }: { id: string }) {
           )}
           <MoreMenu label="More for this video" items={menu} />
         </>} />
+      {p.status === "ready" && ready.length > 0 && (
+        <section className="ready-strip" aria-labelledby="ready-h">
+          <span className="ready-mark" aria-hidden="true"><Icon name="check" /></span>
+          <div className="ready-words">
+            <h2 id="ready-h">Your clips are ready</h2>
+            <p className="small muted">{plural(ready.length, "clip")} to watch, change, save to your computer or post.</p>
+          </div>
+          <button type="button" className="btn btn-primary btn-large" onClick={reviewClips}>
+            <Icon name="play" />Review clips</button>
+        </section>
+      )}
       {(p as Project & { clip_mode?: string }).clip_mode === "full_stories" && <StoryReview projectId={p.id} version={p.updated_at} onChange={refresh} />}
 
       {p.status === "error" && linkProblem && (
@@ -234,7 +264,7 @@ export default function ProjectView({ id }: { id: string }) {
         <section className="stack-4" aria-labelledby="clips-h">
           <div className="panel-head">
             <div className="section-title">
-              <h2 id="clips-h">Clips made from it ({clips.length})</h2>
+              <h2 id="clips-h" tabIndex={-1}>Clips made from it ({clips.length})</h2>
               <span className="small muted">Each clip is its own 9:16 video. Posts are made from clips.</span>
             </div>
             <div className="row wrap">

@@ -200,11 +200,11 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
 
 /* ------------------------------------------------------------------ the Studio page */
 .page.studio-space { max-width: 1480px; display: grid; gap: var(--s6); }
-.studio-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 380px); grid-template-rows: auto 1fr;
+.studio-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 380px); grid-template-rows: auto 1fr;
   grid-template-areas: "ship make" "ship side"; gap: var(--s5) var(--s6); align-items: start; }
-.studio-grid > .studio-ship { grid-area: ship; }
-.studio-grid > .studio-make { grid-area: make; }
-.studio-grid > .studio-side { grid-area: side; }
+.studio-layout > .studio-ship { grid-area: ship; }
+.studio-layout > .studio-make { grid-area: make; }
+.studio-layout > .studio-side { grid-area: side; }
 
 /* Make something: the four kinds of work, each one big press away */
 .studio-make { display: grid; gap: var(--s3); padding-top: var(--s2); }
@@ -299,7 +299,7 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
 .studio-band h2 { margin: 0; font-size: 1.375rem; }
 
 @media (max-width: 1100px) {
-  .studio-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "make" "ship" "side"; }
+  .studio-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "make" "ship" "side"; }
   .studio-make ul { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
   .studio-sky { height: 84px; margin-top: 0; }
   .studio-side { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s5) var(--s6); }

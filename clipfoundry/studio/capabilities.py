@@ -60,7 +60,7 @@ class Field:
 ALL = MODES
 FIELDS: dict[str, Field] = {f.name: f for f in (
     Field("caption_style", "Caption style", "choice", ALL, tuple(config.CAPTION_STYLES),
-          applies="burned-in captions"),
+          applies="burned-in captions", words={"high_energy": "high energy"}),
     Field("caption_position", "Caption position", "choice", ALL, ("bottom", "middle", "top"),
           applies="caption placement", words={"bottom": "lower third", "middle": "centre", "top": "top",
                                               "above": "above the picture"}),  # story clips' own (guidance.py)
@@ -72,7 +72,9 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
     Field("layout", "Framing", "choice", ALL, tuple(config.LAYOUTS), applies="fill the frame or fit with a "
           "blurred background", words={"fill": "fill the frame", "fit": "fit with blurred background"}),
     Field("tracking", "Subject tracking", "choice", CLIP_MODES, ("auto", "center", "face", "speaker", "screen"),
-          applies="which subject the vertical frame follows"),
+          applies="which subject the vertical frame follows",
+          words={"auto": "automatic", "center": "the middle", "speaker": "whoever is speaking",
+                 "screen": "screen content"}),
     Field("feel", "Feel", "choice", ("full_video",), ("calm", "balanced", "energetic"),
           applies="transition type and length", words={"calm": "calm / storytelling", "balanced": "balanced",
                                                         "energetic": "energetic"}),
