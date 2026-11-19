@@ -1,0 +1,119 @@
+/* Accounts (pages/Accounts.tsx) in the space studio (2026-11-19): the YouTube card with the satellite over the Earth,
+   the TikTok row and the line that says where sign-in tokens are kept. The art is decoration only. This file can load
+   before styles.css, so rules that must beat a shared class name their parent too. */
+.page.acc-space { max-width: 1480px; gap: var(--s5); }
+.acc-space .page-head p { font-size: 1.125rem; color: var(--text); }
+
+.acc-platform { display: flex; align-items: center; gap: 14px; margin: 0; font-size: 1.5rem; }
+.acc-logo { display: inline-grid; place-items: center; flex: none; width: 46px; height: 32px; border-radius: 9px; }
+.acc-logo.youtube { background: #f2202b; color: #fff; }
+.acc-logo.youtube .icon { width: 18px; height: 18px; }
+.acc-logo.tiktok {
+  width: 40px; height: 40px; background: #07070c; border: 1px solid var(--line-strong); color: #fff; font-size: 22px;
+  text-shadow: -2px -1px 0 #25f4ee, 2px 1px 0 #fe2c55;
+}
+
+/* the YouTube card */
+.acc-hero {
+  position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start;
+  padding: 36px 40px 40px; min-height: 400px;
+  border: 1px solid var(--line-strong); border-radius: 16px;
+  background: linear-gradient(180deg, rgba(6, 10, 26, 0.74), rgba(6, 10, 26, 0.5));
+}
+.acc-hero > :not(.acc-art) { position: relative; max-width: min(100%, 58%); }
+.acc-art { position: absolute; inset: 0; pointer-events: none; }
+/* the picture's own sky fades into the card at its top (its left side already fades) */
+.acc-earth {
+  position: absolute; right: 0; bottom: 0; width: min(62%, 820px); height: auto;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 38%); mask-image: linear-gradient(180deg, transparent 0, #000 38%);
+}
+.acc-sat {
+  position: absolute; right: 10%; top: 16%; width: min(28%, 400px); height: auto;
+  animation: acc-drift 14s steps(14, end) infinite alternate;
+}
+/* a slow drift in small steps, like the ship's crew; it stays still when motion is reduced */
+@keyframes acc-drift { from { transform: translate(0, 0) rotate(-2deg); } to { transform: translate(-14px, 10px) rotate(1deg); } }
+.acc-skel { width: min(100%, 520px); height: 140px; margin-top: 28px; border-radius: 14px; }
+.acc-main { display: flex; align-items: center; gap: 24px; margin-top: 28px; min-width: 0; }
+.acc-main-words { min-width: 0; }
+.acc-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex: none; border: 2px solid var(--line-strong); }
+.acc-avatar.big { width: 112px; height: 112px; border: 3px solid rgba(225, 230, 255, 0.75); }
+.acc-avatar.none { display: grid; place-items: center; background: #0d1226; color: var(--text-2); }
+.acc-avatar.none .icon { width: 50%; height: 50%; }
+.acc-name { margin: 0; font-size: clamp(1.75rem, 3.2vw, 3rem); font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
+.acc-real { margin: 4px 0 0; color: var(--text-2); }
+.acc-states { display: flex; flex-wrap: wrap; align-items: center; row-gap: 6px; margin: 12px 0 0; font-size: 1.25rem; }
+.acc-states > span { display: inline-flex; align-items: center; gap: 10px; padding: 0 18px; border-left: 1px solid var(--line-strong); }
+.acc-states > span:first-child { padding-left: 0; border-left: 0; }
+.acc-states .icon { width: 24px; height: 24px; }
+.acc-ok .icon { color: var(--good); }
+.acc-warn .icon { color: var(--warn); }
+.acc-default .icon { color: #ffc93c; }
+.acc-fix { margin: 14px 0 0; color: var(--warn); max-width: 62ch; }
+.acc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s4); margin-top: 36px; }
+.acc-space .acc-actions .btn { min-height: 50px; padding: 0 22px; border-radius: 12px; font-size: 1.0625rem; }
+.acc-space .acc-manage-btn { border-color: var(--primary); }
+.acc-space .acc-manage-btn .icon { transition: transform 160ms ease; }
+.acc-space .acc-manage-btn[aria-expanded="true"] .icon { transform: rotate(90deg); }
+.acc-space .acc-add { background: transparent; border-color: transparent; box-shadow: none; }
+.acc-space .acc-add:hover { border-color: var(--line-strong); }
+.acc-none { display: grid; gap: 8px; margin-top: 28px; }
+.acc-none p { margin: 0; }
+.acc-none p.muted { font-size: 1.0625rem; }
+.acc-none .acc-actions { margin-top: 20px; }
+.acc-manage {
+  display: grid; gap: var(--s3); margin-top: var(--s4); padding: var(--s4); width: min(100%, 640px);
+  border: 1px solid var(--line-strong); border-radius: 12px; background: rgba(5, 8, 20, 0.82);
+}
+.acc-manage p { margin: 0; }
+.acc-manage .row-actions { justify-content: flex-start; flex-wrap: wrap; }
+.acc-id { overflow-wrap: anywhere; }
+
+/* other channels and TikTok accounts */
+.acc-rows { list-style: none; margin: var(--s5) 0 0; padding: 0; width: 100%; border-top: 1px solid var(--line-strong); }
+.acc-row { padding: var(--s3) 0; border-bottom: 1px solid var(--line-strong); }
+.acc-row-line { display: flex; align-items: center; gap: var(--s4); min-width: 0; }
+.acc-row-words { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.acc-row-words b { font-size: 1.125rem; overflow-wrap: anywhere; }
+.acc-row .acc-states { margin: 0; font-size: 0.9375rem; }
+.acc-row .acc-states .icon { width: 18px; height: 18px; }
+.acc-space .acc-row .acc-manage-btn { min-height: 40px; padding: 0 16px; border-radius: 10px; }
+
+.acc-tiktok { padding: 16px 28px; border: 1px solid var(--line-strong); border-radius: 16px; background: rgba(6, 10, 26, 0.6); }
+.acc-tiktok-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s4) var(--s5); }
+.acc-tiktok-none {
+  display: flex; align-items: center; min-height: 40px; margin: 0; padding-left: var(--s5);
+  border-left: 1px solid var(--line-strong); font-size: 1.125rem;
+}
+.acc-space .acc-tiktok-head .btn { margin-left: auto; min-height: 46px; padding: 0 20px; border-radius: 12px; border-color: var(--primary);
+  font-size: 1.0625rem; }
+.acc-tiktok .acc-rows { margin-top: var(--s3); }
+
+.acc-store {
+  display: flex; align-items: center; gap: 14px; margin: var(--s3) 0 0; padding-top: var(--s5);
+  border-top: 1px solid var(--line-strong); font-size: 1.0625rem; color: var(--text);
+}
+.acc-store .icon { width: 24px; height: 24px; flex: none; color: var(--text-2); }
+
+@media (max-width: 1100px) {
+  .acc-hero > :not(.acc-art) { max-width: min(100%, 66%); }
+  .acc-sat { right: 4%; top: 22%; width: min(30%, 300px); }
+}
+/* a phone: the satellite and the Earth become a band above the channel */
+@media (max-width: 760px) {
+  .acc-hero { padding: 0 20px 24px; min-height: 0; }
+  .acc-hero > :not(.acc-art) { max-width: 100%; }
+  .acc-art { position: relative; display: block; width: calc(100% + 40px); height: 150px; margin: 0 -20px 12px; }
+  .acc-earth { width: 100%; height: 100%; object-fit: cover; object-position: 70% 100%; -webkit-mask-image: none; mask-image: none; }
+  .acc-sat { right: 50%; top: 14px; width: 190px; margin-right: -95px; }
+  .acc-main { gap: 16px; }
+  .acc-avatar.big { width: 72px; height: 72px; }
+  .acc-states { font-size: 1.0625rem; column-gap: 16px; }
+  .acc-states > span { padding: 0; border-left: 0; }
+  .acc-row-line { flex-wrap: wrap; }
+  .acc-row-words { flex: 1 1 160px; }
+  .acc-actions { margin-top: 24px; }
+  .acc-tiktok { padding: 16px 18px; }
+  .acc-tiktok-none { padding-left: 0; border-left: 0; flex-basis: 100%; }
+  .acc-space .acc-tiktok-head .btn { margin-left: 0; }
+}
