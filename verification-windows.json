@@ -12,7 +12,7 @@
   "app_files": 953,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
-  "native_windows_verified": false,
+  "native_windows_verified": true,
   "file": "ClipForge-Windows-Setup.zip",
   "date": "2026-11-20",
   "timezone": "UTC",
@@ -28,12 +28,30 @@
   "payload_review": "All 953 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
-    "status": "pending",
-    "note": "runs on this push; the result is recorded here once it has passed"
+    "status": "passed",
+    "run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44816196313",
+    "commit": "2322e29352d5879e3876f2d5423209e0853f35ea",
+    "runner": "GitHub windows-2025 (Windows Server 2025), CPython 3.12 64-bit",
+    "downloaded_from": "this branch's public raw URL; SHA-256 matched",
+    "steps": [
+      "previous release (0597fef, raw/70f3450) installed with a synthetic setting, then closed",
+      "this ZIP installed over it, keeping the previous data folder and the setting",
+      "marker records source commit 72af02d; all 953 installed app files equal app.zip",
+      "the running app served this commit's index.html and app-icon.png byte for byte",
+      "closed and reopened: same folder, no second extraction, setting still there"
+    ],
+    "not_covered": [
+      "FFmpeg is not installed on the runner, so no video was processed on Windows",
+      "Windows 10/11 desktop, Defender/SmartScreen acceptance, GPUs, the moving sky and the turning black hole on a Windows screen, a real graphics-chip reset, the built-in model, ComfyUI and its models, a real live stream and face cam, a real rented cloud computer, the built-in voice and real AI keys on a PC, real accounts and uploads to one or more channels"
+    ]
   },
   "app_tests": {
-    "branch": "claude/project-thread-t2bntx at 72af02d (PR #66): the release line at d3518f7 (PR #65, the moving sky, merged on top of the 2026.11.19.2 release and its records 07569cd) plus the Mac release notes for 2026.11.20",
-    "github_run": "pending: the Native Mac desktop app run 44815897634 on 72af02d is recorded here once it has passed",
+    "branch": "claude/project-thread-t2bntx at 72af02d (PR #66): the release line at d3518f7 (PR #65, the moving sky, merged on top of the 2026.11.19.2 release and its records 07569cd) plus the Mac release notes for 2026.11.20; merged into claude/project-thread-x72wkd as f711d0f with the same tree",
+    "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44815897634",
+    "github_run_result": "native Mac build and bundled-app smoke passed; fast suite 3,109 passed (2 skipped); slow suite 31 passed (1 skipped)",
+    "github_fast": 3109,
+    "github_slow": 31,
+    "fact_check": "Mac notes and download page text checked against 72af02d sentence by sentence, then by four checkers and a skeptic per finding: one gap confirmed (the hold-still settings had not been tried in a browser for this version), closed by trying them on the built app before publishing",
     "pr65_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44805638692",
     "pr65_run_result": "on 01d74d3 (same tree as d3518f7): native Mac build, bundled-app smoke and both regression suites passed"
   }

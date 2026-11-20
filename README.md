@@ -11,12 +11,16 @@ It installs ClipForge from source commit `72af02d2d04d0b6786d65f8f813f3801686f77
 #65 (the moving sky: the stars stream past as if the ship were flying, the black hole's disk turns, pages and tabs fade
 in, and pictures come back after a graphics-chip reset), with the Mac release notes for 2026.11.20 (PR #66). The 77
 setup tests passed, and all 953 app files were compared with that commit (six `.bat` files differ only by the declared
-CRLF export). The Windows setup check installs the previous release (0597fef) with a synthetic setting on a GitHub
-Windows Server 2025 runner, then this ZIP over it; its result is recorded in `verification-windows.json` once it has
-passed. FFmpeg is not installed there, so no video is processed on Windows; Windows 10/11 desktops, Windows security
-acceptance, GPUs, the moving sky and the turning black hole on a Windows screen, a real graphics-chip reset, the
-built-in model, ComfyUI and its models, a real live stream and face cam, a real rented cloud computer, the built-in
-voice, real AI keys on a PC and real uploads to one or more channels are not tested.
+CRLF export). [Windows setup check run
+44816196313](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44816196313) installed the previous
+release (0597fef) with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over it: the new folder
+kept the same data folder and setting, served this commit's page and icon, all 953 installed files matched, and it
+closed and reopened without a second copy. See `verification-windows.json`. The app passed the Native Mac desktop app
+run 44815897634 on the same commit (fast suite 3,109 passed, slow suite 31 passed). FFmpeg is not installed on the
+Windows runner, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs, the
+moving sky and the turning black hole on a Windows screen, a real graphics-chip reset, the built-in model, ComfyUI and
+its models, a real live stream and face cam, a real rented cloud computer, the built-in voice, real AI keys on a PC and
+real uploads to one or more channels are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
