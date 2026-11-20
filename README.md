@@ -1,29 +1,32 @@
 # ClipForge downloads
 
-## Windows setup (ClipForge 2026.11.19: live clips, channels and a smarter ClipForge AI, November 19, 2026)
+## Windows setup (ClipForge 2026.11.19.2: the space studio, November 19, 2026)
 
 Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
 **Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
 keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
 needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `13e1fcbb430dabfcee461fc191c04376c841dc58`: the 2026.11.16.2 release plus PR
-#58 (choose which channels each post goes to), PR #57 (live clips: quality over quantity, split view for face cams,
-take turns between channels, Stop clipping) and PR #59 (a smarter chat, clip picking that follows the Brain, longer
-clips, lessons from posted results and post text rules), with the Mac release notes for 2026.11.19 and the privacy
-page and Terms corrected (PR #60). The 77 setup tests passed, and all 889 app files were compared with that commit
-(six `.bat` files differ only by the declared CRLF export). [Windows setup check run
-44599233122](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44599233122) installed the
-previous release (fa5e139) with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over it:
-the new folder kept the same data folder and setting, served this commit's page and icon, all 889 installed files
-matched, and it closed and reopened without a second copy. See `verification-windows.json`. The app passed the Native
-Mac desktop app run 44599070088 on the same commit (fast suite 3,105 passed, slow suite 31 passed). FFmpeg is not
-installed on the Windows runner, so no video was processed on Windows; Windows 10/11 desktops, Windows security
-acceptance, GPUs, the built-in model, ComfyUI and its models, a real live stream and face cam, a real rented cloud
+It installs ClipForge from source commit `36efa8bbfc2eb035d54921f13f820085b9b676bc`: the 2026.11.19 release plus PR
+#62 (the space studio: a cutaway ship with 25 robots beside what is being made, Talk to AI under Studio, Make clips
+in three steps, the Brain's knowledge map as a lightning galaxy, and new Projects, Publishing, Accounts and
+Appearance pages), with the Mac release notes for 2026.11.19.2 (PR #63). The 77 setup tests passed, and all 948 app
+files were compared with that commit (six `.bat` files differ only by the declared CRLF export). The Windows setup
+check installs the previous release (13e1fcb) with a synthetic setting on a GitHub Windows Server 2025 runner, then
+this ZIP over it; its result is recorded in `verification-windows.json` once it has passed. FFmpeg is not installed
+there, so no video is processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs, the new look
+on a Windows screen, the built-in model, ComfyUI and its models, a real live stream and face cam, a real rented cloud
 computer, the built-in voice, real AI keys on a PC and real uploads to one or more channels are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+### Previous Windows setup (live clips, channels and a smarter ClipForge AI, November 19, 2026)
+
+Source commit `13e1fcbb430dabfcee461fc191c04376c841dc58`, kept at
+https://github.com/landryschreiner33-coder/ClipForge-AI./raw/7122cce8084adcafb20554905c960a2ecca90ba8/ClipForge-Windows-Setup.zip
+(50,448,541 bytes, SHA-256 `a46cd22df7f435baf311e26d40ef261c1968d08795a2d1fdedfa819036f4b333`), checked by
+[Windows setup check run 44599233122](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44599233122).
 
 ### Previous Windows setup (the cloud computer gets its own section in Settings, November 16, 2026)
 
