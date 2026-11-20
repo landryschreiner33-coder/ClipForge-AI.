@@ -18,7 +18,7 @@ export default function Portrait({ id, pose = "idle", dir, frame, scale = 3, lab
     const cv = ref.current!;
     const ctx = cv.getContext("2d");
     if (!ctx) return;
-    let active = true, timer: ReturnType<typeof setInterval> | null = null;
+    let active = true, timer: ReturnType<typeof setInterval> | null = null, repaint: (() => void) | null = null;
     const still = !animate || reduceMotion || pageHidden;
     const seed = id.length * 397;
     const walk = dir === "left" ? "walk_left" : "walk_right";
@@ -36,8 +36,15 @@ export default function Portrait({ id, pose = "idle", dir, frame, scale = 3, lab
       };
       paint();
       if (!still && !frame) timer = setInterval(paint, 125);
+      // a reset of the graphics chip (Windows paints canvases on it) gives a still portrait back empty
+      repaint = paint;
+      cv.addEventListener("contextrestored", paint);
     }).catch(() => { if (active) cv.dataset.art = "missing"; });
-    return () => { active = false; if (timer !== null) clearInterval(timer); };
+    return () => {
+      active = false;
+      if (timer !== null) clearInterval(timer);
+      if (repaint) cv.removeEventListener("contextrestored", repaint);
+    };
   }, [id, pose, dir, frame, animate, reduceMotion, pageHidden]);
   const canvas = (
     <canvas ref={ref} className="portrait" width={CELL.w} height={CELL.h}

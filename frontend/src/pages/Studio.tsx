@@ -1,4 +1,6 @@
-import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from "react";
 import { errorText } from "../api";
 import { ap, ScheduledItem } from "../autopilot";
 import { BlackHole } from "../components/BlackHole";
@@ -277,6 +279,33 @@ const PANEL_TABS: { id: PanelTab; label: string; icon: IconName }[] = [
 function StudioPanel({ tab, setTab, busy, now, make }: { tab: PanelTab; setTab: (t: PanelTab) => void; busy: number;
   now: ReactNode; make: ReactNode }) {
   const tabs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
+  const bar = useRef<HTMLDivElement>(null);
+  const chosen = useRef(tab);
+  chosen.current = tab;
+  // The highlight under the chosen tab (the owner, 2026-11-20: a smooth switch) is measured from the tab itself, so
+  // it fits whatever the tab holds (the count of what is being made, larger text). It slides when the tab changes and
+  // simply follows when the tabs change size.
+  const placePill = (slide: boolean) => {
+    const el = bar.current, on = tabs.current[chosen.current];
+    if (!el || !on) return;
+    const a = el.getBoundingClientRect(), b = on.getBoundingClientRect();
+    if (!slide) el.dataset.pill = "";
+    el.style.setProperty("--pill-x", `${b.left - a.left - el.clientLeft}px`);
+    el.style.setProperty("--pill-w", `${b.width}px`);
+    if (!slide) {
+      // take the new place before sliding is allowed again
+      void getComputedStyle(el, "::before").width;
+      el.dataset.pill = "slide";
+    }
+  };
+  useLayoutEffect(() => placePill(bar.current?.dataset.pill === "slide"), [tab]);
+  useEffect(() => {
+    if (typeof ResizeObserver !== "function" || !bar.current) return;
+    const watch = new ResizeObserver(() => placePill(false));
+    watch.observe(bar.current);
+    for (const b of Object.values(tabs.current)) if (b) watch.observe(b);
+    return () => watch.disconnect();
+  }, []);
   const onKey = (e: ReactKeyboardEvent) => {
     const at = PANEL_TABS.findIndex((t) => t.id === tab);
     const to = e.key === "ArrowRight" ? (at + 1) % PANEL_TABS.length
@@ -289,7 +318,7 @@ function StudioPanel({ tab, setTab, busy, now, make }: { tab: PanelTab; setTab: 
   };
   return (
     <>
-      <div className="side-tabs" role="tablist" aria-label="Studio panel" onKeyDown={onKey}>
+      <div ref={bar} className="side-tabs" role="tablist" aria-label="Studio panel" onKeyDown={onKey}>
         {PANEL_TABS.map((t) => (
           <button key={t.id} ref={(el) => { tabs.current[t.id] = el; }} type="button" role="tab" id={`side-tab-${t.id}`}
             className="side-tab" aria-selected={tab === t.id} aria-controls={`side-panel-${t.id}`}

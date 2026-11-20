@@ -18,6 +18,11 @@ export function galaxyCanvas(): HTMLCanvasElement {
   cv.width = cv.height = size;
   const g = cv.getContext("2d");
   if (!g) return (painted = cv);
+  // a reset of the graphics chip (Windows paints canvases on it) empties this one: the next call paints it again.
+  // Every canvas hears "lost" before any hears "restored", so a copy restored afterwards gets a fresh galaxy.
+  cv.addEventListener("contextlost", () => {
+    if (painted === cv) painted = null;
+  });
   let seed = 20261119;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const gauss = () => (rnd() + rnd() + rnd() + rnd() - 2) / 1.15;

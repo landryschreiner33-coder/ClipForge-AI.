@@ -1,5 +1,73 @@
 # AI changelog
 
+## Moving sky, turning black hole and smooth page changes — 2026-11-20 (Claude Code)
+
+Landry asked on November 20 (8:55 AM Chicago time): "give the backround animation like the stars and black hole and
+when you swich tabs have it be a smotth transition send me a video of what they look like", then (9:52 AM) "also make
+the backround animated like we are moving". Branch `claude/project-thread-t2bntx`, pull request #65 into the release
+line.
+
+- **The sky moves as if the ship were flying on to the right** (`components/starSky.ts`, `components/StarSky.tsx`,
+  `space.css`): the nebula holds still; the two tiles of small stars slide left (far 6, near 11 pixels a second),
+  moved by the browser's compositor with Web Animations, so the page does no work per frame; a canvas over them draws
+  brighter stars that twinkle and drift faster (10, 18 and 30 pixels a second), specks of dust rushing past (160 to
+  260, 16 to 26 px long, about one for every 75,000 square pixels) and a shooting star every 7 to 16 seconds (only
+  the next few are kept). The canvas redraws only the small squares that changed, 30 times a second (60 while a
+  shooting star crosses). The masthead keeps its own copy of the sky (`.sky-back`), its tiles shifted to line up with
+  the window's; a pixel comparison of the two differed by at most 6 of 255. The window's canvas is measured from its
+  own box, so a scrollbar that takes room (Windows, or a Mac with a mouse) no longer squeezes its stars out of line
+  with the masthead's copy, while the stars keep their places when a scrollbar comes or goes; a change of window size
+  repaints both copies, a still one too; a screen of another pixel density gets sharp canvases (`pixelRatio.ts`).
+- **The black hole's disk turns** (`components/blackHoleGl.ts`): every streak of the painted disk is drawn again each
+  frame on the graphics chip (WebGL), the inner streaks faster, with the same widths, colours and adding-up light; the
+  shadow picture masks the far side in the same pass. Points along each streak are spaced by the hole's size, so a
+  small hole draws far fewer. Without WebGL (or with only a slow one) the canvas painter shows the picture with its
+  travelling light. If frames come more than 45 ms apart through two 2.5-second stretches in a row (gaps over a second
+  are the page held up and do not count), every black hole holds still, so a computer without a graphics chip stays
+  quick, and tries again after 2 minutes, then 4, 8 and so on up to an hour (the cloud's browser trips it in about 5
+  seconds; before, one frame there took 280 to 540 ms). The disk's clock counts only turning time, so a hole that
+  starts again carries on from the picture last shown. The graphics chip counts in 32-bit numbers, so it gets the
+  time since the start of the hour, and at each new hour every streak's starting angle moves on by as far as it
+  turned (worked out in 64-bit numbers): the disk stays smooth however long the app is open, with no jump on the hour
+  (with the old clock, 14 of 30 frames did not move after 7 days). If the chip loses the drawing (a driver update or
+  reset), the hole starts again on a fresh canvas instead of turning into a blank or white box; after three losses,
+  or when the chip's programs do not build, the canvas painter. Where the browser draws canvases on the chip
+  (Windows), a reset gives them back empty: the canvas painter's hole and the sky's stars are painted again. The
+  shared clock never reads earlier than the picture already shown, so a hole that starts turning never steps back.
+- **After a graphics-chip reset, the space studio's other pictures come back too** (broken since the space studio,
+  found by the last review): the ship's hull, rooms and bloom (`office/StudioScene.ts`, `paintBase`), the Brain's
+  galaxy (`pages/galaxy.ts`, `BrainGraph.tsx`), the lightning's glowing balls and its still frame
+  (`pages/brainLightning.ts`, `BrainGraph.tsx`) and still robot portraits (`office/Portrait.tsx`) used to stay blank
+  until the page was opened again (the galaxy and the lightning's balls for the rest of the visit); each now paints
+  itself again on `contextrestored`, and AGENTS.md rule 14 says so for new canvases.
+- **Smooth changes** (`transitions.ts`): a new page fades in and rises 14 px (340 ms); a new tab fades in only what is
+  under the tab bar it was chosen in, 8 px (260 ms), so a second row of tabs (Missions → Advanced, the Brain's Memory
+  views) stays put when a tab in it is chosen and fades in with the rest when the change brings it in; what loads in the
+  next 1.2 seconds (the list that replaces "Loading…") fades in too instead of popping in; tab highlights cross-fade;
+  the Studio panel's highlight slides between Working on and Make, measured from the chosen tab so it fits the count of
+  what is being made and larger text, and the panel fades in; the slim masthead hole fades in when you leave the Studio.
+  Settings keeps its title and list of sections while Connections setup, Defaults, Integrations or Advanced loads
+  (`LoadingPanels` in `components/ui.tsx`), so moving there from Appearance, Media sources and the rest changes only the
+  section; before, the whole page flashed to a skeleton and rose. The content is there at once (focus, reading order and
+  clicks unchanged); under Reduced motion everything is instant.
+- **Review:** an independent review (four areas, a reviewer and a skeptic each) confirmed 13 problems and refuted 4;
+  all 13 are fixed (scrollbars squeezing the window's sky, a still masthead copy after a height-only resize,
+  pixel-density changes, an ever-growing shooting-star list, the sky's loop after sign-out, a lost WebGL drawing, the
+  canvas painter after a half-made WebGL drawing, 32-bit time after days open, the Studio highlight with a count badge
+  or larger text, hovering the chosen Studio tab, second-row tab bars fading). A second review of those fixes (two
+  areas, a reviewer and a skeptic each) confirmed 3 more, all fixed: the canvas-painted hole and the sky's stars went
+  blank after a graphics-chip reset; the disk jumped once an hour; a second row of tabs that a change brought in
+  popped in. A last review of those fixes (two areas, a reviewer and a skeptic each) refuted both findings about them
+  (an extra rebuild of the disk's strips when turning starts, which the clock clamp above removes anyway; a fade of
+  the wrong bar after a hand-typed address with a trailing slash) and confirmed an older one: the ship, galaxy,
+  lightning and portraits staying blank after a reset, fixed as above. It also noted the Settings flash, fixed too.
+- **Checks:** see the table in `docs/IMPLEMENTATION_STATUS.md` (type check, build, pytest on the files that read the
+  frontend, the sandbox's visual specs, and probes in the cloud browser for each fix).
+- **Rules:** AGENTS.md rule 14 and `design/space-studio/README.md` list the new decoration and when it holds still.
+- **Video for Landry:** `/mnt/project-files/space-studio/moving-sky/` (recorded frame by frame on a fake clock with
+  every animation stepped by hand, because the cloud's browser draws WebGL slowly; `record.js` is kept beside it).
+- **Not verified:** how it runs in the Mac app's window and on the RTX 3050 laptop (the cloud has no graphics chip).
+
 ## Release 2026.11.19.2: the space studio — 2026-11-20 (Claude Code)
 
 Landry wrote "once done release the changes" on November 19 at 9:56 PM Chicago time. The release line held PR #62 (the

@@ -24,11 +24,30 @@ repository.
 
 The type is Courier Prime (`frontend/src/assets/fonts`, OFL). The font notices ship with the app in
 `frontend/public/third-party-fonts.txt` (built into `frontend/dist`, which the Mac app bundles; the font files' own
-folder is not bundled). The sky is one fixed layer under every page: the nebula picture `sky.jpg` and two star tiles
-at screen size.
+folder is not bundled). The sky is under every page and moves as if the ship were flying on to the right (Landry,
+2026-11-20: "make the backround animated like we are moving"): the nebula picture `sky.jpg` holds still, far away; the
+two star tiles, drawn at screen size, slide left slowly (the far one slower), moved by the browser's compositor; and a
+canvas over them draws brighter stars that drift faster and twinkle, specks of dust rushing past and the odd shooting
+star (`components/starSky.ts`, `components/StarSky.tsx`). The masthead paints its own copy of the sky to hide what
+scrolls under it; its tiles are shifted to line up with the window's.
 
 The black hole is painted in code (`components/blackHoleArt.ts`). It is large over Studio and a slim masthead on the
-other pages.
+other pages. Its disk turns, the inner streaks faster: every streak is drawn again each frame on the graphics chip
+(`components/blackHoleGl.ts`, WebGL), 30 times a second; without WebGL the canvas painter shows the same picture with
+patches of light travelling round. If the frames come more than 45 ms apart through two 2.5-second stretches in a
+row (a computer without a graphics chip), every black hole holds still for a while and then tries again: after 2
+minutes, then 4, 8 and so on up to an hour each time it is still too slow. If the graphics chip loses the drawing (a
+driver update or reset), the hole starts again on a fresh canvas; after three losses it keeps to the canvas painter.
+Where the browser draws canvases on the graphics chip (Windows), a reset of the chip gives them back empty: the
+canvas painter's hole, the sky's stars, the ship, the Brain's galaxy and lightning and the robot portraits are painted
+again. The disk carries on from the picture last shown when it
+starts moving again, and its clock counts only turning time. The chip is given the time since the start of the hour
+(it counts in 32-bit numbers), and at each new hour every streak's starting point moves on by as far as it turned,
+so the disk never jumps, however long the app is open.
+
+Pages and tabs arrive smoothly (`frontend/src/transitions.ts`): a new page fades in and rises 14 px, and a new tab
+only what is under its tabs, 8 px (a second row of tabs that the change brings in fades in with it); the content is
+there at once and only its look eases in. The Studio panel's tab highlight slides between Working on and Make.
 
 ## The art (`frontend/public/space/`)
 
@@ -69,7 +88,8 @@ What moves and why (AGENTS.md rule 14):
   * engine flames, on three different cycles
   * CORE's idle rings
   * blinking, looking around and lounge breaks
-  * the black hole's travelling light
+  * the black hole's turning disk
+  * the sky streaming past: sliding star tiles, twinkling stars, dust and shooting stars
   * the satellite's drift
   * the dock beacon on an empty review queue
   * the Brain map's lightning (it shows the real links, but its flicker shows no work)
@@ -83,6 +103,10 @@ What moves and why (AGENTS.md rule 14):
 
   Low power redraws once a second. When the ship is scrolled out of view, it is not drawn at all. When only the
   Brain is paused, CORE stops floating and its rings hold still while the rest of the ship carries on.
+
+  The sky holds still under Reduced motion, Low power or a hidden page. The black hole also holds still while it is
+  off screen, and for a while once the computer draws it too slowly. Under Reduced motion, pages and tabs arrive at
+  once.
 
 Decorative motion never touches processing. It reads the same snapshot the page already polls.
 

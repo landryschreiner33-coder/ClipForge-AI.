@@ -1,5 +1,45 @@
 # AI handoff
 
+## Moving sky, turning black hole and smooth page changes — 2026-11-20 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for an animated background (the stars and the black hole), smooth tab changes,
+a background "animated like we are moving", and a video of it. The sky now streams past to the left as if the ship
+were flying on: the small stars slide slowly, brighter stars twinkle and drift faster, specks of dust rush by and a
+shooting star crosses now and then. The black hole's disk turns, the inner streaks faster. A new page fades up, a new
+tab fades in what is under its tabs, and the Studio panel's highlight slides. Not released yet: it reaches Landry's
+app with the next release, which needs Landry's OK.
+
+- **Where things are:** branch `claude/project-thread-t2bntx`, pull request #65 into `claude/project-thread-x72wkd`.
+  Sky: `components/starSky.ts` (engine), `components/StarSky.tsx` (the window's sky and the masthead's copy),
+  `space.css` (`--sky-deep`, `--sky-far`, `--sky-near`, `.sky-drift`, `.sky-tile`, `.sky-back`, `.sky-shift`).
+  Black hole: `components/blackHoleGl.ts` (WebGL), `blackHoleArt.ts` (`streakMesh`, `paintUnder`, `paintShadow`),
+  `BlackHole.tsx` (clock, slow-computer rule). Changes: `frontend/src/transitions.ts`, used by `App.tsx` (route
+  changes) and `TabPanel` in `components/ui.tsx`.
+- **Worth knowing:** the star tiles are moved by Web Animations on the compositor; `setSkyMoving` pauses them and the
+  canvas together, and a new tile layer copies the running one's time so the masthead's copy stays lined up. The canvas
+  draws only while motion is allowed; dust and shooting stars never show on a still sky. The black hole holds still
+  after slow frames (`tooSlowNow` in `BlackHole.tsx`) and tries again after 2 minutes, then 4, 8 ... up to an hour; the
+  cloud's headless browser trips it within about 5 seconds, so a test that needs it moving must not expect that there.
+  Its clock counts only turning time; the shader gets the time since the start of the hour (32-bit precision) and
+  `blackHoleGl.ts` moves each streak's starting angle on at every new hour (`turnedOn`), so the hour never shows. A lost
+  WebGL drawing is rebuilt on a fresh canvas (after three losses, the canvas painter); the painter's canvases and the
+  sky's (`restored` in `starSky.ts`) are painted again on `contextrestored`, which Chrome sends after a graphics-chip
+  reset where it draws 2D canvases on the chip; so are the ship (`StudioScene.paintBase`), the galaxy (`galaxy.ts`
+  forgets its picture on `contextlost`; `BrainGraph.tsx` repaints its copy), the lightning's ball glows and still frame,
+  and still portraits (`Portrait.tsx`). Test with CDP `Browser.crashGpuProcess`. Settings sections that load show
+  `LoadingPanels` inside the Settings frame, so the title and section list stay put. The window's sky canvas is measured
+  from its own box (a scrollbar that takes room leaves it unsqueezed) while the star layout follows
+  `innerWidth`/`innerHeight`. The Studio panel's highlight is placed from the chosen tab (`--pill-x`, `--pill-w`). After
+  a page or tab change, what is added in the next 1.2 s fades in too (`settleIn` in `transitions.ts`), so content that
+  replaces "Loading…" does not pop in. A check script that filters animations by "cfai" hides the Talk to AI page's
+  arrival. To record a smooth video of the app in the cloud, use the frame-by-frame recorder kept with the video
+  (`/mnt/project-files/space-studio/moving-sky/record.js`; `BASE=http://127.0.0.1:8790/` records the built app, so the
+  source can change meanwhile).
+- **Not verified (needs Landry's computer):** smoothness and power use in the Mac window and on the Windows RTX 3050
+  laptop; WebKit's handling of the turning disk (the cloud has only Chromium, drawing WebGL without a graphics chip);
+  moving the window to a screen of another pixel density (the cloud's browser emulation sends no `resolution` change,
+  so `pixelRatio.ts` was checked only through a resize).
+
 ## Release 2026.11.19.2 published: the space studio — 2026-11-20 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry wrote "once done release the changes" (November 19, 9:56 PM Chicago time).

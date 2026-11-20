@@ -20,7 +20,7 @@ import {
   TextInput, validate,
 } from "../components/settingsFields";
 import {
-  Banner, Disclosure, EmptyState, Icon, LinkTabs, LoadingPage, PageHead, Pill, StylePicker, toast, TRACKING,
+  Banner, Disclosure, EmptyState, Icon, LinkTabs, LoadingPanels, PageHead, Pill, StylePicker, toast, TRACKING,
 } from "../components/ui";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
@@ -250,7 +250,21 @@ function SettingsForm({ tab }: { tab?: string }) {
       </div>
     );
   }
-  if (!draft || !saved) return <LoadingPage label="Loading settings" />;
+  const where = (
+    <>
+      Stored on this computer, in ClipForge's data folder
+      {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
+    </>
+  );
+  // the title and the list of sections stay put while these sections load (coming from Appearance, say), so the
+  // move changes only the section and fades it in, as every other change of section does
+  if (!draft || !saved) {
+    return (
+      <SettingsFrame current={t} onTabClick={tabClick} sub={where}>
+        <LoadingPanels label="Loading settings" />
+      </SettingsFrame>
+    );
+  }
 
   const c: FieldCtx = { s: draft, set, errors, saved };
   const expired = (["youtube", "tiktok"] as const).filter((p) => accounts?.[p]?.needs_reconnect);
@@ -258,11 +272,7 @@ function SettingsForm({ tab }: { tab?: string }) {
   const gpuFix = st?.gpu?.fix || health?.whisper.fix || "";
   const firstError = errorKeys[0];
   return (
-    <SettingsFrame current={t} onTabClick={tabClick}
-      sub={<>
-        Stored on this computer, in ClipForge's data folder
-        {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
-      </>}
+    <SettingsFrame current={t} onTabClick={tabClick} sub={where}
       before={<>
       {expired.length > 0 && t !== "accounts" && (
         <Banner tone="bad" icon="link"

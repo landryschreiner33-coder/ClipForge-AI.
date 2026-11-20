@@ -3,6 +3,8 @@ import { errorText } from "./api";
 import { ap } from "./autopilot";
 import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, MastheadTitle, toast, ToastHost, useMenu } from "./components/ui";
 import { BlackHole } from "./components/BlackHole";
+import { StarSky } from "./components/StarSky";
+import { afterTabs, arrive } from "./transitions";
 import { leaveGuard, leaveTo, navigate, setLeaveAsker, useRoute, type Route } from "./router";
 import { autopilotState, StatusProvider, useStatus } from "./status";
 import { MotionProvider } from "./motion";
@@ -108,6 +110,10 @@ function Shell({ me }: { me: Me }) {
   // Where the person wanted to go when the page had unsaved changes ("" is the Office); null while nobody is asked.
   const [leaving, setLeaving] = useState<string | null>(null);
   const main = useRef<HTMLElement>(null);
+  const pageWrap = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLParagraphElement>(null);
+  // The section shown before this move: a new section fades the whole page in, a new tab only what is under the tabs.
+  const lastSection = useRef<string | null>(null);
   // The page whose title last got focus: none on first load (focus stays at the top, so Tab reaches the skip link),
   // and React's development double run of effects must not count as a move.
   const shown = useRef<string | null>(null);
@@ -133,10 +139,21 @@ function Shell({ me }: { me: Me }) {
     const first = shown.current === null;
     if (first || shown.current === key) {
       shown.current = key;
+      lastSection.current = section;
       return;
     }
+    const before = `#/${(shown.current ?? "").split("|")[0]}`;
     shown.current = key;
     window.scrollTo(0, 0);
+    // a smooth arrival (the owner, 2026-11-20): the content is already there, only its look eases in
+    const pages = Array.from(pageWrap.current?.children || []);
+    const tabbed = lastSection.current === section && main.current ? afterTabs(main.current, before) : [];
+    if (tabbed.length) arrive(tabbed, "tab");
+    else {
+      arrive(pages, "page");
+      if (titleRef.current && lastSection.current !== section) arrive([titleRef.current], "tab", false);
+    }
+    lastSection.current = section;
     const focus = () => {
       const h1 = main.current?.querySelector<HTMLElement>("h1");
       if (!h1) return false;
@@ -201,6 +218,7 @@ function Shell({ me }: { me: Me }) {
         main.current?.focus();
       }}>Skip to content</a>
       <div className={`cf-shell${collapsed ? " collapsed" : ""}`} data-page={section || "studio"}>
+        <StarSky />
         <aside className="cf-side" aria-label="ClipForge">
           {brand}
           <nav className="nav" aria-label="Main">{nav}</nav>
@@ -211,10 +229,12 @@ function Shell({ me }: { me: Me }) {
         </aside>
         <div className="cf-body">
           <header className="cf-top">
+            {/* the masthead paints its own copy of the sky, so it carries its own copy of the moving stars */}
+            <StarSky strip />
             <button type="button" className="btn btn-small menu-btn" aria-haspopup="dialog" aria-expanded={drawer} onClick={() => setDrawer(true)}>
               <Icon name="menu" />Menu
             </button>
-            <p className="page-title">{title || "ClipForge"}</p>
+            <p className="page-title" ref={titleRef}>{title || "ClipForge"}</p>
             {/* the Studio draws its own large black hole in the sky; every other page keeps a slim one up here */}
             {section !== "" && <BlackHole size="small" className="masthead-hole" />}
             <span className="spacer" />
@@ -259,7 +279,7 @@ function Shell({ me }: { me: Me }) {
               )}
             </div>
             <MastheadTitle.Provider value={title}>
-              <div key={namesVersion} style={{ display: "contents" }}>{page(route)}</div>
+              <div key={namesVersion} ref={pageWrap} style={{ display: "contents" }}>{page(route)}</div>
             </MastheadTitle.Provider>
           </main>
         </div>
