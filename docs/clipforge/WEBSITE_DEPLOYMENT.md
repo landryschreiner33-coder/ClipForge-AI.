@@ -370,3 +370,37 @@ the legal pages after a fact-check and was merged as `5430f7c`, whose tree equal
   ticked YouTube channels and how clips are shared.
 
 Rollback: revert `8809e3e` on `gh-pages` with a normal commit. The 2026.11.16.2 files stay under All versions.
+
+## The space studio — ClipForge 2026.11.19.2, November 19, 2026 (Claude Code)
+
+Landry wrote "once done release the changes" (November 19, 9:56 PM Chicago time). The release line
+`claude/project-thread-x72wkd` held PR #62 (the space studio, merged as `8c08f73`). PR #63 added the Mac release notes,
+corrected after a fact-check, and was merged as `54ec586`, whose tree equals that of its head
+`0597fefa2a026a5c5244114b74fbe0e28d4262b9`, which both downloads are built from and name as their source commit.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-19-2-0597fef/ClipForge-Mac-Apple-Silicon.dmg
+  (232,004,809 bytes, SHA-256 `b4d8cec8ed054a52d98c82aff748af967dcb8271f862c21645d42e6d2883db86`). Unsigned personal
+  preview, published unchanged from [build and test run 44677488448](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677488448)
+  (native build and bundled-app smoke passed; 3,109 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped) by
+  [publish run 44681038739](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44681038739).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/70f345049e1a4486f54fd0aaa50f42a08a11d7f1/ClipForge-Windows-Setup.zip
+  (50,449,556 bytes, SHA-256 `e1116e65ed4c162d7b90a43e662fe79d6901b977698548b359f3d3b9c960e878`).
+  [Windows setup check run 44677612640](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677612640)
+  installed 2026.11.19 (13e1fcb, raw/7122cce, now the check's previous release) with a synthetic setting on a Windows
+  Server 2025 runner, then this ZIP over it: same data folder and setting, this commit's page and icon, all 948 files,
+  close and reopen. No FFmpeg on the runner, so no video was processed. Record commit `95aac79` on
+  `claude/clipforge-downloads`. The first builds from `36efa8b` (the Mac notes before the fact-check; Mac run
+  44673939916 and Windows check 44674145380 passed, raw/7937c41) are not listed.
+- **Download page:** `gh-pages` commit `e349d2d` (previous `8809e3e`), pushed directly. Eight changes with the checked /
+  not checked lists; new pictures of the Studio, the ship, Make clips, Make a YouTube video, the animated short maker
+  and the Brain from a throwaway sandbox with made-up media; new portraits of the 25 robots; the crew text names the
+  ship's rooms. `build.py --check` and `--verify` passed here and in Download page run 44681723162; Pages run
+  44681722366.
+- **Fact-check:** the Mac notes, the download page text and the pictures' descriptions were checked claim by claim
+  against the code by four checkers (studio, clips, Brain, look) with a skeptic for each checker's findings: 19
+  confirmed errors, all corrected before release (the Mac notes in `0597fef`, the rest on `gh-pages`); the corrected
+  sentences were checked again (two checkers, a skeptic each), and three more download page wordings were corrected
+  (What's going on, the screen's light, larger text). The privacy page and Terms are unchanged: nothing stored, sent or
+  deleted changed.
+
+Rollback: revert `e349d2d` on `gh-pages` with a normal commit. The 2026.11.19 files stay under All versions.

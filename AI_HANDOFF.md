@@ -1,5 +1,39 @@
 # AI handoff
 
+## Release 2026.11.19.2 published: the space studio — 2026-11-20 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wrote "once done release the changes" (November 19, 9:56 PM Chicago time).
+ClipForge 2026.11.19.2 is on the download page for Mac and Windows: the space studio from PR #62 (a cutaway ship with
+25 robots beside what is being made, Talk to AI under Studio, Make clips in three steps, the Brain's knowledge map as
+a lightning galaxy, and new Projects, Publishing, Accounts and Appearance pages). Two fact-checks before the release
+corrected 22 claims in the Mac notes (PR #63) and the download page text.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `54ec586` (PR #63), whose
+  tree equals that of `0597fef`, the source commit of both downloads; Mac release
+  `clipforge-mac-2026-11-19-2-0597fef`; Windows ZIP at `raw/70f3450` on `claude/clipforge-downloads` (record commit
+  `95aac79`); `gh-pages` `e349d2d`; every URL, size, hash and run in
+  [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 44677488448 on 0597fef (macOS 15 native build and bundled-app
+  smoke; 3,109 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped); Windows setup check 44677612640
+  (installed 2026.11.19 first, then this one over it); `build.py --check` and `--verify`; the release texts checked
+  claim by claim against the code, and the corrected sentences checked again.
+- **Found by the fact-checks, not changed in this release (follow-ups):** the Now making screen's light reads only
+  the jobs of projects you started yourself (`snap.work` leaves out Autopilot and live projects, `office/work.py`), so
+  a live stream or an Autopilot video shows Waiting there even while it is being made (fix: count it as Making when a
+  robot in `snap.roles` runs a task for that project, as the card's crew list already does); What's going on and
+  Activity show only the office feed (Autopilot's jobs and live streams, the Brain and Autopilot's controls), so a
+  project you make yourself adds no steps there; while a clip renders, the project's status shows the render's own
+  step ("Rendering") instead of "Making clip N of M"; a panel order saved in Customize studio no longer applies to the
+  new Studio (Now making and Next to publish always show); the Make a YouTube video page's breadcrumb says "Home /"
+  where the other pages say "Studio /". Schedule post for a clip you made yourself is still an open question for
+  Landry (decision card in the space studio thread).
+- **Not verified (needs Landry's computer):** the new look in the Mac window and on Windows, how smoothly the ship and
+  the lightning run on the RTX 3050 laptop, real connected accounts on the new Accounts page, and a real video going
+  through ClipForge while the robots work.
+- **Next release:** new work starts from `claude/project-thread-x72wkd` at `54ec586` (or the records merge after it);
+  the next version is `2026.11.20` (or the day it ships). The first builds from `36efa8b` (the Mac notes before the
+  fact-check; Mac run 44673939916 and Windows check 44674145380 passed, raw/7937c41) are not listed.
+
 ## Space studio: the ship, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for ClipForge to become an animated space studio. Studio is now a cutaway
@@ -9,7 +43,8 @@ is Courier Prime. Making a first clip is three steps (Choose a video, Pick what 
 options for the rest, and a finished project says "Your clips are ready" with Review clips. Beside the ship, the
 Studio panel's Working on tab shows what is being made on a little screen, what's going on, the queue and the next
 post to publish, and its Make tab holds the four big Make buttons. Talk to AI has its own place in the menu. The
-Brain's links and dots are animated lightning that holds still when motion is reduced. Not released.
+Brain's links and dots are animated lightning that holds still when motion is reduced. Released as
+ClipForge 2026.11.19.2 (see the release entry above).
 
 - **Where things are:** branch `claude/project-thread-t2bntx`, PR #62 into the release line
   `claude/project-thread-x72wkd`. Design notes, art files and the motion rules:
