@@ -416,13 +416,20 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     own stations, idle peers remain idle, and managers supervise without inventing jobs or reports. Quiet paused
     or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
     The owner's 2026-11-19 space studio adds decoration that shows no work: engine exhaust, CORE's idle rings, the
-    black hole's travelling light, the satellite's drift and the empty dock's beacon. They hold still under Reduced
-    motion, Low power or a hidden page. The galaxy behind the Brain graph is painted once and holds still. The
-    owner's later 2026-11-19 request ("make the brain lines and balls look like lighting and make sure its animated")
-    draws the graph's real links as bolts and its dots as glowing balls that strike again about twelve times a second
-    (pages/brainLightning.ts): decoration that shows no work or learning, still under Reduced motion, Low power, a
-    hidden or off-screen page or a lost connection; only rings and the words "just used" mark what a project used.
-    DOCK's beacon cues once only for a post newly seen in review.
+    black hole's turning disk, the satellite's drift and the empty dock's beacon. They hold still under Reduced
+    motion, Low power or a hidden page. The owner's 2026-11-20 requests ("give the backround animation like the stars
+    and black hole", "make the backround animated like we are moving") add the moving sky: star tiles sliding past,
+    brighter stars that drift and twinkle, dust rushing by and the odd shooting star (components/starSky.ts), still
+    under Reduced motion, Low power or a hidden page; the black hole also holds still off screen and for a while once a
+    computer draws it too slowly. Pages and tabs fade up as they arrive (transitions.ts), never delaying or hiding
+    content, and arrive at once under Reduced motion. The galaxy behind the Brain graph is painted once and holds still.
+    Anything painted once onto a canvas (a picture, a sprite, a still frame) paints itself again on `contextrestored`:
+    Chromium on Windows draws canvases on the graphics chip, and a reset of the chip gives them back empty.
+    The owner's later 2026-11-19 request ("make the brain lines and balls look like lighting and make sure its
+    animated") draws the graph's real links as bolts and its dots as glowing balls that strike again about twelve times
+    a second (pages/brainLightning.ts): decoration that shows no work or learning, still under Reduced motion, Low
+    power, a hidden or off-screen page or a lost connection; only rings and the words "just used" mark what a project
+    used. DOCK's beacon cues once only for a post newly seen in review.
     Settings → Appearance's Studio preview is the real app in an inert frame that saves nothing
     (design/space-studio/README.md).
 

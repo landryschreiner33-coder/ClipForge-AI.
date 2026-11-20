@@ -1,5 +1,42 @@
 # Implementation status
 
+## Moving sky, turning black hole and smooth page changes — 2026-11-20 (Claude Code)
+
+Branch `claude/project-thread-t2bntx` from the release line at 07569cd, pull request #65. Landry asked for an animated
+background (the stars and the black hole), smooth tab changes, a background that moves "like we are moving", and a
+video. The sky streams past to the left, the black hole's disk turns on the graphics chip, and pages and tabs fade in.
+Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md) and [design/space-studio/README.md](../design/space-studio/README.md).
+Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-20 | `npx tsc --noEmit -p frontend` and `npm run build` after the review fixes | passed |
+| 2026-11-20 | pytest: `test_assistant_library`, `test_office`, `test_theme_contrast`, `test_network_paths`, `test_phone_monitor`, `test_autopilot_discovery`, `test_craft`, `test_pathguard`, `test_post_to_channels`, `test_remote_engines`, `test_tiktok_setup`, `test_studio_reference`, `test_clipforge_ai_chat` | 372 passed |
+| 2026-11-20 | Studio panel highlight against its tab (1000 to 1700 wide, with the count badge, Larger text) | the highlight matches the chosen tab to 0.1 px in all 12 cases (before: up to 35 px off) |
+| 2026-11-20 | Which parts fade in on 11 tab changes (Missions, Brain, Settings, Publishing) | a second row of tabs stays put when chosen in; content that loads within 1.2 s fades in (before: popped in) |
+| 2026-11-20 | Sky with a classic 15 px scrollbar, 1366×700 | window canvas 1351 px wide shown 1:1; masthead copy and window sky: 0 pixels differ (before: 82) |
+| 2026-11-20 | Still sky after height-only resizes (800 → 640 → 900) | masthead copy and window sky: 0 pixels differ each time (before: up to 329) |
+| 2026-11-20 | Sky after sign-out | 0 animation frames in 3 s (before: 181) |
+| 2026-11-20 | Black hole: three lost WebGL drawings, a real GPU-process crash, shaders that do not build | a fresh WebGL canvas after each loss and after the crash (same picture), the canvas painter after the third loss and when shaders fail (before: blank or a white box) |
+| 2026-11-20 | Black hole after 7 days of turning (fake clock, 30 frames at 30 fps) | every frame moves (with the old clock 14 of 30 did not) |
+| 2026-11-20 | Slow-computer rule in the cloud browser (fake clock) | holds still after 4.8 s; moving again after 2 minutes; second hold 5.6 s later; moving again after 4 more minutes |
+| 2026-11-20 | Frame-by-frame video, built app (`record.js`) | 1,015 frames, 33.8 s, 1440×900; frames checked |
+| 2026-11-20 | A second review of the fixes (two areas, a reviewer and a skeptic each) | 3 more problems confirmed and fixed; the next three rows check them |
+| 2026-11-20 | Canvas-painted black hole and the moving sky through a real GPU-process crash (which empties 2D canvases here, as on Windows) | the hole keeps its picture (2,479 warm pixels before and after; before the fix: 0) and the sky its stars (698 → 695 lit pixels; before: 0) |
+| 2026-11-20 | Black hole across the end of the first hour of turning and of the 168th (a week), fake clock, 50 frames each | the frame across the hour changes the disk as much as any other (mean change 1.93 and 1.95; other frames 1.90 to 1.96); before, about 14 times as much, with 30% of the disk's pixels changing |
+| 2026-11-20 | A second row of tabs brought in by the change (Brain Skills → Memory; Missions Live → Jobs and Styles → Memory facts with Back) | the new row fades in with what is under it (before: it popped in) |
+| 2026-11-20 | After those fixes (and with the disk's strips built at the first frame of each hour): the 11 tab changes, 7 days of turning, the end of hour 1, three lost drawings, the crash, shaders that do not build | the same results as above |
+| 2026-11-20 | `npx tsc --noEmit -p frontend`, `npm run build`, pytest `test_office` and `test_theme_contrast` after the second fixes | passed; 28 passed |
+| 2026-11-20 | `e2e/sandbox` visual specs: motion, brain-graph, brain-workspace, pixel-office, robot-office, living-office, lounge-life, department-office, office-handoff-flow | 46 passed (9.6 min); `motion` again on the final build: 3 passed |
+| 2026-11-20 | A last review of the fixes (two areas, a reviewer and a skeptic each) | both findings about the fixes refuted; an older problem confirmed and fixed (next row); the Settings flash noted and fixed |
+| 2026-11-20 | The ship, the Brain's galaxy and lightning, and still robot portraits through a real GPU-process crash, still and moving | the ship's still picture identical before and after (817,792 lit pixels, same hash) and about 817,800 moving (before: about 43,600 and 42,200, only robots, consoles and labels left); the galaxy (874,627) and the still lightning identical after the crash and after reopening the Brain (before: 0); moving lightning about 41,600 (before: about 9,400); 25 of 25 still portraits unchanged (before: all blank) |
+| 2026-11-20 | Settings: Media sources → Defaults, Appearance → Connections setup, Advanced → ClipForge AI → Integrations | only the section rises (260 ms) and what loads into it fades in; the title and the list of sections stay put (before: the whole page flashed to a skeleton and rose) |
+| 2026-11-20 | `npx tsc --noEmit -p frontend`, `npm run build`, pytest `test_office`, `test_theme_contrast` and `test_assistant_library` after the last fixes | passed; 40 passed |
+| 2026-11-20 | `e2e/sandbox`, every browser spec, on the final build | 90 passed (13.3 min); beginner-flow fails the same way as on the release (no Topics box) |
+
+Not verified: Landry's Mac (WebKit) and the RTX 3050 laptop; moving the window to a screen of another pixel density
+(the cloud's emulation sends no change event; checked only through a resize).
+
 ## Space studio: the ship and its crew, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code)
 
 Branch `claude/project-thread-t2bntx` from the release line at 87a38c8, pull request #62. Studio is a cutaway ship

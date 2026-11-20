@@ -138,10 +138,15 @@ export default function BrainGraph({
     const host = galaxy.current?.querySelector(".brain-galaxy-art");
     if (host && !host.firstChild) {
       try {
-        const art = galaxyCanvas();
         const copy = document.createElement("canvas");
-        copy.width = art.width; copy.height = art.height;
-        copy.getContext("2d")?.drawImage(art, 0, 0);
+        const paint = () => {
+          const art = galaxyCanvas();
+          copy.width = art.width; copy.height = art.height;
+          copy.getContext("2d")?.drawImage(art, 0, 0);
+        };
+        paint();
+        // a reset of the graphics chip (Windows paints canvases on it) gives the copy back empty
+        copy.addEventListener("contextrestored", paint);
         host.appendChild(copy);
       } catch {
         /* no canvas: the map works on the plain sky */
@@ -187,7 +192,10 @@ export default function BrainGraph({
     setLit(true);
     if (boltsStill) {
       drawLightning(g, scene, 0);
-      return;
+      // a reset of the graphics chip (Windows paints canvases on it) gives the still frame back empty
+      const again = () => drawLightning(g, scene, 0);
+      cv.addEventListener("contextrestored", again);
+      return () => cv.removeEventListener("contextrestored", again);
     }
     // twelve frames a second; a computer that needs long for a frame gets fewer, so the map never slows the app
     let raf = 0, last = -Infinity, frame = 1, cost = 0;

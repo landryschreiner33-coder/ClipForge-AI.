@@ -77,6 +77,11 @@ function glow(color: string): HTMLCanvasElement | null {
   x.fillStyle = s;
   x.fillRect(0, 0, 64, 64);
   glows.set(color, g);
+  // a reset of the graphics chip (Windows paints canvases on it) empties it: made again when next needed
+  const made = g;
+  made.addEventListener("contextlost", () => {
+    if (glows.get(color) === made) glows.delete(color);
+  });
   return g;
 }
 

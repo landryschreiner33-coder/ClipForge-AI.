@@ -3,6 +3,7 @@ import {
   useState,
 } from "react";
 import { errorText, fmtTime, type Status } from "../api";
+import { arrive } from "../transitions";
 
 // ------------------------------------------------------------------ icons (one stroke style, 24 px grid)
 const PATHS = {
@@ -343,7 +344,18 @@ export function Tabs<T extends string>({ label, tabs, current, onChange, idPrefi
 }
 
 export function TabPanel({ idPrefix, id, children, className = "tabpanel" }: { idPrefix: string; id: string; children: ReactNode; className?: string }) {
-  return <div role="tabpanel" id={`${idPrefix}-panel-${id}`} aria-labelledby={`${idPrefix}-tab-${id}`} className={className} tabIndex={0}>{children}</div>;
+  // a new group's content eases in (transitions.ts); the first one simply shows
+  const el = useRef<HTMLDivElement>(null);
+  const shown = useRef(id);
+  useLayoutEffect(() => {
+    if (shown.current === id) return;
+    shown.current = id;
+    if (el.current) arrive([el.current], "tab");
+  }, [id]);
+  return (
+    <div ref={el} role="tabpanel" id={`${idPrefix}-panel-${id}`} aria-labelledby={`${idPrefix}-tab-${id}`}
+      className={className} tabIndex={0}>{children}</div>
+  );
 }
 
 export function Skel({ className = "", style }: { className?: string; style?: React.CSSProperties }) {
@@ -359,6 +371,24 @@ export function LoadingPage({ label = "Loading" }: { label?: string }) {
         <Skel className="skel-title" />
         <Skel className="skel-line" style={{ width: "40%" }} />
       </div>
+      <div className="skel-panel">
+        <Skel className="skel-line" style={{ width: "28%" }} />
+        <Skel className="skel-block" />
+      </div>
+      <div className="skel-panel">
+        <Skel className="skel-line" style={{ width: "22%" }} />
+        <Skel className="skel-line" style={{ width: "70%" }} />
+        <Skel className="skel-line" style={{ width: "55%" }} />
+      </div>
+    </div>
+  );
+}
+
+/** Skeleton panels while the body of a page loads under a head that already shows (a section of Settings). */
+export function LoadingPanels({ label = "Loading" }: { label?: string }) {
+  return (
+    <div className="stack-4" aria-busy="true">
+      <span className="sr-only" role="status">{label}…</span>
       <div className="skel-panel">
         <Skel className="skel-line" style={{ width: "28%" }} />
         <Skel className="skel-block" />

@@ -66,19 +66,35 @@ export class StudioScene {
     cv.width = VIEW.w; cv.height = VIEW.h;
     // The hull, rooms and furniture never change: draw them once.
     this.base = canvas(VIEW.w, VIEW.h);
-    const b = this.base.getContext("2d")!;
+    this.bloom = canvas(VIEW.w, VIEW.h);
+    this.paintBase();
+    // Where the browser paints canvases on the graphics chip (Windows), a reset of the chip gives these back empty:
+    // either one coming back paints both again and drops the glows (draw() paints the ship's canvas itself anyway).
+    const again = () => {
+      if (this.destroyed) return;
+      this.glows.clear();
+      this.paintBase();
+    };
+    this.base.addEventListener("contextrestored", again);
+    this.bloom.addEventListener("contextrestored", again);
+  }
+
+  /** The still ship and its bloom; cleared first, as the two can come back a moment apart and each paints both. */
+  private paintBase() {
+    const art = this.art, b = this.base.getContext("2d")!, bl = this.bloom.getContext("2d")!;
+    b.clearRect(0, 0, VIEW.w, VIEW.h);
+    bl.clearRect(0, 0, VIEW.w, VIEW.h);
     b.imageSmoothingEnabled = false;
     b.drawImage(art.ship, OX, OY, WORLD.w, WORLD.h);
     // A soft bloom made from the lit pixels: shrink, then grow back smoothly (works in every browser).
     const small = canvas(VIEW.w / 6, VIEW.h / 6), s = small.getContext("2d")!;
     s.imageSmoothingEnabled = true;
     s.drawImage(art.lights, OX / 6, OY / 6, WORLD.w / 6, WORLD.h / 6);
-    this.bloom = canvas(VIEW.w, VIEW.h);
-    const bl = this.bloom.getContext("2d")!;
-    bl.imageSmoothingEnabled = true; bl.imageSmoothingQuality = "high";
+    bl.globalAlpha = 1; bl.imageSmoothingEnabled = true; bl.imageSmoothingQuality = "high";
     bl.drawImage(small, 0, 0, VIEW.w, VIEW.h);
     bl.globalAlpha = .55; bl.imageSmoothingEnabled = false;
     bl.drawImage(art.lights, OX, OY, WORLD.w, WORLD.h);
+    bl.globalAlpha = 1;
     // Every light on the ship glows a little all the time; working rooms glow more (see draw).
     b.globalCompositeOperation = "lighter"; b.globalAlpha = .22;
     b.drawImage(this.bloom, 0, 0);
