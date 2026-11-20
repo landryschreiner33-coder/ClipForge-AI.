@@ -9,17 +9,18 @@ make animated short, clip live stream as it goes". Branch `claude/project-thread
 87a38c8, PR #62. Not released. What each screen became, the art and how the ship is drawn:
 [design/space-studio/README.md](design/space-studio/README.md).
 
-- **Studio:** a cutaway ship with 25 robots and CORE, drawn with Canvas 2D (`office/StudioScene.ts`) from one crew
-  atlas (`public/space/crew.png`, `src/space/sprites.json`, floor plan `src/space/ship-world.json`). Robots move only
-  for real job states and handoffs from the office feed. Engines, CORE's rings, blinking and lounge breaks are
-  decoration stepped at about 12 frames a second; Reduced motion, Low power, a hidden page or a paused feed hold the
-  ship still. Room names always show (one word each on a phone-sized ship, where a resting robot's marker is a
-  dot), and each robot's state badge sits above its head. A name too long for one line shows one word (Media, Story,
-  Sound), and a manager watching its team stands at its own desk, so on laptop and desktop screens no badge covers
-  another badge or a room's name. Right column: Make something (Make clips, Make a YouTube video, Make an animated
-  short, Clip a live stream), Now making, the queue and the next scheduled post. Under the ship: Whole ship,
-  Activity, Reduce motion. Bottom strip: today's real counts and the computer's state. PixiJS and GSAP are removed
-  (`frontend/dist` 4.5 → 3.9 MB).
+- **Studio:** a cutaway ship with 25 robots and CORE, drawn with Canvas 2D (`office/StudioScene.ts`) from one crew atlas
+  (`public/space/crew.png`, `src/space/sprites.json`, floor plan `src/space/ship-world.json`). Robots move only for real
+  job states and handoffs from the office feed. Engines, CORE's rings, blinking and lounge breaks are decoration stepped
+  at about 12 frames a second; Reduced motion, Low power, a hidden page or a paused feed hold the ship still. Room names
+  always show (one word each on a phone-sized ship, where a resting robot's marker is a dot), and each robot's state
+  badge sits above its head. A name too long for one line shows one word (Media, Story, Sound), a manager watching its
+  team stands at its own desk, and on a smaller ship the badges shrink a little, so no badge covers another badge, and
+  from 1330 wide up no badge touches a room's name (at 1190 to 1320 and at 640 wide a badge can touch a name's bottom
+  edge, at most 7% of its line). Right column: Make something (Make clips, Make a YouTube video, Make an animated short,
+  Clip a live stream), Now making, the queue and the next scheduled post. Under the ship: Whole ship, Activity, Reduce
+  motion. Bottom strip: today's real counts and the computer's state. PixiJS and GSAP are removed (`frontend/dist` 4.5 →
+  3.9 MB).
 - **Brain:** Memory shows the real graph over a spiral galaxy painted once from a fixed seed (`pages/galaxy.ts`),
   still unless something was just used. Branches are amber for Example videos, teal for Skills and ice blue for
   Recorded evidence. Picking a dot runs a light from CORE along its real path and settles a ring; search finds a
@@ -51,13 +52,15 @@ make animated short, clip live stream as it goes". Branch `claude/project-thread
   beginner-flow (no Topics box) and video-setup (Change it by hand after coming back) fail the same way on the release.
   After the last ship changes, the ship's 31 sandbox specs passed again; department-office now also checks that no state
   badge covers another badge or a room's name (on the layout before these changes, at the spec's 1440 width, 7 badges
-  and 3 names were covered). With every department at work, none does at window sizes from 1024 to 1585 wide (before, a
-  manager covered up to 63% of a teammate's badge, and the lower rooms' badges most of "Media research"); at 640 and 390
-  wide a badge can still cover up to a fifth of the name above it. GitHub "Native Mac desktop app" run 44653081606 on
-  2014f3c (before the last ship changes): native macOS 15 build and bundled-app smoke (WebView, Keychain, tools) and the
-  fast and slow Python suites passed; the run on the final head is named in PR #62's merge commit. Larger text at
-  1366×768 and 390×844: no sideways scroll and no cut-off text. Screenshots, frame sequences and both walkthroughs
-  (mouse and keyboard only) are in `/mnt/project-files/space-studio/final/`.
+  and 3 names were covered). Measured at 36 window sizes from 390 to 1920 wide with every department at work: no badge
+  covers another badge (before, a manager covered up to 63% of a teammate's badge, and the lower rooms' badges most of
+  "Media research"); no badge touches a room's name from 1330 wide up or from 768 to 1180 wide; at 1190 to 1320 and at
+  640 wide a badge can touch the bottom edge of a name (at most 7% of its line; up to 24% before the badges shrank on a
+  smaller ship), and at 390 wide up to a fifth. GitHub "Native Mac desktop app" runs 44653081606 on 2014f3c and
+  44658528437 on a273337 (before the badges shrank on a smaller ship): native macOS 15 build and bundled-app smoke
+  (WebView, Keychain, tools) and the fast and slow Python suites passed; the run on the final head is named in PR #62's
+  merge commit. Larger text at 1366×768 and 390×844: no sideways scroll and no cut-off text. Screenshots, frame
+  sequences and both walkthroughs (mouse and keyboard only) are in `/mnt/project-files/space-studio/final/`.
 - **Not verified:** Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, and a
   real video going through the pipeline while the ship animates. Schedule post for a clip you made yourself does
   not exist (only Autopilot plans times); a decision card asks Landry whether to add it.

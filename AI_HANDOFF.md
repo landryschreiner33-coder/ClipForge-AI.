@@ -21,11 +21,12 @@ options for the rest, and a finished project says "Your clips are ready" with Re
   tests 62 passed, and the 5 failures (Autopilot ×3, Settings ×2) are the same on the release; sandbox browser specs 48
   of 50, the 2 others failing the same way on the release; after the last ship changes the ship's 31 specs passed again,
   including a check that no state badge covers another badge or a room's name, and so did the 12 Python files that read
-  frontend files (339 passed) and the office and app-shell browser tests (22 passed); GitHub run 44653081606 on 2014f3c
-  (native Mac build, bundled-app smoke and both Python suites passed, before the last ship changes; the final head's run
-  is in PR #62's merge commit); screenshots of the seven views at 1585×992, 1366×768 and 390×844, larger text, frame
-  sequences, and the first clip walked through with the mouse and with the keyboard only
-  (`/mnt/project-files/space-studio/final/`).
+  frontend files (339 passed) and the office and app-shell browser tests (22 passed); badges and room names at 36 window
+  sizes (no badge covers another; from 1330 wide up none touches a room's name, at 1190 to 1320 and 640 wide at most 7%
+  of a name's line, on a phone up to a fifth); GitHub run 44658528437 on a273337 (native Mac build, bundled-app smoke
+  and both Python suites passed, before the badges shrank on a smaller ship; the final head's run is in PR #62's merge
+  commit); screenshots of the seven views at 1585×992, 1366×768 and 390×844, larger text, frame sequences, and the first
+  clip walked through with the mouse and with the keyboard only (`/mnt/project-files/space-studio/final/`).
 - **Not verified (needs Landry's computer):** the app on the Mac and on Windows, the frame rate on the RTX 3050 laptop,
   real connected accounts (the satellite's pulse was checked with a stand-in account), and a real video going through
   the pipeline while the ship animates.

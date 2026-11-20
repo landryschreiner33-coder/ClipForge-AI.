@@ -42,8 +42,9 @@ export const CONSOLE: Record<string, Pt | null> = Object.fromEntries(CAST.map(c 
   return [c.id, at ? { x: at[0], y: at[1] } : null];
 }));
 /** Managers oversee their teams standing at their own desks, facing the team (2026-11-20). The desks are spaced so
- * the state badges of robots side by side stay apart, and low enough that a badge stays clear of the name of the room
- * above. From the walkway behind the desks, a manager's badge covered a teammate's badge or that name. */
+ * the state badges of robots side by side stay apart, and low enough that on a ship drawn at 0.44 of its size or more
+ * a badge stays clear of the name of the room above (space.css shrinks the badges on a smaller ship). From the
+ * walkway behind the desks, a manager's badge covered a teammate's badge or that name. */
 export const SUPERVISE: Record<string, Pt> = Object.fromEntries(CAST.filter(c => c.rank === "manager")
   .map(c => [c.id, { ...STATION[c.id] }]));
 /** Bottom centre of CORE, the holographic brain hovering in its chamber. */

@@ -19,10 +19,11 @@ new look; a first clip is three steps with More options. Details: [AI_CHANGELOG.
 | 2026-11-20 | `e2e/sandbox` (50 specs) | 48 passed; beginner-flow and video-setup fail the same way on the release |
 | 2026-11-20 | `e2e/sandbox` ship specs after the last ship changes (badges and room names) | 31 passed |
 | 2026-11-20 | The new badge check's measurement on the layout before those changes, 1440 wide | 7 badges and 3 names covered: the check would have failed |
-| 2026-11-20 | Badges and room names with every department at work, 1024 to 1585 wide | none covers another badge or a name (before: up to 63%) |
-| 2026-11-20 | The same at 640 and 390 wide | no badge covers another; a badge can cover up to a fifth of the name above it |
+| 2026-11-20 | Badges and room names with every department at work, 36 window sizes from 390 to 1920 wide | no badge covers another (before: up to 63%); none touches a name from 1330 wide up or from 768 to 1180 wide |
+| 2026-11-20 | The same at 1190 to 1320 and 640 wide, and at 390 wide | a badge can touch the bottom edge of the name above it: at most 7% of its line (up to 24% before the badges shrank on a smaller ship); at 390 wide up to a fifth |
 | 2026-11-20 | GitHub run 44650380497 on cccd6a0 | native Mac build and bundled-app smoke passed (before the phone-size change) |
 | 2026-11-20 | GitHub run 44653081606 on 2014f3c | native Mac build, bundled-app smoke, fast and slow Python suites passed (before the last ship changes) |
+| 2026-11-20 | GitHub run 44658528437 on a273337 | native Mac build, bundled-app smoke, fast and slow Python suites passed (before the badges shrank on a smaller ship) |
 
 Not verified: Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, a real video
 going through the pipeline while the ship animates.
