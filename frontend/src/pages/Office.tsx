@@ -9,7 +9,7 @@ import { Control, office, Snapshot, staleHealth } from "../office/api";
 import { OfficeFeed, useOffice } from "../office/useOffice";
 import OfficeMap, { Card } from "../office/OfficeMap";
 import { ActivityPanel, DepartmentCards, HealthBadge, OverviewPanel, RobotPanel, RoomPanel } from "../office/panels";
-import { ROOM_ACCENT } from "../office/draw";
+import { ROOM_ACCENT } from "../office/world";
 import "../office/studio.css";
 
 /**

@@ -69,7 +69,7 @@ def test_robot_names_accept_unicode_reject_blank_and_never_become_markup(api):
 def test_appearance_and_layouts_persist_per_device_with_conflicts_and_reset(api):
     a = api.get("/api/preferences/appearance").json()
     assert a["value"]["palette"] == "studio" and a["value"]["clips_mode"] == "highlights" and a["revision"] == 0
-    assert "theme" not in a["value"] and a["schema_version"] == 2  # dark only
+    assert "theme" not in a["value"] and a["schema_version"] == 3  # dark only; 3: the glacier default
     saved = api.put("/api/preferences/appearance", json={"value": {"palette": "graphite", "accent": "teal",
                                                                    "density": "compact", "text_size": "large",
                                                                    "office_size": "compact", "motion": "reduced"},
@@ -127,6 +127,31 @@ def test_a_saved_light_or_system_theme_becomes_dark_and_keeps_every_other_choice
         assert "theme" not in r["value"] and r["value"]["accent"] == "coral"
 
 
+def test_the_old_violet_default_moves_to_glacier_once_and_a_later_violet_choice_stays(api):
+    import json
+
+    from clipfoundry import db
+    from clipfoundry.cloud.principal import LOCAL_OWNER as me
+
+    db.execute("DELETE FROM preferences")
+    db.execute("INSERT INTO preferences (workspace_id, user_id, pref_key, schema_version, value, revision, "
+               "updated_at) VALUES (?, ?, 'appearance', 2, ?, 3, 0)",
+               (me.workspace_id, me.user_id, json.dumps({"accent": "violet", "text_size": "large"})))
+    got = api.get("/api/preferences/appearance").json()
+    assert (got["value"]["accent"], got["value"]["text_size"]) == ("blue", "large")
+    # saving anything else keeps the glacier accent; choosing violet again is remembered from then on
+    def save(value: dict) -> str:
+        return api.put("/api/preferences/appearance", json={"value": value}).json()["value"]["accent"]
+
+    assert save({"density": "compact"}) == "blue"
+    assert save({"accent": "violet"}) == "violet"
+    assert api.get("/api/preferences/appearance").json()["value"]["accent"] == "violet"
+    # another accent saved before the update was a real choice and stays
+    db.execute("UPDATE preferences SET schema_version = 2, value = ? WHERE pref_key = 'appearance'",
+               (json.dumps({"accent": "teal"}),))
+    assert api.get("/api/preferences/appearance").json()["value"]["accent"] == "teal"
+
+
 def test_pinned_projects_are_checked_and_an_older_editor_layout_is_kept(api):
     pins = api.put("/api/preferences/appearance", json={"value": {"pinned": ["abc123", "abc123", "x-1"]}}).json()
     assert pins["value"]["pinned"] == ["abc123", "x-1"]  # each once, in order
@@ -172,7 +197,7 @@ def test_names_and_preferences_sync_across_devices_and_stay_in_their_workspace(m
         assert phone.get("/api/robots/names").json()["frame"]["display_name"] == "Nova"  # the other device
         assert phone.get("/api/preferences/appearance").json()["value"]["accent"] == "teal"
         assert other.get("/api/robots/names").json()["frame"]["display_name"] == "FRAME"
-        assert other.get("/api/preferences/appearance").json()["value"]["accent"] == "violet"
+        assert other.get("/api/preferences/appearance").json()["value"]["accent"] == "blue"  # the glacier default
         other.put("/api/robots/names/frame", json={"name": "Theirs"})
         reset = other.post("/api/robots/names/reset", json={"confirm": True})
         assert reset.status_code == 200, reset.text

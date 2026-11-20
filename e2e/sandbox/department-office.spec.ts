@@ -83,6 +83,24 @@ test("every department gathers its whole cast, with honest support and manager s
     }
   }
   await expect(robot(page, "command")).toHaveAttribute("data-room", "lounge");
+  // Managers watch their teams from their own desks, and a name too long for one line shows one word, so no robot's
+  // state badge covers another's or the words of a room's name (the owner, 2026-11-19: "lable the rooms" and "make
+  // sure you can see the activity thing above the robot").
+  const covered = () => page.locator(".office-map").evaluate(map => {
+    const cut = (a: DOMRect, b: DOMRect) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
+      && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+    const badges = [...map.querySelectorAll<HTMLElement>(".robot-hit")].map(hit => ({ id: hit.dataset.id,
+      box: hit.querySelector(".robot-state")!.getBoundingClientRect() }));
+    const names = [...map.querySelectorAll<HTMLElement>(".room-sign")].map(sign => {
+      const words = document.createRange(); words.selectNodeContents(sign);
+      return { name: sign.textContent, lines: [...words.getClientRects()] };
+    });
+    return [
+      ...badges.flatMap((a, i) => badges.slice(i + 1).filter(b => cut(a.box, b.box)).map(b => `${a.id} + ${b.id}`)),
+      ...names.flatMap(n => badges.filter(b => n.lines.some(l => cut(l, b.box))).map(b => `${b.id} on ${n.name}`)),
+    ];
+  });
+  await expect.poll(covered, { message: "badges that cover another badge or a room's name" }).toEqual([]);
   expect(feed.writes).toEqual([]);
 });
 
@@ -190,15 +208,16 @@ async ({ page, request }) => {
   expect(feed.writes).toEqual([]);
 });
 
-test("Canvas fallback preserves department supervision and freezes its pixels in Reduced",
+// The ship (office/StudioScene.ts, 2026-11-19) replaced the Pixi scene and its canvas fallback; it draws the same
+// department attendance and freezes its pixels in Reduced.
+test("the ship preserves department supervision and freezes its pixels in Reduced",
 async ({ page, request }) => {
   const feed = await fixture(page, request);
   Object.assign(feed.role("splice"), { state: "working", task: task() });
   feed.role("frame").state = "working";
-  await page.route("**/assets/StudioScene-*.js", route => route.abort());
   await page.goto("/#/office");
   await animations(page).selectOption("full");
-  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "canvas");
+  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "ship");
   for (const id of ["frame", "story", "splice"])
     await expect(robot(page, id)).toHaveAttribute("data-room", "editing");
   await expect(robot(page, "frame")).toHaveAttribute("data-duty", "supervising");
@@ -206,13 +225,13 @@ async ({ page, request }) => {
     const canvas = button.parentElement!.querySelector("canvas")!;
     const x = parseFloat((button as HTMLElement).style.left) * canvas.width / 100;
     const y = parseFloat((button as HTMLElement).style.top) * canvas.height / 100;
-    const crop = document.createElement("canvas"); crop.width = 48; crop.height = 72;
-    crop.getContext("2d")!.drawImage(canvas, x - 5, y - 3, 48, 72, 0, 0, 48, 72);
+    const crop = document.createElement("canvas"); crop.width = 96; crop.height = 128;
+    crop.getContext("2d")!.drawImage(canvas, x - 28, y - 36, 96, 128, 0, 0, 96, 128);
     return crop.toDataURL();
   });
   const active = await image();
   // Poll across the two idle frames: a fixed delay can sample the same 900 ms clipboard frame twice.
-  await expect.poll(image, { message: "supervision changes visible artwork", timeout: 3500,
+  await expect.poll(image, { message: "supervision changes visible artwork", timeout: 6000,
     intervals: [100, 150, 250] }).not.toBe(active);
   await animations(page).selectOption("reduced");
   await page.waitForTimeout(400); const still = await image(); await page.waitForTimeout(1250);

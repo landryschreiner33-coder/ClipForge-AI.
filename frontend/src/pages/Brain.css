@@ -224,3 +224,95 @@
   .brain-summary > div { padding: var(--s3); }
   .brain-field-grid { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------------------------------------------ the space studio (2026-11-19)
+   Brain's places as tabs with a More menu, Memory's two views, and the knowledge map as a galaxy: the map in the
+   middle of one wide panel, its details beside it, and the full list underneath. */
+/* A narrow window wraps the tabs onto a second line instead of hiding some behind the edge (on a phone "Talk to AI"
+   was cut to "Talk to A"). */
+.brain-tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 var(--s2);
+  border-bottom: 1px solid var(--line-strong); }
+.brain-tabs > .tabs { border-bottom: 0; flex: 0 1 auto; flex-wrap: wrap; overflow: visible; }
+.brain-tabs .tabs a { font-size: 1rem; min-height: 44px; }
+.brain-more { display: flex; }
+.brain-more-btn {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 var(--s3); border: 0;
+    border-bottom: 2px solid transparent;
+  background: none; color: var(--text-2); font: inherit; font-size: 1rem; font-weight: 600; cursor: pointer;
+}
+.brain-more-btn:hover { color: var(--text); background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.brain-more-btn.on { color: var(--text); border-bottom-color: var(--primary); }
+.brain-more-chev { width: 14px; height: 14px; transform: rotate(90deg); }
+.brain-more-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; min-width: 300px; display: grid;
+  gap: 2px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px;
+    box-shadow: var(--shadow-overlay); }
+.brain-more-menu [role="menuitem"] { white-space: normal; align-items: flex-start; min-height: 48px; padding: 8px 10px;
+  width: 100%; }
+.brain-more-menu [role="menuitem"] .icon { margin-top: 2px; color: var(--primary); flex: none; }
+.brain-more-menu [role="menuitem"] > span { display: grid; gap: 2px; }
+.brain-more-menu [role="menuitem"] b { font-size: 0.9375rem; }
+.brain-more-menu [role="menuitem"] small { color: var(--text-3); font-size: var(--fs-tiny); line-height: 1.35; }
+.brain-more-menu [aria-current="page"] { background: var(--primary-tint); }
+.brain-add { margin-left: var(--s2); }
+.brain-add .brain-more-menu { left: auto; right: 0; }
+.brain-add > .btn .brain-more-chev { margin-left: 2px; }
+
+.brain-memory-views { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.brain-memory-views a {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong); color: var(--text-2); text-decoration: none; font-weight: 600;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+.brain-memory-views a .icon { width: 16px; height: 16px; }
+.brain-memory-views a:hover { color: var(--text); border-color: var(--control-border); }
+.brain-memory-views a[aria-current="page"] { color: var(--text); border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.brain-memory-views a[aria-current="page"] .icon { color: var(--primary); }
+
+.brain-main-toolbar { gap: var(--s3); }
+.brain-search { position: relative; display: flex; align-items: center; flex: 1 1 260px; max-width: 420px; }
+.brain-search > .icon { position: absolute; left: 12px; width: 18px; height: 18px; color: var(--text-3);
+  pointer-events: none; }
+.brain-search input, .brain-search input[type="search"] { width: 100%; min-height: 42px; padding: 0 12px 0 40px;
+  border-radius: 12px; font-size: 1rem; }
+.brain-main-toolbar .brain-view-buttons { margin-left: auto; }
+
+/* the map beside its details, in one framed panel */
+.brain-page .brain-vault {
+  grid-template-columns: minmax(0, 1fr) clamp(260px, 24vw, 340px); min-height: 0;
+  background: color-mix(in srgb, var(--canvas) 72%, transparent); border-color: var(--line-strong);
+}
+.brain-page .brain-vault .brain-inspector { background: color-mix(in srgb, var(--surface) 88%, transparent); }
+/* Beside the map (wider than 1180), the details are as tall as the map and scroll inside: a long details panel used to
+   stretch the map's box, and the map then sat far down in it, below the fold on a laptop. */
+@media (min-width: 1181px) {
+  .brain-page .brain-vault > .brain-inspector { contain: size; overflow-y: auto; scrollbar-width: thin; }
+}
+.brain-saved { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: var(--s3) var(--s5);
+  align-items: start;
+  padding: var(--s4); border: 1px solid var(--line); border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.brain-saved-head { grid-column: 1 / -1; display: grid; gap: 4px; }
+.brain-saved-head h2 { margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: var(--s2); }
+.brain-saved-head p { margin: 0; }
+.brain-saved-count { min-width: 26px; padding: 0 8px; border-radius: var(--r-pill); background: var(--raised);
+  color: var(--text-2);
+  font-size: var(--fs-small); line-height: 24px; text-align: center; }
+.brain-saved .brain-collections { margin: 0; }
+.brain-saved .brain-vault-notes { max-height: 360px; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 2px var(--s3); align-content: start; }
+.brain-teach { min-height: 40px; }
+@media (max-width: 1100px) {
+  .brain-page .brain-vault { grid-template-columns: minmax(0, 1fr); }
+  .brain-page .brain-vault .brain-inspector { border-left: 0; border-top: 1px solid var(--line); }
+  .brain-saved { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* the inspector's Source row (the space studio's picture: "Source  Imported skill") */
+.brain-source { display: flex; justify-content: space-between; gap: var(--s3); margin: 0; padding: var(--s3) 0;
+  border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); font-size: var(--fs-small); }
+.brain-source dt { color: var(--primary); }
+.brain-source dd { margin: 0; color: var(--text); text-align: right; }
+.brain-inspector-eyebrow { font-size: var(--fs-small); }

@@ -103,6 +103,8 @@ export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: stri
   /** Full stories projects: "whole" (Full story) or "parts" (Story parts). */
   story_split?: string;
   message?: string; stage?: string; progress?: number; error?: string; clip_count?: number; updated_at: number;
+  /** In seconds: a clips project's source video, or a video's newest finished render (0 or missing = not known yet). */
+  duration?: number;
   thumbnail: string; href: string };
 
 export type PlanClip = { id: string; asset_id: string; kind: string; in_ms: number; out_ms: number; label: string;
@@ -476,6 +478,24 @@ function remember(fp: string, id: string | null) {
   }
 }
 
+/** The chosen file can no longer be read: it was moved, renamed, changed or deleted after it was chosen. */
+export class FileGoneError extends Error {
+  constructor(name: string) {
+    super(`ClipForge can't find “${name}” any more. It may have been moved, renamed or deleted.`);
+    this.name = "FileGoneError";
+  }
+}
+
+/** Whether the browser can still read the chosen file (it reads one byte; a moved or deleted file throws). */
+async function readable(file: File): Promise<boolean> {
+  try {
+    await file.slice(0, 1).arrayBuffer();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function sha256(file: File): Promise<string> {
   // Small enough files are fingerprinted in the browser so the server can reject damaged transfers; for larger files
   // the server's own hash is the record (the browser has no streaming hash, and several uploads run at once).
@@ -489,8 +509,12 @@ export type UploadProgress = { received: number; size: number; state: "hashing" 
 /** Send a file in chunks, resuming the same upload after an interruption (also after reloading the page). */
 export async function uploadFile(file: File, onProgress: (p: UploadProgress) => void, signal?: AbortSignal): Promise<Asset> {
   const fp = `${file.name}|${file.size}|${file.lastModified}`;
+  if (!(await readable(file))) throw new FileGoneError(file.name);
   onProgress({ received: 0, size: file.size, state: "hashing" });
-  const hash = await sha256(file);
+  const hash = await sha256(file).catch(async (e) => {
+    if (!(await readable(file))) throw new FileGoneError(file.name);
+    throw e;
+  });
   let up = await req<Upload>("POST", "/api/uploads", { filename: file.name, size: file.size, sha256: hash, fingerprint: fp });
   remember(fp, up.id);
   const chunk = up.chunk_size || 8 * 1024 * 1024;
@@ -503,6 +527,7 @@ export async function uploadFile(file: File, onProgress: (p: UploadProgress) => 
     }).catch(() => null);
     if (!res) {
       onProgress({ received: up.received, size: file.size, state: "interrupted" });
+      if (!signal?.aborted && !(await readable(file))) throw new FileGoneError(file.name);
       throw new Error("Upload interrupted. Resume upload.");
     }
     const body = await res.json();

@@ -63,4 +63,5 @@ enabled skills > Brain notes > Settings. Two skills at the same level that disag
 neither wins. Each project records the skill's ID and revision in its guidance snapshot; editing a skill later does
 not change projects that already used it. Export writes this same format.
 
-The bundled example is `clipfoundry/studio/examples/story-captions.skill.md` (Brain → Skills → Add the example skill).
+The bundled example is `clipfoundry/studio/examples/story-captions.skill.md` (Brain → More → Skills → Add the
+example skill).

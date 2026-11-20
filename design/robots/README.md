@@ -1,36 +1,31 @@
 # Robot assets
 
-The office's 25 robots are authored pixel art built from their named identities and parts. The refined map uses
-**PixiJS 8.22.0**; Team cards, robot details and the developer gallery share the same robot artwork through cached
-Canvas portraits. **GSAP 3.15.0** provides pure easing curves for authored off-duty gestures, using the office's
-visual clock without independent timelines. The Brain Core and original Canvas artwork remain available. No paid
-image service, account or plugin connection is needed at runtime, and the drawing instructions can be edited as text.
+Since the space studio (2026-11-19, [design/space-studio/README.md](../space-studio/README.md)), the 25 robots are
+pixel art cut from the owner's three crew sheets. They live in one atlas, `frontend/public/space/crew.png`, with its
+frame map in `frontend/src/space/sprites.json`. The ship (`StudioScene.ts`, Canvas 2D), Team cards, robot details and
+the developer gallery all draw from that atlas. PixiJS, GSAP, the authored `StudioArt.ts` rigs and the Canvas
+fallback were removed with the earlier office. No paid image service, account or plugin connection is needed at
+runtime.
 
 | File | What it holds |
 | --- | --- |
-| `frontend/src/office/cast.ts` | The registry: id, name, title, rank, department, room, manager, palette, head, body, visor, top, gear, work loop, hand and base for every robot, plus CORE. `validateCast()` checks 1 Director, 8 managers, 16 workers, unique ids and that no two robots share head + visor + top + gear. |
-| `frontend/src/office/StudioArt.ts` | Refined authored robot silhouettes, faces, shading, equipment, work poses and off-duty gestures/props. `createRobot()` builds a reusable rig for each existing identity; GSAP `parseEase` curves smooth the leisure gestures. |
-| `frontend/src/office/StudioScene.ts` | Pixi office scenery, robot placement, department lights, health indicators and Brain Core. The map supplies actual feed-driven poses and handoffs. |
-| `frontend/src/office/LoungeDecor.ts` | Authored arcade/café/board-game/sofa zones, optional cropped skyline windows, cached Pixi `BlurFilter` light pools and explicitly decorative game/steam ambience. |
-| `frontend/src/office/OfficeMotion.ts` | Actual-state lounge/desk destinations and fresh document choreography: approach, pass, receive, then return to the latest destination. |
+| `frontend/src/office/cast.ts` | The registry: id, name, title, rank, department, room, manager and palette for every robot, plus CORE. `validateCast()` checks 1 Director, 8 managers, 16 workers and unique ids. |
+| `frontend/src/office/crew.ts` | The atlas's frames for each pose: idle, blink, look left and right, two walking steps, and four frames of each robot's own work gesture with its glow points. |
+| `frontend/src/office/StudioScene.ts` | The ship in layers (hull, room lights, exhaust, CORE, consoles, crew, foreground desks). The map supplies actual feed-driven poses and handoffs. |
+| `frontend/src/office/OfficeMotion.ts` | Actual-state lounge and console destinations and fresh document choreography: approach, pass, receive, then return to the latest destination. |
 | `frontend/src/office/DepartmentDuty.ts` | Real-state attendance and honest work/support/supervisor duties. |
 | `frontend/src/office/LoungeLife.ts` | Decorative identity-phased routines, exclusive activity reservations and at most two recreational visitors walking at once; no jobs or API writes. |
-| `frontend/src/office/world.ts` | Department desks, 29 lounge activity places including 25 stable homes, room bounds, furniture footprints and walking routes. |
-| `frontend/src/office/BrainCore.ts` | Authored neural sculpture with decorative standby, feed-driven processing and frozen paused/offline modes. |
-| `frontend/src/office/LivingFallback.ts` | Original Canvas identities in the same floor plan, seated lounge/desk postures, document passes and simpler leisure props/gestures driven by the controller's activity phases. |
-| `frontend/src/office/StudioPortraits.ts` | One lazy shared offscreen renderer for the roster, details and gallery; a bounded 512-frame cache of 48×68 Canvas images avoids a graphics context per portrait. |
-| `frontend/src/office/Portrait.tsx` | A crisp Canvas portrait using the refined frame cache, with original artwork retained if the renderer/module cannot initialize. CORE uses its original drawing. |
-| `frontend/src/office/sprites.ts` | Original artwork and pose definitions (`FRAMES`), retained for the complete Canvas fallback. Original cells are 48×64. |
-| `frontend/public/office-art/skyline.png` | Original 2172×724 skyline generated once with native image generation, bundled locally as scenery. It is not robot art, job evidence or a runtime image-generation call. |
-| `frontend/public/third-party-graphics.txt` | Bundled third-party notices, including GSAP 3.15.0's copyright header and standard no-charge license references. GSAP is not licensed under MIT. |
+| `frontend/src/office/world.ts` | Rooms, doors, halls, consoles and lounge places, read from `frontend/src/space/ship-world.json`. |
+| `frontend/src/office/Portrait.tsx` | A crisp portrait drawn from the atlas, for Team, details and the gallery. |
 | `clipfoundry/office/roles.py` | The backend's copy of the same identities and which job kinds and stages each one owns. `tests/test_office.py` fails if the two lists differ. |
-| `design/robots/contact-sheet.png` | A screenshot of the developer gallery (`#/dev/robots`, idle pose). |
-| `design/robot-office/retro/README.md` | Evidence and provenance for the refined office graphics, kept separately from earlier captures. |
-| `design/robot-office/living/` | New lounge, seated-work, room-camera and Brain evidence; actual isolated screenshots are separate from controlled visual transitions. |
-| `design/robot-office/lounge/` | Later arcade/café/board-game/sofa evidence; controlled recreational recordings remain distinct from actual job or processing measurements. |
-| `design/robot-office/departments/` | Complete-team, supervisor, Brain and receiver-office handoff evidence. |
+| `design/space-studio/tools/` | The scripts that cut and cleaned the crew, the ship and the scenes from the references and wrote `frontend/public/space/`. |
+| `design/robot-office/` | Evidence from the earlier office, kept as history. |
 
 ## Rules the art keeps
+
+These rules were written for the earlier office. The space studio keeps the pose names, attendance, reservations,
+preemption and document handoff rules below. The drawing itself is now the crew atlas: there are no authored rigs,
+no fallback renderer and no skyline, and the ship's lights and engines replace the office scenery.
 
 * **Pixel geometry and anchor.** Refined robots use integer-sized parts, stepped silhouettes, highlights and shadows,
   with feet anchored at their desk or lounge place. Bodies and heads vary by identity and rank. Portraits use a 48×68

@@ -44,10 +44,10 @@ test("all idle robots have individual lounge places and the camera can inspect a
     return `${button.style.left}|${button.style.top}`;
   }));
   expect(new Set(places).size, "each robot owns a seat instead of sharing a pile of sprites").toBe(25);
-  await page.getByRole("combobox", { name: "Office camera", exact: true }).selectOption("lounge");
+  await page.getByRole("combobox", { name: "Ship view", exact: true }).selectOption("lounge");
   await expect(page.locator(".office-map")).toHaveAttribute("data-camera", "lounge");
   await expect(robot(page, "glyph")).toBeInViewport();
-  await page.getByRole("combobox", { name: "Office camera", exact: true }).selectOption("");
+  await page.getByRole("combobox", { name: "Ship view", exact: true }).selectOption("");
   await expect(page.locator(".office-map")).toHaveAttribute("data-camera", "office");
 });
 
@@ -203,13 +203,17 @@ async ({ page, request }) => {
   const feed = await fixture(page, request);
   await page.goto("/#/office");
   await page.getByRole("combobox", { name: "Animations", exact: true }).selectOption("full");
-  await page.getByRole("combobox", { name: "Office camera", exact: true }).selectOption("brain");
+  await page.getByRole("combobox", { name: "Ship view", exact: true }).selectOption("brain");
   await expect(page.locator(".brain-core-hit")).toHaveAttribute("data-mode", "standby");
   await expect(page.locator(".brain-core-hit")).toHaveAttribute("href", "#/brain");
   const image = () => page.locator(".office-world canvas").evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
-  const brainImage = () => page.locator(".office-world canvas").evaluate((canvas: HTMLCanvasElement) => {
-    const crop = document.createElement("canvas"); crop.width = crop.height = 132;
-    crop.getContext("2d")!.drawImage(canvas, 746, 16, 132, 132, 0, 0, 132, 132);
+  // CORE's own picture: the canvas under its button (the ship's Brain room, 2026-11-19)
+  const brainImage = () => page.locator(".office-world").evaluate(world => {
+    const canvas = world.querySelector("canvas")!, core = world.querySelector<HTMLElement>(".brain-core-hit")!;
+    const [x, y, w, h] = [core.style.left, core.style.top, core.style.width, core.style.height]
+      .map((v, i) => parseFloat(v) * (i % 2 ? canvas.height : canvas.width) / 100);
+    const crop = document.createElement("canvas"); crop.width = Math.round(w); crop.height = Math.round(h);
+    crop.getContext("2d")!.drawImage(canvas, x, y, w, h, 0, 0, crop.width, crop.height);
     return crop.toDataURL();
   });
   const a = await image(); await page.waitForTimeout(850);

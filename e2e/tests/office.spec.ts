@@ -1,8 +1,8 @@
 import { expect, getJson, test } from "../fixtures";
 
-// The Office (docs/OFFICE.md): the robot office over the real job system. Read-only: the bottom bar's controls
+// The Office (docs/OFFICE.md): the space ship over the real job system. Read-only: the bottom bar's controls
 // (Start, Resume, Pause, Stop all, Pause publishing) are looked at, never pressed. Robots, rooms, Activity, Map/List
-// and Reduce animations only change what this browser shows.
+// and Animations only change what this browser shows.
 
 const STATE_WORDS: Record<string, string> = {
   idle: "idle", working: "working", waiting: "waiting", retrying: "retrying", error: "stopped by an error",
@@ -26,16 +26,17 @@ test("the bottom bar shows Autopilot's real state and only the controls that fit
     const publishing = snap.run.publishing_paused ? "Resume publishing" : "Pause publishing";
     await expect(bar.getByRole("button", { name: publishing })).toBeVisible({ timeout: 1000 });
   }).toPass();
-  await expect(bar).toContainText("Selected audience: YouTube invited viewers · TikTok approved followers");
+  await expect(bar).toContainText("Who watches: YouTube invited viewers · TikTok approved followers");
 });
 
 test("the map has every room, and each robot says its real state", async ({ page, request }) => {
   await page.getByRole("button", { name: "Map", exact: true }).click();
   const world = page.locator(".office-world");
   await expect(world.locator("canvas")).toBeVisible();
-  for (const room of ["Lounge", "Boss Hub", "Brain Room", "Discover", "Team Workspace", "Analyze", "Clip Studio",
-    "System", "Caption", "Schedule", "Upload Dock"]) {
-    await expect(world.getByRole("button", { name: new RegExp(`^${room}\\b`) })).toHaveCount(1);
+  // the ship's rooms (office/cast.ts ROOM_NAMES), each a button over the canvas
+  for (const room of ["Lounge", "Control room", "Media research", "Brain", "Intake", "Story & analysis", "Editing",
+    "Sound & captions", "Quality & export", "Publishing"]) {
+    await expect(world.getByRole("button", { name: new RegExp(`^${room}[.:]`) })).toHaveCount(1);
   }
   await expect(async () => {
     const snap = await getJson(request, "/api/office/snapshot");
@@ -58,18 +59,20 @@ test("robots on duty stand in their own room; resting ones are in the lounge", a
   const cast = await getJson(request, "/api/office/roles");
   const room: Record<string, string> = Object.fromEntries(cast.roles.map((r: any) => [r.id, r.room]));
   await page.getByRole("button", { name: "Map", exact: true }).click();
-  await page.getByLabel(/Reduce animations/).check();  // robots jump to their places instead of walking
+  await page.getByLabel("Animations").selectOption("reduced");  // robots jump to their places instead of walking
   await expect(async () => {
     const snap = await getJson(request, "/api/office/snapshot");
     for (const row of snap.roles) {
       const b = page.locator(`.robot-hit[data-id="${row.id}"]`);
       if (!(await b.count()) || await b.isHidden()) continue;  // a resting robot the lounge only counts
-      const worker = cast.roles.find((r: any) => r.id === row.id).rank === "worker";
-      const want = ["idle", "paused"].includes(row.state) && worker ? "lounge" : room[row.id];
+      // on duty: in its own room. Otherwise its own room while its department is busy (office/DepartmentDuty.ts),
+      // or the lounge. Never another department's room.
+      const want = ["working", "reviewing", "error"].includes(row.state) ? new RegExp(`^${room[row.id]}$`)
+        : new RegExp(`^(${room[row.id]}|lounge)$`);
       await expect(b, row.id).toHaveAttribute("data-room", want, { timeout: 500 });
     }
   }).toPass({ timeout: 20_000 });
-  await page.getByLabel(/Reduce animations/).uncheck();
+  await page.getByLabel("Animations").selectOption("system");
 });
 
 test("a robot opens its card: role, manager and the next stage", async ({ page }) => {
@@ -122,7 +125,7 @@ test("the Team roster lists the 25 robots and CORE", async ({ page }) => {
   await expect(page.locator(".team-card", { has: page.locator("b", { hasText: /^CORE$/ }) })).toContainText("Brain");
 });
 
-test("the robot gallery shows every robot in four directions", async ({ page }) => {
+test("the robot gallery shows every robot in every frame the ship uses", async ({ page }) => {
   await page.goto("/#/dev/robots");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Robot gallery");
   await expect(page.locator(".gallery tbody tr")).toHaveCount(25);

@@ -376,7 +376,7 @@ def render_clips(p: Prepared, clip_rows: list[dict], ctx: JobContext, lo: float 
         ctx.check()
         a = lo + (hi_total - lo) * i / n
         b = lo + (hi_total - lo) * (i + 1) / n
-        msg = f"Rendering clip {i + 1} of {len(clip_rows)}"
+        msg = f"Making clip {i + 1} of {len(clip_rows)}"
         p.stage("render", a, msg)
         db.update_clip(clip["id"], status="rendering", progress=0)
         sub = JobContext(lambda f, m, a=a, b=b, cid=clip["id"], msg=msg: (

@@ -1,5 +1,43 @@
 # Implementation status
 
+## Space studio: the ship and its crew, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code)
+
+Branch `claude/project-thread-t2bntx` from the release line at 87a38c8, pull request #62. Studio is a cutaway ship
+whose 25 robots and CORE move only for real work (Canvas 2D, no PixiJS or GSAP); Brain Memory is the real graph over
+a still galaxy; Styles has a playable preview; Projects, Publishing, Accounts and Settings → Appearance follow the
+new look; a first clip is three steps with More options. Later the same evening: the Studio panel (Working on and
+Make tabs), Talk to AI in the navigation, and the Brain's lines and dots as animated lightning. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md) and
+[design/space-studio/README.md](../design/space-studio/README.md). Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-20 | `npm run build` | passed; `frontend/dist` 3.9 MB |
+| 2026-11-20 | `pytest -m "not slow"` | 3,111 run, 0 failed, 2 skipped (two parts after a cloud restart) |
+| 2026-11-20 | `pytest -m slow` | 31 passed, 1 skipped |
+| 2026-11-20 | pytest, the 12 files that read frontend files, after the last ship changes | 339 passed |
+| 2026-11-20 | `e2e/tests` against the demo app | 62 passed, 6 skipped, 5 failed (the same 5 fail on the release) |
+| 2026-11-20 | `e2e/tests` office and app-shell against the demo app, after the last ship changes | 22 passed |
+| 2026-11-20 | `e2e/sandbox` (50 specs) | 48 passed; beginner-flow and video-setup fail the same way on the release |
+| 2026-11-20 | `e2e/sandbox` ship specs after the last ship changes (badges and room names) | 31 passed |
+| 2026-11-20 | The new badge check's measurement on the layout before those changes, 1440 wide | 7 badges and 3 names covered: the check would have failed |
+| 2026-11-20 | Badges and room names with every department at work, 36 window sizes from 390 to 1920 wide | no badge covers another (before: up to 63%); none touches a name from 1330 wide up or from 768 to 1180 wide |
+| 2026-11-20 | The same at 1190 to 1320 and 640 wide, and at 390 wide | a badge can touch the bottom edge of the name above it: at most 7% of its line (up to 24% before the badges shrank on a smaller ship); at 390 wide up to a fifth |
+| 2026-11-20 | GitHub run 44650380497 on cccd6a0 | native Mac build and bundled-app smoke passed (before the phone-size change) |
+| 2026-11-20 | GitHub run 44653081606 on 2014f3c | native Mac build, bundled-app smoke, fast and slow Python suites passed (before the last ship changes) |
+| 2026-11-20 | GitHub run 44658528437 on a273337 | native Mac build, bundled-app smoke, fast and slow Python suites passed (before the badges shrank on a smaller ship) |
+| 2026-11-20 | GitHub run 44661617599 on d38cf74 (the ship's final layout, before the Studio panel, Talk to AI and the lightning) | native Mac build, bundled-app smoke, fast and slow Python suites passed |
+| 2026-11-20 | `npm run build` after the Studio panel, Talk to AI and the lightning | passed |
+| 2026-11-20 | `e2e/sandbox`: brain-graph, brain-workspace, motion, department-office, living-office, lounge-life, office-handoff-flow, pixel-office, robot-office | 46 passed; brain-graph, brain-workspace and motion again after the last three layout fixes: 15 passed |
+| 2026-11-20 | `e2e/tests` app-shell, office and settings against the demo app | 29 passed, 2 failed (the same 2 Settings tests fail on the release) |
+| 2026-11-20 | pytest: the 12 files that read frontend files, plus `test_studio_reference.py` and `test_clipforge_ai_chat.py` | 380 passed, after fixing `test_each_channel_has_its_own_daily_limit_gap_and_slots` (it failed from 9 PM to midnight Chicago time, on the release too) |
+| 2026-11-20 | The lightning's still check (`final/scripts/lightning.js` in the project folder) | changes with nothing set and with Calm; holds still with the system's Reduce motion, Settings Motion "Reduced", Low power and a hidden tab (6 of 6) |
+| 2026-11-20 | The lightning's cost per frame in the cloud browser | 0.2 ms with 3 dots, 1.3 ms with 74, 2.9 ms with 174 (4.4 ms at most); with the processor slowed 4 times, 14 ms and about 6 frames a second |
+| 2026-11-20 | Studio panel, Brain and Talk to AI screenshots at 1585×992, 1366×768 and 390×844, and larger text | no sideways scroll and nothing cut off; the Brain's tabs wrap on a phone; beside the map the details scroll inside |
+
+Not verified: Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, a real video
+going through the pipeline while the ship animates.
+
 ## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code)
 
 Branch `claude/project-thread-dwz7vo` (release line afc0c1f merged in, with the live clips work of PR #57), pull

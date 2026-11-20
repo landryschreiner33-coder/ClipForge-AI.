@@ -52,6 +52,91 @@ test.describe("Make clips from a video link", () => {
   });
 });
 
+// The owner, 2026-11-19: "From + Make, let me Choose a video, Pick what to make, then Make clips. Explain Highlights as
+// 'Pick the best moments' and Full Stories as 'Keep each story from start to finish.' ... Put fine adjustments under a
+// visible More options control." Opening More options changes nothing; Make clips is never pressed.
+test.describe("a first clip in three steps", () => {
+  test("Choose a video, Pick what to make, then Make clips, with fine adjustments under More options", async ({ page }) => {
+    await page.goto("/#/create/clips");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Make clips");
+    const steps = await page.locator("main h2").evaluateAll((hs) => hs.map((h) => (h.textContent || "").replace(/^\d/, "")));
+    expect(steps.slice(0, 3)).toEqual(["Choose a video", "Pick what to make", "Make clips"]);
+    await expect(page.getByRole("button", { name: "Choose a video", exact: true })).toBeVisible();
+
+    const what = page.getByRole("radiogroup", { name: "Pick what to make" });
+    await expect(what.getByRole("radio")).toHaveCount(3);
+    await expect(what.getByRole("radio", { name: /^Pick the best moments Highlights/ })).toHaveCount(1);
+    await expect(what.getByRole("radio", { name: /^Keep each story from start to finish Full story/ })).toHaveCount(1);
+    await expect(what.getByRole("radio", { name: /^Split each story into Part 1, Part 2… Story parts/ })).toHaveCount(1);
+
+    const go = page.getByRole("complementary", { name: "Make clips" });
+    await expect(go.getByRole("button", { name: "Make clips", exact: true })).toBeDisabled();
+    await expect(go.getByRole("heading", { name: "What happens next" })).toBeVisible();
+    await expect(go.getByText("Your clips are ready", { exact: true })).toBeVisible();
+
+    const more = page.getByRole("button", { name: "More options", exact: true });
+    await expect(more).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("heading", { name: "Captions and framing" })).toBeHidden();
+    await more.click();
+    await expect(more).toHaveAttribute("aria-expanded", "true");
+    for (const name of ["Style", "Captions and framing", "When the clips are ready", "Used from your Brain"]) {
+      await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    }
+    await expect(page.getByText("Your Brain remembers your editing preferences.", { exact: false })).toBeVisible();
+    // the keyboard reaches Make clips before the fine adjustments
+    const order = await page.evaluate(() => {
+      const make = document.querySelector(".mc-make");
+      const toggle = document.querySelector(".mc-more-toggle");
+      return make && toggle ? make.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING : 0;
+    });
+    expect(order).toBeTruthy();
+  });
+
+  // The owner: "If a file is missing, name it and offer Choose file again." Here the browser can no longer read the
+  // chosen file (as when it is moved or deleted after it was chosen), so nothing is uploaded.
+  test("a video that went missing after it was chosen is named, with Choose file again", async ({ page }) => {
+    await page.addInitScript(() => {
+      const slice = Blob.prototype.slice;
+      Blob.prototype.slice = function (this: Blob, ...args: Parameters<Blob["slice"]>) {
+        const part = slice.apply(this, args);
+        if (this instanceof File && this.name === "moved-away.mp4") {
+          part.arrayBuffer = () => Promise.reject(new DOMException("The file could not be found", "NotFoundError"));
+        }
+        return part;
+      };
+    });
+    const sent: string[] = [];
+    page.on("request", (r) => r.url().includes("/api/uploads") && r.method() !== "GET" && sent.push(r.method()));
+    await page.goto("/#/create/clips");
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Choose a video", exact: true }).click();
+    await (await chooser).setFiles({ name: "moved-away.mp4", mimeType: "video/mp4", buffer: Buffer.alloc(1000) });
+    await expect(page.getByText("ClipForge can't find “moved-away.mp4” any more. It may have been moved, renamed or "
+      + "deleted.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Resume upload" })).toHaveCount(0);
+    await expect(page.locator(".mc-make")).toBeDisabled();
+    const again = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Choose file again" }).click();
+    await again;  // the file picker opens; choosing nothing leaves step 1 as it was at the start
+    await expect(page.getByText("Upload a video first.")).toBeVisible();
+    expect(sent, "nothing was uploaded").toEqual([]);
+  });
+
+  test("a finished clips project says so and Review clips goes straight to the clips", async ({ page, request }) => {
+    const done = (await getJson<any[]>(request, "/api/projects")).find((p) => p.status === "ready" && p.clip_count > 0);
+    test.skip(!done, "no finished clips project in the library");
+    await page.goto(`/#/project/${done.id}`);
+    const strip = page.getByRole("region", { name: "Your clips are ready" });
+    await expect(strip).toBeVisible();
+    await strip.getByRole("button", { name: "Review clips" }).click();
+    await expect(page.getByRole("heading", { name: /^Clips made from it/ })).toBeFocused();
+    // Studio's Review clips opens the same page at the clips
+    await page.goto("/#/projects");
+    await page.goto(`/#/project/${done.id}/clips`);
+    await expect(page.getByRole("heading", { name: /^Clips made from it/ })).toBeFocused();
+  });
+});
+
 test.describe("Add a video with its transcript", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/#/create/transcript");
@@ -114,7 +199,7 @@ test.describe("Add a video with its transcript", () => {
     const before = await getJson(request, "/api/settings");
     const details = await openDetails(page, /More options/);
     await details.getByRole("radiogroup", { name: "Silence cleanup" }).getByText("Strong", { exact: true }).click();
-    await details.getByRole("radiogroup", { name: "Clip length" }).getByText("30–90 s", { exact: true }).click();
+    await details.getByRole("radiogroup", { name: "Clip length" }).getByText("45–120 s", { exact: true }).click();
     await details.getByRole("checkbox", { name: "Subtle auto-zoom" }).click();
     await page.goto("/#/");
     expect(await getJson(request, "/api/settings")).toEqual(before);

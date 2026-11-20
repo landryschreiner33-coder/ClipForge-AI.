@@ -1,42 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../api";
 import { Field, Skill, Style, studio } from "../studio";
-import { Banner, ConfirmDialog, Dialog, EmptyState, Icon, Pill, toast } from "./ui";
+import { Banner, Dialog, EmptyState, Icon, toast } from "./ui";
 
-/** Brain → Styles: saved editing choices. Each change saves a new revision; older projects keep theirs. */
-export function StylesTab() {
-  const [rows, setRows] = useState<Style[] | null>(null);
-  const [del, setDel] = useState<Style | null>(null);
-  const [saving, setSaving] = useState(false);
-  const load = useCallback(() => studio.styles().then(setRows).catch(() => setRows([])), []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  if (rows === null) return <p className="muted">Loading styles…</p>;
-  return (
-    <div className="stack-3">
-      <p className="muted">A style remembers editing choices, such as caption placement, pace and shape. Changing it affects new projects only.</p>
-      <div className="row-actions" style={{ justifyContent: "flex-start" }}>
-        <button type="button" className="btn" onClick={() => setSaving(true)}><Icon name="plus" />Save a style</button>
-      </div>
-      {rows.length === 0 && <EmptyState icon="spark" title="No saved styles yet" level={3}>Tick “Remember this style” when you make a YouTube video, or save one here.</EmptyState>}
-      <div className="acct-grid">{rows.map((s) => (
-        <article key={s.id} className="acct">
-          <div className="panel-head"><b>{s.name}</b>{s.is_default && <Pill tone="accent">My saved style</Pill>}</div>
-          <span className="small muted">Revision {s.revision} · {s.modes.map((m) => ({ highlights: "Highlights", full_stories: "Full stories", full_video: "Full videos" } as Record<string, string>)[m] || m).join(", ")}</span>
-          <ul className="small">{s.effects.map((e) => <li key={e}>{e}</li>)}</ul>
-          <div className="row-actions" style={{ justifyContent: "flex-start" }}>
-            {!s.is_default && <button type="button" className="btn btn-small" onClick={async () => { await studio.defaultStyle(s.id); await load(); }}>Use as my saved style</button>}
-            <button type="button" className="btn btn-small btn-danger" onClick={() => setDel(s)}>Delete</button>
-          </div>
-        </article>))}</div>
-      {saving && <SaveStyleDialog onClose={() => setSaving(false)} onSaved={() => { setSaving(false); void load(); }} />}
-      {del && <ConfirmDialog title={`Delete “${del.name}”?`} danger confirmLabel="Delete style" onClose={() => setDel(null)}
-        onConfirm={async () => { await studio.deleteStyle(del.id); setDel(null); await load(); }}>
-        <p>Projects that already used it keep the choices they were made with.</p></ConfirmDialog>}
-    </div>
-  );
-}
+/** Brain → Styles: the style studio (a form and a preview you can play), in StyleStudio.tsx. */
+export { StylesTab } from "./StyleStudio";
 
 const MODE_WORDS: Record<string, string> = { highlights: "Highlights", full_stories: "Full stories",
   full_video: "Full videos" };

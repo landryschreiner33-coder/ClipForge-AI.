@@ -86,7 +86,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
   }
   if (tab === "appearance") {
     return (
-      <SettingsFrame current="appearance" wide sub="How ClipForge looks. Customize studio changes it and says where each choice is kept.">
+      <SettingsFrame current="appearance" wide>
         <AppearanceSettings />
       </SettingsFrame>
     );

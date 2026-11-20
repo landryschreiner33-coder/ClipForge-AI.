@@ -423,7 +423,7 @@ def chosen(workspace_id: str, ref_id: str) -> dict | None:
         raise ReferenceError("That example is disabled. Enable it in Brain or choose another one.")
     style = _usable(row)
     if style is None:
-        raise ReferenceError("Save what you want to use from that example first (Brain → Example videos).")
+        raise ReferenceError("Save what you want to use from that example first (Brain → More → Example videos).")
     return style
 
 

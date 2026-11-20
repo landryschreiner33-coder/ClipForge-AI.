@@ -447,13 +447,18 @@ def test_bulk_review_checks_each_posts_own_channel(chans):
 
 
 def test_each_channel_has_its_own_daily_limit_gap_and_slots(chans):
+    import datetime as dt
+
     from clipfoundry import db
-    from clipfoundry.autopilot import scheduler
+    from clipfoundry.autopilot import scheduler, scout
 
     a, b = chans["a"], chans["b"]
-    now = time.time()
     settings = {**db.get_settings(), "autopilot_youtube_daily_limit": 1, "autopilot_daily_target": 0,
                 "autopilot_min_gap_minutes": 60}
+    # 8 AM tomorrow in the planning time zone, so A's post (9 AM) and the later time (11 AM) share a day whatever the
+    # hour the test runs (with the clock's own time, it failed from 9 PM to midnight: three hours on is the next day)
+    morning = dt.datetime.now(scout.tz(settings)).replace(hour=8, minute=0, second=0, microsecond=0)
+    now = (morning + dt.timedelta(days=1)).timestamp()
     plan = scheduler.Plan(settings, now)
     plan.items = [{"id": "1", "platform": "youtube", "clip_id": "c1", "planned_at": now + 3600, "status": "approved",
                    "connection_id": a["id"]}]

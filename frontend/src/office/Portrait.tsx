@@ -1,19 +1,14 @@
 import { useLayoutEffect, useRef } from "react";
 import { Dir } from "./cast";
-import { paint } from "./draw";
-import { CELL, FRAMES, frameMs, Pose, sprite, spriteTop } from "./sprites";
-import { BY_ID } from "./cast";
+import { ART, CELL, drawRobot, FrameName, Pose, poseFrame, spaceImage } from "./crew";
 import { useMotion } from "../motion";
-import type { studioPortrait } from "./StudioPortraits";
-
-const HEIGHT = 68;
 
 /**
- * The same refined artwork as the office, delivered through one shared offscreen renderer and a frame cache.
- * Original art remains available for CORE and browsers that cannot initialize the new graphics.
+ * One robot drawn from the same crew art as the ship, at a whole-pixel size. `frame` shows one exact frame (the
+ * robot gallery); otherwise the pose animates at the ship's pace unless motion is reduced or the page is hidden.
  */
-export default function Portrait({ id, pose = "idle", dir = "down", scale = 3, label, animate = true, crop }: {
-  id: string; pose?: Pose; dir?: Dir; scale?: number; label?: string; animate?: boolean;
+export default function Portrait({ id, pose = "idle", dir, frame, scale = 3, label, animate = true, crop }: {
+  id: string; pose?: Pose; dir?: Dir; frame?: FrameName; scale?: number; label?: string; animate?: boolean;
   /** a small head-and-shoulders view (chips, lists) */
   crop?: boolean;
 }) {
@@ -21,59 +16,37 @@ export default function Portrait({ id, pose = "idle", dir = "down", scale = 3, l
   const { reduceMotion, pageHidden } = useMotion();
   useLayoutEffect(() => {
     const cv = ref.current!;
-    const ctx = cv.getContext("2d")!;
-    const c = BY_ID[id];
-    const n = FRAMES[pose].n;
-    const ms = c ? frameMs(c, pose) || 500 : 500;
-    let frame = 0;
-    let active = true;
-    let version = 0;
-    let refined: typeof studioPortrait | null = null;
-    ctx.imageSmoothingEnabled = false;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    let active = true, timer: ReturnType<typeof setInterval> | null = null;
     const still = !animate || reduceMotion || pageHidden;
-    const draw = () => {
-      const request = ++version;
-      if (refined) {
-        void refined(id, pose, dir, performance.now(), still).then((image) => {
-          if (!active || request !== version) return;
-          if (image) {
-            ctx.clearRect(0, 0, CELL.w, HEIGHT);
-            ctx.drawImage(image, 0, 0);
-            cv.dataset.art = "studio";
-          } else {
-            refined = null;
-            ctx.clearRect(0, 0, CELL.w, HEIGHT);
-            paint(ctx, sprite(id, dir, pose, frame), 0, 3);
-            cv.dataset.art = "original";
-          }
-        }).catch(() => { if (active) refined = null; });
-      } else {
-        ctx.clearRect(0, 0, CELL.w, HEIGHT);
-        paint(ctx, sprite(id, dir, pose, frame), 0, 3);
-        cv.dataset.art = "original";
-      }
-    };
-    draw();
-    if (c) void import("./StudioPortraits").then((module) => {
+    const seed = id.length * 397;
+    const walk = dir === "left" ? "walk_left" : "walk_right";
+    void spaceImage("crew.png").then((atlas) => {
       if (!active) return;
-      refined = module.studioPortrait;
-      draw();
-    }).catch(() => { /* Keep the complete original-art fallback. */ });
-    const timer = still || n < 2 ? null : setInterval(() => {
-      frame = Math.floor(performance.now() / ms) % n;
-      draw();
-    }, Math.min(ms, 110));
-    return () => {
-      active = false;
-      if (timer !== null) clearInterval(timer);
-    };
-  }, [id, pose, dir, animate, reduceMotion, pageHidden]);
+      const paint = () => {
+        let shown = frame || poseFrame(pose, performance.now(), still, seed);
+        if (!frame && (pose === "walk" || pose === "carry")) {
+          shown = (shown.endsWith("_b") ? `${walk}_b` : `${walk}_a`) as FrameName;
+        }
+        ctx.imageSmoothingEnabled = false;
+        ctx.clearRect(0, 0, CELL.w, CELL.h);
+        drawRobot(ctx, atlas, id, shown, CELL.w / 2, CELL.h - 1, pose === "unavailable" ? .5 : 1);
+        cv.dataset.art = "studio";
+      };
+      paint();
+      if (!still && !frame) timer = setInterval(paint, 125);
+    }).catch(() => { if (active) cv.dataset.art = "missing"; });
+    return () => { active = false; if (timer !== null) clearInterval(timer); };
+  }, [id, pose, dir, frame, animate, reduceMotion, pageHidden]);
   const canvas = (
-    <canvas ref={ref} className="portrait" width={CELL.w} height={HEIGHT}
-      style={{ width: CELL.w * scale, height: HEIGHT * scale }}
+    <canvas ref={ref} className="portrait" width={CELL.w} height={CELL.h}
+      style={{ width: CELL.w * scale, height: CELL.h * scale }}
       role={label ? "img" : undefined} aria-label={label} aria-hidden={label ? undefined : true} />
   );
-  const c = BY_ID[id];
-  const top = c ? c.rank === "director" ? 3 : c.rank === "manager" ? 7 : 11 : spriteTop(id) + 1;
-  return crop ? <span className="mini" style={{ ["--top" as string]: `${-Math.max(0, top) * scale}px` } as React.CSSProperties}>{canvas}</span> : canvas;
+  // The crop shows the head: the top of the sprite sits a pixel below the window's top edge.
+  const art = ART[id];
+  const top = art ? CELL.h - 1 - art.foot - 1 : 2;
+  return crop ? <span className="portrait-crop" style={{ ["--top" as string]: `${-Math.max(0, top) * scale}px` } as React.CSSProperties}>
+    {canvas}</span> : canvas;
 }

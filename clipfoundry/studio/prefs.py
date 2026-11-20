@@ -16,7 +16,8 @@ import unicodedata
 
 from .. import db
 
-APPEARANCE_SCHEMA = 2  # 2: dark only (theme removed); palette, text size, office size and pinned projects added
+APPEARANCE_SCHEMA = 3  # 2: dark only (theme removed); palette, text size, office size and pinned projects added
+# 3: the space studio; its glacier accent (id "blue") replaced violet as the default
 LAYOUT_SCHEMA = 2      # 2: the Studio page's panels; the Create and Office entries, which no screen used, removed
 OLD_THEMES = ("system", "light", "dark")  # accepted from an older page and ignored: there is one (dark) theme
 PALETTES = ("studio", "midnight", "graphite", "plum")
@@ -36,7 +37,7 @@ PANELS = {"studio": ("needs_you", "pinned", "current", "office", "recent", "publ
 SIZED = ("review",)
 # the editor's default widths (frontend/src/prefs.tsx REVIEW_SIZE): the player and the transcript take the wider column
 REVIEW_SIZE = {"preview": 0.6, "outputs": 0.4, "transcript": 0.6, "guidance": 0.4}
-DEFAULT_APPEARANCE = {"palette": "studio", "accent": "violet", "density": "comfortable", "text_size": "standard",
+DEFAULT_APPEARANCE = {"palette": "studio", "accent": "blue", "density": "comfortable", "text_size": "standard",
                       "motion": "system", "office_size": "expanded", "pinned": [], "clips_mode": "highlights",
                       "remember_style": True, "video_setup_mode": "ask"}
 NAME_MAX = 32
@@ -91,6 +92,10 @@ def get_appearance(workspace_id: str, user_id: str) -> dict:
     row = _row(workspace_id, user_id, "appearance")
     stored = dict((row or {}).get("value") or {})
     stored.pop("theme", None)  # schema 1 had Light/System/Dark; ClipForge is dark only, the rest is kept
+    # Before the space studio (schema 3) violet was the default accent, saved with every other choice. A saved violet
+    # from then moves to the new glacier default once; picking violet again afterwards is kept (it saves schema 3).
+    if row and (row.get("schema_version") or 0) < 3 and stored.get("accent") == "violet":
+        stored["accent"] = "blue"
     value = {**DEFAULT_APPEARANCE, **{k: v for k, v in stored.items() if k in DEFAULT_APPEARANCE}}
     return {"value": value, "revision": (row or {}).get("revision", 0), "schema_version": APPEARANCE_SCHEMA}
 

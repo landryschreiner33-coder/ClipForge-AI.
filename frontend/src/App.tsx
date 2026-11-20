@@ -1,7 +1,8 @@
 import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText } from "./api";
 import { ap } from "./autopilot";
-import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, toast, ToastHost, useMenu } from "./components/ui";
+import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, MastheadTitle, toast, ToastHost, useMenu } from "./components/ui";
+import { BlackHole } from "./components/BlackHole";
 import { leaveGuard, leaveTo, navigate, setLeaveAsker, useRoute, type Route } from "./router";
 import { autopilotState, StatusProvider, useStatus } from "./status";
 import { MotionProvider } from "./motion";
@@ -33,7 +34,7 @@ import SettingsPage from "./pages/Settings";
 export { navigate };
 
 // Studio combines Home and the Office (studio upgrade handoff, section 2); #/office is the Studio's expanded office.
-type NavKey = "studio" | "projects" | "brain" | "publishing" | "accounts" | "settings";
+type NavKey = "studio" | "talk" | "projects" | "brain" | "publishing" | "accounts" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
   "": "studio", create: "studio", projects: "projects", project: "projects", clip: "projects", publish: "projects",
   video: "projects", brain: "brain", publishing: "publishing", post: "publishing", accounts: "accounts",
@@ -54,7 +55,7 @@ function page(route: Route) {
     case "create": return id === "video" ? <MakeVideo key={route.parts[2] || "new"} id={route.parts[2] || ""} /> : id === "short" ? <MakeShort /> : id === "transcript" ? <Create />
       : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
-    case "project": return <ProjectView id={id} key={id} />;
+    case "project": return <ProjectView id={id} key={id} focus={route.parts[2] || ""} />;
     case "clip": return <ClipEditor id={id} key={id} />;
     case "publish": return <PublishPage id={id} key={id} />;
     case "video": return <VideoReview id={id} key={id} />;
@@ -92,7 +93,7 @@ export default function App() {
 
 function Shell({ me }: { me: Me }) {
   const route = useRoute();
-  const { namesVersion, customizing, setCustomizing } = useAppearance();
+  const { namesVersion } = useAppearance();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("clipforge.sidebar") === "collapsed";
@@ -111,7 +112,11 @@ function Shell({ me }: { me: Me }) {
   // and React's development double run of effects must not count as a move.
   const shown = useRef<string | null>(null);
   const section = route.parts[0] || "";
-  const active = SECTION_NAV[section] || "studio";
+  // Talk to AI has its own place in the navigation (the owner, 2026-11-19: "make sure im still able to talk to the
+  // AI ... simple to access"); the chat itself stays the Brain's Talk to AI tab.
+  const talking = section === "brain" && route.parts[1] === "talk";
+  const active: NavKey = talking ? "talk" : SECTION_NAV[section] || "studio";
+  const title = talking ? "Talk to ClipForge AI" : SECTION_TITLE[section] || "";
   const wide = section === "office" && !route.parts[1];
 
   useEffect(() => {
@@ -121,7 +126,6 @@ function Shell({ me }: { me: Me }) {
 
   // After moving to another page: the tab title, the top of the page, and focus on its title for screen readers.
   useLayoutEffect(() => {
-    const title = SECTION_TITLE[section];
     document.title = title ? `${title} · ClipForge` : "ClipForge";
     setMakeOpen(false);
     setDrawer(false);
@@ -147,21 +151,22 @@ function Shell({ me }: { me: Me }) {
       watch.disconnect();
       clearTimeout(stop);
     };
-  }, [route.path, route.unknown, section]);
+  }, [route.path, route.unknown, section, title]);
 
   const state = autopilotState(st, lost);
   const review = st?.home.posts?.review || 0;
   const fix = st?.home.posts?.fix || 0;
   const nav = (
     <>
-      <NavLink href="#/" icon="home" label="Studio" on={active === "studio"} />
-      <NavLink href="#/projects" icon="film" label="Projects" on={active === "projects"} />
-      <NavLink href="#/brain/styles" icon="spark" label="Brain" on={active === "brain"} />
-      <NavLink href="#/publishing/review" icon="posts" label="Publishing" on={active === "publishing"}
+      <NavLink href="#/" icon="clapper" label="Studio" on={active === "studio"} />
+      <NavLink href="#/brain/talk" icon="chat" label="Talk to AI" on={active === "talk"} />
+      <NavLink href="#/projects" icon="folder" label="Projects" on={active === "projects"} />
+      <NavLink href="#/brain/styles" icon="brain" label="Brain" on={active === "brain"} />
+      <NavLink href="#/publishing/review" icon="layers" label="Publishing" on={active === "publishing"}
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>
           : fix ? <span className="count bad" title={`${fix} need you to settle something`}><span className="sr-only">, need you: </span>{fix}</span> : null} />
       <NavLink href="#/accounts" icon="user" label="Accounts" on={active === "accounts"} />
-      <NavLink href="#/settings/appearance" icon="settings" label="Settings" on={active === "settings"} />
+      <NavLink href="#/settings/appearance" icon="settings" label="Settings" on={active === "settings"} bottom />
     </>
   );
   const foot = (
@@ -174,7 +179,7 @@ function Shell({ me }: { me: Me }) {
   );
   const brand = (
     <a className="brand" href="#/" aria-label="ClipForge, Studio">
-      <Logo />
+      <Logo size={40} />
       <span className="brand-name" aria-hidden="true">ClipForge</span>
     </a>
   );
@@ -195,7 +200,7 @@ function Shell({ me }: { me: Me }) {
         e.preventDefault();
         main.current?.focus();
       }}>Skip to content</a>
-      <div className={`cf-shell${collapsed ? " collapsed" : ""}`}>
+      <div className={`cf-shell${collapsed ? " collapsed" : ""}`} data-page={section || "studio"}>
         <aside className="cf-side" aria-label="ClipForge">
           {brand}
           <nav className="nav" aria-label="Main">{nav}</nav>
@@ -209,25 +214,25 @@ function Shell({ me }: { me: Me }) {
             <button type="button" className="btn btn-small menu-btn" aria-haspopup="dialog" aria-expanded={drawer} onClick={() => setDrawer(true)}>
               <Icon name="menu" />Menu
             </button>
-            <p className="page-title">{SECTION_TITLE[section] || "ClipForge"}</p>
+            <p className="page-title">{title || "ClipForge"}</p>
+            {/* the Studio draws its own large black hole in the sky; every other page keeps a slim one up here */}
+            {section !== "" && <BlackHole size="small" className="masthead-hole" />}
             <span className="spacer" />
+            <a href="#/missions" id="top-state" className={`pill autopilot-pill ${state.tone} hide-xs`} aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
+              <span className="state-dot" aria-hidden="true" />Autopilot: {state.word}
+            </a>
             <div className="make-menu" ref={makeMenu.wrap} onKeyDown={makeMenu.onKey}>
-              <button ref={makeMenu.button} type="button" className="btn btn-primary btn-small" aria-haspopup="menu"
+              <button ref={makeMenu.button} type="button" className="btn btn-primary make-btn" aria-haspopup="menu"
                 aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
                 <div role="menu" aria-label="Make">
-                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights, full stories or story parts, vertical</span></a>
+                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>The best moments, or each story from start to finish</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>Drop in your files and tell ClipForge AI your idea</span></a>
                   <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
                   <a role="menuitem" href="#/missions/live" onClick={() => setMakeOpen(false)}><b>Clip a live stream</b><span>Clips while it is live, one or several streams at once</span></a>
                 </div>
               )}
             </div>
-            <button type="button" className="btn btn-small btn-icon" aria-label="Customize studio" title="Customize studio"
-              aria-haspopup="dialog" aria-expanded={customizing} onClick={() => setCustomizing(true)}><Icon name="sliders" /></button>
-            <a href="#/missions" id="top-state" className={`pill ${state.tone} hide-xs`} aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
-              <Icon name="autopilot" />Autopilot: {state.word}
-            </a>
             {me.mode === "cloud" && <>
               <span className="who clamp-1" title={me.name}>{me.name}</span>
               <button type="button" className="btn btn-small" onClick={() => void signOut()}>Sign out</button>
@@ -253,7 +258,9 @@ function Shell({ me }: { me: Me }) {
                 </Banner>
               )}
             </div>
-            <div key={namesVersion} style={{ display: "contents" }}>{page(route)}</div>
+            <MastheadTitle.Provider value={title}>
+              <div key={namesVersion} style={{ display: "contents" }}>{page(route)}</div>
+            </MastheadTitle.Provider>
           </main>
         </div>
       </div>
@@ -265,6 +272,9 @@ function Shell({ me }: { me: Me }) {
           </div>
           <nav className="nav" aria-label="Main">{nav}</nav>
           <div className="nav-sep" />
+          <a href="#/missions" className={`pill autopilot-pill drawer-autopilot ${state.tone}`}
+            aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
+            <span className="state-dot" aria-hidden="true" />Autopilot: {state.word}</a>
           {me.mode === "cloud" && <button type="button" className="btn" onClick={() => void signOut()}>Sign out</button>}
           {foot}
         </Drawer>
@@ -276,9 +286,10 @@ function Shell({ me }: { me: Me }) {
   );
 }
 
-function NavLink({ href, icon, label, on, extra }: { href: string; icon: IconName; label: string; on: boolean; extra?: ReactNode }) {
+function NavLink({ href, icon, label, on, extra, bottom = false }: { href: string; icon: IconName; label: string; on: boolean;
+  extra?: ReactNode; bottom?: boolean }) {
   return (
-    <a href={href} className={`nav-item ${on ? "active" : ""}`} aria-current={on ? "page" : undefined}>
+    <a href={href} className={`nav-item${on ? " active" : ""}${bottom ? " nav-bottom" : ""}`} aria-current={on ? "page" : undefined}>
       <Icon name={icon} />
       <span>{label}</span>
       {extra}

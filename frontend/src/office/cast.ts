@@ -3,7 +3,8 @@
  * compares them). Everything role-specific the office draws lives here, so pages never branch on a role id:
  * palette, silhouette parts, equipment, signature work animation, home station and manager.
  *
- * Sprites are drawn from these parts by sprites.ts on a 48×64 pixel cell (see design/robots/README.md).
+ * The ship draws each robot from the crew art in public/space (design/space-studio/README.md); these parts and
+ * palettes still colour the details panels and the team page.
  */
 
 export type Rank = "director" | "manager" | "worker";
@@ -100,6 +101,11 @@ export const ROOM_NAMES: Record<RoomId, string> = {
   lounge: "Lounge", control: "Control room", research: "Media research", brain: "Brain", intake: "Intake",
   story: "Story & analysis", editing: "Editing", quality: "Quality & export", sound: "Sound & captions",
   publishing: "Publishing",
+};
+/** One word each, for a ship drawn as small as a phone, where the full names can't fit their rooms. */
+export const ROOM_SHORT: Record<RoomId, string> = {
+  lounge: "Lounge", control: "Control", research: "Media", brain: "Brain", intake: "Intake", story: "Story",
+  editing: "Editing", quality: "Quality", sound: "Sound", publishing: "Publishing",
 };
 
 export const CAST: Character[] = [

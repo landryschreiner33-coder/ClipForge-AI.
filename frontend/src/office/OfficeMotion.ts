@@ -1,11 +1,10 @@
 /** Visual choreography only. Durable jobs are never delayed or changed by a walk or a document transfer. */
 import { BY_ID, CAST, Dir } from "./cast";
 import { OfficeEvent, RoleRow, RoleState, Snapshot } from "./api";
-import { BreakActivity, Pt, REST_SEAT, roomOf, route, STATION, SUPERVISE } from "./world";
+import { BreakActivity, handoffSpots, Pt, REST_SEAT, roomOf, route, STATION, SUPERVISE } from "./world";
 import { LoungeLife } from "./LoungeLife";
 import { departmentAttendance, OfficeDuty } from "./DepartmentDuty";
-import type { Pose } from "./sprites";
-import type { RobotPosture } from "./StudioArt";
+import type { Pose, RobotPosture } from "./crew";
 
 export interface WorkCard {
   job_id: string; kind: string; ref_type: string; ref_id: string; state: string; summary: string;
@@ -24,7 +23,8 @@ interface HandoffRoute {
   event: OfficeEvent; path: string[]; step: number; jobs: string[]; until: number;
 }
 interface Owner { role: string; job: string; kind: string; ref: string; at: number; cursor: number }
-const SPEED = 130;
+// world units a second: about a robot's height every third of a second on the ship
+const SPEED = 150;
 // every robot state needs a pose: a missing one left the fallback map unable to draw (a "queued" robot)
 const POSE: Record<RoleState, Pose> = {
   idle: "idle", working: "work", queued: "wait", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
@@ -304,9 +304,7 @@ export class OfficeMotion {
     if (roomOf(receiver)?.id !== room.id) {
       receiver.x = station.x; receiver.y = station.y; receiver.path = [];
     }
-    const side = station.x - room.x > room.w / 2 ? -1 : 1;
-    const meet = { x: station.x, y: station.y + 9 };
-    const offer = { x: station.x + side * 34, y: station.y + 9 };
+    const { meet, offer } = handoffSpots(to);
     this.go(sender, offer, false); this.go(receiver, meet, false);
     sender.card = card; receiver.card = null;
     sender.transfer = event.id; receiver.transfer = event.id;

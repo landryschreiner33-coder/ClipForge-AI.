@@ -893,5 +893,6 @@ def live_items() -> list[dict]:
         if (source.get("intake") or {}).get("removed"):
             continue
         view = item(source)
-        out.append({**view, "live": _live_view(source, view)})
+        # the channel the platform named when the link was read ("" when it named none)
+        out.append({**view, "channel": source.get("channel_title") or "", "live": _live_view(source, view)})
     return out

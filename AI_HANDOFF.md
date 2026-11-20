@@ -1,5 +1,49 @@
 # AI handoff
 
+## Space studio: the ship, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for ClipForge to become an animated space studio. Studio is now a cutaway
+ship whose 25 robots and CORE move only for real work; Brain Memory is the real graph over a galaxy; Styles has a
+caption preview you can play; Projects, Publishing, Accounts and Settings → Appearance follow the new look; the type
+is Courier Prime. Making a first clip is three steps (Choose a video, Pick what to make, Make clips) with More
+options for the rest, and a finished project says "Your clips are ready" with Review clips. Beside the ship, the
+Studio panel's Working on tab shows what is being made on a little screen, what's going on, the queue and the next
+post to publish, and its Make tab holds the four big Make buttons. Talk to AI has its own place in the menu. The
+Brain's links and dots are animated lightning that holds still when motion is reduced. Not released.
+
+- **Where things are:** branch `claude/project-thread-t2bntx`, PR #62 into the release line
+  `claude/project-thread-x72wkd`. Design notes, art files and the motion rules:
+  [design/space-studio/README.md](design/space-studio/README.md); AGENTS.md rule 14 lists the decoration.
+- **Worth knowing:** page CSS files load before `styles.css`, `theme.css` and `space.css`, so a page rule that must
+  beat a shared class needs a parent class (`.page.mc-space .mc-make`). The Studio's grid is `.studio-layout`;
+  `.studio-grid` belongs to Make clips and Make a video. Settings → Appearance's preview is the real app in an inert
+  frame (`preview.ts`). The art is rebuilt with `design/space-studio/tools/build_space.py`. The Brain's lightning is
+  `pages/brainLightning.ts`, drawn by BrainGraph.tsx on a canvas under the dots (the SVG lines stay for picking and
+  for tests but are invisible); it only reads the graph. Opening Talk to ClipForge AI creates the chat (a POST), so
+  the read-only `e2e/tests` check its links and never open it; the sandbox opens it.
+- **Open question for Landry:** Schedule post for a clip you made yourself. Today only Autopilot plans post times; a
+  decision card in the thread recommends building it as its own follow-up.
+- **Verified here:** the build; Python fast suite (3,111 run, none failed) and slow suite (31 passed); read-only browser
+  tests 62 passed, and the 5 failures (Autopilot ×3, Settings ×2) are the same on the release; sandbox browser specs 48
+  of 50, the 2 others failing the same way on the release; after the last ship changes the ship's 31 specs passed again,
+  including a check that no state badge covers another badge or a room's name, and so did the 12 Python files that read
+  frontend files (339 passed) and the office and app-shell browser tests (22 passed); badges and room names at 36 window
+  sizes (no badge covers another; from 1330 wide up none touches a room's name, at 1190 to 1320 and 640 wide at most 7%
+  of a name's line, on a phone up to a fifth); GitHub run 44658528437 on a273337 (native Mac build, bundled-app smoke
+  and both Python suites passed, before the badges shrank on a smaller ship; the final head's run is in PR #62's merge
+  commit); screenshots of the seven views at 1585×992, 1366×768 and 390×844, larger text, frame sequences, and the first
+  clip walked through with the mouse and with the keyboard only (`/mnt/project-files/space-studio/final/`).
+- **Verified after the Studio panel, Talk to AI and the lightning:** the build; the Brain, motion and ship sandbox specs
+  (46 passed, then the Brain and motion ones again after the last layout fixes, 15 passed); the app-shell, office and
+  settings browser tests (29 passed; the 2 Settings failures are the same on the release); 380 Python tests, after
+  fixing one test that failed every evening (on the release too); the lightning holds still with Reduce motion
+  (system or Settings), Low power and a hidden tab; screenshots at three sizes and with larger text
+  (`/mnt/project-files/space-studio/final/panel-talk-lightning/`). The final head's GitHub run is in PR #62's merge
+  commit.
+- **Not verified (needs Landry's computer):** the app on the Mac and on Windows, the frame rate on the RTX 3050 laptop
+  (the lightning too), real connected accounts (the satellite's pulse was checked with a stand-in account), and a real
+  video going through the pipeline while the ship animates.
+
 ## Release 2026.11.19 published — 2026-11-19 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry wrote "Make sure all the new changes are merged and then release them". ClipForge

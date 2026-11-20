@@ -3,8 +3,9 @@ import { expect, getJson, test } from "../fixtures";
 // The ClipForge places (docs/clipforge/ROUTE_MAP.md): Studio, Projects, Brain, Publishing, Accounts, Settings.
 // Publishing adds a count. Studio combines the old Home and the Office (studio upgrade handoff, section 4): the
 // office is drawn on the Studio page, and #/office, its expanded view, is marked as Studio in the navigation.
+// Since the space studio (2026-11-19) the page's own heading is its name, read out but shown in the top bar.
 const PAGES = [
-  { nav: /^Studio$/, hash: "#/", heading: "What are you making today?", title: "Studio · ClipForge" },
+  { nav: /^Studio$/, hash: "#/", heading: "Studio", title: "Studio · ClipForge" },
   { nav: /^Projects$/, hash: "#/projects", heading: "Projects", title: "Projects · ClipForge" },
   { nav: /^Brain$/, hash: "#/brain/styles", heading: "Brain", title: "Brain · ClipForge" },
   { nav: /^Publishing\b/, hash: "#/publishing/review", heading: "Publishing", title: "Publishing · ClipForge" },
@@ -75,17 +76,59 @@ test("the Autopilot pill shows its state in a word", async ({ page, request }) =
   await expect(page.locator("#top-state")).toHaveAttribute("href", "#/missions");
 });
 
-test("Studio offers exactly the two ways to make something", async ({ page }) => {
+// The owner, 2026-11-19: "make everything easily accessible so i can easly make all type of clips, make youtube video,
+// make animated short, clip live stream as it goes". Studio and + Make offer the same four, in the same order. Since
+// 8:47 PM that evening the Studio panel opens on Working on, and its Make tab holds the four.
+const MAKE = [["Make clips", "#/create/clips"], ["Make a YouTube video", "#/create/video"],
+  ["Make an animated short", "#/create/short"], ["Clip a live stream", "#/missions/live"]];
+
+test("Studio and + Make offer the same four things to make", async ({ page }) => {
   await page.goto("/#/");
-  const choices = page.locator("main .make-choice");
-  await expect(choices).toHaveCount(2);
-  await expect(choices.nth(0)).toContainText("Make clips");
-  await expect(choices.nth(1)).toContainText("Make a YouTube video");
+  const panel = page.getByRole("tablist", { name: "Studio panel" });
+  await expect(panel.getByRole("tab", { name: /^Working on/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: /^Working on/ })).toContainText("Next to publish");
+  await panel.getByRole("tab", { name: "Make", exact: true }).click();
+  await expect(panel.getByRole("tab", { name: "Make", exact: true })).toHaveAttribute("aria-selected", "true");
+  const tiles = page.getByRole("navigation", { name: "Make something" }).getByRole("link");
+  await expect(tiles).toHaveCount(MAKE.length);
+  for (const [i, [name, hash]] of MAKE.entries()) {
+    await expect(tiles.nth(i)).toContainText(name);
+    await expect(tiles.nth(i)).toHaveAttribute("href", hash);
+  }
+  await page.getByRole("button", { name: "Make", exact: true }).click();
+  const items = page.getByRole("menu", { name: "Make" }).getByRole("menuitem");
+  await expect(items).toHaveCount(MAKE.length);
+  for (const [i, [name, hash]] of MAKE.entries()) {
+    await expect(items.nth(i)).toContainText(name);
+    await expect(items.nth(i)).toHaveAttribute("href", hash);
+  }
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu", { name: "Make" })).toHaveCount(0);
+  // the arrow keys move between the panel's tabs
+  await panel.getByRole("tab", { name: "Make", exact: true }).focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(panel.getByRole("tab", { name: /^Working on/ })).toBeFocused();
+  await expect(panel.getByRole("tab", { name: /^Working on/ })).toHaveAttribute("aria-selected", "true");
 });
 
-test("Make clips on Projects opens Make clips, which takes a file or a link", async ({ page }) => {
+// The owner, 2026-11-19 8:47 PM: "make sure im still able to talk to the AI". Talk to AI has its own place in the
+// navigation, a Brain tab and a row on the Studio. (Opening the chat starts a conversation, a write, so this read-only
+// test checks where the links go; e2e/sandbox opens it.)
+test("Talk to AI is one press away: the navigation, the Brain's tabs and the Studio", async ({ page }) => {
+  await page.goto("/#/");
+  const nav = page.locator(".cf-side").getByRole("navigation", { name: "Main" });
+  await expect(nav.getByRole("link", { name: "Talk to AI", exact: true })).toHaveAttribute("href", "#/brain/talk");
+  await expect(page.getByRole("tabpanel", { name: /^Working on/ }).getByRole("link", { name: /^Talk to ClipForge AI/ }))
+    .toHaveAttribute("href", "#/brain/talk");
+  await page.goto("/#/brain/styles");
+  await expect(page.getByRole("navigation", { name: "Brain sections" }).getByRole("link", { name: "Talk to AI" }))
+    .toHaveAttribute("href", "#/brain/talk");
+});
+
+test("Make clips from + Make opens Make clips, which takes a file or a link", async ({ page }) => {
   await page.goto("/#/projects");
-  await page.locator("main .page-head").getByRole("link", { name: "Make clips" }).click();
+  await page.getByRole("button", { name: "Make", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Make clips/ }).click();
   await expect(page).toHaveURL(/#\/create\/clips$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Make clips");
   const source = page.getByRole("radiogroup", { name: "Where the video comes from" });
@@ -119,7 +162,7 @@ test("old addresses open the new pages, and Back does not bounce on them", async
 
 test("an unknown address shows Studio with a note", async ({ page }) => {
   await page.goto("/#/no-such-page");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("What are you making today?");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Studio");
   await expect(page.locator("main")).toContainText("That address does not exist");
 });
 

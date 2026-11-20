@@ -37,6 +37,10 @@ const PATHS = {
   menu: "M4 7h16M4 12h16M4 17h16",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   chev: "M9 6l6 6-6 6",
+  arrow: "M5 12h14M13 6l6 6-6 6",
+  lock: "M6 11h12v10H6zM8 11V8a4 4 0 0 1 8 0v3",
+  tablet: "M5 3h14a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2",
+  star: "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z",
   external: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
   offline: "M3 3l18 18M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 4-2.4M19 12.5a10 10 0 0 0-3.3-2.1M2 8.8a15 15 0 0 1 4.5-2.9M22 8.8A15 15 0 0 0 12 5M12 20h.01",
   question: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.5V14M12 17.5v.5",
@@ -47,6 +51,19 @@ const PATHS = {
   zip: "M6 3h9l4 4v14H6zM11 3v2M11 7v2M11 11v2M10 15h2v3h-2z",
   copy: "M8 8h12v12H8zM4 16V4h12",
   cloud: "M7 18a4 4 0 0 1-.5-8 6 6 0 0 1 11.5 1.5A3.5 3.5 0 0 1 17.5 18z",
+  clapper: "M4 10h16v10H4zM4 10l1-5h15l-1 5M9.5 5L8 10M14.5 5L13 10M19.5 5L18 10",
+  video: "M3 7.5C3 6 4 5 5.5 5h13C20 5 21 6 21 7.5v9c0 1.5-1 2.5-2.5 2.5h-13C4 19 3 18 3 16.5zM10 9l5 3-5 3z",
+  pin: "M9 3.5h6l-1 5.5 3 3V14H7v-2l3-3zM12 14v6.5",
+  live: "M12 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8",
+  phone: "M8.5 3h7A1.5 1.5 0 0 1 17 4.5v15a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 7 19.5v-15A1.5 1.5 0 0 1 8.5 3zM11 17.5h2",
+  screen: "M4.5 6h15A1.5 1.5 0 0 1 21 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16.5v-9A1.5 1.5 0 0 1 4.5 6zM6.5 10.5v3",
+  brain: "M9.5 4.5A2.5 2.5 0 0 0 7 7a2.5 2.5 0 0 0-2.5 4A3 3 0 0 0 6 16.5 2.5 2.5 0 0 0 9.5 19.5V4.5zM14.5 4.5A2.5 2.5 0 0 1 17 7a2.5 2.5 0 0 1 2.5 4 3 3 0 0 1-1.5 5.5 2.5 2.5 0 0 1-3.5 3V4.5zM9.5 10H7.5M14.5 10h2M9.5 14.5H8M14.5 14.5H16",
+  layers: "M12 3l9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5",
+  bars: "M6 20v-7M12 20V5M18 20v-10",
+  search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4",
+  graph: "M12 5.5a2 2 0 1 0 0-.01M5.5 18a2 2 0 1 0 0-.01M18.5 18a2 2 0 1 0 0-.01M11 7l-4.5 9M13 7l4.5 9",
+  satellite: "M8 8l4 4M5 5l3 3-3 3-3-3zM16 16l3 3-3 3-3-3zM11 11l2 2M14 5a5 5 0 0 1 5 5M14 8a2 2 0 0 1 2 2",
+  chat: "M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-8L6.5 20v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5zM8.5 10.75h.01M12 10.75h.01M15.5 10.75h.01",
   // older names, kept so existing parts keep working
   dashboard: "M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-6h4v6",
   create: "M12 5v14M5 12h14",
@@ -246,11 +263,17 @@ export function EmptyState({ icon = "film", title, children, actions, level = 2 
 export type Crumb = { label: ReactNode; href?: string };
 
 /** The page's kind label, its one H1 (focused after navigation), one supporting line and at most one action. */
+/** The page's name as the masthead shows it (App.tsx). A page title that only repeats it stays in the page for screen
+ * readers and keyboard focus, but is not drawn twice. */
+export const MastheadTitle = createContext("");
+
 export function PageHead({ kind, title, sub, actions, crumbs }: {
   kind?: ReactNode; title: ReactNode; sub?: ReactNode; actions?: ReactNode; crumbs?: Crumb[];
 }) {
+  const masthead = useContext(MastheadTitle);
+  const same = typeof title === "string" && title === masthead;
   return (
-    <div className="page-head">
+    <div className={`page-head${same ? " title-in-masthead" : ""}`}>
       <div>
         {crumbs && crumbs.length > 0 && (
           <nav className="crumbs" aria-label="Breadcrumb">
@@ -263,7 +286,7 @@ export function PageHead({ kind, title, sub, actions, crumbs }: {
           </nav>
         )}
         {kind && <span className="kind-label">{kind}</span>}
-        <h1 tabIndex={-1} className="break">{title}</h1>
+        <h1 tabIndex={-1} className={same ? "sr-only" : "break"}>{title}</h1>
         {sub && <p className="muted">{sub}</p>}
       </div>
       {actions && <div className="actions">{actions}</div>}

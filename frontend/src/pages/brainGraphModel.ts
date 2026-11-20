@@ -23,6 +23,8 @@ export type BrainNode = {
   project?: BrainMapProject;
   /** a project's recorded guidance applied this in the last few minutes (the only reason the map animates) */
   applied?: { at: number; project: string };
+  /** a collection's name: where it starts (left end, baseline), from the node's centre */
+  labelAt?: { x: number; y: number };
 };
 export type BrainEdge = {
   id: string;
@@ -36,21 +38,23 @@ export type BrainGraphModel = { nodes: BrainNode[]; edges: BrainEdge[]; omitted:
   hidden: Partial<Record<GraphCategory, number>> };
 
 type Cluster = KnowledgeKind | "evidence" | RecordKind;
+// the space studio's branches (2026-11-19): amber example videos, teal skills, ice-blue recorded evidence
 const colors: Record<Cluster | "topic", string> = {
-  reference: "#41d9ca",
-  instruction: "#aa89ff",
-  example: "#f0c16a",
-  evidence: "#5daeff",
-  topic: "#79c8de",
-  style: "#c792ff",
-  skill: "#5fe0a6",
-  video: "#ff9e7a",
+  reference: "#c9b8ff",
+  instruction: "#b48cff",
+  example: "#ff9fc8",
+  evidence: "#9ad8ff",
+  topic: "#7fc8e0",
+  style: "#e09bff",
+  skill: "#2ee6c5",
+  video: "#ffb347",
   project: "#8fb4ff",
 };
-// eight clusters around the Brain, in reading order: what you saved, what it changed, what it learned from
-const ORDER: Cluster[] = ["reference", "instruction", "style", "skill", "project", "evidence", "video", "example"];
+// eight places round CORE, clockwise from the upper left: skills up and to the right, recorded evidence down and to the
+// right and example videos on the left, as in the space studio's picture
+const ORDER: Cluster[] = ["reference", "instruction", "skill", "style", "evidence", "project", "example", "video"];
 const centers = Object.fromEntries(ORDER.map((c, i) => {
-  const angle = -Math.PI * 0.625 + i * (Math.PI / 4);
+  const angle = -Math.PI * 0.75 + i * (Math.PI / 4);
   return [c, [Math.round(Math.cos(angle) * 330), Math.round(Math.sin(angle) * 245)]];
 })) as Record<Cluster, [number, number]>;
 const labels: Record<Cluster, string> = {
@@ -69,6 +73,11 @@ const shorten = (title: string) => (title.length > 24 ? `${title.slice(0, 22)}â€
 const searchable = (values: unknown[]) => values.join(" ").toLocaleLowerCase();
 
 
+/** The bend of the branch from CORE (0, 0) to a collection at (x, y): the control point of its curve. */
+export function branchControl(x: number, y: number): { x: number; y: number } {
+  return { x: x / 2 - y * 0.22, y: y / 2 + x * 0.22 };
+}
+
 /** The server names a note "note:<id>" and an example video "example:<id>"; the map calls them knowledge and video. */
 export function nodeFor(serverNode: string): string {
   const [kind, ...rest] = serverNode.split(":");
@@ -83,14 +92,14 @@ export function buildBrainGraph(rows: Knowledge[], workspace: Workspace | null, 
     {
       id: "brain",
       title: "Your Brain",
-      label: "YOUR BRAIN",
+      label: "CORE",
       kind: "brain",
       category: "all",
-      color: "#65e7f4",
+      color: "#ffe2b8",
       x: 0,
       y: 0,
       radius: 24,
-      searchable: "your brain local memory",
+      searchable: "core your brain local memory",
     },
   ];
   const edges: BrainEdge[] = [];
@@ -121,11 +130,13 @@ export function buildBrainGraph(rows: Knowledge[], workspace: Workspace | null, 
       kind: "collection",
     });
   };
+  // a collection's dots fan out on the side away from CORE, up to 14 to a ring
   const radial = (category: Cluster, index: number, count: number) => {
     const [cx, cy] = centers[category];
-    const ring = Math.floor(index / 14);
-    const angle = (index % 14) * ((Math.PI * 2) / Math.min(14, count - ring * 14)) + ring * 0.43;
-    const distance = 58 + ring * 32;
+    const ring = Math.floor(index / 14), inRing = Math.min(14, count - ring * 14);
+    const arc = Math.min(Math.PI * 1.3, Math.max(1, inRing) * 0.36 + 0.2);
+    const angle = Math.atan2(cy, cx) - arc / 2 + (arc * ((index % 14) + 0.5)) / inRing + (ring % 2) * 0.13;
+    const distance = 64 + ring * 34;
     return { x: cx + Math.cos(angle) * distance, y: cy + Math.sin(angle) * distance };
   };
   const knowledgeGroups: KnowledgeKind[] = ["reference", "instruction", "example"];
@@ -286,6 +297,7 @@ export function buildBrainGraph(rows: Knowledge[], workspace: Workspace | null, 
     }
     for (const node of nodes) if (!node.applied && applied.has(node.id)) node.applied = applied.get(node.id);
   }
+  placeCollectionNames(nodes);
   return {
     hidden,
     nodes,
@@ -326,4 +338,26 @@ export function filterBrainGraph(model: BrainGraphModel, query: string, category
     nodes: model.nodes.filter((node) => visible.has(node.id)),
     edges: model.edges.filter((edge) => visible.has(edge.from) && visible.has(edge.to)),
   };
+}
+
+/** Puts each collection's name where it covers none of its dots and not CORE's branch: the first of eight places
+ * round the node with the fewest overlaps (the name's width is measured in the map's Courier letters). */
+function placeCollectionNames(nodes: BrainNode[]) {
+  const CHAR = 9.1, LINE = 17;  // 15px Courier Prime: each letter is 0.6 of the size
+  for (const group of nodes.filter((n) => n.kind === "collection")) {
+    const dots = nodes.filter((n) => n.category === group.category && n !== group)
+      .map((n) => ({ x: n.x - group.x, y: n.y - group.y, r: n.radius + 5 }));
+    const bend = branchControl(group.x, group.y);
+    for (let t = 0.3; t < 1; t += 0.05) {  // the curved branch, in the node's own coordinates
+      const u = 1 - t;
+      dots.push({ x: 2 * u * t * bend.x + t * t * group.x - group.x, y: 2 * u * t * bend.y + t * t * group.y - group.y, r: 4 });
+    }
+    const w = group.label.length * CHAR, gap = group.radius + 9, d = gap * 0.75;
+    const places: [number, number][] = [[gap, -LINE / 2], [d, -d - LINE], [d, d], [-w / 2, -gap - LINE], [-w / 2, gap],
+      [-gap - w, -LINE / 2], [-d - w, -d - LINE], [-d - w, d]];
+    const hits = ([x, y]: [number, number]) => dots.filter((p) => p.x + p.r > x && p.x - p.r < x + w &&
+      p.y + p.r > y && p.y - p.r < y + LINE).length;
+    const [x, y] = places.reduce((best, place) => (hits(place) < hits(best) ? place : best));
+    group.labelAt = { x, y: y + LINE * 0.78 };
+  }
 }

@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BY_ID, CORE } from "./office/cast";
+import { IN_PREVIEW, PREVIEW_MESSAGE } from "./preview";
 import { studio } from "./studio";
 
 /**
@@ -14,7 +15,7 @@ export type Appearance = { palette: "studio" | "midnight" | "graphite" | "plum";
   remember_style: boolean;
   /** Make a YouTube video: ClipForge AI asks questions when something is unclear, or just does it. */
   video_setup_mode: "ask" | "auto" };
-export const DEFAULT_APPEARANCE: Appearance = { palette: "studio", accent: "violet", density: "comfortable",
+export const DEFAULT_APPEARANCE: Appearance = { palette: "studio", accent: "blue", density: "comfortable",
   text_size: "standard", motion: "system", office_size: "expanded", pinned: [], clips_mode: "highlights",
   remember_style: true, video_setup_mode: "ask" };
 const DEFAULT = DEFAULT_APPEARANCE;
@@ -113,12 +114,26 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   }, [shown]);
 
   useEffect(() => {
+    if (IN_PREVIEW) return;
     try {
       localStorage.setItem(LOCAL, JSON.stringify(appearance));  // the saved choice only, never a preview
     } catch {
       /* the account copy is the record */
     }
   }, [appearance]);
+
+  // Settings → Appearance's Studio preview: show what that page sends (its saved choice or Customize's draft)
+  useEffect(() => {
+    if (!IN_PREVIEW) return;
+    const take = (e: MessageEvent) => {
+      if (e.source !== window.parent || e.origin !== window.location.origin) return;
+      const m = e.data as { type?: string; appearance?: Partial<Appearance> } | null;
+      if (m?.type === PREVIEW_MESSAGE && m.appearance) setDraft(clean(m.appearance));
+    };
+    window.addEventListener("message", take);
+    window.parent.postMessage({ type: `${PREVIEW_MESSAGE}:ready` }, window.location.origin);
+    return () => window.removeEventListener("message", take);
+  }, []);
 
   const loadLayout = useCallback(async () => {
     try {
@@ -160,6 +175,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   }, [refreshNames]);
 
   const save = useCallback(async (patch: Partial<Appearance>) => {
+    if (IN_PREVIEW) return;  // the preview never saves
     setState("saving");
     pending.current = patch;
     try {

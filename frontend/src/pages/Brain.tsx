@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useState } from "react";
 import { errorText } from "../api";
 import {
   DecisionPreview,
@@ -10,7 +10,7 @@ import {
   Preferences,
   Workspace,
 } from "../brain";
-import { Banner, Dialog, EmptyState, Icon, LinkTabs, PageHead, toast } from "../components/ui";
+import { Banner, Dialog, EmptyState, Icon, IconName, LinkTabs, PageHead, toast, useMenu } from "../components/ui";
 import { SaveStyleDialog, SkillsTab, StylesTab } from "../components/StylesSkills";
 import { ExampleVideosTab } from "../components/ExampleVideos";
 import { MemoryTab } from "../components/MemoryTab";
@@ -35,6 +35,22 @@ const lessonLabel = (item: Knowledge, paused = false) =>
 const pretty = (key: string) => key.replace(/_/g, " ");
 const RECORD_WORD: Record<RecordKind, string> = { style: "style", skill: "skill", video: "example video",
   project: "project" };
+const KNOWLEDGE_WORD: Record<KnowledgeKind, string> = { reference: "note", instruction: "preference",
+  example: "example note" };
+const OTHER_WORD: Record<string, string> = { decision: "recorded decision", result: "recorded result", topic: "topic",
+  collection: "collection" };
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+/** Where a record on the map came from, in a few words ("" for CORE, collections and topics). */
+function sourceOf(node: BrainNode): string {
+  if (node.skill) return "Imported skill";
+  if (node.style) return node.style.reference_id ? "Learned from an example video" : "Saved by you";
+  if (node.video) return "Example video you added";
+  if (node.project) return "Your project";
+  if (node.knowledge) return node.knowledge.filename ? `Document: ${node.knowledge.filename}` : "Written by you";
+  if (node.influence) return "Recorded when a clip was made";
+  if (node.observation) return pretty(node.observation.provenance) || "Recorded result";
+  return "";
+}
 const valueLabel = (value: unknown) =>
   typeof value === "boolean" ? (value ? "on" : "off") : value == null ? "default" : pretty(String(value));
 const date = (at: number) => new Date(at * 1000).toLocaleDateString();
@@ -75,27 +91,129 @@ const savedView = (tab: string) => {
   }
 };
 
+// The space studio's Brain (2026-11-19): five tabs and More. Memory holds the knowledge map (#/brain) and what
+// ClipForge AI remembers from your chats (#/brain/memory, "Brain → Memory" in its answers). Talk to AI is a tab of its
+// own and a place in the main navigation (the owner: "make sure im still able to talk to the AI").
 const BRAIN_TABS = [
+  { id: "knowledge", href: "#/brain", label: "Memory" },
   { id: "styles", href: "#/brain/styles", label: "Styles" },
-  { id: "memory", href: "#/brain/memory", label: "Memory" },
-  { id: "talk", href: "#/brain/talk", label: "Talk to ClipForge AI" },
+  { id: "talk", href: "#/brain/talk", label: "Talk to AI" },
   { id: "agents", href: "#/brain/agents", label: "Agents" },
-  { id: "example-videos", href: "#/brain/example-videos", label: "Example videos" },
-  { id: "knowledge", href: "#/brain", label: "Notes" },
-  { id: "examples", href: "#/brain/examples", label: "Example notes" },
-  { id: "skills", href: "#/brain/skills", label: "Skills" },
   { id: "decisions", href: "#/brain/decisions", label: "Decisions" },
-  { id: "results", href: "#/brain/results", label: "Performance history" },
 ];
+const MORE_TABS: { id: string; href: string; label: string; detail: string; icon: IconName }[] = [
+  { id: "example-videos", href: "#/brain/example-videos", label: "Example videos",
+    detail: "Videos you like, measured so new projects can follow them", icon: "film" },
+  { id: "examples", href: "#/brain/examples", label: "Example notes", detail: "Why a video you like worked",
+    icon: "library" },
+  { id: "skills", href: "#/brain/skills", label: "Skills", detail: "Imported editing guides you can switch on",
+    icon: "upload" },
+  { id: "results", href: "#/brain/results", label: "Performance history", detail: "How your posts did",
+    icon: "bars" },
+];
+
+/** The Brain's tabs: Memory, Styles, Talk to AI, Agents, Decisions, and More for the rest. */
+function BrainTabs({ current }: { current: string }) {
+  const [open, setOpen] = useState(false);
+  const { wrap, button, onKey } = useMenu(open, setOpen);
+  const id = useId();
+  const tab = current === "memory" ? "knowledge" : current;
+  const more = MORE_TABS.find((t) => t.id === tab);
+  return (
+    <div className="brain-tabs">
+      <LinkTabs label="Brain sections" current={tab} tabs={BRAIN_TABS} />
+      <div className="menu-wrap brain-more" ref={wrap} onKeyDown={onKey}>
+        <button ref={button} type="button" className={`brain-more-btn${more ? " on" : ""}`} aria-haspopup="menu"
+          aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>
+          {more ? `More: ${more.label}` : "More"}<Icon name="chev" className="brain-more-chev" />
+        </button>
+        {open && (
+          <div className="menu brain-more-menu" role="menu" id={id} aria-label="More Brain sections">
+            {MORE_TABS.map((t) => (
+              <a key={t.id} role="menuitem" href={t.href} aria-current={t.id === tab ? "page" : undefined}
+                onClick={() => setOpen(false)}>
+                <Icon name={t.icon} className="sm" /><span><b>{t.label}</b><small>{t.detail}</small></span>
+              </a>
+            ))}
+            <a role="menuitem" href={knowledgeApi.export} download onClick={() => setOpen(false)}>
+              <Icon name="download" className="sm" /><span><b>Export knowledge</b>
+                <small>Save everything the Brain holds to one file</small></span>
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Every way to add to the Brain, in one menu: notes, preferences, documents, example videos, styles and skills. */
+function AddKnowledge({ examples, onAdd, onStyle }: {
+  examples: boolean; onAdd: (kind: KnowledgeKind, advanced?: boolean) => void; onStyle: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const { wrap, button, onKey } = useMenu(open, setOpen);
+  const id = useId();
+  const pick = (run: () => void) => () => { setOpen(false); run(); };
+  return (
+    <div className="menu-wrap brain-add" ref={wrap} onKeyDown={onKey}>
+      <button ref={button} type="button" className="btn btn-primary" aria-haspopup="menu" aria-expanded={open}
+        aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>
+        <Icon name="plus" />Add knowledge<Icon name="chev" className="brain-more-chev" />
+      </button>
+      {open && (
+        <div className="menu brain-more-menu brain-add-menu" role="menu" id={id} aria-label="Add knowledge">
+          <button type="button" role="menuitem" onClick={pick(() => onAdd(examples ? "example" : "reference"))}>
+            <Icon name="plus" className="sm" /><span><b>{examples ? "Add example note" : "Add note"}</b>
+              <small>A short note in your own words</small></span>
+          </button>
+          {!examples && (
+            <button type="button" role="menuitem" onClick={pick(() => onAdd("instruction"))}>
+              <Icon name="sliders" className="sm" /><span><b>Teach preference</b>
+                <small>How you like your clips made</small></span>
+            </button>
+          )}
+          <button type="button" role="menuitem" onClick={pick(() => onAdd(examples ? "example" : "reference", true))}>
+            <Icon name="upload" className="sm" /><span><b>Add a document or detailed note</b>
+              <small>A file or a longer note with every field</small></span>
+          </button>
+          <a role="menuitem" href="#/brain/example-videos" onClick={() => setOpen(false)}>
+            <Icon name="film" className="sm" /><span><b>Add example video</b>
+              <small>A video whose style ClipForge should learn</small></span>
+          </a>
+          <button type="button" role="menuitem" onClick={pick(onStyle)}>
+            <Icon name="spark" className="sm" /><span><b>Save a style</b>
+              <small>Captions, colours and layout to reuse</small></span>
+          </button>
+          <a role="menuitem" href="#/brain/skills" onClick={() => setOpen(false)}>
+            <Icon name="layers" className="sm" /><span><b>Import skill</b>
+              <small>A skill file you were given</small></span>
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Memory's two views: the knowledge map and what ClipForge AI remembers from your chats. */
+function MemoryViews({ current }: { current: "map" | "facts" }) {
+  return (
+    <nav className="brain-memory-views" aria-label="Memory">
+      <a href="#/brain" aria-current={current === "map" ? "page" : undefined}><Icon name="spark" />Knowledge map</a>
+      <a href="#/brain/memory" aria-current={current === "facts" ? "page" : undefined}><Icon name="brain" />
+        What ClipForge AI remembers</a>
+    </nav>
+  );
+}
 
 /** Brain: Styles, ClipForge AI's Memory, its chat and its helper agents, Notes, Examples and Skills (the graph is an
  * optional view inside Notes). */
 export default function Brain({ tab = "knowledge" }: { tab?: string }) {
   if (["styles", "skills", "example-videos", "memory", "talk", "agents"].includes(tab)) {
     return (
-      <div className="page">
-        <PageHead kind="Brain" title="Brain" sub="What ClipForge AI remembers about you, your channel and how you like your videos edited." />
-        <LinkTabs label="Brain sections" current={tab} tabs={BRAIN_TABS} />
+      <div className="page brain-page">
+        <PageHead title={tab === "talk" ? "Talk to ClipForge AI" : "Brain"} />
+        <BrainTabs current={tab} />
+        {tab === "memory" && <MemoryViews current="facts" />}
         {tab === "styles" ? <StylesTab /> : tab === "skills" ? <SkillsTab /> : tab === "memory" ? <MemoryTab />
           : tab === "talk" ? <ClipForgeAI tall side /> : tab === "agents" ? <AgentsTab /> : <ExampleVideosTab />}
       </div>
@@ -269,22 +387,9 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
         setSavingStyle(false);
         void refresh().then(() => setNodeId(`style:${saved.id}`));
       }} />}
-      <PageHead
-        kind="YOUR LOCAL KNOWLEDGE"
-        title="Brain"
-        sub="Collect ideas. Teach your style. See how it connects."
-        actions={
-          <a className="btn btn-small" href={knowledgeApi.export} download>
-            <Icon name="download" />
-            Export knowledge
-          </a>
-        }
-      />
-      <LinkTabs
-        label="Brain sections"
-        current={active}
-        tabs={BRAIN_TABS}
-      />
+      <PageHead title="Brain" />
+      <BrainTabs current={active} />
+      {active === "knowledge" && <MemoryViews current="map" />}
       {problem && (
         <Banner tone="bad" title="Could not complete this action">
           {problem}
@@ -292,34 +397,6 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
             Reload memory
           </button>
         </Banner>
-      )}
-      {workspace && (
-        <div className="brain-summary" aria-label="Brain memory overview">
-          <div>
-            <strong>{workspace.counts.total}</strong>
-            <span>saved references & examples</span>
-          </div>
-          <div>
-            <strong>{workspace.counts.active ?? workspace.counts.approved}</strong>
-            <span>enabled lessons</span>
-          </div>
-          <div>
-            <strong>{Object.values(workspace.brain.observations).reduce((a, b) => a + b, 0)}</strong>
-            <span>separate result readings</span>
-          </div>
-          {map && !examples && (
-            <div>
-              <strong>{map.styles.length + map.skills.length + map.examples.length}</strong>
-              <span>styles, skills & example videos</span>
-            </div>
-          )}
-          {map && !examples && (
-            <div>
-              <strong>{map.projects.length + map.omitted_projects}</strong>
-              <span>projects with recorded use</span>
-            </div>
-          )}
-        </div>
       )}
       {workspace?.guidance?.paused && <Banner tone="warn" title="Brain is paused" actions={
         <button type="button" className="btn btn-small" disabled={busy} onClick={() => void action(
@@ -331,9 +408,23 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
       {(active === "knowledge" || active === "examples") && (
         <>
           <div className="brain-toolbar brain-main-toolbar">
+            {mode === "graph" ? (
+              <label className="brain-search">
+                <Icon name="search" />
+                <span className="sr-only">Search knowledge graph</span>
+                <input type="search" value={query} placeholder="Search knowledge"
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    // Enter goes to the first match: the light runs to it and its details open
+                    if (event.key !== "Enter") return;
+                    const hit = graph.nodes.find((n) => n.kind !== "brain" && n.kind !== "collection");
+                    if (hit) { event.preventDefault(); selectNode(hit.id); }
+                  }} />
+              </label>
+            ) : <span className="spacer" />}
             <div className="brain-view-buttons" aria-label="Knowledge view">
               <button className={mode === "graph" ? "active" : ""} aria-pressed={mode === "graph"} onClick={showGraph}>
-                <Icon name="spark" />
+                <Icon name="graph" />
                 Graph view
               </button>
               <button
@@ -341,129 +432,25 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
                 aria-pressed={mode === "editor"}
                 onClick={() => edit(selected)}
               >
-                <Icon name="edit" />
+                <Icon name="menu" />
                 List & editor
               </button>
             </div>
-            <div className="brain-actions">
-              <button className="btn btn-small btn-primary" onClick={() => add(examples ? "example" : "reference")}>
-                <Icon name="plus" />
-                {examples ? "Add example note" : "Add note"}
-              </button>
-              {!examples && (
-                <button className="btn btn-small" onClick={() => add("instruction")}>
-                  <Icon name="sliders" />
-                  Teach preference
-                </button>
-              )}
-              <a className="btn btn-small" href="#/brain/example-videos">
-                <Icon name="film" />
-                Add example
-              </a>
-              <button className="btn btn-small" onClick={() => setSavingStyle(true)}>
-                <Icon name="spark" />
-                Save a style
-              </button>
-              <a className="btn btn-small" href="#/brain/skills">
-                <Icon name="upload" />
-                Import skill
-              </a>
-            </div>
+            <AddKnowledge examples={examples} onAdd={add} onStyle={() => setSavingStyle(true)} />
           </div>
           {mode === "graph" ? (
+            <>
             <div className="brain-vault">
-              <aside className="brain-vault-sidebar" aria-label="Saved knowledge">
-                <div className="brain-vault-name">
-                  <Icon name="folder" />
-                  <span>My knowledge</span>
-                  <span>{rows.length}</span>
-                </div>
-                <label className="brain-vault-search">
-                  <span className="sr-only">Search knowledge graph</span>
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Find a note or topic…"
-                  />
-                </label>
-                <nav className="brain-collections" aria-label="Knowledge collections">
-                  {(
-                    [
-                      ["all", "All connections", "spark"],
-                      ["reference", "Notes & documents", "library"],
-                      ["instruction", "Clip preferences", "sliders"],
-                      ["example", "Example notes", "film"],
-                      ["style", "Styles", "spark"],
-                      ["skill", "Skills", "upload"],
-                      ["video", "Example videos", "film"],
-                      ["project", "Projects that used them", "projects"],
-                      ["topic", "Topics", "link"],
-                      ["evidence", "Recorded evidence", "check"],
-                    ] as const
-                  ).map(([id, label, icon]) => (
-                    <button
-                      key={id}
-                      aria-pressed={category === id}
-                      disabled={examples && id !== "example"}
-                      hidden={examples && id !== "example" && id !== "all"}
-                      onClick={() => setCategory(id)}
-                    >
-                      <Icon name={icon} />
-                      {label}
-                    </button>
-                  ))}
-                </nav>
-                <div className="brain-vault-divider">
-                  <span>Saved items</span>
-                </div>
-                <div className="brain-vault-notes" role="group" aria-label="Saved items: arrow keys move"
-                  onKeyDown={listKeys}>
-                  {rows
-                    .filter(
-                      (item) =>
-                        (!examples || item.kind === "example") &&
-                        (category === "all" ||
-                          category === "topic" ||
-                          category === "evidence" ||
-                          item.kind === category) &&
-                        (!query ||
-                          [item.title, item.content, ...item.tags]
-                            .join(" ")
-                            .toLowerCase()
-                            .includes(query.toLowerCase())),
-                    )
-                    .map((item) => (
-                      <button
-                        key={item.id}
-                        aria-pressed={nodeId === `knowledge:${item.id}`}
-                        onClick={() => selectNode(`knowledge:${item.id}`)}
-                      >
-                        <i className={`brain-note-dot dot-${item.kind}`} />
-                        <span>{item.title}</span>
-                        {item.state === "active" && <Icon name="check" />}
-                      </button>
-                    ))}
-                  {listed.map((node) => (
-                    <button key={node.id} aria-pressed={nodeId === node.id}
-                      onClick={() => selectNode(node.id)}>
-                      <i className="brain-note-dot" style={{ background: node.color }} />
-                      <span>{node.title}<small className="sr-only">, {RECORD_WORD[node.kind as RecordKind]}</small></span>
-                      {node.applied && <span className="brain-just-used">Just used</span>}
-                    </button>
-                  ))}
-                  {!rows.length && !listed.length && <p>Your notes will live here.</p>}
-                </div>
-                <button className="brain-advanced-add" onClick={() => add(examples ? "example" : "reference", true)}>
-                  <Icon name="upload" />
-                  Add knowledge
-                </button>
-              </aside>
               <BrainGraph
                 model={graph}
                 selected={nodeId}
                 empty={!rows.length && !workspace?.influences.length && !workspace?.observations.length}
                 onSelect={selectNode}
+                actions={!examples && (
+                  <button type="button" className="btn brain-teach" onClick={() => add("instruction")}>
+                    <Icon name="layers" />Teach preference
+                  </button>
+                )}
               />
               <GraphInspector
                 node={inspected}
@@ -476,6 +463,105 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
                 onTeach={() => add("instruction")}
               />
             </div>
+            <aside className="brain-saved" aria-label="Saved knowledge">
+              <div className="brain-saved-head">
+                <h2>Everything on the map <span className="brain-saved-count">{rows.length + records.length}</span></h2>
+                <p className="small muted">The same items as the dots above, as a list you can read and pick from.</p>
+              </div>
+              <nav className="brain-collections" aria-label="Knowledge collections">
+                {(
+                  [
+                    ["all", "All connections", "spark"],
+                    ["reference", "Notes & documents", "library"],
+                    ["instruction", "Clip preferences", "sliders"],
+                    ["example", "Example notes", "film"],
+                    ["style", "Styles", "spark"],
+                    ["skill", "Skills", "upload"],
+                    ["video", "Example videos", "film"],
+                    ["project", "Projects that used them", "projects"],
+                    ["topic", "Topics", "link"],
+                    ["evidence", "Recorded evidence", "check"],
+                  ] as const
+                ).map(([id, label, icon]) => (
+                  <button
+                    key={id}
+                    aria-pressed={category === id}
+                    disabled={examples && id !== "example"}
+                    hidden={examples && id !== "example" && id !== "all"}
+                    onClick={() => setCategory(id)}
+                  >
+                    <Icon name={icon} />
+                    {label}
+                  </button>
+                ))}
+              </nav>
+              <div className="brain-vault-notes" role="group" aria-label="Saved items: arrow keys move"
+                onKeyDown={listKeys}>
+                {rows
+                  .filter(
+                    (item) =>
+                      (!examples || item.kind === "example") &&
+                      (category === "all" ||
+                        category === "topic" ||
+                        category === "evidence" ||
+                        item.kind === category) &&
+                      (!query ||
+                        [item.title, item.content, ...item.tags]
+                          .join(" ")
+                          .toLowerCase()
+                          .includes(query.toLowerCase())),
+                  )
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      aria-pressed={nodeId === `knowledge:${item.id}`}
+                      onClick={() => selectNode(`knowledge:${item.id}`)}
+                    >
+                      <i className={`brain-note-dot dot-${item.kind}`} />
+                      <span>{item.title}</span>
+                      {item.state === "active" && <Icon name="check" />}
+                    </button>
+                  ))}
+                {listed.map((node) => (
+                  <button key={node.id} aria-pressed={nodeId === node.id}
+                    onClick={() => selectNode(node.id)}>
+                    <i className="brain-note-dot" style={{ background: node.color }} />
+                    <span>{node.title}<small className="sr-only">, {RECORD_WORD[node.kind as RecordKind]}</small></span>
+                    {node.applied && <span className="brain-just-used">Just used</span>}
+                  </button>
+                ))}
+                {!rows.length && !listed.length && <p>Your notes will live here. Add knowledge at the top to start.</p>}
+              </div>
+            </aside>
+            {workspace && (
+              <div className="brain-summary" aria-label="Brain memory overview">
+                <div>
+                  <strong>{workspace.counts.total}</strong>
+                  <span>saved references & examples</span>
+                </div>
+                <div>
+                  <strong>{workspace.counts.active ?? workspace.counts.approved}</strong>
+                  <span>enabled lessons</span>
+                </div>
+                <div>
+                  <strong>{Object.values(workspace.brain.observations).reduce((a, b) => a + b, 0)}</strong>
+                  <span>separate result readings</span>
+                </div>
+                {map && !examples && (
+                  <div>
+                    <strong>{map.styles.length + map.skills.length + map.examples.length}</strong>
+                    <span>styles, skills & example videos</span>
+                  </div>
+                )}
+                {map && !examples && (
+                  <div>
+                    <strong>{map.projects.length + map.omitted_projects}</strong>
+                    <span>projects with recorded use</span>
+                  </div>
+                )}
+              </div>
+            )}
+            </>
           ) : (
             <>
               <div className="brain-teaching-steps" aria-label="How teaching works">
@@ -656,7 +742,7 @@ function RecordDetails({ node, model, onSelect }: { node: BrainNode; model: Retu
         {effects(st.effects, "No editing choices saved")}
         {used || <p className="brain-note">No project has used this style yet.</p>}
         <p className="brain-note">Revision {st.revision}{st.provenance?.title ? ` · learned from “${st.provenance.title}”` : ""}</p>
-        <a className="btn btn-small" href="#/brain/styles"><Icon name="edit" />Open styles</a>
+        <a className="btn btn-small" href="#/brain/styles"><Icon name="external" />Open in editor</a>
       </>
     );
   }
@@ -669,7 +755,7 @@ function RecordDetails({ node, model, onSelect }: { node: BrainNode; model: Retu
         {effects(sk.effects, "Nothing ClipForge supports yet")}
         {used || <p className="brain-note">No project has used this skill yet.</p>}
         <p className="brain-note">Revision {sk.revision} · version {sk.version}</p>
-        <a className="btn btn-small" href="#/brain/skills"><Icon name="edit" />Open skills</a>
+        <a className="btn btn-small" href="#/brain/skills"><Icon name="external" />Open in editor</a>
       </>
     );
   }
@@ -685,7 +771,7 @@ function RecordDetails({ node, model, onSelect }: { node: BrainNode; model: Retu
         <p className="brain-note">{ex.status === "ready" ? `Analysis revision ${ex.analysis_revision}` : `Analysis: ${pretty(ex.status)}`}</p>
         {style && <button className="btn btn-small" onClick={() => onSelect(style.to)}><Icon name="spark" />Its saved style</button>}
         {used || <p className="brain-note">No project has used this example yet.</p>}
-        <a className="btn btn-small" href="#/brain/example-videos"><Icon name="film" />Open example videos</a>
+        <a className="btn btn-small" href="#/brain/example-videos"><Icon name="external" />Open in editor</a>
       </>
     );
   }
@@ -735,10 +821,12 @@ function GraphInspector({
     <aside className="brain-inspector" aria-label="Selected connection">
       <div className="brain-inspector-eyebrow">
         <span style={{ background: node.color }} />
-        {node.kind === "brain" ? "Your knowledge" : node.kind === "knowledge" ? node.category
-          : RECORD_WORD[node.kind as RecordKind] || node.kind}
+        {capital(node.kind === "brain" ? "Your knowledge" : node.kind === "knowledge"
+          ? KNOWLEDGE_WORD[node.category as KnowledgeKind] || "note" : RECORD_WORD[node.kind as RecordKind]
+            || OTHER_WORD[node.kind] || node.kind)}
       </div>
       <h2>{node.title}</h2>
+      {sourceOf(node) && <dl className="brain-source"><dt>Source</dt><dd>{sourceOf(node)}</dd></dl>}
       {node.applied && (
         <p className="brain-just-used-note" role="status">
           <span className="brain-just-used">Just used</span> by {node.applied.project}, {ago(node.applied.at)}. This
@@ -775,8 +863,8 @@ function GraphInspector({
             {item.filename ? ` · ${item.filename}` : ""}
           </p>
           <button className="btn btn-small" onClick={() => onEdit(item.id)}>
-            <Icon name="edit" />
-            Open & edit
+            <Icon name="external" />
+            Open in editor
           </button>
         </>
       ) : node.influence ? (
@@ -840,8 +928,9 @@ function GraphInspector({
             Teach your clip style
           </button>
           <p className="brain-note">
-            The map is still unless a project applied something in the last 15 minutes. Lines show saved categories,
-            shared tags, recorded use in a project and the example a style was learned from; nothing is inferred.
+            The lightning is only for looks, and it holds still when Reduce motion is on. Rings and the words “just
+            used” mark what a project used in the last 15 minutes. Lines show saved categories, shared tags, recorded
+            use in a project and the example a style was learned from; nothing is inferred.
           </p>
         </>
       ) : (

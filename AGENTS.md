@@ -152,12 +152,14 @@ clipfoundry/
   pipeline/nvidia.py optional NVIDIA-hosted text AI (off by default)
 frontend/src/      App.tsx (shell), router.ts (addresses, old-address aliases, unsaved-changes guard), status.tsx
                    (one shared Autopilot status poll), format.ts, api.ts, autopilot.ts, styles.css (design tokens),
-                   office/ (cast.ts registry, sprites.ts pixel art, world.ts floor plan, OfficeMap.tsx, panels.tsx,
-                   useOffice.ts event feed, api.ts), pages/ (Office, Team, Setup, Autopilot = Missions, Library =
-                   Clips, Feedback, Create, ProjectView, ClipEditor, Publish, Posts = Queue, PostReview, Settings),
-                   components/ (ui.tsx shared controls, integrations.tsx, page parts)
-design/            robots/ (art notes, manifest, contact sheet), robot-office/screenshots/, ui-redesign/ and
-                   retro-studio/ (earlier designs)
+                   office/ (cast.ts registry, crew.ts crew atlas, world.ts floor plan from space/ship-world.json,
+                   StudioScene.ts Canvas 2D ship, OfficeMap.tsx, panels.tsx, useOffice.ts event feed, api.ts),
+                   space.css + public/space/ (the space studio's look and art), pages/ (Studio, Office, Team, Setup,
+                   Autopilot = Missions, Projects, Feedback, MakeClips, Create, ProjectView, ClipEditor, Publish,
+                   Posts = Publishing, PostReview, Accounts, Brain, Settings), components/ (ui.tsx shared controls,
+                   integrations.tsx, page parts)
+design/            space-studio/ (the 2026-11-19 space studio: art tools and README), robots/ (art notes, manifest,
+                   contact sheet), robot-office/screenshots/, ui-redesign/ and retro-studio/ (earlier designs)
 tests/             pytest suites; fake_platforms.py (fake YouTube/TikTok), synthetic_media.py (ffmpeg test video)
 e2e/               Playwright tests for the user's own running app (read-only by design)
 data/              created at runtime (gitignored): clipfoundry.db, projects/<id>/..., models/, logs/workers.log
@@ -413,6 +415,16 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     work or substantive assigned backlog gathers the whole department; actual workers appear immediately at their
     own stations, idle peers remain idle, and managers supervise without inventing jobs or reports. Quiet paused
     or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
+    The owner's 2026-11-19 space studio adds decoration that shows no work: engine exhaust, CORE's idle rings, the
+    black hole's travelling light, the satellite's drift and the empty dock's beacon. They hold still under Reduced
+    motion, Low power or a hidden page. The galaxy behind the Brain graph is painted once and holds still. The
+    owner's later 2026-11-19 request ("make the brain lines and balls look like lighting and make sure its animated")
+    draws the graph's real links as bolts and its dots as glowing balls that strike again about twelve times a second
+    (pages/brainLightning.ts): decoration that shows no work or learning, still under Reduced motion, Low power, a
+    hidden or off-screen page or a lost connection; only rings and the words "just used" mark what a project used.
+    DOCK's beacon cues once only for a post newly seen in review.
+    Settings → Appearance's Studio preview is the real app in an inert frame that saves nothing
+    (design/space-studio/README.md).
 
 ## Historical continuation scope (2026-10-08)
 
