@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon, IconName } from "../components/ui";
 import { useMotion } from "../motion";
-import { BY_ID, CAST, CORE, RoomId, ROOM_NAMES } from "./cast";
+import { BY_ID, CAST, CORE, RoomId, ROOM_NAMES, ROOM_SHORT } from "./cast";
 import { OfficeEvent, RoleState, Snapshot } from "./api";
 import { ROOM_ACCENT, ROOMS, roomOf, VIEW } from "./world";
 import { Listener, LIVE_SECONDS } from "./useOffice";
@@ -237,19 +237,22 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
     return `${c.name}, ${c.title}, ${stale ? "last known: " : ""}${STATE_WORDS[r?.state || "unavailable"]}${task}`;
   };
   const effective = scale * zoom * ratio;
+  // A ship drawn about phone size: its rooms are too small for their full names (see space.css)
+  const narrow = scale * zoom < 0.36;
   return <div className="office-map-frame">
-    <div className={`office-map${stale ? " stale" : ""}`} ref={wrap}
+    <div className={`office-map${stale ? " stale" : ""}`} ref={wrap} data-narrow={narrow ? "true" : undefined}
       data-renderer={renderer} data-camera={focus || "office"} data-tags={tagsAlways || focus ? "all" : "chosen"}>
       <div className="office-world" data-smooth={effective < 1 ? "true" : "false"}
         style={{ width: VIEW.w * scale * zoom, height: VIEW.h * scale * zoom,
           transform: pan, ["--s" as string]: scale * zoom } as React.CSSProperties}>
-        {renderer === "ship" && <canvas key={renderer} ref={canvas} width={VIEW.w} height={VIEW.h} aria-hidden="true" />}
+        {renderer === "ship" && <canvas key={renderer} ref={canvas} width={VIEW.w} height={VIEW.h}
+          aria-hidden="true" />}
         {ROOMS.map(r => <button key={r.id} type="button" className={`room-hit${room === r.id ? " on" : ""}`}
           style={{ left: pct(r.x - VIEW.x, VIEW.w), top: pct(r.y - VIEW.y, VIEW.h), width: pct(r.w, VIEW.w),
             height: pct(r.h, VIEW.h), ["--accent" as string]: ROOM_ACCENT[r.id] } as React.CSSProperties}
           aria-label={`${ROOM_NAMES[r.id]}${r.id === "lounge" ? `: ${resting} off duty` : ""}. Open details`}
           aria-pressed={room === r.id} onClick={() => onRoom(r.id)}>
-          <span className="room-sign" aria-hidden="true">{ROOM_NAMES[r.id]}</span>
+          <span className="room-sign" aria-hidden="true">{narrow ? ROOM_SHORT[r.id] : ROOM_NAMES[r.id]}</span>
         </button>)}
         <a ref={brainLink} href="#/brain" className="brain-core-hit" data-mode="standby"
           aria-label={`${CORE.name}, Brain Core: Standby. Open Brain workspace`}

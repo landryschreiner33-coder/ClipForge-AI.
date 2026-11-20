@@ -102,6 +102,11 @@ export const ROOM_NAMES: Record<RoomId, string> = {
   story: "Story & analysis", editing: "Editing", quality: "Quality & export", sound: "Sound & captions",
   publishing: "Publishing",
 };
+/** One word each, for a ship drawn as small as a phone, where the full names can't fit their rooms. */
+export const ROOM_SHORT: Record<RoomId, string> = {
+  lounge: "Lounge", control: "Control", research: "Media", brain: "Brain", intake: "Intake", story: "Story",
+  editing: "Editing", quality: "Quality", sound: "Sound", publishing: "Publishing",
+};
 
 export const CAST: Character[] = [
   { id: "command", name: "COMMAND", title: "Director", rank: "director", dept: "control", room: "control", manager: "",

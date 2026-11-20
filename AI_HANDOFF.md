@@ -1,5 +1,33 @@
 # AI handoff
 
+## Space studio: the ship, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for ClipForge to become an animated space studio. Studio is now a cutaway
+ship whose 25 robots and CORE move only for real work; Brain Memory is the real graph over a galaxy; Styles has a
+caption preview you can play; Projects, Publishing, Accounts and Settings → Appearance follow the new look; the type
+is Courier Prime. Making a first clip is three steps (Choose a video, Pick what to make, Make clips) with More
+options for the rest, and a finished project says "Your clips are ready" with Review clips. Not released.
+
+- **Where things are:** branch `claude/project-thread-t2bntx`, PR #62 into the release line
+  `claude/project-thread-x72wkd`. Design notes, art files and the motion rules:
+  [design/space-studio/README.md](design/space-studio/README.md); AGENTS.md rule 14 lists the decoration.
+- **Worth knowing:** page CSS files load before `styles.css`, `theme.css` and `space.css`, so a page rule that must
+  beat a shared class needs a parent class (`.page.mc-space .mc-make`). The Studio's grid is `.studio-layout`;
+  `.studio-grid` belongs to Make clips and Make a video. Settings → Appearance's preview is the real app in an inert
+  frame (`preview.ts`). The art is rebuilt with `design/space-studio/tools/build_space.py`.
+- **Open question for Landry:** Schedule post for a clip you made yourself. Today only Autopilot plans post times; a
+  decision card in the thread recommends building it as its own follow-up.
+- **Verified here:** the build; Python fast suite (3,111 run, none failed) and slow suite (31 passed); read-only browser
+  tests 62 passed, and the 5 failures (Autopilot ×3, Settings ×2) are the same on the release; sandbox browser specs 48
+  of 50, the 2 others failing the same way on the release; after the phone-size change the ship's 31 specs passed again;
+  GitHub run 44650380497 (native Mac build and bundled-app smoke passed, before the phone-size change; the final head's
+  run is in PR #62's merge commit); screenshots of the seven views at 1585×992, 1366×768 and 390×844, larger text, frame
+  sequences, and the first clip walked through with the mouse and with the keyboard only
+  (`/mnt/project-files/space-studio/final/`).
+- **Not verified (needs Landry's computer):** the Mac and Windows windows, the frame rate on the RTX 3050 laptop, real
+  connected accounts (the satellite's pulse was checked with a stand-in account), and a real video going through
+  the pipeline while the ship animates.
+
 ## Release 2026.11.19 published — 2026-11-19 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry wrote "Make sure all the new changes are merged and then release them". ClipForge

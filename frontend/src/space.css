@@ -62,7 +62,7 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
 
 /* ------------------------------------------------------------------ the left rail */
 .cf-side { background: none; border-right: 0; box-shadow: none; padding: var(--s5) var(--s3) var(--s4); gap: var(--s5);
-  }
+}
 .cf-side .brand { flex-direction: column; gap: 6px; padding: 0 0 var(--s4); border-bottom: 1px solid var(--line);
   min-height: 0; }
 .brand img { border-radius: 10px;
@@ -152,7 +152,7 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .btn, .pill, .chip, .seg button, input, select,
   textarea { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 140ms ease;
-    }
+}
 :root[data-motion="reduced"] .btn, :root[data-motion="reduced"] .nav a { transition: none; }
 
 /* ------------------------------------------------------------------ the ship: canvas, targets and the tools beneath */
@@ -166,7 +166,20 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
   font-family: var(--font); font-weight: 700; font-size: max(11px, calc(var(--s) * 14px)); line-height: 1.15;
     color: var(--text);
   background: rgba(5, 8, 20, 0.86); border: 1px solid var(--accent); box-shadow: 0 0 10px -3px var(--accent);
+  /* a long name takes a second line rather than running into the next room (a laptop-sized ship) */
+  white-space: normal; width: max-content; max-width: calc(100% - var(--s) * 14px);
 }
+/* A phone-sized ship: one-word names, centred in their rooms, and resting robots marked by a dot, so the names and
+   the badges of robots at work can still be told apart (2026-11-20). */
+.office-map[data-narrow="true"] .room-sign { left: 50%; transform: translate(-50%, 50%); padding: 1px 4px;
+  font-size: 9px; white-space: nowrap; max-width: none; z-index: 3; }
+.office-map[data-narrow="true"] .robot-hit .robot-state { width: 13px; height: 13px; margin-bottom: 2px;
+  border-radius: 4px; }
+.office-map[data-narrow="true"] .robot-hit .robot-state::after { border-width: 3px; border-bottom-width: 0; }
+.office-map[data-narrow="true"] .robot-hit .robot-state .icon { width: 9px; height: 9px; }
+.office-map[data-narrow="true"] .robot-hit .robot-state:is(.state-idle, .state-unavailable) { width: 6px; height: 6px;
+  border-width: 0; background: currentColor; }
+.office-map[data-narrow="true"] .robot-hit .robot-state:is(.state-idle, .state-unavailable) .icon { display: none; }
 .office-map[data-tags="chosen"] .robot-tag { opacity: 0; }
 .office-map[data-tags="chosen"] .robot-hit:hover .robot-tag,
   .office-map[data-tags="chosen"] .robot-hit:focus-visible .robot-tag,

@@ -1,5 +1,27 @@
 # Implementation status
 
+## Space studio: the ship and its crew, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code)
+
+Branch `claude/project-thread-t2bntx` from the release line at 87a38c8, pull request #62. Studio is a cutaway ship
+whose 25 robots and CORE move only for real work (Canvas 2D, no PixiJS or GSAP); Brain Memory is the real graph over
+a still galaxy; Styles has a playable preview; Projects, Publishing, Accounts and Settings → Appearance follow the
+new look; a first clip is three steps with More options. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md) and
+[design/space-studio/README.md](../design/space-studio/README.md). Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-20 | `npm run build` | passed; `frontend/dist` 3.9 MB |
+| 2026-11-20 | `pytest -m "not slow"` | 3,111 run, 0 failed, 2 skipped (two parts after a cloud restart) |
+| 2026-11-20 | `pytest -m slow` | 31 passed, 1 skipped |
+| 2026-11-20 | pytest, the 7 files that read frontend files, after the last frontend changes | 145 passed |
+| 2026-11-20 | `e2e/tests` against the demo app | 62 passed, 6 skipped, 5 failed (the same 5 fail on the release) |
+| 2026-11-20 | `e2e/sandbox` (50 specs) | 48 passed; beginner-flow and video-setup fail the same way on the release |
+| 2026-11-20 | `e2e/sandbox` ship specs after the phone-size change | 31 passed |
+| 2026-11-20 | GitHub run 44650380497 on cccd6a0 | native Mac build and bundled-app smoke passed (before the phone-size change) |
+
+Not verified: Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, a real video
+going through the pipeline while the ship animates.
+
 ## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code)
 
 Branch `claude/project-thread-dwz7vo` (release line afc0c1f merged in, with the live clips work of PR #57), pull

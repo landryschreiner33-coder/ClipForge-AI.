@@ -1,5 +1,60 @@
 # AI changelog
 
+## Space studio: the ship and its crew, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code)
+
+Landry asked on 2026-11-19, with eleven reference pictures, to "Build ClipForge's animated space studio", then for
+Courier type, room names, the activity badge above each robot, visible stars, one background that goes together, a
+better black hole, and "make everything easily accessible so i can easly make all type of clips, make youtube video,
+make animated short, clip live stream as it goes". Branch `claude/project-thread-t2bntx` from the release line at
+87a38c8, PR #62. Not released. What each screen became, the art and how the ship is drawn:
+[design/space-studio/README.md](design/space-studio/README.md).
+
+- **Studio:** a cutaway ship with 25 robots and CORE, drawn with Canvas 2D (`office/StudioScene.ts`) from one crew
+  atlas (`public/space/crew.png`, `src/space/sprites.json`, floor plan `src/space/ship-world.json`). Robots move only
+  for real job states and handoffs from the office feed. Engines, CORE's rings, blinking and lounge breaks are
+  decoration stepped at about 12 frames a second; Reduced motion, Low power, a hidden page or a paused feed hold the
+  ship still. Room names always show (one word each on a phone-sized ship, where a resting robot's marker is a
+  dot), and each robot's state badge sits above its head. Right column: Make
+  something (Make clips, Make a YouTube video, Make an animated short, Clip a live stream), Now making, the queue
+  and the next scheduled post. Under the ship: Whole ship, Activity, Reduce motion. Bottom strip: today's real
+  counts and the computer's state. PixiJS and GSAP are removed (`frontend/dist` 4.5 → 3.9 MB).
+- **Brain:** Memory shows the real graph over a spiral galaxy painted once from a fixed seed (`pages/galaxy.ts`),
+  still unless something was just used. Branches are amber for Example videos, teal for Skills and ice blue for
+  Recorded evidence. Picking a dot runs a light from CORE along its real path and settles a ring; search finds a
+  real dot; Add knowledge is a menu (Add note, Teach preference, …); Open in editor. Styles: a form on the left and
+  a caption preview you can play on the right, in the fonts the renderer burns in (`components/StyleStudio.tsx`).
+- **Projects:** big cards with real lengths (`GET /api/studio/projects` rows carry `duration`), statuses, pins and
+  menus, then Live recordings with the channel the link named. **Publishing:** tab counts, the time zone, the next
+  scheduled post, and an empty review queue showing DOCK's amber beacon. **Accounts:** the default YouTube channel
+  beside a drifting satellite that sends one signal pulse when an account newly connects; a TikTok row; where
+  sign-in tokens are kept. **Settings → Appearance:** choices apply at once and save to the account
+  (`APPEARANCE_SCHEMA = 3`: the glacier accent replaces violet as the default; a saved violet moves once); a live
+  Studio preview at desktop, tablet and phone sizes; its Motion control and Studio's Reduce motion are one choice.
+- **First clip:** + Make → Make clips: 1 Choose a video, 2 Pick what to make ("Pick the best moments" Highlights,
+  "Keep each story from start to finish" Full story, Story parts), 3 Make clips, with working defaults and the rest
+  under More options (which counts changed choices). Status words: "Finding the best moments", "Making clip 2 of 6"
+  (was "Rendering clip"), and "Your clips are ready" with Review clips, which goes straight to the clips
+  (`#/project/{id}/clips`). A chosen video that can't be read any more is named, with Choose file again. Save to
+  computer is its own button wherever a clip can be saved (was Export).
+- **Type and sky:** Courier Prime (OFL, `frontend/src/assets/fonts`); one fixed sky (nebula and two star tiles); the
+  black hole is painted in code (`components/blackHoleArt.ts`).
+- **Tests changed:** e2e `office.spec` (the ship's rooms, Who watches, Animations, the lounge rule), `create.spec`
+  (three steps, Review clips, Choose file again), `app-shell`, `posts`; sandbox specs for the ship (renderer `ship`,
+  the plain map when its code can't load), the Add knowledge menu, Open in editor and Ship view.
+- **Checks:** `npm run build` (dist 3.9 MB). Python fast suite: all 3,111 ran, none failed, 2 skipped (finished in two
+  parts after a cloud restart); after the later frontend changes, the 145 tests that read frontend files passed again.
+  Python slow suite: 31 passed, 1 skipped. Read-only browser tests (`e2e/tests`, against the demo app): 62 passed, 6
+  skipped, 5 failed, and those 5 (Autopilot ×3, Settings ×2) fail the same way on the release. Sandbox browser specs: 48
+  of 50 pass; beginner-flow (no Topics box) and video-setup (Change it by hand after coming back) fail the same way on
+  the release. After the phone-size change, the ship's 31 sandbox specs passed again. GitHub "Native Mac desktop app"
+  run 44650380497 on cccd6a0 (before the phone-size change): native macOS 15 build and bundled-app smoke (WebView,
+  Keychain, tools) passed; the run on the final head is named in PR #62's merge commit. Larger text at 1366×768 and
+  390×844: no sideways scroll and no cut-off text. Screenshots, frame sequences and both walkthroughs (mouse and
+  keyboard only) are in `/mnt/project-files/space-studio/final/`.
+- **Not verified:** Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, and a
+  real video going through the pipeline while the ship animates. Schedule post for a clip you made yourself does
+  not exist (only Autopilot plans times); a decision card asks Landry whether to add it.
+
 ## Release 2026.11.19: live clips, channels and a smarter ClipForge AI — 2026-11-19 (Claude Code)
 
 Landry wrote "Make sure all the new changes are merged and then release them". The release line already held the

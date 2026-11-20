@@ -14,7 +14,7 @@
 .mc-layout > .mc-more { grid-area: more; }
 
 .mc-step { display: grid; gap: var(--s4); min-width: 0; padding-bottom: var(--s5); border-bottom: 1px solid var(--line);
-  }
+}
 .mc-step > .seg { justify-self: start; }
 .mc-step h2, .mc-go h2 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 1.375rem; }
 .mc-num {

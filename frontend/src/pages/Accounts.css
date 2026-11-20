@@ -84,7 +84,7 @@
 
 /* other channels and TikTok accounts */
 .acc-rows { list-style: none; margin: var(--s5) 0 0; padding: 0; width: 100%; border-top: 1px solid var(--line-strong);
-  }
+}
 .acc-row { padding: var(--s3) 0; border-bottom: 1px solid var(--line-strong); }
 .acc-row-line { display: flex; align-items: center; gap: var(--s4); min-width: 0; }
 .acc-row-words { flex: 1; min-width: 0; display: grid; gap: 2px; }
