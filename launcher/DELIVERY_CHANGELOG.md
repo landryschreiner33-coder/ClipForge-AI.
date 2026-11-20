@@ -2,13 +2,14 @@
 
 ## 2026-11-20 (Nov 19 in Chicago): the space studio (ClipForge 2026.11.19.2)
 
-The setup ZIP now installs source commit `36efa8bbfc2eb035d54921f13f820085b9b676bc`: the 2026.11.19 release plus PR
-#62 (the space studio: the cutaway ship and its crew beside what is being made, Talk to AI under Studio, Make clips in
-three steps, the Brain's lightning galaxy, new Projects, Publishing, Accounts and Appearance pages), merged as
-`8c08f73`, and the Mac release notes for 2026.11.19.2 (PR #63). start.bat is unchanged, so its pin and upgrade
-fixtures are the same. 77 launcher tests passed. All 948 app files equal the Git tree except the six declared BAT
-CRLF exports. The Windows install check now installs the 2026.11.19 release (13e1fcb, raw/7122cce) first, then this
-one over it.
+The setup ZIP now installs source commit `0597fefa2a026a5c5244114b74fbe0e28d4262b9`: the 2026.11.19 release plus PR #62
+(the space studio: the cutaway ship and its crew beside what is being made, Talk to AI under Studio, Make clips in three
+steps, the Brain's lightning galaxy, new Projects, Publishing, Accounts and Appearance pages), merged as `8c08f73`, and
+the Mac release notes for 2026.11.19.2 (PR #63, corrected after a fact-check). A first build from 36efa8b (raw/7937c41,
+the same app before the notes were corrected; its install check 44674145380 passed) is not listed. start.bat is
+unchanged, so its pin and upgrade fixtures are the same. 77 launcher tests passed. All 948 app files equal the Git tree
+except the six declared BAT CRLF exports. The Windows install check now installs the 2026.11.19 release (13e1fcb,
+raw/7122cce) first, then this one over it.
 
 ## 2026-11-19: live clips, channels and a smarter ClipForge AI (ClipForge 2026.11.19)
 

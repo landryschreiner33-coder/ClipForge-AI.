@@ -1,12 +1,12 @@
 {
-  "source_commit": "36efa8bbfc2eb035d54921f13f820085b9b676bc",
-  "app_archive_sha256": "7e67403ee3ced4fb5745018251183e7fb615d0f644b6aef665a3cb8b6a945a55",
-  "zip_bytes": 50449408,
-  "zip_sha256": "c7f575e44108c107ab6006c443e1840c870c0aa2d09086ee8c64f2d9c82a0ecd",
+  "source_commit": "0597fefa2a026a5c5244114b74fbe0e28d4262b9",
+  "app_archive_sha256": "edec780aa18ebba6510a3de4da6b7b03a6d9f5ea6f3d43570e3d069496331e97",
+  "zip_bytes": 50449556,
+  "zip_sha256": "e1116e65ed4c162d7b90a43e662fe79d6901b977698548b359f3d3b9c960e878",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
-    "setup.py": "045592bf02e6ece89275c1201cb7c1b2163343d25a8c7b7de571ed5a71c99da3",
-    "app.zip": "7e67403ee3ced4fb5745018251183e7fb615d0f644b6aef665a3cb8b6a945a55",
+    "setup.py": "e56fcaa3eb178c89e9c18513c5e265f9e5d22e8fed1d97ace0a6d3b4bc136d3b",
+    "app.zip": "edec780aa18ebba6510a3de4da6b7b03a6d9f5ea6f3d43570e3d069496331e97",
     "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
   "app_files": 948,
@@ -29,11 +29,13 @@
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
     "status": "pending",
-    "note": "runs on this push; the result is recorded here once it has passed"
+    "note": "runs on this push; the result is recorded here once it has passed. The same check passed on the first 2026.11.19.2 build from 36efa8b (run 44674145380, raw/7937c41), which differs only in the Mac notes and is not listed"
   },
   "app_tests": {
-    "branch": "claude/project-thread-t2bntx at 36efa8b (PR #63): the release line at 8c08f73 (PR #62, the space studio, merged on top of the 2026.11.19 release and its records 87a38c8) plus the Mac release notes for 2026.11.19.2",
-    "github_run": "pending: the Native Mac desktop app run 44673939916 on 36efa8b is recorded here once it has passed",
+    "branch": "claude/project-thread-t2bntx at 0597fef (PR #63): the release line at 8c08f73 (PR #62, the space studio, merged on top of the 2026.11.19 release and its records 87a38c8) plus the Mac release notes for 2026.11.19.2, corrected after a fact-check",
+    "github_run": "pending: the Native Mac desktop app run on 0597fef is recorded here once it has passed",
+    "earlier_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44673939916",
+    "earlier_run_result": "on 36efa8b (the same app files, the notes before the fact-check): native Mac build and bundled-app smoke passed; fast suite 3,109 passed (2 skipped); slow suite passed",
     "pr62_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44669810126",
     "pr62_run_result": "on a2bd52f (same tree as 8c08f73): native Mac build and bundled-app smoke passed; fast suite 3,109 passed (2 skipped); slow suite 31 passed (1 skipped)"
   }
