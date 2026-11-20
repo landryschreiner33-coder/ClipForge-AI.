@@ -6,7 +6,7 @@ Branch `claude/project-thread-t2bntx` from the release line at 07569cd, pull req
 background (the stars and the black hole), smooth tab changes, a background that moves "like we are moving", and a
 video. The sky streams past to the left, the black hole's disk turns on the graphics chip, and pages and tabs fade in.
 Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md) and [design/space-studio/README.md](../design/space-studio/README.md).
-Not released.
+Released as 2026.11.20.
 
 | When | Command | Result |
 | --- | --- | --- |
@@ -33,6 +33,11 @@ Not released.
 | 2026-11-20 | Settings: Media sources → Defaults, Appearance → Connections setup, Advanced → ClipForge AI → Integrations | only the section rises (260 ms) and what loads into it fades in; the title and the list of sections stay put (before: the whole page flashed to a skeleton and rose) |
 | 2026-11-20 | `npx tsc --noEmit -p frontend`, `npm run build`, pytest `test_office`, `test_theme_contrast` and `test_assistant_library` after the last fixes | passed; 40 passed |
 | 2026-11-20 | `e2e/sandbox`, every browser spec, on the final build | 90 passed (13.3 min); beginner-flow fails the same way as on the release (no Topics box) |
+| 2026-11-20 | Native Mac desktop app run 44815897634 on `72af02d` (PR #66: this work plus the Mac release notes) | macOS 15 native build and bundled-app smoke passed; fast 3,109 passed, 2 skipped; slow 31 passed, 1 skipped |
+| 2026-11-20 | Windows setup check 44816196313 (2026.11.19.2 installed first, then this version over it) | passed |
+| 2026-11-20 | Built app, `still-probe.js`: Motion › Reduced, the computer asking for less motion, Robot activity › Low power, a hidden window | the sky's tiles paused and its canvas and both black holes (Studio, Projects) unchanged over 1 s in each case; moving again once the window was shown; with Reduced, a page change and a tab change started no animation (Full motion: 4 and 2) |
+| 2026-11-20 | Fact-check of the Mac notes and the download page text (four checkers by area, a skeptic for each finding) | 66 claims; 1 gap confirmed (the hold-still settings not tried for this version: tried, row above), 3 findings refuted |
+| 2026-11-20 | `download/build.py --check` and `--verify` for the 2026.11.20 page | passed; every listed file downloaded and matched its size and SHA-256 |
 
 Not verified: Landry's Mac (WebKit) and the RTX 3050 laptop; moving the window to a screen of another pixel density
 (the cloud's emulation sends no change event; checked only through a resize).
@@ -45,7 +50,7 @@ a still galaxy; Styles has a playable preview; Projects, Publishing, Accounts an
 new look; a first clip is three steps with More options. Later the same evening: the Studio panel (Working on and
 Make tabs), Talk to AI in the navigation, and the Brain's lines and dots as animated lightning. Details:
 [AI_CHANGELOG.md](../AI_CHANGELOG.md) and
-[design/space-studio/README.md](../design/space-studio/README.md). Not released.
+[design/space-studio/README.md](../design/space-studio/README.md). Released as 2026.11.19.2.
 
 | When | Command | Result |
 | --- | --- | --- |

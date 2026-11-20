@@ -1,13 +1,40 @@
 # AI handoff
 
+## Release 2026.11.20 published: the moving sky — 2026-11-20 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry picked "Release it now" on November 20 (2:49 PM Chicago time). ClipForge 2026.11.20
+is on the download page for Mac and Windows: the moving sky from PR #65 (the stars stream past as if the ship were
+flying, the black hole's disk turns, pages and tabs fade in, Settings keeps its title and sections while a section
+loads, and pictures come back after a graphics-chip reset). The Mac notes (PR #66) and the download page text were
+checked claim by claim against the code before release.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `f711d0f` (PR #66), whose
+  tree equals that of `72af02d`, the source commit of both downloads; Mac release `clipforge-mac-2026-11-20-72af02d`;
+  Windows ZIP at `raw/2322e29` on `claude/clipforge-downloads` (record commit `9ca4882`); `gh-pages` `e0c197c`; every
+  URL, size, hash and run in [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 44815897634 on 72af02d (macOS 15 native build and bundled-app
+  smoke; 3,109 fast tests passed, 2 skipped; 31 slow tests passed, 1 skipped); Windows setup check
+  44816196313 (installed 2026.11.19.2 first, then this one over it); the hold-still settings tried on the built
+  app (`/mnt/project-files/space-studio/moving-sky/still-probe.js`: Reduced, the computer's reduced motion, Low
+  power and a hidden window hold the sky and both black holes still; Reduced makes page and tab changes instant);
+  an independent fact-check of the texts (66 claims, one gap confirmed and closed); `build.py --check` and
+  `--verify`; the page looked at in a browser at desktop and phone sizes.
+- **Pictures on the download page** are still the 2026.11.19.2 captures: still frames, so they do not show the
+  movement, and they predate the sky's brighter stars and dust.
+- **Not verified (needs Landry's computer):** how smoothly the sky and the black hole run in the Mac window and on the
+  RTX 3050 laptop, WebKit's drawing of the turning disk, a real graphics-chip reset, and moving the window to a screen
+  of another pixel density.
+- **Next release:** new work starts from `claude/project-thread-x72wkd` at `f711d0f` (or the records merge after it);
+  the next version is `2026.11.20.2` if it ships on November 20 (Chicago time), otherwise the date it ships.
+
 ## Moving sky, turning black hole and smooth page changes — 2026-11-20 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for an animated background (the stars and the black hole), smooth tab changes,
 a background "animated like we are moving", and a video of it. The sky now streams past to the left as if the ship
 were flying on: the small stars slide slowly, brighter stars twinkle and drift faster, specks of dust rush by and a
 shooting star crosses now and then. The black hole's disk turns, the inner streaks faster. A new page fades up, a new
-tab fades in what is under its tabs, and the Studio panel's highlight slides. Not released yet: it reaches Landry's
-app with the next release, which needs Landry's OK.
+tab fades in what is under its tabs, and the Studio panel's highlight slides. Released as ClipForge 2026.11.20 (see
+the release entry above).
 
 - **Where things are:** branch `claude/project-thread-t2bntx`, pull request #65 into `claude/project-thread-x72wkd`.
   Sky: `components/starSky.ts` (engine), `components/StarSky.tsx` (the window's sky and the masthead's copy),

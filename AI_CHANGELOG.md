@@ -1,11 +1,40 @@
 # AI changelog
 
+## Release 2026.11.20: the moving sky — 2026-11-20 (Claude Code)
+
+Landry picked "Release it now" on the release card (November 20, 2:49 PM Chicago time). Published from `72af02d`
+(PR #66: the release line at `d3518f7`, which holds PR #65, plus the Mac release notes), merged as `f711d0f` with the
+same tree.
+
+- **Mac:** release `clipforge-mac-2026-11-20-72af02d` (unsigned personal preview, marked prerelease like the earlier
+  ones), DMG 232,042,612 bytes, SHA-256 `b72b1faa04c3a533dad10d479d7d2ed81586c033acbe10266e2e87f3f7fdbdb8`, from
+  build and test run 44815897634 (native build and bundled-app smoke; 3,109 fast tests passed, 2 skipped; 31 slow
+  tests passed, 1 skipped), published unchanged by run 44823150295.
+- **Windows:** `raw/2322e29352d5879e3876f2d5423209e0853f35ea/ClipForge-Windows-Setup.zip` (50,491,596 bytes, SHA-256
+  `b5e32961fb976330c881f3222a2bba9014b073755731732fbcdac566dfc68de0`); Windows setup check 44816196313 installed
+  2026.11.19.2 (raw/70f3450) first, then this one over it; record commit `9ca4882` on `claude/clipforge-downloads`.
+- **Download page:** `gh-pages` `e0c197c` (previous `e349d2d`): `releases.json` 2026.11.20 with five changes and the
+  checked and not-checked lists; Download page run 44824108721, Pages run 44824107927. The pictures were not retaken.
+- **Fact-check:** each sentence of the Mac notes and the download page text was checked against the code at `72af02d`;
+  then an independent check (four checkers by area, a skeptic for each finding) went through 66 claims. Three findings
+  were refuted (the small black hole is hidden in windows narrower than 1024 px, as it has been since the space studio;
+  the week of turning was run on a fake clock, which exercises the same arithmetic; the fact-check sentence describes
+  the check that was running). One was confirmed: the page's not-tested list did not say that the hold-still settings
+  had not been tried in a browser for this version. They were then tried on the built app
+  (`/mnt/project-files/space-studio/moving-sky/still-probe.js`): Motion › Reduced chosen in Settings › Appearance, the
+  computer asking for less motion, Robot activity › Low power chosen there and a hidden window each paused the sky's
+  tiles and held the sky's canvas and both black holes (the Studio's and the Projects page's) still, and showing the
+  window again set them moving; with Reduced, a page change and a tab change started no animation (with Full motion: 4
+  and 2). The page's tested list now says so, and its not-tested list names power use. One wording was corrected too:
+  the galaxy and the lightning's balls could stay blank for the rest of the visit, so the page says only that they could
+  stay blank; the fix is titled "Fixed: …" as `download/UPDATING.md` asks.
+
 ## Moving sky, turning black hole and smooth page changes — 2026-11-20 (Claude Code)
 
 Landry asked on November 20 (8:55 AM Chicago time): "give the backround animation like the stars and black hole and
 when you swich tabs have it be a smotth transition send me a video of what they look like", then (9:52 AM) "also make
 the backround animated like we are moving". Branch `claude/project-thread-t2bntx`, pull request #65 into the release
-line.
+line. Released as 2026.11.20.
 
 - **The sky moves as if the ship were flying on to the right** (`components/starSky.ts`, `components/StarSky.tsx`,
   `space.css`): the nebula holds still; the two tiles of small stars slide left (far 6, near 11 pixels a second),
