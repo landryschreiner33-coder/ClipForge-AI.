@@ -11,12 +11,15 @@ It installs ClipForge from source commit `0597fefa2a026a5c5244114b74fbe0e28d4262
 (the space studio: a cutaway ship with 25 robots beside what is being made, Talk to AI under Studio, Make clips in three
 steps, the Brain's knowledge map as a lightning galaxy, and new Projects, Publishing, Accounts and Appearance pages),
 with the Mac release notes for 2026.11.19.2, corrected after a fact-check (PR #63). The 77 setup tests passed, and all
-948 app files were compared with that commit (six `.bat` files differ only by the declared CRLF export). The Windows
-setup check installs the previous release (13e1fcb) with a synthetic setting on a GitHub Windows Server 2025 runner,
-then this ZIP over it; its result is recorded in `verification-windows.json` once it has passed. FFmpeg is not installed
-there, so no video is processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs, the new look on a
-Windows screen, the built-in model, ComfyUI and its models, a real live stream and face cam, a real rented cloud
-computer, the built-in voice, real AI keys on a PC and real uploads to one or more channels are not tested.
+948 app files were compared with that commit (six `.bat` files differ only by the declared CRLF export). [Windows setup
+check run 44677612640](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677612640) installed the
+previous release (13e1fcb) with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over it: the
+new folder kept the same data folder and setting, served this commit's page and icon, all 948 installed files matched,
+and it closed and reopened without a second copy. See `verification-windows.json`. The app passed the Native Mac desktop
+app run 44677488448 on the same commit (fast suite 3,109 passed, slow suite 31 passed). FFmpeg is not installed on the
+Windows runner, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs, the new
+look on a Windows screen, the built-in model, ComfyUI and its models, a real live stream and face cam, a real rented
+cloud computer, the built-in voice, real AI keys on a PC and real uploads to one or more channels are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
