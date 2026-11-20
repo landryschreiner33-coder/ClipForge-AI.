@@ -417,8 +417,12 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
     The owner's 2026-11-19 space studio adds decoration that shows no work: engine exhaust, CORE's idle rings, the
     black hole's travelling light, the satellite's drift and the empty dock's beacon. They hold still under Reduced
-    motion, Low power or a hidden page. The galaxy behind the Brain graph is painted once and holds still (the map
-    moves only when something was just used). DOCK's beacon cues once only for a post newly seen in review.
+    motion, Low power or a hidden page. The galaxy behind the Brain graph is painted once and holds still. The
+    owner's later 2026-11-19 request ("make the brain lines and balls look like lighting and make sure its animated")
+    draws the graph's real links as bolts and its dots as glowing balls that strike again about twelve times a second
+    (pages/brainLightning.ts): decoration that shows no work or learning, still under Reduced motion, Low power, a
+    hidden or off-screen page or a lost connection; only rings and the words "just used" mark what a project used.
+    DOCK's beacon cues once only for a post newly seen in review.
     Settings → Appearance's Studio preview is the real app in an inert frame that saves nothing
     (design/space-studio/README.md).
 

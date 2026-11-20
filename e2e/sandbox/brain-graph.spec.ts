@@ -247,7 +247,7 @@ test("simple notes derive a title; saved preferences activate without a separate
   );
 });
 
-test("a populated graph fits mobile and stays still unless something was just used", async ({
+test("a populated graph fits mobile; its lightning moves, and holds still with reduced motion or a hidden tab", async ({
   page,
 }, info) => {
   const rows = Array.from({ length: 60 }, (_, index) =>
@@ -262,24 +262,37 @@ test("a populated graph fits mobile and stays still unless something was just us
   await page.goto("/#/brain");
   // 60 items + 8 tags + 4 groups + core + 2 evidence leaves.
   await expect(page.locator("[data-brain-node]")).toHaveCount(75);
-  // The map is still when idle (studio upgrade, Brain map): no decorative glow suggests learning that is not
-  // happening, so nothing animates unless a project applied a record in the last few minutes (none here).
+  // The owner, 2026-11-19: "make the brain lines and balls look like lighting and make sure its animated". The links
+  // are bolts of light drawn on a canvas under the dots, striking again about twelve times a second. It is decoration:
+  // nothing was used here, so the "just used" pulse stays off and the words say so.
   const region = page.getByRole("region", { name: "Knowledge graph", exact: true });
+  const bolts = region.locator("canvas.brain-bolts");
+  const picture = () => bolts.evaluate((c: HTMLCanvasElement) => c.toDataURL());
+  const moves = async () => {
+    const first = await picture();
+    await page.waitForTimeout(400);
+    return (await picture()) !== first;
+  };
   const running = () => page.evaluate(() => document.getAnimations().filter((a) => {
     const target = (a.effect as KeyframeEffect | null)?.target;
     return a.playState === "running" && !!target && !!(target as Element).closest?.("section.brain-graph");
   }).length);
   await expect(region).toHaveAttribute("data-animation", "still");
-  await expect(page.getByRole("button", { name: "Pause glow", exact: true })).toHaveCount(0);
-  expect(await running(), "animations running on an idle map").toBe(0);
+  await expect(region).toHaveAttribute("data-lightning", "moving");
+  await expect(region).toContainText("Nothing used in the last 15 minutes");
+  expect(await running(), "a just-used pulse with nothing used").toBe(0);
+  expect(await moves(), "the lightning moves").toBe(true);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(region).toHaveAttribute("data-animation", "still");
+  await expect(region).toHaveAttribute("data-lightning", "still");
+  expect(await moves(), "the lightning holds still with reduced motion").toBe(false);
   await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(region).toHaveAttribute("data-lightning", "moving");
   await page.evaluate(() => {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await expect(region).toHaveAttribute("data-animation", "still");
+  await expect(region).toHaveAttribute("data-lightning", "still");
+  expect(await moves(), "the lightning holds still in a hidden tab").toBe(false);
   expect(await running(), "animations running in a hidden tab").toBe(0);
   await page.evaluate(() => {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => false });

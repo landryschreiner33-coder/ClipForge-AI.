@@ -74,10 +74,11 @@ ClipForge AI is the assistant inside the editor. On a video, the **ClipForge AI*
 want changed (*move the summit part before lunch*, *make the captions smaller*) and proposes a checked change: nothing
 happens until you press **Apply as a new version** (Undo takes it back) or **Discard**. Teach it in any chat with
 *remember: …*, *always …* or *never …* (add *for this video* to keep it to one video); ask *what do you know?*,
-*why?* or *help*; say *forget …* to remove something. Brain → **Talk to ClipForge AI** is the chat for everything
-else. Ask it how to edit (*how loud should my video be?*, *where do captions go on TikTok?*, *what music fits a sad
-scene?*, *what makes a good title?*) or how ClipForge works (*how do I clip a live stream?*, *where do I change the
-clip length?*) and it answers from its built-in know-how and its guide to the app, with no model, and links the
+*why?* or *help*; say *forget …* to remove something. **Talk to AI** (in the menu right under Studio, as a Brain tab
+and on the Studio's side panel) opens **Talk to ClipForge AI**, the chat for everything else. Ask it how to edit
+(*how loud should my video be?*, *where do captions go on TikTok?*, *what music fits a sad scene?*, *what makes a
+good title?*) or how ClipForge works (*how do I clip a live stream?*, *where do I change the clip length?*) and it
+answers from its built-in know-how and its guide to the app, with no model, and links the
 page; with a model set up (Settings → **ClipForge AI**;
 the built-in one is free and stays on this computer) it answers anything, with your memories and that know-how.
 Brain → **Memory** shows everything it remembers, where each memory was used, and lets you edit, confirm, turn off or

@@ -5,8 +5,11 @@
 Landry asked on 2026-11-19, with eleven reference pictures, to "Build ClipForge's animated space studio", then for
 Courier type, room names, the activity badge above each robot, visible stars, one background that goes together, a
 better black hole, and "make everything easily accessible so i can easly make all type of clips, make youtube video,
-make animated short, clip live stream as it goes". Branch `claude/project-thread-t2bntx` from the release line at
-87a38c8, PR #62. Not released. What each screen became, the art and how the ship is drawn:
+make animated short, clip live stream as it goes". Later that evening (8:47 to 8:50 PM CST) Landry asked to keep the
+AI chat and every feature simple to reach, for the Studio's side panel to show what is being worked on (a screen of
+the video, what's going on, the next video to publish at the bottom) with a tab for the create buttons, and to "make
+the brain lines and balls look like lighting and make sure its animated". Branch `claude/project-thread-t2bntx` from
+the release line at 87a38c8, PR #62. Not released. What each screen became, the art and how the ship is drawn:
 [design/space-studio/README.md](design/space-studio/README.md).
 
 - **Studio:** a cutaway ship with 25 robots and CORE, drawn with Canvas 2D (`office/StudioScene.ts`) from one crew atlas
@@ -17,12 +20,23 @@ make animated short, clip live stream as it goes". Branch `claude/project-thread
   badge sits above its head. A name too long for one line shows one word (Media, Story, Sound), a manager watching its
   team stands at its own desk, and on a smaller ship the badges shrink a little, so no badge covers another badge, and
   from 1330 wide up no badge touches a room's name (at 1190 to 1320 and at 640 wide a badge can touch a name's bottom
-  edge, at most 7% of its line). Right column: Make something (Make clips, Make a YouTube video, Make an animated short,
-  Clip a live stream), Now making, the queue and the next scheduled post. Under the ship: Whole ship, Activity, Reduce
+  edge, at most 7% of its line). The Studio panel beside the ship has two tabs. **Working on** (first): what is being
+  made now on a screen with a light that says what it is doing, its real step, progress only when measured and the
+  robots on it; What's going on (the crew's last three real steps, See everything); the queue; how many things need
+  you; Talk to ClipForge AI; and Next to publish at the bottom, with a little upright screen of the clip (its saved
+  thumbnail), where and when. **Make**: Make clips, Make a YouTube video, Make an animated short, Clip a live stream,
+  and "Not sure what to make?". The tabs work with the arrow keys. Under the ship: Whole ship, Activity, Reduce
   motion. Bottom strip: today's real counts and the computer's state. PixiJS and GSAP are removed (`frontend/dist` 4.5 →
   3.9 MB).
-- **Brain:** Memory shows the real graph over a spiral galaxy painted once from a fixed seed (`pages/galaxy.ts`),
-  still unless something was just used. Branches are amber for Example videos, teal for Skills and ice blue for
+- **Brain:** Memory shows the real graph over a spiral galaxy painted once from a fixed seed (`pages/galaxy.ts`).
+  Its real links are jagged bolts of light in each branch's colour and its dots glowing balls with white-hot middles
+  (`pages/brainLightning.ts`, a canvas under the dots); while motion is allowed each link strikes again every 2 to 5
+  frames at 12 frames a second, and it holds still under Reduced motion, Low power, a hidden or off-screen page or a
+  lost connection. A frame took about 3 ms with 174 dots in the cloud browser; a computer that needs longer gets
+  fewer frames. Beside the map (wider than 1180), the details panel is as tall as the map and scrolls inside, so a
+  long panel no longer pushes the map below the fold on a laptop; a picked dot's name that would run off the map's
+  edge goes under the dot; on a narrow window the Brain's tabs wrap onto more lines instead of hiding behind the
+  edge. Branches are amber for Example videos, teal for Skills and ice blue for
   Recorded evidence. Picking a dot runs a light from CORE along its real path and settles a ring; search finds a
   real dot; Add knowledge is a menu (Add note, Teach preference, …); Open in editor. Styles: a form on the left and
   a caption preview you can play on the right, in the fonts the renderer burns in (`components/StyleStudio.tsx`).
@@ -39,11 +53,21 @@ make animated short, clip live stream as it goes". Branch `claude/project-thread
   (was "Rendering clip"), and "Your clips are ready" with Review clips, which goes straight to the clips
   (`#/project/{id}/clips`). A chosen video that can't be read any more is named, with Choose file again. Save to
   computer is its own button wherever a clip can be saved (was Export).
+- **Everything one or two presses away:** Talk to AI has its own place in the navigation (right under Studio, with
+  the page title "Talk to ClipForge AI") and is now a Brain tab instead of hiding under More; on a phone the menu also
+  opens Autopilot. Every page was checked to be reachable from the navigation, the Studio or + Make. ClipForge AI's
+  own directions (`brain/appguide.py`) name the Brain's new places (Brain → More → Skills, Brain → Memory → Add
+  knowledge → Add note, …) and the Studio's Make and Working on tabs.
+- **A test that failed every evening:** `test_each_channel_has_its_own_daily_limit_gap_and_slots` planned posts one
+  and three hours after the clock's own time, which are different days in the planning time zone from 9 PM to
+  midnight; it fails the same way on the release line. It now plans from 8 AM the next day.
 - **Type and sky:** Courier Prime (OFL, `frontend/src/assets/fonts`); one fixed sky (nebula and two star tiles); the
   black hole is painted in code (`components/blackHoleArt.ts`).
 - **Tests changed:** e2e `office.spec` (the ship's rooms, Who watches, Animations, the lounge rule), `create.spec`
-  (three steps, Review clips, Choose file again), `app-shell`, `posts`; sandbox specs for the ship (renderer `ship`,
-  the plain map when its code can't load), the Add knowledge menu, Open in editor and Ship view.
+  (three steps, Review clips, Choose file again), `app-shell` (the Studio panel's tabs and arrow keys; Talk to AI in
+  the navigation, the Brain's tabs and the Studio), `posts`; sandbox specs for the ship (renderer `ship`, the plain map
+  when its code can't load), the Add knowledge menu, Open in editor, Ship view, the Brain's lightning (moves, holds
+  still with Reduced motion and in a hidden tab) and Talk to AI from the navigation.
 - **Checks:** `npm run build` (dist 3.9 MB). Python fast suite: all 3,111 ran, none failed, 2 skipped (finished in two
   parts after a cloud restart); after the last ship changes, the 339 tests in the 12 Python files that read frontend
   files passed again, and so did the 22 read-only browser tests of the office and the app shell. Python slow suite: 31
@@ -61,8 +85,15 @@ make animated short, clip live stream as it goes". Branch `claude/project-thread
   (WebView, Keychain, tools) and the fast and slow Python suites passed; the run on the final head is named in PR #62's
   merge commit. Larger text at 1366×768 and 390×844: no sideways scroll and no cut-off text. Screenshots, frame
   sequences and both walkthroughs (mouse and keyboard only) are in `/mnt/project-files/space-studio/final/`.
-- **Not verified:** Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, and a
-  real video going through the pipeline while the ship animates. Schedule post for a clip you made yourself does
+- **Checks after the Studio panel, Talk to AI and the lightning:** `npm run build`; sandbox specs for the Brain,
+  motion and the ship, 46 passed, and the Brain and motion ones again after the last layout fixes, 15 passed;
+  `e2e/tests` app-shell, office and settings, 29 passed (the 2 Settings failures are the same on the release); 380
+  Python tests (the 12 files that read frontend files, the reference and chat tests); the lightning's still check, 6 of
+  6; its cost per frame, 2.9 ms with 174 dots (14 ms and about 6 frames a second with the processor slowed 4 times);
+  screenshots at three sizes and with larger text: no sideways scroll, nothing cut off
+  (`/mnt/project-files/space-studio/final/panel-talk-lightning/`, with `lightning.gif`).
+- **Not verified:** Landry's Mac and Windows, the frame rate on the RTX 3050 laptop (the lightning too), real
+  connected accounts, and a real video going through the pipeline while the ship animates. Schedule post for a clip you made yourself does
   not exist (only Autopilot plans times); a decision card asks Landry whether to add it.
 
 ## Release 2026.11.19: live clips, channels and a smarter ClipForge AI — 2026-11-19 (Claude Code)

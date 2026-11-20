@@ -77,12 +77,18 @@ test("the Autopilot pill shows its state in a word", async ({ page, request }) =
 });
 
 // The owner, 2026-11-19: "make everything easily accessible so i can easly make all type of clips, make youtube video,
-// make animated short, clip live stream as it goes". Studio and + Make offer the same four, in the same order.
+// make animated short, clip live stream as it goes". Studio and + Make offer the same four, in the same order. Since
+// 8:47 PM that evening the Studio panel opens on Working on, and its Make tab holds the four.
 const MAKE = [["Make clips", "#/create/clips"], ["Make a YouTube video", "#/create/video"],
   ["Make an animated short", "#/create/short"], ["Clip a live stream", "#/missions/live"]];
 
 test("Studio and + Make offer the same four things to make", async ({ page }) => {
   await page.goto("/#/");
+  const panel = page.getByRole("tablist", { name: "Studio panel" });
+  await expect(panel.getByRole("tab", { name: /^Working on/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: /^Working on/ })).toContainText("Next to publish");
+  await panel.getByRole("tab", { name: "Make", exact: true }).click();
+  await expect(panel.getByRole("tab", { name: "Make", exact: true })).toHaveAttribute("aria-selected", "true");
   const tiles = page.getByRole("navigation", { name: "Make something" }).getByRole("link");
   await expect(tiles).toHaveCount(MAKE.length);
   for (const [i, [name, hash]] of MAKE.entries()) {
@@ -98,6 +104,25 @@ test("Studio and + Make offer the same four things to make", async ({ page }) =>
   }
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu", { name: "Make" })).toHaveCount(0);
+  // the arrow keys move between the panel's tabs
+  await panel.getByRole("tab", { name: "Make", exact: true }).focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(panel.getByRole("tab", { name: /^Working on/ })).toBeFocused();
+  await expect(panel.getByRole("tab", { name: /^Working on/ })).toHaveAttribute("aria-selected", "true");
+});
+
+// The owner, 2026-11-19 8:47 PM: "make sure im still able to talk to the AI". Talk to AI has its own place in the
+// navigation, a Brain tab and a row on the Studio. (Opening the chat starts a conversation, a write, so this read-only
+// test checks where the links go; e2e/sandbox opens it.)
+test("Talk to AI is one press away: the navigation, the Brain's tabs and the Studio", async ({ page }) => {
+  await page.goto("/#/");
+  const nav = page.locator(".cf-side").getByRole("navigation", { name: "Main" });
+  await expect(nav.getByRole("link", { name: "Talk to AI", exact: true })).toHaveAttribute("href", "#/brain/talk");
+  await expect(page.getByRole("tabpanel", { name: /^Working on/ }).getByRole("link", { name: /^Talk to ClipForge AI/ }))
+    .toHaveAttribute("href", "#/brain/talk");
+  await page.goto("/#/brain/styles");
+  await expect(page.getByRole("navigation", { name: "Brain sections" }).getByRole("link", { name: "Talk to AI" }))
+    .toHaveAttribute("href", "#/brain/talk");
 });
 
 test("Make clips from + Make opens Make clips, which takes a file or a link", async ({ page }) => {

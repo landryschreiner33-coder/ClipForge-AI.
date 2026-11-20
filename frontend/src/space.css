@@ -266,14 +266,12 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
 /* ------------------------------------------------------------------ the Studio page */
 .page.studio-space { max-width: 1480px; display: grid; gap: var(--s6); }
 .studio-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 380px);
-  grid-template-rows: auto 1fr;
-  grid-template-areas: "ship make" "ship side"; gap: var(--s5) var(--s6); align-items: start; }
+  grid-template-areas: "ship side"; gap: var(--s5) var(--s6); align-items: start; }
 .studio-layout > .studio-ship { grid-area: ship; }
-.studio-layout > .studio-make { grid-area: make; }
 .studio-layout > .studio-side { grid-area: side; }
 
-/* Make something: the four kinds of work, each one big press away */
-.studio-make { display: grid; gap: var(--s3); padding-top: var(--s2); }
+/* Make something (the Studio panel's Make tab): the four kinds of work, each one big press away */
+.studio-make { display: grid; gap: var(--s3); }
 .studio-make h2 { margin: 0; font-size: clamp(1.375rem, 1.8vw, 1.875rem); }
 .studio-make ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .make-tile {
@@ -333,16 +331,50 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
 .studio-compute.warn .state-dot { background: var(--warn); }
 .studio-compute.bad .state-dot { background: var(--bad); }
 
-.studio-side { display: grid; gap: var(--s5); align-content: start; min-width: 0; padding-top: var(--s2); }
-.studio-side > section + section, .studio-side > section + .studio-next { padding-top: var(--s5);
-  border-top: 1px solid var(--line-strong); }
-.studio-side h2 { margin: 0 0 var(--s3); font-size: clamp(1.375rem, 1.8vw, 1.875rem); }
+/* The Studio panel (2026-11-19 8:47 PM): two tabs, Working on and Make, over the panel they show */
+.studio-side { display: grid; gap: var(--s4); align-content: start; min-width: 0; padding-top: var(--s2); }
+.side-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent); border: 1px solid var(--line-strong); }
+.side-tab { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px;
+  padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text-2); font: inherit;
+  font-size: 1.0625rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.side-tab .icon { width: 20px; height: 20px; }
+.side-tab:hover { color: var(--text); background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.side-tab[aria-selected="true"] { color: var(--text);
+  background: color-mix(in srgb, var(--primary) 22%, var(--surface));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--primary) 75%, transparent); }
+.side-tab[aria-selected="true"] .icon { color: var(--primary); }
+.side-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.side-tab .tab-count { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px;
+  border-radius: 12px; background: var(--primary); color: var(--on-primary, #04121c); font-size: 0.875rem; }
+.side-panel { display: grid; gap: var(--s5); align-content: start; min-width: 0; }
+.side-panel > * { align-self: start; min-width: 0; }
+.side-panel[hidden] { display: none; }
+.side-panel > * + * { padding-top: var(--s5); border-top: 1px solid var(--line-strong); }
+.side-panel > .studio-ask, .side-panel > .needs-row { padding-top: 12px; }
+.studio-side h2 { margin: 0 0 var(--s3); font-size: 1.25rem; }
+.studio-side .now-making h2, .studio-side .studio-make h2 { font-size: clamp(1.375rem, 1.8vw, 1.875rem); }
 .now-making { display: grid; gap: var(--s3); }
 .now-making h2 { margin-bottom: 0; }
-.now-thumb { display: block; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: var(--raised);
-  border: 1px solid var(--line-strong); }
+/* the screen: the project's picture in a dark bezel, with a light that says what it is doing */
+.now-screen { position: relative; display: block; padding: 7px; border-radius: 16px;
+  background: linear-gradient(180deg, #0d1426, #04060d); border: 1px solid var(--line-strong);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), 0 12px 28px -16px rgba(0, 0, 0, 0.9); }
+.now-screen::after { content: ""; position: absolute; inset: 7px; border-radius: 9px; pointer-events: none;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.12), transparent 36%); }
+.now-thumb { display: block; aspect-ratio: 16 / 9; border-radius: 9px; overflow: hidden; background: var(--raised); }
 .now-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 200ms ease; }
-.now-thumb:hover img { transform: scale(1.03); }
+.now-screen:hover .now-thumb img { transform: scale(1.03); }
+:root[data-motion="reduced"] .now-thumb img { transition: none; }
+.screen-light { position: absolute; left: 16px; top: 16px; z-index: 1; display: inline-flex; align-items: center;
+  gap: 7px; padding: 3px 10px; border-radius: 999px; background: rgba(4, 6, 14, 0.84); color: var(--text);
+  font-size: 0.875rem; font-weight: 700; }
+.screen-light .state-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); }
+.screen-light.on .state-dot { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.screen-light.wait .state-dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.screen-light.ready .state-dot { background: var(--primary); box-shadow: 0 0 8px var(--primary); }
+.screen-pct { position: absolute; right: 16px; bottom: 16px; z-index: 1; padding: 2px 9px; border-radius: 8px;
+  background: rgba(4, 6, 14, 0.84); color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
 .thumb-empty { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-3); }
 .now-title h3 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
 .now-title .muted { font-size: 1rem; }
@@ -368,10 +400,36 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
   border: 1px solid var(--line); }
 .queue-row b { font-size: 1.0625rem; }
 .queue-row .muted { font-size: 0.9375rem; }
-.studio-next { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin: 0;
-  font-size: 1.0625rem; }
-.studio-next .icon { width: 22px; height: 22px; color: var(--text-2); }
-.studio-next a { margin-left: auto; }
+/* What's going on: the crew's last steps */
+.studio-going { display: grid; align-content: start; }
+.studio-going h2 { margin-bottom: var(--s1); }
+.studio-going .op-activity li { font-size: 0.9375rem; line-height: 1.35; }
+.studio-going .link-btn { justify-self: start; margin-top: var(--s2); min-height: 32px; }
+/* Needs you and Talk to ClipForge AI: one row each, a big target */
+.needs-row, .studio-ask { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center;
+  width: 100%; padding: 12px 4px 4px; border: 0; background: none; color: var(--text); font: inherit; text-align: left;
+  text-decoration: none; cursor: pointer; }
+.needs-row > .icon { width: 26px; height: 26px; justify-self: center; color: var(--warn); }
+.studio-ask .ask-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 11px;
+  color: var(--mint, var(--primary)); background: color-mix(in srgb, var(--mint, var(--primary)) 16%, transparent); }
+.studio-ask .ask-icon .icon { width: 24px; height: 24px; }
+.needs-row b, .studio-ask b { font-size: 1.0625rem; }
+.needs-row .muted, .studio-ask .muted { font-size: 0.9375rem; }
+.needs-row:hover b, .studio-ask:hover b { color: var(--primary); }
+/* Next to publish, at the bottom: a little screen of the clip (upright, like a phone), what it is and when */
+.studio-next { display: grid; gap: var(--s3); }
+.studio-next h2 { margin: 0; }
+.studio-next p { margin: 0; }
+.next-row { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: var(--s3); align-items: center;
+  padding: 4px; margin: -4px; border-radius: 10px; color: var(--text); text-decoration: none; }
+.next-row:hover { background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.next-row b { font-size: 1.0625rem; line-height: 1.25; }
+.next-row .icon { vertical-align: -2px; color: var(--text-2); }
+.little-screen { display: block; width: 62px; aspect-ratio: 9 / 16; padding: 3px; border-radius: 10px;
+  background: linear-gradient(180deg, #0d1426, #04060d); border: 1px solid var(--line-strong); }
+.little-screen img, .little-screen .thumb-empty { display: block; width: 100%; height: 100%; object-fit: cover;
+  border-radius: 7px; background: var(--raised); }
+.studio-next > a.small { justify-self: start; }
 .ship-details { display: grid; gap: var(--s3); min-width: 0; }
 .ship-details .op-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--s2); padding: 0;
   min-height: 0; border: 0; }
@@ -381,16 +439,19 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
 .studio-band h2 { margin: 0; font-size: 1.375rem; }
 
 @media (max-width: 1100px) {
-  .studio-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
-    grid-template-areas: "make" "ship" "side"; }
+  /* one column: the Studio panel comes under the ship, its sections side by side where they fit */
+  .studio-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ship" "side"; }
   .studio-make ul { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
   .studio-sky { height: 84px; margin-top: 0; }
-  .studio-side { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s5) var(--s6); }
-  .studio-side > section + section, .studio-side > section + .studio-next { padding-top: 0; border-top: 0; }
+  .side-tabs { max-width: 520px; }
+  .side-panel { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s5) var(--s6); }
+  .side-panel > * + * { padding-top: 0; border-top: 0; }
   .studio-compute { margin-left: 0; }
 }
 @media (max-width: 640px) {
   .studio-sky { display: none; }
+  .side-tab { gap: 6px; padding: 0 6px; }
+  .side-tab > .icon { display: none; }
   .studio-today > a, .studio-today > span { padding: 4px var(--s3); font-size: 0.9375rem; }
   .studio-today > a b { font-size: 1.375rem; }
   .ship-head .btn { display: none; }

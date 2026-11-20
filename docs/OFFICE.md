@@ -100,6 +100,12 @@ the feed's real handoffs.
 
 **Labels.** Room names are always shown, and each robot's state badge sits above its head.
 
+**The Studio panel.** Beside the ship (under it on a narrow window), two tabs. **Working on** opens first: a screen
+with what is being made now and a light that says what it is doing, What's going on (the crew's last three real
+steps), the queue, how many things need you, Talk to ClipForge AI, and Next to publish at the bottom with a little
+screen of the clip. **Make** holds the four big choices. Everything on it comes from the same feeds as the rest of
+the Studio; it only reads.
+
 **The HTML layer.** It keeps one button for each robot and each room, plus the details panel and the controls.
 
 **Motion.** All 25 roles stay present when idle or paused. Follow system uses the operating system's reduced-motion
@@ -415,7 +421,11 @@ The default **Graph view** offers an Obsidian-style map of your saved knowledge.
 supported preferences connect to their collections and actual shared topic tags. Recorded clip decisions link to
 the preference revision used; recorded results show their platform/cohort/source and measured or missing values.
 Selecting a note or evidence opens its stored record and provenance in the side panel. Collection/tag connections
-organize saved data; the glowing positions are decorative rather than hidden AI thoughts.
+organize saved data; the glowing positions are decorative rather than hidden AI thoughts. The owner asked for the
+lines and balls to look like lightning (2026-11-19): each real link is a jagged bolt and each dot a glowing ball that
+strikes again about twelve times a second (`pages/brainLightning.ts`). It is decoration too, and holds still under
+Reduced motion, Low power, a hidden or off-screen page or a lost connection; rings and the words "just used" mark
+what a project used in the last 15 minutes.
 
 Use **Add note** for a simple idea or document, or **Teach preference** for explicit caption/pacing choices.
 Saving an enabled lesson activates recognized guidance automatically for new clips. Settings remain the fallback

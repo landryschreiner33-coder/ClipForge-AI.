@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { ap, ScheduledItem } from "../autopilot";
 import { BlackHole } from "../components/BlackHole";
@@ -6,15 +6,15 @@ import { Banner, Icon, IconName, ProgressBar, toast } from "../components/ui";
 import { DeleteProjectButton } from "../components/DeleteProject";
 import { useAppearance } from "../prefs";
 import { motionChoice, useMotion } from "../motion";
-import { timeLabel } from "../components/postShared";
+import { loadPost, timeLabel } from "../components/postShared";
 import { useStatus } from "../status";
 import { LibraryItem, studio } from "../studio";
 import { LiveStream, submissions } from "../submissions";
 import { BY_ID, CAST, ROOM_NAMES } from "../office/cast";
-import { OwnerWork, RoleRow, Snapshot, staleHealth } from "../office/api";
+import { OfficeEvent, OwnerWork, RoleRow, Snapshot, staleHealth } from "../office/api";
 import { OfficeFeed, useOffice } from "../office/useOffice";
 import OfficeMap from "../office/OfficeMap";
-import { ActivityPanel, POSE_OF, RobotPanel, RoomPanel } from "../office/panels";
+import { ActivityList, ActivityPanel, POSE_OF, RobotPanel, RoomPanel } from "../office/panels";
 import { ROOM_ACCENT } from "../office/world";
 import Portrait from "../office/Portrait";
 import { Sel, useOfficeSelection } from "./Office";
@@ -34,9 +34,11 @@ const READY_FOR = 6 * 3600;
 const PLATFORM: Record<string, string> = { youtube: "YouTube", tiktok: "TikTok" };
 
 /**
- * Studio (the space studio, 2026-11-19): the ship with its crew over the real work, what is being made now with its
- * real step and measured progress, what waits next, the next post and today's counts. Everything the ship shows has
- * an ordinary button or list entry here too, and nothing on this page estimates or invents work.
+ * Studio (the space studio, 2026-11-19): the ship with its crew over the real work and, beside it, the Studio panel.
+ * Its Working on tab is what is being made now on a screen with its real step and measured progress, what the crew
+ * just did, what waits next, Talk to ClipForge AI and, at the bottom, the next video to publish; its Make tab holds
+ * the four big Make buttons (the owner, 2026-11-19 8:47 PM). Everything the ship shows has an ordinary button or list
+ * entry here too, and nothing on this page estimates or invents work.
  */
 export default function Studio() {
   const feed = useOffice();
@@ -45,6 +47,8 @@ export default function Studio() {
   const [items, setItems] = useState<LibraryItem[] | null>(null);
   const [problem, setProblem] = useState("");
   const [sel, setSel] = useOfficeSelection("studio");
+  // the Studio panel opens on Working on each visit, so coming back after starting something shows it being made
+  const [tab, setTab] = useState<PanelTab>("now");
   const review = useReviewQueue(st ? st.home.posts.review : null);
   const live = useLiveRecordings();
 
@@ -90,6 +94,7 @@ export default function Studio() {
   const order = layout.screens.studio?.length ? layout.screens.studio : null;
   const shown = (id: string) => !order || order.some((p) => p.id === id && p.visible);
   const onRobot = (id: string) => setSel({ type: "robot", id, card: null });
+  const needs = shown("needs_you") ? stopped.length + actions.length + yourTurn.length : 0;
 
   return (
     <div className={`page studio-page studio-space ship-${appearance.office_size}`}>
@@ -109,24 +114,33 @@ export default function Studio() {
           )}
           <TodayStrip snap={snap} review={st ? st.home.posts.review : null} />
         </section>
-        <MakeTiles />
-        <aside className="studio-side" aria-label={sel ? "Details" : "Now making and what is next"}>
+        <aside className="studio-side" aria-label={sel ? "Details" : "Studio panel"}>
           {sel && snap ? (
             <ShipDetails sel={sel} setSel={setSel} snap={snap} feed={feed} />
           ) : (
-            <>
-              <NowMaking item={current} ready={justMade} jobs={current ? jobsFor(current) : []} loading={items === null}
-                roles={snap?.roles || []} paused={snap?.run.state === "paused"} onRobot={onRobot} />
-              <QueueList running={running.slice(1)} live={live} review={review.items} />
-              <NextPost />
-            </>
+            <StudioPanel tab={tab} setTab={setTab} busy={running.length + live.length}
+              now={<>
+                <NowMaking item={current} ready={justMade} jobs={current ? jobsFor(current) : []}
+                  loading={items === null} roles={snap?.roles || []} paused={snap?.run.state === "paused"}
+                  onRobot={onRobot} onMake={() => setTab("make")} />
+                <GoingOn events={feed.events} skew={feed.skew} onRobot={onRobot}
+                  onAll={() => setSel({ type: "activity" })} />
+                <QueueList running={running.slice(1)} live={live} review={review.items} />
+                {needs > 0 && <NeedsYouLink count={needs} />}
+                <AskAI />
+                <NextPost />
+              </>}
+              make={<>
+                <MakeTiles />
+                <AskAI make />
+              </>} />
           )}
         </aside>
       </div>
 
       {(stopped.length > 0 || actions.length > 0 || yourTurn.length > 0) && shown("needs_you") && (
         <section className="studio-band needs-you" aria-labelledby="studio-needs">
-          <h2 id="studio-needs">Needs you</h2>
+          <h2 id="studio-needs" tabIndex={-1}>Needs you</h2>
           <ul className="file-list">
             {stopped.map((i) => (
               <li key={i.id} className="file-row">
@@ -219,7 +233,8 @@ function StudioShip({ feed, snap, sel, setSel, dockCue }: {
   );
 }
 
-/** A robot, room or the activity feed, opened from the ship or its row; Close (or Escape) goes back to Now making. */
+/** A robot, room or the activity feed, opened from the ship or its row; Back (or Escape) goes back to the Studio
+ * panel's tab. */
 function ShipDetails({ sel, setSel, snap, feed }: { sel: NonNullable<Sel>; setSel: (s: Sel) => void; snap: Snapshot;
   feed: OfficeFeed }) {
   const title = sel.type === "robot" ? BY_ID[sel.id]?.name : sel.type === "room" ? ROOM_NAMES[sel.id] : "Activity";
@@ -234,7 +249,7 @@ function ShipDetails({ sel, setSel, snap, feed }: { sel: NonNullable<Sel>; setSe
           <h2>{title}</h2>
         </div>
         <span className="spacer" />
-        <button type="button" className="btn btn-small" onClick={() => setSel(null)}><Icon name="back" />Back to Now making</button>
+        <button type="button" className="btn btn-small" onClick={() => setSel(null)}><Icon name="back" />Back</button>
       </div>
       {sel.type === "robot" ? (
         <RobotPanel key={sel.id} id={sel.id} row={snap.roles.find((r) => r.id === sel.id)} card={sel.card} onRobot={onRobot}
@@ -251,6 +266,86 @@ function ShipDetails({ sel, setSel, snap, feed }: { sel: NonNullable<Sel>; setSe
 function stageWords(i: LibraryItem): string {
   if (i.status === "queued") return i.message || "Waiting to start";
   return i.message || (i.kind === "full_video" ? VIDEO_WORDS[i.status] : i.stage) || i.status;
+}
+
+type PanelTab = "now" | "make";
+const PANEL_TABS: { id: PanelTab; label: string; icon: IconName }[] = [
+  { id: "now", label: "Working on", icon: "clapper" }, { id: "make", label: "Make", icon: "plus" }];
+
+/** The Studio panel beside the ship (below it on a narrow window): Working on, then Make, as two tabs. Arrow keys,
+ * Home and End move between the tabs, as in any tab list. */
+function StudioPanel({ tab, setTab, busy, now, make }: { tab: PanelTab; setTab: (t: PanelTab) => void; busy: number;
+  now: ReactNode; make: ReactNode }) {
+  const tabs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({});
+  const onKey = (e: ReactKeyboardEvent) => {
+    const at = PANEL_TABS.findIndex((t) => t.id === tab);
+    const to = e.key === "ArrowRight" ? (at + 1) % PANEL_TABS.length
+      : e.key === "ArrowLeft" ? (at + PANEL_TABS.length - 1) % PANEL_TABS.length
+        : e.key === "Home" ? 0 : e.key === "End" ? PANEL_TABS.length - 1 : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    setTab(PANEL_TABS[to].id);
+    tabs.current[PANEL_TABS[to].id]?.focus();
+  };
+  return (
+    <>
+      <div className="side-tabs" role="tablist" aria-label="Studio panel" onKeyDown={onKey}>
+        {PANEL_TABS.map((t) => (
+          <button key={t.id} ref={(el) => { tabs.current[t.id] = el; }} type="button" role="tab" id={`side-tab-${t.id}`}
+            className="side-tab" aria-selected={tab === t.id} aria-controls={`side-panel-${t.id}`}
+            tabIndex={tab === t.id ? 0 : -1} onClick={() => setTab(t.id)}>
+            <Icon name={t.icon} />{t.label}
+            {t.id === "now" && busy > 0 && <span className="tab-count"><span className="sr-only">, being made: </span>
+              {busy}</span>}
+          </button>
+        ))}
+      </div>
+      <div className="side-panel" role="tabpanel" id="side-panel-now" aria-labelledby="side-tab-now"
+        hidden={tab !== "now"}>{now}</div>
+      <div className="side-panel" role="tabpanel" id="side-panel-make" aria-labelledby="side-tab-make"
+        hidden={tab !== "make"}>{make}</div>
+    </>
+  );
+}
+
+/** What the crew did last, from the office feed of real job steps; See everything opens the whole feed here. */
+function GoingOn({ events, skew, onRobot, onAll }: { events: OfficeEvent[]; skew: number;
+  onRobot: (id: string) => void; onAll: () => void }) {
+  return (
+    <section className="studio-going" aria-labelledby="studio-going">
+      <h2 id="studio-going">What's going on</h2>
+      <ActivityList events={events} skew={skew} limit={3} onRobot={onRobot} />
+      <button type="button" className="link-btn small" onClick={onAll}>See everything the crew did</button>
+    </section>
+  );
+}
+
+/** How many things wait for you, with a button down to them (the Needs you list under the ship). */
+function NeedsYouLink({ count }: { count: number }) {
+  const show = () => {
+    const band = document.getElementById("studio-needs");
+    band?.scrollIntoView({ block: "start" });
+    band?.focus({ preventScroll: true });
+  };
+  return (
+    <button type="button" className="needs-row" onClick={show}>
+      <Icon name="alert" />
+      <span><b>{count === 1 ? "1 thing needs you" : `${count} things need you`}</b>
+        <span className="block muted">Show me what</span></span>
+    </button>
+  );
+}
+
+/** Talking to ClipForge AI, one press from the Studio (the owner: "make sure im still able to talk to the AI"). */
+function AskAI({ make = false }: { make?: boolean }) {
+  return (
+    <a className="studio-ask" href="#/brain/talk">
+      <span className="ask-icon"><Icon name="chat" /></span>
+      <span><b>{make ? "Not sure what to make?" : "Talk to ClipForge AI"}</b>
+        <span className="block muted">{make ? "Tell ClipForge AI your idea and ask what to make."
+          : "Ask a question or get ideas for your next video."}</span></span>
+    </a>
+  );
 }
 
 /** Everything ClipForge makes, one press away (the owner, 2026-11-19: "make everything easily accessible"). The same
@@ -280,12 +375,12 @@ function MakeTiles() {
   );
 }
 
-/** What is being made now: the project, its real step, progress only when measured, the robots on it and one button
- * to open it. With nothing running, a clips project that just finished says so, or the crew rests and Make clips
- * is the next step. */
-function NowMaking({ item, ready, jobs, roles, loading, paused, onRobot }: {
+/** What is being made now: the project on a screen, its real step, progress only when measured, the robots on it and
+ * one button to open it. With nothing running, a clips project that just finished says so, or the crew rests and
+ * Make something opens the Make tab. */
+function NowMaking({ item, ready, jobs, roles, loading, paused, onRobot, onMake }: {
   item?: LibraryItem; ready?: LibraryItem; jobs: OwnerWork[]; roles: RoleRow[]; loading: boolean; paused: boolean;
-  onRobot: (id: string) => void;
+  onRobot: (id: string) => void; onMake: () => void;
 }) {
   const [broken, setBroken] = useState("");
   const shown = item || ready;
@@ -297,6 +392,8 @@ function NowMaking({ item, ready, jobs, roles, loading, paused, onRobot }: {
         <h2 id="now-making">Now making</h2>
         <p className="now-empty"><b>Nothing is being made right now.</b>
           <span className="block muted">The crew is relaxing in the lounge until you pick something to make.</span></p>
+        <button type="button" className="btn btn-primary btn-wide" onClick={onMake}><Icon name="plus" />
+          Make something</button>
       </section>
     );
   }
@@ -313,12 +410,19 @@ function NowMaking({ item, ready, jobs, roles, loading, paused, onRobot }: {
     .filter((id) => BY_ID[id]) : [];
   const rows = Object.fromEntries(roles.map((r) => [r.id, r]));
   const open = item ? (item.kind === "full_video" ? "Open the editor" : "Open project") : "Review clips";
+  // the screen's light: what the project is doing, in a word or two (the line below the screen says it in full)
+  const light = !item ? ["ready", "Ready"] : yours ? ["wait", "Your turn"] : live.length ? ["on", "Making"]
+    : paused ? ["", "Paused"] : ["", "Waiting"];
   return (
     <section className={`now-making${ready ? " ready" : ""}`} aria-labelledby="now-making">
       <h2 id="now-making">{item ? "Now making" : "Your clips are ready"}</h2>
-      <a className="now-thumb" href={shown.href} tabIndex={-1} aria-hidden="true">
-        {shown.thumbnail && broken !== shown.id ? <img src={shown.thumbnail} alt="" onError={() => setBroken(shown.id)} />
-          : <span className="thumb-empty"><Icon name="film" /></span>}
+      <a className="now-screen" href={shown.href} tabIndex={-1} aria-hidden="true">
+        <span className="now-thumb">
+          {shown.thumbnail && broken !== shown.id ? <img src={shown.thumbnail} alt="" onError={() => setBroken(shown.id)} />
+            : <span className="thumb-empty"><Icon name="film" /></span>}
+        </span>
+        <span className={`screen-light ${light[0]}`}><span className="state-dot" />{light[1]}</span>
+        {typeof progress === "number" && <span className="screen-pct">{Math.round(progress * 100)}%</span>}
       </a>
       <div className="now-title">
         <h3 className="clamp-2">{shown.name}</h3>
@@ -363,10 +467,10 @@ function QueueList({ running, live, review }: { running: LibraryItem[]; live: Li
       <h2 id="studio-queue">Queue</h2>
       {rows.length === 0 ? <p className="small muted">Nothing else is waiting.</p> : (
         <ul>
-          {rows.slice(0, 4).map((r) => <QueueRow key={r.key} href={r.href} thumb={r.thumb} name={r.name} words={r.words} />)}
+          {rows.slice(0, 3).map((r) => <QueueRow key={r.key} href={r.href} thumb={r.thumb} name={r.name} words={r.words} />)}
         </ul>
       )}
-      {rows.length > 4 && <a className="small" href="#/projects">{rows.length - 4} more</a>}
+      {rows.length > 3 && <a className="small" href="#/projects">{rows.length - 3} more</a>}
     </section>
   );
 }
@@ -384,17 +488,42 @@ function QueueRow({ href, thumb, name, words }: { href: string; thumb: string; n
   );
 }
 
+/** The next video to publish, at the bottom of Working on: a little screen of its clip, where and when it goes. */
 function NextPost() {
   const { st } = useStatus();
   const next = st?.home.upcoming?.[0];
+  const [thumb, setThumb] = useState<{ id: string; src: string } | null>(null);
+  const [broken, setBroken] = useState("");
+  useEffect(() => {
+    if (!next?.id) return;
+    let alive = true;
+    // a plain read of that one post, for its clip's picture
+    loadPost(next.id).then((r) => {
+      const clip = r.items[0]?.clip;
+      if (alive) setThumb(clip?.has_thumbnail && clip.thumbnail_url ? { id: next.id, src: clip.thumbnail_url } : null);
+    }).catch(() => alive && setThumb(null));
+    return () => {
+      alive = false;
+    };
+  }, [next?.id]);
+  const pic = next && thumb?.id === next.id && broken !== thumb.src ? thumb.src : "";
   return (
-    <p className="studio-next">
-      <Icon name="calendar" />
-      {!st ? <span className="muted">Loading…</span> : next ? (
-        <span>Next post · {PLATFORM[next.platform] || next.platform}, {timeLabel(next.planned_at, st.timezone)}</span>
-      ) : <span className="muted">No posts scheduled</span>}
+    <section className="studio-next" aria-labelledby="studio-next">
+      <h2 id="studio-next">Next to publish</h2>
+      {!st ? <p className="muted">Loading…</p> : next ? (
+        <a className="next-row" href={`#/post/${next.id}`}>
+          <span className="little-screen" aria-hidden="true">
+            {pic ? <img src={pic} alt="" loading="lazy" onError={() => setBroken(pic)} />
+              : <span className="thumb-empty"><Icon name="film" /></span>}
+          </span>
+          <span className="break"><b className="clamp-2">{next.title || "Your clip"}</b>
+            <span className="block muted">{PLATFORM[next.platform] || next.platform}</span>
+            <span className="block small"><Icon name="calendar" size={14} /> {timeLabel(next.planned_at, st.timezone)}</span>
+          </span>
+        </a>
+      ) : <p className="muted">No posts scheduled yet.</p>}
       <a className="small" href="#/publishing/scheduled">View schedule</a>
-    </p>
+    </section>
   );
 }
 

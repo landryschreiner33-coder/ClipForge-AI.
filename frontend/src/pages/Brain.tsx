@@ -91,17 +91,17 @@ const savedView = (tab: string) => {
   }
 };
 
-// The space studio's Brain (2026-11-19): four tabs and More. Memory holds the knowledge map (#/brain) and what
-// ClipForge AI remembers from your chats (#/brain/memory, "Brain → Memory" in its answers).
+// The space studio's Brain (2026-11-19): five tabs and More. Memory holds the knowledge map (#/brain) and what
+// ClipForge AI remembers from your chats (#/brain/memory, "Brain → Memory" in its answers). Talk to AI is a tab of its
+// own and a place in the main navigation (the owner: "make sure im still able to talk to the AI").
 const BRAIN_TABS = [
   { id: "knowledge", href: "#/brain", label: "Memory" },
   { id: "styles", href: "#/brain/styles", label: "Styles" },
+  { id: "talk", href: "#/brain/talk", label: "Talk to AI" },
   { id: "agents", href: "#/brain/agents", label: "Agents" },
   { id: "decisions", href: "#/brain/decisions", label: "Decisions" },
 ];
 const MORE_TABS: { id: string; href: string; label: string; detail: string; icon: IconName }[] = [
-  { id: "talk", href: "#/brain/talk", label: "Talk to ClipForge AI", detail: "Ask a question or teach it in words",
-    icon: "spark" },
   { id: "example-videos", href: "#/brain/example-videos", label: "Example videos",
     detail: "Videos you like, measured so new projects can follow them", icon: "film" },
   { id: "examples", href: "#/brain/examples", label: "Example notes", detail: "Why a video you like worked",
@@ -112,7 +112,7 @@ const MORE_TABS: { id: string; href: string; label: string; detail: string; icon
     icon: "bars" },
 ];
 
-/** The Brain's tabs: Memory, Styles, Agents, Decisions, and More for the rest. */
+/** The Brain's tabs: Memory, Styles, Talk to AI, Agents, Decisions, and More for the rest. */
 function BrainTabs({ current }: { current: string }) {
   const [open, setOpen] = useState(false);
   const { wrap, button, onKey } = useMenu(open, setOpen);
@@ -211,7 +211,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
   if (["styles", "skills", "example-videos", "memory", "talk", "agents"].includes(tab)) {
     return (
       <div className="page brain-page">
-        <PageHead title="Brain" />
+        <PageHead title={tab === "talk" ? "Talk to ClipForge AI" : "Brain"} />
         <BrainTabs current={tab} />
         {tab === "memory" && <MemoryViews current="facts" />}
         {tab === "styles" ? <StylesTab /> : tab === "skills" ? <SkillsTab /> : tab === "memory" ? <MemoryTab />
@@ -928,8 +928,9 @@ function GraphInspector({
             Teach your clip style
           </button>
           <p className="brain-note">
-            The map is still unless a project applied something in the last 15 minutes. Lines show saved categories,
-            shared tags, recorded use in a project and the example a style was learned from; nothing is inferred.
+            The lightning is only for looks, and it holds still when Reduce motion is on. Rings and the words “just
+            used” mark what a project used in the last 15 minutes. Lines show saved categories, shared tags, recorded
+            use in a project and the example a style was learned from; nothing is inferred.
           </p>
         </>
       ) : (

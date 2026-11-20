@@ -228,8 +228,11 @@
 /* ------------------------------------------------------------------ the space studio (2026-11-19)
    Brain's places as tabs with a More menu, Memory's two views, and the knowledge map as a galaxy: the map in the
    middle of one wide panel, its details beside it, and the full list underneath. */
-.brain-tabs { display: flex; align-items: stretch; gap: var(--s2); border-bottom: 1px solid var(--line-strong); }
-.brain-tabs > .tabs { border-bottom: 0; flex: 0 1 auto; }
+/* A narrow window wraps the tabs onto a second line instead of hiding some behind the edge (on a phone "Talk to AI"
+   was cut to "Talk to A"). */
+.brain-tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 var(--s2);
+  border-bottom: 1px solid var(--line-strong); }
+.brain-tabs > .tabs { border-bottom: 0; flex: 0 1 auto; flex-wrap: wrap; overflow: visible; }
 .brain-tabs .tabs a { font-size: 1rem; min-height: 44px; }
 .brain-more { display: flex; }
 .brain-more-btn {
@@ -281,6 +284,11 @@
   background: color-mix(in srgb, var(--canvas) 72%, transparent); border-color: var(--line-strong);
 }
 .brain-page .brain-vault .brain-inspector { background: color-mix(in srgb, var(--surface) 88%, transparent); }
+/* Beside the map (wider than 1180), the details are as tall as the map and scroll inside: a long details panel used to
+   stretch the map's box, and the map then sat far down in it, below the fold on a laptop. */
+@media (min-width: 1181px) {
+  .brain-page .brain-vault > .brain-inspector { contain: size; overflow-y: auto; scrollbar-width: thin; }
+}
 .brain-saved { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: var(--s3) var(--s5);
   align-items: start;
   padding: var(--s4); border: 1px solid var(--line); border-radius: var(--r-lg);

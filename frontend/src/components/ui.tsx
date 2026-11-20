@@ -63,6 +63,7 @@ const PATHS = {
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4",
   graph: "M12 5.5a2 2 0 1 0 0-.01M5.5 18a2 2 0 1 0 0-.01M18.5 18a2 2 0 1 0 0-.01M11 7l-4.5 9M13 7l4.5 9",
   satellite: "M8 8l4 4M5 5l3 3-3 3-3-3zM16 16l3 3-3 3-3-3zM11 11l2 2M14 5a5 5 0 0 1 5 5M14 8a2 2 0 0 1 2 2",
+  chat: "M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-8L6.5 20v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5zM8.5 10.75h.01M12 10.75h.01M15.5 10.75h.01",
   // older names, kept so existing parts keep working
   dashboard: "M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-6h4v6",
   create: "M12 5v14M5 12h14",

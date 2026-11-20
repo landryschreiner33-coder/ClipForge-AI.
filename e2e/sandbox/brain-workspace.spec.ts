@@ -189,3 +189,23 @@ test("a real example exposes its measured length hint and a bad example stops co
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+// The owner, 2026-11-19 8:47 PM: "make sure im still able to talk to the AI ... simple to access and use". Talk to AI
+// is in the main navigation of every page; it opens the chat, marked there and as the Brain's Talk to AI tab.
+test("Talk to AI in the navigation opens the chat from any page", async ({ page }) => {
+  await page.goto("/#/projects");
+  const nav = page.locator(".cf-side").getByRole("navigation", { name: "Main" });
+  await nav.getByRole("link", { name: "Talk to AI", exact: true }).click();
+  await expect(page).toHaveURL(/#\/brain\/talk$/);
+  await expect(page).toHaveTitle("Talk to ClipForge AI · ClipForge");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Talk to ClipForge AI");
+  await expect(nav.getByRole("link", { name: "Talk to AI", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(nav.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(page.getByRole("navigation", { name: "Brain sections" }).getByRole("link", { name: "Talk to AI" }))
+    .toHaveAttribute("aria-current", "page");
+  await expect(page.getByLabel("Message to ClipForge AI", { exact: true })).toBeVisible();
+  // and back to the Brain: the Brain is marked again
+  await nav.getByRole("link", { name: "Brain", exact: true }).click();
+  await expect(nav.getByRole("link", { name: "Brain", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page).toHaveTitle("Brain · ClipForge");
+});

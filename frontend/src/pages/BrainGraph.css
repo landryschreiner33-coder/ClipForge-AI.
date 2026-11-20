@@ -25,7 +25,7 @@
 .brain-graph-node { cursor: pointer; outline: none; }
 .brain-node-hit { fill: transparent; stroke: transparent; }
 .brain-node-ring { fill: none; stroke: currentColor; stroke-width: 0.75; opacity: 0.25; }
-/* The idle map is still: a glow that breathes on its own would suggest learning that is not happening. */
+/* The dots' own glow stays still; the lightning under them (brainLightning.ts) is the map's decoration. */
 .brain-node-aura { fill: currentColor; opacity: 0.08; }
 /* Something a project really applied in the last few minutes: a few rings, then a steady outline. */
 .brain-node-applied {
@@ -177,3 +177,18 @@
 .brain-graph[data-names="all"] .brain-graph-node .brain-node-label,
 .brain-graph-node[data-connected="true"] .brain-node-label, .brain-graph-node.is-applied .brain-node-label {
   opacity: 1; display: inline; }
+
+/* ------------------------------------------------------------------ lightning (2026-11-19 8:49 PM)
+   The owner: "make the brain lines and balls look like lighting and make sure its animated". A canvas under the dots
+   (pages/brainLightning.ts) draws each real link as a bolt and each dot as a glowing ball; the SVG keeps the dots,
+   their names, the chosen path and every control. Without a canvas the plain lines stay. */
+.brain-bolts { position: absolute; left: 0; top: 0; pointer-events: none; }
+/* the map fills its frame: with a taller panel beside it, the sky grows instead of the galaxy being cut off above an
+   empty band */
+.brain-graph-stage { flex: 1 1 auto; display: flex; flex-direction: column; }
+.brain-graph-stage > .brain-graph-canvas { flex: 1 1 auto; }
+.brain-graph.has-lightning .brain-graph-edges path { stroke-opacity: 0; filter: none; }
+.brain-graph.has-lightning .brain-graph-node .brain-node-core { stroke: rgba(255, 255, 255, 0.55); stroke-width: 0.8; }
+.brain-graph.has-lightning .brain-graph-node.node-brain .brain-node-core { stroke: #ffd9a8; stroke-width: 1.5; }
+.brain-graph.has-lightning .brain-graph-node.node-brain .brain-node-label.brain-core-word {
+  stroke: rgba(4, 6, 18, 0.9); stroke-width: 3px; paint-order: stroke; }

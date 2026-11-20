@@ -211,7 +211,7 @@ def _skill_entry(row: dict) -> Entry | None:
     # the name the file gave counts in full for finding the skill, even when a model may only see "Skill"
     return _entry(f"skill:{row['id']}", "skill", shown_name(row), lines, match_words(row),
                   str(row.get("description") or ""), modes=tuple(row.get("modes") or ()),
-                  link=("Open Brain → Skills", "#/brain/skills"))
+                  link=("Open Brain → More → Skills", "#/brain/skills"))
 
 
 @dataclass

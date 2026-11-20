@@ -34,7 +34,7 @@ import SettingsPage from "./pages/Settings";
 export { navigate };
 
 // Studio combines Home and the Office (studio upgrade handoff, section 2); #/office is the Studio's expanded office.
-type NavKey = "studio" | "projects" | "brain" | "publishing" | "accounts" | "settings";
+type NavKey = "studio" | "talk" | "projects" | "brain" | "publishing" | "accounts" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
   "": "studio", create: "studio", projects: "projects", project: "projects", clip: "projects", publish: "projects",
   video: "projects", brain: "brain", publishing: "publishing", post: "publishing", accounts: "accounts",
@@ -112,7 +112,11 @@ function Shell({ me }: { me: Me }) {
   // and React's development double run of effects must not count as a move.
   const shown = useRef<string | null>(null);
   const section = route.parts[0] || "";
-  const active = SECTION_NAV[section] || "studio";
+  // Talk to AI has its own place in the navigation (the owner, 2026-11-19: "make sure im still able to talk to the
+  // AI ... simple to access"); the chat itself stays the Brain's Talk to AI tab.
+  const talking = section === "brain" && route.parts[1] === "talk";
+  const active: NavKey = talking ? "talk" : SECTION_NAV[section] || "studio";
+  const title = talking ? "Talk to ClipForge AI" : SECTION_TITLE[section] || "";
   const wide = section === "office" && !route.parts[1];
 
   useEffect(() => {
@@ -122,7 +126,6 @@ function Shell({ me }: { me: Me }) {
 
   // After moving to another page: the tab title, the top of the page, and focus on its title for screen readers.
   useLayoutEffect(() => {
-    const title = SECTION_TITLE[section];
     document.title = title ? `${title} · ClipForge` : "ClipForge";
     setMakeOpen(false);
     setDrawer(false);
@@ -148,7 +151,7 @@ function Shell({ me }: { me: Me }) {
       watch.disconnect();
       clearTimeout(stop);
     };
-  }, [route.path, route.unknown, section]);
+  }, [route.path, route.unknown, section, title]);
 
   const state = autopilotState(st, lost);
   const review = st?.home.posts?.review || 0;
@@ -156,6 +159,7 @@ function Shell({ me }: { me: Me }) {
   const nav = (
     <>
       <NavLink href="#/" icon="clapper" label="Studio" on={active === "studio"} />
+      <NavLink href="#/brain/talk" icon="chat" label="Talk to AI" on={active === "talk"} />
       <NavLink href="#/projects" icon="folder" label="Projects" on={active === "projects"} />
       <NavLink href="#/brain/styles" icon="brain" label="Brain" on={active === "brain"} />
       <NavLink href="#/publishing/review" icon="layers" label="Publishing" on={active === "publishing"}
@@ -210,7 +214,7 @@ function Shell({ me }: { me: Me }) {
             <button type="button" className="btn btn-small menu-btn" aria-haspopup="dialog" aria-expanded={drawer} onClick={() => setDrawer(true)}>
               <Icon name="menu" />Menu
             </button>
-            <p className="page-title">{SECTION_TITLE[section] || "ClipForge"}</p>
+            <p className="page-title">{title || "ClipForge"}</p>
             {/* the Studio draws its own large black hole in the sky; every other page keeps a slim one up here */}
             {section !== "" && <BlackHole size="small" className="masthead-hole" />}
             <span className="spacer" />
@@ -254,7 +258,7 @@ function Shell({ me }: { me: Me }) {
                 </Banner>
               )}
             </div>
-            <MastheadTitle.Provider value={SECTION_TITLE[section] || ""}>
+            <MastheadTitle.Provider value={title}>
               <div key={namesVersion} style={{ display: "contents" }}>{page(route)}</div>
             </MastheadTitle.Provider>
           </main>
@@ -268,6 +272,9 @@ function Shell({ me }: { me: Me }) {
           </div>
           <nav className="nav" aria-label="Main">{nav}</nav>
           <div className="nav-sep" />
+          <a href="#/missions" className={`pill autopilot-pill drawer-autopilot ${state.tone}`}
+            aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
+            <span className="state-dot" aria-hidden="true" />Autopilot: {state.word}</a>
           {me.mode === "cloud" && <button type="button" className="btn" onClick={() => void signOut()}>Sign out</button>}
           {foot}
         </Drawer>

@@ -2,6 +2,7 @@ import { KeyboardEvent, PointerEvent, ReactNode, useEffect, useId, useLayoutEffe
 import { useConnection } from "../components/ui";
 import { useMotion } from "../motion";
 import { BrainGraphModel, BrainNode, branchControl } from "./brainGraphModel";
+import { BOLT_FPS, BoltScene, drawLightning } from "./brainLightning";
 import { galaxyCanvas } from "./galaxy";
 import "./BrainGraph.css";
 
@@ -46,11 +47,13 @@ function linkPath(from: BrainNode, to: BrainNode): string {
   return `M${from.x} ${from.y}Q${bend.x} ${bend.y} ${to.x} ${to.y}`;
 }
 /** A dot's name, on the side away from its collection (the way its branch points), so it never covers the
- * collection's own name. */
-function LeafName({ node, parent }: { node: BrainNode; parent?: BrainNode }) {
+ * collection's own name. A name that would run past the map's edge there goes under the dot instead. */
+function LeafName({ node, parent, home }: { node: BrainNode; parent?: BrainNode; home: View }) {
   const dx = node.x - (parent?.x ?? 0), dy = node.y - (parent?.y ?? 0);
   const gap = node.radius + 7;
-  const side = Math.abs(dx) >= Math.abs(dy) * 0.6;
+  const reach = gap + node.label.length * 7.6;  // Courier at 12.5px: about 0.6 em a letter
+  const fits = dx >= 0 ? node.x + reach <= home.x + home.width : node.x - reach >= home.x;
+  const side = Math.abs(dx) >= Math.abs(dy) * 0.6 && fits;
   return side ? (
     <text x={dx >= 0 ? gap : -gap} y={4} textAnchor={dx >= 0 ? "start" : "end"} className="brain-node-label">{node.label}</text>
   ) : (
@@ -87,7 +90,7 @@ export default function BrainGraph({
   /** buttons for the map's lower right corner (Teach preference) */
   actions?: ReactNode;
 }) {
-  const { reduceMotion, pageHidden } = useMotion();
+  const { reduceMotion, pageHidden, officeActivity } = useMotion();
   const { lost } = useConnection();
   const gradient = useId().replace(/:/g, "");
   const home = useMemo(() => bounds(model), [model]);
@@ -97,14 +100,21 @@ export default function BrainGraph({
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<{ x: number; y: number; view: View } | null>(null);
   const points = useMemo(() => new Map(model.nodes.map((node) => [node.id, node])), [model]);
+  // one glowing ball fill per colour on the map
+  const colours = useMemo(() => [...new Set(model.nodes.map((node) => node.color))]
+    .filter((c) => /^#[0-9a-f]{6}$/i.test(c)), [model]);
   const connected = new Set(
     model.edges
       .filter((edge) => edge.from === selected || edge.to === selected)
       .flatMap((edge) => [edge.from, edge.to]),
   );
-  // The map is still unless a project really applied something in the last few minutes; that pulse stops in a hidden
-  // tab, off screen, with reduced motion and while ClipForge is not answering.
+  // What a project really applied in the last few minutes pulses; that pulse stops in a hidden tab, off screen, with
+  // reduced motion and while ClipForge is not answering. The lightning (brainLightning.ts) is decoration and also
+  // holds still in Low power.
   const frozen = reduceMotion || pageHidden || lost || offscreen;
+  const boltsStill = frozen || officeActivity === "low_power";
+  const bolts = useRef<HTMLCanvasElement>(null);
+  const [lit, setLit] = useState(false);
   const applied = model.nodes.filter((node) => node.applied).length;
   const zoomLevel = home.width / view.width;
   // dots' names show once zoomed in; until then the chosen item, its links and every collection keep theirs
@@ -147,6 +157,51 @@ export default function BrainGraph({
   const tracePath = path.slice(1).map((node, i) => linkPath(path[i], node).replace(/^M[^LQ]+/, i ? "" : "$&"))
     .join("");
   const selectedNode = points.get(selected);
+  // the lightning under the dots: one still frame, or twelve stepped frames a second while motion is allowed
+  useEffect(() => {
+    const cv = bolts.current, g = cv?.getContext("2d");
+    if (!cv || !g || !fit) return;
+    // soft light needs no more than 1.5 canvas pixels a screen pixel, which keeps each frame cheap on a laptop
+    const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+    const w = Math.round(box.width * dpr), h = Math.round(box.height * dpr);
+    if (cv.width !== w || cv.height !== h) {
+      cv.width = w;
+      cv.height = h;
+    }
+    const near = new Set(model.edges.filter((e) => e.from === selected || e.to === selected)
+      .flatMap((e) => [e.from, e.to]));
+    const onPath = new Set(pathTo(model, selected));
+    const scene: BoltScene = {
+      nodes: model.nodes.map((n) => ({ id: n.id, x: n.x, y: n.y, r: n.radius, color: n.color, kind: n.kind,
+        applied: !!n.applied, lit: n.id === selected || near.has(n.id) })),
+      edges: model.edges.flatMap((e) => {
+        const a = points.get(e.from), b = points.get(e.to);
+        if (!a || !b) return [];
+        const branch = a.kind === "brain" && b.kind === "collection";
+        return [{ id: e.id, from: e.from, to: e.to, kind: e.kind, color: a.kind === "brain" ? b.color : a.color,
+          bend: branch ? branchControl(b.x, b.y) : null,
+          lit: e.from === selected || e.to === selected || (onPath.has(e.from) && onPath.has(e.to)) }];
+      }),
+      scale: fit, ox: centre.x, oy: centre.y, width: box.width, height: box.height, dpr,
+    };
+    setLit(true);
+    if (boltsStill) {
+      drawLightning(g, scene, 0);
+      return;
+    }
+    // twelve frames a second; a computer that needs long for a frame gets fewer, so the map never slows the app
+    let raf = 0, last = -Infinity, frame = 1, cost = 0;
+    const tick = (t: number) => {
+      raf = requestAnimationFrame(tick);
+      if (t - last < Math.max(1000 / BOLT_FPS, cost * 8) - 4) return;
+      last = t;
+      const begun = performance.now();
+      drawLightning(g, scene, frame++);
+      cost = cost * 0.8 + (performance.now() - begun) * 0.2;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [model, points, selected, fit, centre.x, centre.y, box.width, box.height, boltsStill]);
   useEffect(() => {
     if (typeof IntersectionObserver !== "function" || !section.current) return;
     const seen = new IntersectionObserver(([entry]) => setOffscreen(!entry.isIntersecting));
@@ -212,9 +267,10 @@ export default function BrainGraph({
   return (
     <section
       ref={section}
-      className={`brain-graph ${frozen ? "is-still" : ""}`}
+      className={`brain-graph ${frozen ? "is-still" : ""}${lit ? " has-lightning" : ""}`}
       aria-label="Knowledge graph"
       data-animation={frozen || !applied ? "still" : "applied"}
+      data-lightning={lit ? (boltsStill ? "still" : "moving") : "off"}
       data-names={allLabels ? "all" : "chosen"}
     >
       <div className="brain-graph-heading">
@@ -223,7 +279,7 @@ export default function BrainGraph({
           Local knowledge map
         </span>
         <span className="brain-graph-motion" role="status">
-          {applied ? `${applied} used in the last 15 minutes` : "Still: nothing applied just now"}
+          {applied ? `${applied} used in the last 15 minutes` : "Nothing used in the last 15 minutes"}
         </span>
       </div>
       <div className="brain-graph-stage">
@@ -232,6 +288,8 @@ export default function BrainGraph({
         width: GALAXY_REACH * 2 * fit, height: GALAXY_REACH * 2 * fit } : { display: "none" }}>
         <div className="brain-galaxy-tilt"><div className="brain-galaxy-art" /></div>
       </div>
+      <canvas ref={bolts} className="brain-bolts" aria-hidden="true"
+        style={{ width: box.width || undefined, height: box.height || undefined }} />
       <svg
         ref={svg}
         className="brain-graph-canvas"
@@ -254,11 +312,19 @@ export default function BrainGraph({
         onKeyDown={keyboard}
       >
         <defs>
+          {/* CORE is a dark glass globe: the lightning's filaments show through its middle */}
           <radialGradient id={`${gradient}-core`}>
-            <stop offset="0" stopColor="#140a1f" />
-            <stop offset=".72" stopColor="#1d0f2c" />
-            <stop offset="1" stopColor="#4a2a3a" />
+            <stop offset="0" stopColor="#140a1f" stopOpacity={lit ? 0.2 : 1} />
+            <stop offset=".72" stopColor="#1d0f2c" stopOpacity={lit ? 0.55 : 1} />
+            <stop offset="1" stopColor="#4a2a3a" stopOpacity={lit ? 0.9 : 1} />
           </radialGradient>
+          {colours.map((c) => (
+            <radialGradient key={c} id={`${gradient}-orb-${c.slice(1)}`} cx=".4" cy=".36" r=".7">
+              <stop offset="0" stopColor="#ffffff" />
+              <stop offset=".42" stopColor={c} />
+              <stop offset="1" stopColor={c} stopOpacity=".8" />
+            </radialGradient>
+          ))}
         </defs>
         <g className="brain-graph-edges" aria-hidden="true">
           {model.edges.map((edge) => {
@@ -323,7 +389,8 @@ export default function BrainGraph({
             <circle
               className="brain-node-core"
               r={node.radius}
-              fill={node.kind === "brain" ? `url(#${gradient}-core)` : node.color}
+              fill={node.kind === "brain" ? `url(#${gradient}-core)`
+                : /^#[0-9a-f]{6}$/i.test(node.color) ? `url(#${gradient}-orb-${node.color.slice(1)})` : node.color}
             />
             {node.knowledge?.state === "disabled" && <path d="M-6 6L6-6" className="brain-node-disabled" />}
             {node.kind === "brain" ? (
@@ -335,7 +402,7 @@ export default function BrainGraph({
             ) : (
               // every dot has its name; the map shows it when the dot is chosen, linked to the chosen one, pointed at,
               // just used or zoomed in on (BrainGraph.css), so a full map stays readable
-              <LeafName node={node} parent={points.get(`group:${node.category}`)} />
+              <LeafName node={node} parent={points.get(`group:${node.category}`)} home={home} />
             )}
           </g>
         ))}

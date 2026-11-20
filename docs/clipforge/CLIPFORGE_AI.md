@@ -377,7 +377,8 @@ moves between platforms ("Why I left TikTok for YouTube") keeps both platforms' 
 ## The assistant
 
 `clipfoundry/brain/assistant.py` is one conversation engine for every chat: the chat on a YouTube video's page (that
-video's chat) and Brain → **Talk to ClipForge AI** (`#/brain/talk`, the general chat, with your helpers beside it).
+video's chat) and Brain → **Talk to ClipForge AI** (`#/brain/talk`, the general chat, with your helpers beside it;
+**Talk to AI** in the navigation, right under Studio, opens it from any page).
 The chats are `brain_chats` (one per video, one for everything else) and `brain_chat_messages` (`role` owner | ai |
 agent, `text`, `data`, `status` done | thinking | failed). It talks whenever a model is set up (`assistant.ready()`:
 the built-in model downloaded, or an AI helper chosen in Settings → ClipForge AI); without one, the rules answer alone

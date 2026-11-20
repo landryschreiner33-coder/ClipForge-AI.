@@ -46,12 +46,13 @@ PAGES: dict[str, tuple[str, str]] = {
     "memory": ("Brain → Memory", "#/brain/memory"),
     "talk": ("Talk to ClipForge AI", "#/brain/talk"),
     "agents": ("Brain → Agents", "#/brain/agents"),
-    "example_videos": ("Brain → Example videos", "#/brain/example-videos"),
-    "notes": ("Brain → Notes", "#/brain"),
-    "example_notes": ("Brain → Example notes", "#/brain/examples"),
-    "skills": ("Brain → Skills", "#/brain/skills"),
+    # the space studio's Brain (2026-11-19): Memory, Styles, Talk to AI, Agents, Decisions, and More for the rest
+    "example_videos": ("Brain → More → Example videos", "#/brain/example-videos"),
+    "notes": ("Brain → Memory → Knowledge map", "#/brain"),
+    "example_notes": ("Brain → More → Example notes", "#/brain/examples"),
+    "skills": ("Brain → More → Skills", "#/brain/skills"),
     "decisions": ("Brain → Decisions", "#/brain/decisions"),
-    "results": ("Brain → Performance history", "#/brain/results"),
+    "results": ("Brain → More → Performance history", "#/brain/results"),
     "publishing": ("Publishing", "#/publishing/review"),
     "publishing_scheduled": ("Publishing → Scheduled", "#/publishing/scheduled"),
     "publishing_published": ("Publishing → Published", "#/publishing/published"),
@@ -77,8 +78,9 @@ SECTIONS: tuple[Section, ...] = (
         "ClipForge turns long videos and live streams into short vertical clips with captions, titles and post "
         "text, edits full YouTube videos from your files, makes animated voice-over shorts, and posts to your "
         "YouTube and TikTok accounts.",
-        "Everything starts from the Make button in the top bar: Make clips, Make a YouTube video, Make an animated "
-        "short, Clip a live stream.",
+        "Everything starts from the Make button in the top bar or the Studio's Make tab: Make clips, Make a YouTube "
+        "video, Make an animated short, Clip a live stream. The Studio's Working on tab shows what is being made, "
+        "what's going on and the next post.",
         "It runs on this computer; your videos stay here unless you post them."),
         ("clipforge", "app", "program", "features", "can it", "what can", "overview", "start", "begin", "new here",
          "how does it work"), "studio"),
@@ -209,7 +211,8 @@ SECTIONS: tuple[Section, ...] = (
         "wins over a skill, and a skill wins over my built-in know-how.",
         "Once posts have real numbers, I compare which kinds of moment did better and keep it as a memory that "
         "starts “From your results:”. Clip picking follows it until you switch it off or forget it.",
-        "Decisions shows what the Brain changed and Performance history how your posts did."),
+        "Brain → Decisions shows what the Brain changed, and Brain → More → Performance history how your posts "
+        "did."),
         ("brain", "learn", "learns", "teach", "train", "knowledge", "smarter", "improve", "what do you use",
          "how do you decide", "data", "results", "what works", "performance", "numbers", "feedback"), "memory"),
     Section("memory", "Teaching ClipForge AI and its memory", (
@@ -223,18 +226,19 @@ SECTIONS: tuple[Section, ...] = (
         ("remember", "memory", "memories", "forget", "teach", "preference", "preferences", "rule", "rules",
          "always", "never", "import", "export", "brain file", "backup", "what do you know"), "memory"),
     Section("skills", "Skills", (
-        "Brain → Skills imports skill files (JSON or Markdown). You see what a skill would change, what it does "
-        "not apply and anything it refused, then switch it on.",
+        "Brain → More → Skills imports skill files (JSON or Markdown). You see what a skill would change, what it "
+        "does not apply and anything it refused, then switch it on.",
         "A switched-on skill sets its editing choices for new projects, and I read its advice when I pick clips, "
         "write titles and post text, and answer you.",
         "Switch all on turns every imported skill on at once. A skill never runs commands and never posts."),
         ("skill", "skills", "import", "preset", "presets", "guide", "guides", "playbook", "switch on", "turn on",
          "enable", "json"), "skills"),
     Section("notes", "Notes, example notes and example videos", (
-        "Brain → Notes holds advice you write for the Brain, with the platform or subject it is for; Example "
-        "notes describe a video you like and why it worked.",
-        "Brain → Example videos takes a video you like: ClipForge measures its pacing, captions, framing and "
-        "sound, and you choose what new projects reuse.",
+        "Brain → Memory → Add knowledge → Add note writes advice for the Brain, with the platform or subject it "
+        "is for, and the Knowledge map shows it; Brain → More → Example notes describe a video you like and why "
+        "it worked.",
+        "Brain → More → Example videos takes a video you like: ClipForge measures its pacing, captions, framing "
+        "and sound, and you choose what new projects reuse.",
         "Notes stay on this computer: they shape clip picking here and are never sent to an online model."),
         ("note", "notes", "example notes", "example videos", "example video", "reference", "inspiration",
          "copy the style", "like this video"), "notes"),
