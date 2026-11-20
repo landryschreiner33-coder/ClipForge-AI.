@@ -404,3 +404,33 @@ corrected after a fact-check, and was merged as `54ec586`, whose tree equals tha
   deleted changed.
 
 Rollback: revert `e349d2d` on `gh-pages` with a normal commit. The 2026.11.19 files stay under All versions.
+
+## The moving sky — ClipForge 2026.11.20, November 20, 2026 (Claude Code)
+
+Landry picked "Release it now" on the release card (November 20, 2:49 PM Chicago time). The release line
+`claude/project-thread-x72wkd` held PR #65 (the moving sky, merged as `d3518f7`). PR #66 added the Mac release notes
+and was merged as `f711d0f`, whose tree equals that of its head `72af02d2d04d0b6786d65f8f813f3801686f77c1`, which both
+downloads are built from and name as their source commit.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-20-72af02d/ClipForge-Mac-Apple-Silicon.dmg
+  (232,042,612 bytes, SHA-256 `b72b1faa04c3a533dad10d479d7d2ed81586c033acbe10266e2e87f3f7fdbdb8`). Unsigned personal
+  preview, published unchanged from [build and test run 44815897634](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44815897634)
+  (native build and bundled-app smoke passed; 3,109 fast tests passed, 2 skipped; 31 slow tests passed,
+  1 skipped) by [publish run 44823150295](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44823150295).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/2322e29352d5879e3876f2d5423209e0853f35ea/ClipForge-Windows-Setup.zip
+  (50,491,596 bytes, SHA-256 `b5e32961fb976330c881f3222a2bba9014b073755731732fbcdac566dfc68de0`).
+  [Windows setup check run 44816196313](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44816196313)
+  installed 2026.11.19.2 (0597fef, raw/70f3450, now the check's previous release) with a synthetic setting on a
+  Windows Server 2025 runner, then this ZIP over it: same data folder and setting, this commit's page and icon, all
+  953 files, close and reopen. No FFmpeg on the runner, so no video was processed. Record commit `9ca4882` on
+  `claude/clipforge-downloads`.
+- **Download page:** `gh-pages` commit `e0c197c` (previous `e349d2d`), pushed directly. Five changes with the checked /
+  not checked lists; the pictures are the 2026.11.19.2 captures (still frames). `build.py --check` and `--verify`
+  passed here and in Download page run 44824108721; Pages run 44824107927.
+- **Fact-check:** the Mac notes and the download page text were checked sentence by sentence against the code at
+  `72af02d` and the recorded checks, then by four checkers by area with a skeptic for each finding (66 claims; one gap
+  confirmed: the hold-still settings had not been tried in a browser for this version, so they were tried on the built
+  app before publishing and the tested list says so). The privacy page and Terms are unchanged: nothing stored, sent or
+  deleted changed.
+
+Rollback: revert `e0c197c` on `gh-pages` with a normal commit. The 2026.11.19.2 files stay under All versions.
