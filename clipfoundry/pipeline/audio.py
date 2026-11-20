@@ -10,8 +10,11 @@ HOP = 0.1  # seconds per envelope frame
 WHISPER_RATE = 16000
 
 
-def read_samples(wav_path: Path) -> np.ndarray:
+def read_samples(wav_path: Path, start_s: float = 0.0, end_s: float | None = None) -> np.ndarray:
     """The extracted track as the float32 samples Whisper takes, scaled like faster-whisper's own decoder.
+
+    `start_s`..`end_s` reads only that stretch (the default is the whole file), so a long recording is transcribed one
+    piece at a time instead of being held in memory whole; the range is clamped to the file.
 
     Whisper gets samples rather than the path because faster-whisper decodes a path with PyAV, and its call passes
     an argument (`metadata_errors`) that PyAV 19 removed; a fresh install gets both newest versions.
@@ -19,8 +22,50 @@ def read_samples(wav_path: Path) -> np.ndarray:
     with wave.open(str(wav_path), "rb") as wf:
         if wf.getnchannels() != 1 or wf.getframerate() != WHISPER_RATE or wf.getsampwidth() != 2:
             raise ValueError(f"{wav_path.name} is not 16 kHz mono 16-bit audio, which transcription needs")
-        raw = wf.readframes(wf.getnframes())
+        frames = wf.getnframes()
+        first = min(frames, max(0, int(round(start_s * WHISPER_RATE))))
+        last = frames if end_s is None else min(frames, max(first, int(round(end_s * WHISPER_RATE))))
+        wf.setpos(first)
+        raw = wf.readframes(last - first)
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def quiet_point(wav_path: Path, around_s: float, radius_s: float = 30.0, window_s: float = 0.5) -> float:
+    """The centre of the quietest `window_s` stretch within ±`radius_s` of `around_s`, clamped to the file.
+
+    Used to cut a long recording between pieces where nobody speaks, so no word is split at a seam. Loudness is the
+    RMS of 10 ms hops; only that range is read, in small blocks, so the cost does not grow with the file.
+    """
+    hop_s = 0.01
+    with wave.open(str(wav_path), "rb") as wf:
+        rate, channels = wf.getframerate(), wf.getnchannels()
+        length_s = wf.getnframes() / rate
+        t0, t1 = max(0.0, around_s - radius_s), min(length_s, around_s + radius_s)
+        if t1 - t0 <= window_s:
+            return max(0.0, min(length_s, around_s))
+        hop_n = max(1, int(rate * hop_s))
+        hops = int((t1 - t0) * rate) // hop_n
+        wf.setpos(int(t0 * rate))
+        rms = np.zeros(hops, dtype=np.float64)
+        done = 0
+        while done < hops:
+            raw = wf.readframes(min(hop_n * 500, (hops - done) * hop_n))  # five seconds per read
+            if not raw:
+                break
+            x = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            if channels > 1:
+                x = x.reshape(-1, channels).mean(axis=1)
+            n = len(x) // hop_n
+            frames = x[: n * hop_n].reshape(n, hop_n)
+            rms[done:done + n] = np.sqrt(np.mean(frames * frames, axis=1))
+            done += n
+    rms = rms[:done]
+    win = max(1, int(round(window_s / hop_s)))
+    if len(rms) < win:
+        return (t0 + t1) / 2
+    sums = np.cumsum(np.concatenate([[0.0], rms]))
+    quietest = int(np.argmin(sums[win:] - sums[:-win]))  # the window whose hops are quietest together
+    return t0 + (quietest + win / 2) * hop_n / rate
 
 
 def loudness_envelope(wav_path: Path, hop: float = HOP) -> dict:

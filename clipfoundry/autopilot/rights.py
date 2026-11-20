@@ -490,6 +490,7 @@ def _confirmation_record(item: dict) -> dict:
 def _confirmation_binding(item: dict, settings: dict, sha: str | None = None) -> dict:
     """The same canonical payload in a local schedule and its eventual upload snapshot."""
     from ..pipeline import artifact
+    from .targets import item_account
 
     clip, source = _post_source(item)
     if not clip:
@@ -504,7 +505,7 @@ def _confirmation_binding(item: dict, settings: dict, sha: str | None = None) ->
     if not sha:
         raise ValueError("The rendered clip file cannot be read")
     options = {k: v for k, v in (item.get("options") or {}).items() if k not in
-               ("approved_account", "approved_video_sha256", "reuse_confirmation", "duration")}
+               ("approved_account", "approved_connection", "approved_video_sha256", "reuse_confirmation", "duration")}
     options["mode"] = options.get("mode") or item.get("mode") or "direct"
     audience_stamp = item.get("audience") or {}
     payload = {"title": item.get("title") or "", "description": item.get("description") or "",
@@ -517,7 +518,7 @@ def _confirmation_binding(item: dict, settings: dict, sha: str | None = None) ->
     return {"scheduled_id": item.get("scheduled_id") or item.get("id") or "",
             "source_id": (source or {}).get("id") or "", "source_identity": artifact.sha256_json(identity),
             "clip_id": clip["id"], "project_id": clip["project_id"], "platform": item.get("platform") or "",
-            "account_id": (db.get_account(item.get("platform") or "") or {}).get("account_id") or "",
+            "account_id": item_account(item),  # the post's own account; unbound posts: the default, as before
             "version_id": version, "video_sha256": sha, "payload_sha256": artifact.sha256_json(payload),
             "terms_sha256": artifact.sha256_json({"evaluation": evaluation,
                                                    "attribution": current_attribution(source, settings)})}

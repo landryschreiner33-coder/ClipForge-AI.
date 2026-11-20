@@ -1,13 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { errorText, req } from "../api";
 import { plural } from "../format";
+import { Connection, studio } from "../studio";
+import { accountName, nameList } from "./channelPicker";
 import { Post, timeLabel } from "./postShared";
 import { ReuseBasis, ReuseKind, ReuseOption } from "./ReuseBasis";
 import { Dialog, Icon, Pill, toast } from "./ui";
 import { YouTubeComments } from "./YouTubeComments";
 
 type PreviewRow = { id: string; eligible: boolean; reason: string; item: Post | null;
-  needs_reuse_confirmation: boolean; needs_made_for_kids: boolean };
+  needs_reuse_confirmation: boolean; needs_made_for_kids: boolean;
+  /** The account this post goes to (the server may name it on the row, or on the post). */
+  account?: { connection_id?: string; name?: string; display_name?: string; account_id?: string };
+  account_name?: string };
+
+/** The name of the account a previewed post goes to: as the server names it, else its connection's name. */
+function rowAccount(row: PreviewRow, conns: Connection[] | null): string {
+  const named = row.account_name || row.account?.name || row.account?.display_name || row.item?.account?.name;
+  if (named) return named;
+  const platform = row.item?.platform || "youtube";
+  const cid = row.account?.connection_id || row.item?.connection_id || row.item?.account?.connection_id
+    || conns?.find((c) => c.platform === platform && c.is_default)?.id;  // an old post goes to the default account
+  const c = cid ? conns?.find((x) => x.id === cid) : undefined;
+  return c ? accountName(c) : "";
+}
 type Preview = { token: string; expires_at: number; items: PreviewRow[]; eligible_ids: string[];
   account: { id: string; display_name: string }; reuse_options: ReuseOption[]; timezone: string; auto_publish?: boolean };
 type Result = { results: { id: string; status: "approved" | "skipped"; reason: string }[];
@@ -27,6 +43,7 @@ export function BulkApproval({ ids, autoPublish, tz, onApproved, onClose }: {
   const [kind, setKind] = useState<ReuseKind>("");
   const [basis, setBasis] = useState("");
   const [kids, setKids] = useState<"" | "yes" | "no">("");
+  const [conns, setConns] = useState<Connection[] | null>(null);
   const generation = useRef(0);
   const load = async (selected = remaining) => {
     const request = ++generation.current;
@@ -42,6 +59,7 @@ export function BulkApproval({ ids, autoPublish, tz, onApproved, onClose }: {
   };
   useEffect(() => {
     void load(ids);
+    studio.connections().then((r) => setConns(r.connections)).catch(() => setConns(null));
     return () => { generation.current++; };
   }, []); // The selected IDs stay fixed for this review; new Queue arrivals are never added.
 
@@ -78,6 +96,8 @@ export function BulkApproval({ ids, autoPublish, tz, onApproved, onClose }: {
     }
   };
   const timezone = preview?.timezone || tz;
+  const destinations = [...new Set((preview?.items || []).map((row) => rowAccount(row, conns)).filter(Boolean))];
+  const destination = destinations.length ? nameList(destinations) : preview?.account.display_name || "";
   const close = () => { if (!busy) onClose(); };
   const selectedTitles = new Map(preview?.items.map((row) => [row.id,
     row.item?.title || row.item?.clip.title || "Unavailable post"]) || []);
@@ -105,9 +125,11 @@ export function BulkApproval({ ids, autoPublish, tz, onApproved, onClose }: {
           <p className="tiny muted">A skipped post has not received approval from this batch. Check its reason before trying again.</p>
         </section> : preview && <>
           <p className="small muted">One approval for these selected posts only. This does not approve future clips or enable automatic approval.
-            {preview.account.display_name ? <> Destination: <b>{preview.account.display_name}</b>.</> : null}</p>
+            {destination ? <> {destinations.length > 1 ? "Destinations" : "Destination"}: <b>{destination}</b>.</>
+              : null}</p>
           <div className="bulk-review-list">
-            {preview.items.map((row) => <BatchPost key={row.id} row={row} tz={timezone} />)}
+            {preview.items.map((row) => <BatchPost key={row.id} row={row} tz={timezone}
+              account={rowAccount(row, conns)} />)}
           </div>
           <div className="consequence bulk-consequence">
             <b>{uploadsAtTime ? "What happens when you approve" : "Posting at the planned time is off"}</b>
@@ -142,7 +164,7 @@ export function BulkApproval({ ids, autoPublish, tz, onApproved, onClose }: {
   );
 }
 
-function BatchPost({ row, tz }: { row: PreviewRow; tz?: string }) {
+function BatchPost({ row, tz, account }: { row: PreviewRow; tz?: string; account: string }) {
   const p = row.item;
   if (!p) return <article className="bulk-review-post"><b>Unavailable post</b><p className="small muted">{row.reason}</p></article>;
   const title = p.title || p.clip.title || "Untitled post";
@@ -151,6 +173,7 @@ function BatchPost({ row, tz }: { row: PreviewRow; tz?: string }) {
       {!row.eligible && <Pill tone="warn">Skipped</Pill>}</div>
     <div className="post-meta small">
       <b>{p.privacy === "public" ? "Public · anyone can watch" : p.audience_label || "Private"}</b>
+      {account && <span>To {account}</span>}
       <span>{timeLabel(p.planned_at, tz)}</span>
       {!!p.planned_at && p.planned_at <= Date.now() / 1000 && <span className="bulk-due">Past due · can start now after approval</span>}
       <span>{p.options?.made_for_kids === true ? "Made for kids: Yes" : p.options?.made_for_kids === false

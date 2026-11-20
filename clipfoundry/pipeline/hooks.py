@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import re
 
-from .text_utils import (CATEGORY_LEXICON, EMOTION_WORDS, HOOK_PHRASES, HOOK_WORDS, STOPWORDS, clean_text,
-                         content_tokens, count_phrases, tokens)
+from .text_utils import (CATEGORY_LEXICON, EMOTION_WORDS, HOOK_PHRASES, HOOK_WORDS, LOSS_PHRASES, LOSS_WORDS,
+                         STOPWORDS, clean_text, content_tokens, count_phrases, tokens)
 
 _LEAD_JUNK = re.compile(r"^(?:(?:and|but|so|or|well|yeah|okay|ok|like|um|uh|now|anyway|right|also|then)\b[,.]?\s+)+",
                         re.I)
@@ -47,6 +47,8 @@ def _clauses(sentence: str) -> list[str]:
 
 
 def _hookiness(text: str, position: float) -> float:
+    """How well a line works as a hook or a headline: a question, hook words, a loss or warning framing, feeling,
+    numbers, "you", plain words, and a length that fits on screen (4-12 words, best under 8)."""
     low = text.lower()
     toks = tokens(text)
     n = len(toks)
@@ -55,9 +57,13 @@ def _hookiness(text: str, position: float) -> float:
     s += 1.2 * count_phrases(low, HOOK_PHRASES)
     s += 0.5 * sum(1 for t in toks if t in HOOK_WORDS)
     s += 0.4 * sum(1 for t in toks if t in EMOTION_WORDS)
+    # "stop doing this", "the mistake that costs you": a loss or a warning beats a promise
+    s += 0.6 * count_phrases(low, LOSS_PHRASES) + min(0.9, 0.3 * sum(1 for t in toks if t in LOSS_WORDS))
     s += 0.6 if any(t.isdigit() or t in NUMBER_WORDS for t in toks) else 0.0
     s += 0.5 if "you" in toks else 0.0
-    s += 1.0 if 5 <= n <= 14 else (-1.0 if n < 4 else -0.8 - 0.3 * (n - 14) / 5)
+    s -= 0.3 * sum(1 for t in toks if len(t) > 12)  # plain words read faster on a phone
+    s += 1.0 if 4 <= n <= 12 else (-1.0 if n < 4 else -0.8 - 0.3 * (n - 12) / 5)
+    s += 0.3 if n <= 7 else 0.0  # a 3-7 word headline fits on two lines above the face
     s += 0.6 * (1.0 - position)  # early lines hook better
     return s
 

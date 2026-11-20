@@ -1,0 +1,684 @@
+"""The Brain steers clip picking (brain/steer.py), clips grow to their build-up and ending (virality.grown), and
+the results of posted clips become lessons the Brain picks by (brain/lessons.py)."""
+from __future__ import annotations
+
+import json
+import math
+import time
+
+import pytest
+
+from clipfoundry import config, db
+from clipfoundry.brain import lessons, memories, steer
+from clipfoundry.pipeline import candidates, process, scoring, scout, transcribe, virality
+from clipfoundry.pipeline.common import JobContext
+from clipfoundry.pipeline.text_utils import build_sentences
+from test_core import _srt, flat_loudness
+
+DAY = 86400.0
+
+
+@pytest.fixture(autouse=True)
+def _data(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path))
+    db.init()
+
+
+def _kinds(text: str, **kw) -> dict:
+    return steer.read(text, **kw)["kinds"]
+
+
+@pytest.mark.parametrize("said, kinds", [
+    ("I love funny moments", {"funny": 1}),
+    ("My audience loves it when I rage", {"reaction": 1}),
+    ("never clip the sponsor read", {"promo": -1}),
+    ("I hate small talk", {"smalltalk": -1}),
+    ("I don't like banter in my clips", {"smalltalk": -1}),
+    ("pick funny moments, not sad ones", {"funny": 1, "emotional": -1}),
+    ("keep my clips family friendly", {"swearing": -1}),
+    ("never skip the laughs when you pick clips", {"funny": 1}),
+    # a "no" reaches only until the line turns to what it does want
+    ("No intros in my clips, just funny moments", {"funny": 1, "promo": -1}),
+    ("less talking, more funny moments", {"funny": 1}),
+    ("skip the intro and go straight to the reactions", {"reaction": 1, "promo": -1}),
+    ("drop the banter, keep the reactions", {"reaction": 1, "smalltalk": -1}),
+    ("I hate small talk, love reactions", {"reaction": 1, "smalltalk": -1}),
+    ("don't clip small talk, the funny moments are what my fans want", {"smalltalk": -1, "funny": 1}),
+    ("no swearing, small talk or ads in my clips", {"swearing": -1, "smalltalk": -1, "promo": -1}),
+    ("don't keep the intro in clips", {"promo": -1}),
+    ("Cut more reaction clips", {"reaction": 1}),               # "cut" is also how a clip is made
+    ("skip intros and keep the reactions in clips", {"promo": -1, "reaction": 1}),
+    ("no intros just reactions in my clips", {"promo": -1, "reaction": 1}),
+    ("skip banter and focus on reactions", {"smalltalk": -1, "reaction": 1}),
+    ("never clip intros, funny moments are better", {"promo": -1, "funny": 1}),
+    # ... but not before the "no" has said what it refuses
+    ("don't pick clips that are just small talk", {"smalltalk": -1}),
+    ("never pick clips that only have intros", {"promo": -1}),
+    ("I don't want to see more small talk in my clips", {"smalltalk": -1}),
+    ("I don't want you to keep the intro in clips", {"promo": -1}),
+    ("stop focusing on small talk", {"smalltalk": -1}),
+    ("never, ever clip intros", {"promo": -1}),
+    ("don't, under any circumstances, clip swearing", {"swearing": -1}),
+    ("don't pick small talk, like banter or chit-chat", {"smalltalk": -1}),
+    ("no more small talk", {"smalltalk": -1}),
+    # a list goes on through words before its items
+    ("no swearing, boring small talk or ads in my clips", {"swearing": -1, "smalltalk": -1, "promo": -1}),
+    ("no intros, sponsor segments, or random tangents in clips", {"promo": -1, "smalltalk": -1}),
+    ("avoid sad moments, especially crying, in clips", {"emotional": -1}),
+    # only "cut" can mean making clips; drop, remove, trim and stop leave things out
+    ("drop clips with swearing", {"swearing": -1}),
+    ("remove clips that have small talk", {"smalltalk": -1}),
+    ("trim clips that ramble", {"smalltalk": -1}),
+    ("cut clips with funny moments", {"funny": 1}),
+    # hidden and forgotten moments are ones to find
+    ("look for hidden funny moments in my streams", {"funny": 1}),
+    ("my fans love the forgotten stories from old streams", {"story": 1}),
+    ("Don't hide behind small talk in clips.", {"smalltalk": -1}),
+    # a line about the cut is left out, the rest of the sentence is read
+    ("Pick funny moments, never end clips on a question", {"funny": 1}),
+    ("no swearing in clips and start right on the action", {"swearing": -1}),
+    ("Never end clips on a question, funny moments do best", {"funny": 1}),
+    ("never open clips with an intro, and always keep the reactions", {"reaction": 1}),
+    # ... and so is the rest of its list
+    ("Don't open clips with small talk, swearing, or intros, my audience wants action", {}),
+    ("never open clips with intros, swearing or banter", {}),
+    ("Never start clips with intros and greetings", {}),
+    ("Never start clips with an intro, a greeting, or a sponsor read.", {}),
+    # the "no" goes on across "or", whatever word comes after it
+    ("I don't want intros or any more small talk in my clips", {"promo": -1, "smalltalk": -1}),
+    ("I don't want swearing or any more sponsor reads in my clips", {"swearing": -1, "promo": -1}),
+    ("Never pick intros or lead with small talk", {"promo": -1, "smalltalk": -1}),
+    ("don't clip ads or lead with a greeting", {"promo": -1}),
+    ("no intros, more reactions in my clips", {"promo": -1, "reaction": 1}),
+    # ... but "or just", "or rather" and "less ... or more" still turn to what is wanted
+    ("skip the small talk in my clips or just give me the reactions", {"smalltalk": -1, "reaction": 1}),
+    ("less small talk or more reactions in my clips", {"smalltalk": -1, "reaction": 1}),
+    ("no intros in my clips or only funny moments", {"promo": -1, "funny": 1}),
+    ("dont pick intros or rather pick reactions", {"promo": -1, "reaction": 1}),
+    # ... unless the "just" or "only" repeats the one the "no" came with
+    ("dont pick clips that are just banter or just intros", {"smalltalk": -1, "promo": -1}),
+    ("no clips that are only small talk or only intros", {"smalltalk": -1, "promo": -1}),
+    ("i dont want clips that are only ads or only sad stuff", {"promo": -1, "emotional": -1}),
+    # after a cut point only a bare list goes with it: a sentence that says more is read
+    ("dont start clips with a intro, funny or emotional moments get the most views", {"funny": 1, "emotional": 1}),
+    ("dont end clips on a question, funny moments and reactions work best", {"funny": 1, "reaction": 1}),
+    ("never end clips on a question, a funny moment or a reaction is better", {"funny": 1, "reaction": 1}),
+    ("never open clips with intros, swearing or banter, reactions work better", {"reaction": 1}),
+    # not about which moment to pick
+    ("Never end clips on a question", {}),
+    ("don't end clips before the reaction", {}),
+    ("no music under funny moments", {}),
+    ("captions on funny clips should be yellow", {}),
+    ("I'm a funny guy", {}),
+    ("the hook fails if it is slow", {}),
+])
+def test_what_the_owner_says_is_read_into_kinds_of_moment(said, kinds):
+    assert _kinds(said, owner=True) == kinds
+
+
+def test_imported_advice_is_read_with_care():
+    assert _kinds("Pass over conversational consensus and polite banter: they don't provoke the comment debate "
+                  "that a clip needs.", about_picking=True) == {"smalltalk": -1, "friction": 1}
+    assert _kinds("Centre each chosen segment on ideological friction, counter-intuitive data or profound "
+                  "vulnerability.", about_picking=True) == {"friction": 1, "numbers": 1, "emotional": 1}
+    # an example's quoted words and a verb that only describes the edit are not advice
+    assert _kinds('Hot Ones\' "funny reaction to every wing" Shorts cut one reaction per wing in rising order',
+                  about_picking=True) == {"reaction": 1}
+    # nobody's advice is to look for small talk, whatever the sentence looks like
+    assert _kinds("Conversational consensus and polite banter fail to start anything.", about_picking=True) == {
+        "smalltalk": -1}
+    # advice about something else says nothing about picking unless it names clips
+    assert _kinds("Moody contrast suits a mystery and a thriller.") == {}
+    # a "no" before a "no" is a yes
+    assert _kinds("Don't bury the punchline.", about_picking=True) == {"funny": 1}
+    assert _kinds("Never hide the reaction behind a cut.", about_picking=True) == {"reaction": 1}
+    assert _kinds("Bury the intro and lead with the reaction.", about_picking=True) == {"promo": -1, "reaction": 1}
+    assert _kinds("Never end a clip on a joke, a question, or a cliffhanger.", about_picking=True) == {}
+    assert _kinds("Never open clips with a lesson, a tip or a question; open with the payoff.",
+                  about_picking=True) == {}
+    assert _kinds("Never open with a greeting, reactions or surprises hook viewers best.",
+                  about_picking=True) == {"reaction": 1, "surprise": 1}
+    assert _kinds("Pick clips with a hidden twist or reveal.") == {"surprise": 1}
+
+
+def test_the_owners_rule_outweighs_lessons_and_one_source_speaks_once():
+    lines = [
+        {"id": "s1", "from": "skill", "level": "skill", "owner": False, "rule": False, "about": True, "name": "Picking",
+         "text": "Look for segments centred on ideological friction."},
+        {"id": "s1", "from": "skill", "level": "skill", "owner": False, "rule": False, "about": True, "name": "Picking",
+         "text": "Friction and debate start the comments."},
+        {"id": "m1", "from": "memory", "level": "lesson", "owner": False, "rule": False, "about": True,
+         "text": "Keep the laugh or reaction in the clip."},
+        {"id": "m2", "from": "memory", "level": "rule", "owner": True, "rule": True, "about": False,
+         "text": "never pick clips with a big reaction"},
+    ]
+    st = steer.compile_lines(lines)
+    assert st["kinds"]["friction"]["w"] == pytest.approx(0.35)       # one skill, however many lines
+    assert st["kinds"]["funny"]["w"] == pytest.approx(0.5)
+    assert st["kinds"]["reaction"] == {"w": -1.0, "owner": True, "by": [st["kinds"]["reaction"]["by"][0]]}
+    assert st["kinds"]["reaction"]["by"][0]["id"] == "m2"            # the lesson that says the opposite is not it
+    assert steer.compile_lines(lines[:1])["kinds"]["friction"]["by"][0]["name"] == "Picking"
+
+
+@pytest.mark.parametrize("said, want", [
+    ("clips should be at least 40 seconds", {"min": 40.0}),
+    ("keep clips under a minute", {"max": 60.0}),
+    ("make clips between 30 and 75 seconds", {"min": 30.0, "max": 75.0}),
+    ("I want 45 second clips", {"target": 45.0}),
+    ("clips about one minute long", {"target": 60.0}),
+    ("make the clips longer", {"factor": steer.LONGER}),
+    ("my clips are too long", {"factor": steer.SHORTER}),
+    ("keep the intro of my clips under 3 seconds", {}),
+    ("at least 40 seconds of silence", {}),
+    ("stories should be at least 2 minutes", {}),
+    # a "no" just before a bound turns it around
+    ("My clips should be no more than 60 seconds long", {"max": 60.0}),
+    ("don't make clips longer than 30 seconds", {"max": 30.0}),
+    ("clips should not be under 30 seconds", {"min": 30.0}),
+    ("don't make them short, at least 30 seconds for clips", {"min": 30.0}),
+    ("clips longer than 20 seconds but under 70 seconds", {"min": 20.0, "max": 70.0}),
+    # a time inside the clip is not how long it is
+    ("Clips must grab attention in the first 10 seconds", {}),
+    ("a cut every 3 seconds in clips", {}),
+    ("hook viewers within the first 3 seconds of clips", {}),
+    # a "no" turns a bound around only when it is about the bound
+    ("clips that are not boring and under 60 seconds", {"max": 60.0}),
+    ("I want tight clips with no fluff under 45 seconds", {"max": 45.0}),
+    ("I don't want my clips to be longer than 30 seconds", {"max": 30.0}),
+    ("please never make any of my clips longer than 60 seconds", {"max": 60.0}),
+    ("clips shouldn't be shorter than 20 seconds or longer than 90 seconds", {"min": 20.0, "max": 90.0}),
+    ("no clips longer than 60 seconds or shorter than 15 seconds", {"max": 60.0, "min": 15.0}),
+    ("clips shouldn't be longer than 60 seconds and at least 20 seconds", {"max": 60.0, "min": 20.0}),
+    ("I want everything in 45 second clips", {"target": 45.0}),
+    ("make clips in 30 seconds or less", {"max": 30.0}),
+    ("clips of 40 seconds or more", {"min": 40.0}),
+    ("keep clips in 45 seconds or less", {"max": 45.0}),
+    ("I want my clips in 30 seconds or less", {"max": 30.0}),
+    # how soon something happens inside a clip is not how long it is
+    ("my clips need to get to the action in 10 seconds or less", {}),
+    ("grab attention in 8 seconds or less in every clip", {}),
+    ("get to the point in 10 seconds or less in clips", {}),
+    ("clips should show the payoff in 20 seconds or more", {}),
+    ("grab them in 8 seconds or less in my clips", {}),
+    # ... but the clips themselves done, kept or fitting in a time is their length
+    ("my clips should be done in 30 seconds or less", {"max": 30.0}),
+    ("I want my clips to be in 30 seconds or less", {"max": 30.0}),
+    ("my clips need to fit in 45 seconds or less", {"max": 45.0}),
+    ("keep my clips short, in 30 seconds or less", {"max": 30.0}),
+    ("my clips should be in 40 seconds or more", {"min": 40.0}),
+    # typed fast: "then" for "than", the bound after the number
+    ("my clips should not be longer then 60 seconds", {"max": 60.0}),
+    ("clips shorter then 30 seconds pls", {"max": 30.0}),
+    ("clips 30 sec max", {"max": 30.0}),
+    ("clips 60 seconds tops", {"max": 60.0}),
+    ("clips 40 seconds minimum", {"min": 40.0}),
+    # ... but each bound keeps its own number
+    ("clips min 30 sec max 60 sec", {"min": 30.0, "max": 60.0}),
+    ("keep clips min 15s max 45s", {"min": 15.0, "max": 45.0}),
+    ("clips max 60 seconds min 30 seconds", {"min": 30.0, "max": 60.0}),
+    ("clips at least 20 sec at most 60 sec", {"min": 20.0, "max": 60.0}),
+    ("keep clips to 30 sec max", {"max": 30.0}),
+    ("clips of 30 sec max", {"max": 30.0}),
+])
+def test_clip_lengths_the_owner_asks_for(said, want):
+    assert steer._length(steer._plain(said)) == want  # noqa: SLF001
+
+
+def test_a_length_from_the_brain_keeps_room_between_shortest_and_longest():
+    assert steer.lengths({"length": {"min": 40.0}}, 25.0, 90.0, 45.0) == (40.0, 90.0, pytest.approx(56.7, abs=0.1))
+    assert steer.lengths({"length": {"min": 60.0}}, 15.0, 60.0, 30.0)[:2] == (60.0, 120.0)
+    assert steer.lengths({"length": {"max": 30.0}}, 25.0, 90.0, 45.0)[:2] == (15.0, 30.0)
+    assert steer.lengths({"length": {"factor": steer.LONGER}}, 20.0, 60.0, 30.0) == (26.0, 78.0, 39.0)
+    assert steer.lengths({"length": {"min": 500.0}}, 25.0, 90.0, 45.0)[:2] == (170.0, 180.0)
+    assert steer.lengths({}, 25.0, 90.0, 45.0) == (25.0, 90.0, 45.0)
+
+
+def _project(**options) -> dict:
+    return db.create_project("A talk", source_path="/tmp/none/source.mp4", options=options)
+
+
+def test_clip_options_follow_the_brain_but_not_over_the_projects_own_lengths():
+    settings = db.get_settings()
+    memories.remember("local", "clips should be at least 40 seconds", kind="rule")
+    memories.remember("local", "I love funny moments", kind="rule")
+    opts = process._options(_project(), settings)  # noqa: SLF001
+    assert (opts["min_duration"], opts["max_duration"]) == (40.0, 90.0)
+    assert opts["brain_steer"]["kinds"]["funny"]["w"] == 1.0
+    assert opts["brain_steer"]["length"]["after"][0] == 40.0
+    # the lengths Settings holds, sent along by the Create page, are not the owner's choice for this project
+    sent = {k: settings[k] for k in ("min_duration", "max_duration", "target_duration")}
+    same = process._options(_project(**sent), settings)  # noqa: SLF001
+    assert same["min_duration"] == 40.0
+    chosen = _project(min_duration=10.0, max_duration=30.0, target_duration=20.0)
+    own = process._options(chosen, settings)  # noqa: SLF001
+    assert (own["min_duration"], own["max_duration"]) == (10.0, 30.0)
+    assert own["brain_steer"]["length"]["kept"] and own["brain_steer"]["kinds"]["funny"]["w"] == 1.0
+
+
+TALK = [
+    "Okay, what else, oh, the schedule for next month.",
+    "We are moving the show to Thursdays.",
+    "Right, so the other thing I wanted to talk about was sleep.",
+    "I used to think I was fine on five hours of sleep.",
+    "Everybody says that, right, I'm fine on five hours.",
+    "Then I wore one of those sleep rings for a month.",
+    "My deep sleep was eleven minutes a night.",
+    "Eleven.",
+    "The doctor told me that is what he sees in people twice my age.",
+    "So I made one change, no phone in the bedroom, that's it.",
+    "The phone charges in the kitchen now.",
+    "First week I hated it, I kept reaching for the phone.",
+    "Second week I was falling asleep in ten minutes instead of an hour.",
+    "After a month my deep sleep was over an hour a night.",
+    "One change, the phone in the kitchen, and I got my brain back.",
+    "Anyway, that's the sleep thing, let's take some questions.",
+    "Someone asks what microphone this is.",
+    "It's the same one everybody has, honestly.",
+]
+
+
+def _setup(lines):
+    words = transcribe.flatten_words({"segments": transcribe.parse_subtitles(_srt(lines))})
+    sentences = build_sentences(words)
+    return words, sentences, flat_loudness(words[-1]["end"]), candidates.sentence_features(sentences, words)
+
+
+def _find(sentences, prefix):
+    return next(k for k, s in enumerate(sentences) if s["text"].startswith(prefix))
+
+
+OPTS = {**config.DEFAULT_SETTINGS, "min_duration": 25.0, "max_duration": 90.0, "target_duration": 45.0,
+        "clip_count": 3, "min_score": 0.0, "ai_provider": "heuristic"}
+
+
+def test_a_moment_grows_to_its_build_up_but_never_into_another_subject():
+    words, sents, loud, feats = _setup(TALK)
+    s0, s1 = _find(sents, "The phone charges"), _find(sents, "One change, the phone")
+    fuller = virality.grown(s0, s1, sents, OPTS, feats)
+    starts = {a for a, _ in fuller}
+    assert _find(sents, "My deep sleep was eleven") in starts            # carried over "Eleven." and the doctor
+    assert min(starts) >= _find(sents, "Right, so the other thing")       # never back into the schedule
+    assert all(b <= s1 for _, b in fuller)                                # "Anyway, ..." starts something else
+    assert all(sents[b]["end"] - sents[a]["start"] <= 1.3 * 45.0 for a, b in fuller)
+    assert virality.variants(s0, s1, sents, OPTS, feats)                  # the nearby cuts are a list of their own
+    base = virality.analyze(s0, s1, sents, feats, words, loud, OPTS)
+    grown = scoring._fuller(base, sents, feats, words, loud, OPTS)  # noqa: SLF001
+    assert grown["dur"] > base["dur"] + 5 and not grown["blocked"]
+    assert grown["s1"] == s1 and grown["s0"] < s0
+    # at the ideal length there is nothing to grow toward
+    at_ideal = {**OPTS, "target_duration": base["dur"]}
+    assert scoring._fuller(base, sents, feats, words, loud, at_ideal) is base  # noqa: SLF001
+
+
+def test_a_clip_under_the_shortest_length_loses_a_little_and_is_never_cut_out():
+    words, sents, loud, feats = _setup(TALK)
+    s0, s1 = _find(sents, "The phone charges"), _find(sents, "One change, the phone")
+    at = virality.analyze(s0, s1, sents, feats, words, loud, {**OPTS, "min_duration": 15.0})
+    under = virality.analyze(s0, s1, sents, feats, words, loud, {**OPTS, "min_duration": 28.0})
+    assert at["short_by"] == 0 and 0 < under["short_by"] < 0.25
+    assert 0 < at["raw"] - under["raw"] < 0.05 and not under["blocked"]
+
+
+def test_the_brain_moves_the_score_within_bounds_and_says_why():
+    words, sents, loud, feats = _setup(TALK)
+    s0, s1 = _find(sents, "I used to think"), _find(sents, "One change, the phone")
+    plain = virality.analyze(s0, s1, sents, feats, words, loud, OPTS)
+    assert plain["brain_steer"] is None and "brain" not in virality.summary(plain)
+    assert "numbers" in virality.summary(plain)["moment"]
+    memories.remember("local", "I love clips with specific numbers", kind="rule")
+    liked = virality.analyze(s0, s1, sents, feats, words, loud, {**OPTS, "brain_steer": steer.build("local")})
+    assert 0 < liked["raw"] - plain["raw"] <= steer.LIMIT + 1e-9
+    told = virality.summary(liked)["brain"]
+    assert told["points"] > 0 and "specific numbers" in told["why"][0] and "your rule" in told["why"][0]
+    assert told["used"][0]["text"] == "I love clips with specific numbers"
+    assert "your Brain looks for specific numbers" in scoring.reason_text(liked)
+    again = virality.finalize(liked)                                     # a recount keeps what the Brain said
+    assert again["raw"] == pytest.approx(liked["raw"])
+    # the owner's "never" is a warning on the clip, not a second penalty on top
+    memories.remember("local", "never pick clips with specific numbers", kind="rule")
+    for row in memories.list_("local"):
+        if row["text"].startswith("I love clips"):
+            memories.forget("local", row["id"])
+    avoided = virality.analyze(s0, s1, sents, feats, words, loud, {**OPTS, "brain_steer": steer.build("local")})
+    flag = next(f for f in avoided["flags"] if f["id"] == "brain_avoid")
+    assert flag["severity"] == "warn" and "never pick clips with specific numbers" in flag["detail"]
+    assert avoided["brain_steer"]["adjust"] == 0 and not avoided["blocked"]
+    assert plain["raw"] - avoided["raw"] == pytest.approx(virality.PENALTY["warn"])
+
+
+def test_the_ai_that_reads_the_video_is_told_what_the_brain_looks_for():
+    memories.remember("local", "I love funny moments", kind="rule")
+    memories.remember("local", "never clip the sponsor read", kind="rule")
+    project = _project()
+    opts = process._options(project, db.get_settings())  # noqa: SLF001
+    text = scout.brief(opts, project).text()
+    assert "look for a funny moment" in text and "pass over an intro, outro or ad read" in text
+    assert "I love funny moments" in text                                 # the rule itself, from memory
+    uses = [u["where_used"] for m in memories.list_("local") for u in memories.uses("local", m["id"])]
+    assert uses and set(uses) == {"clips"}
+
+
+# ------------------------------------------------------------------ lessons from results
+def _posted(kind_text: str, n: int, watched: float, source: int) -> list[str]:
+    """`n` clips of one source video, each with a mature reading."""
+    project = db.create_project(f"Video {source}", source_path=f"/tmp/none/{source}.mp4", options={})
+    ids = []
+    for k in range(n):
+        clip = db.create_clip(project["id"], rank=k, start=0.0, end=30.0, title="t", hook="", hooks_alt=[],
+                              caption_text=kind_text, hashtags=[], category="", score=60.0, scores={},
+                              score_source="Local analysis", reason="", analysis={}, post={}, edit={},
+                              status="ready", duration=30.0)
+        db.execute("INSERT INTO brain_observations (id, clip_id, platform, cohort, group_version, provenance, "
+                   "observed_at, age_hours, metrics, dedupe_key, created_at, updated_at) VALUES "
+                   "(?, ?, 'tiktok', ?, ?, 'owner_import', ?, 72, ?, ?, ?, ?)",
+                   (db.new_id(), clip["id"], COHORT, GROUP, time.time() - DAY,
+                    json.dumps({"views": 400, "avg_view_percentage": watched + (k % 3)}), db.new_id(),
+                    time.time(), time.time()))
+        ids.append(clip["id"])
+    return ids
+
+
+COHORT, GROUP = "selected", 0
+REACTION = "Oh my god, no way. What the. Oh no, oh no."
+PLAIN = "We moved the desk to the other room and then we had lunch."
+
+
+@pytest.fixture
+def audience(monkeypatch):
+    from clipfoundry.autopilot import brain as results
+    from clipfoundry.autopilot import learner
+
+    monkeypatch.setattr(learner, "destination_cohort", lambda platform, settings: COHORT)
+    monkeypatch.setattr(results, "_group_version", lambda platform, settings: GROUP)
+
+
+def test_results_become_a_lesson_the_brain_picks_by(audience):
+    for source in range(3):
+        _posted(REACTION, 3, 62.0, source)
+        _posted(PLAIN, 3, 38.0, 10 + source)
+    report = lessons.learn(db.get_settings())
+    assert len(report["added"]) == 1 and report["lessons"] == 1
+    text = report["added"][0]
+    assert text.startswith("From your results: look for a big reaction.")
+    assert "9 clips against 9" in text and "on TikTok" in text and "not proof" in text
+    row = memories.list_("local", q="results")[0]
+    assert row["source"] == "did" and lessons.TAG in row["tags"]
+    st = steer.build("local")
+    assert st["kinds"]["reaction"]["w"] == pytest.approx(steer.WEIGHT["results_strong"])
+    assert "your results" in steer.judge(st, REACTION, {"emotion": 0.7})["why"][0]
+    assert lessons.learn(db.get_settings())["added"] == []               # the same numbers change nothing
+    # the owner forgets it: the same numbers do not bring it back
+    memories.forget("local", row["id"])
+    assert lessons.learn(db.get_settings()) == {"added": [], "changed": [], "dropped": [], "lessons": 0}
+    assert steer.build("local")["kinds"] == {}
+
+
+def test_too_little_or_unclear_evidence_teaches_nothing(audience):
+    _posted(REACTION, 7, 62.0, 0)                                         # one video is not a pattern
+    _posted(PLAIN, 9, 38.0, 1)
+    assert lessons.learn(db.get_settings())["lessons"] == 0
+    assert lessons.learn({**db.get_settings(), "brain_paused": True})["paused"]
+
+
+def test_a_small_gap_between_kinds_is_not_a_lesson(audience):
+    for source in range(3):
+        _posted(REACTION, 3, 39.0, source)
+        _posted(PLAIN, 3, 38.0, 10 + source)
+    assert lessons.learn(db.get_settings()) == {"added": [], "changed": [], "dropped": [], "lessons": 0}
+
+
+def test_the_other_clips_must_come_from_three_videos_too(audience):
+    for source in range(3):
+        _posted(REACTION, 2, 62.0, source)
+    _posted(PLAIN, 6, 38.0, 10)                                          # one weak video is not a lesson
+    assert lessons.learn(db.get_settings())["lessons"] == 0
+
+
+def _viewed(text: str, n: int, readings: list[tuple[float, int]], source: int) -> None:
+    """`n` clips of one source video with view counts only (as TikTok reports them), read at several ages."""
+    project = db.create_project(f"Video {source}", source_path=f"/tmp/none/{source}.mp4", options={})
+    for k in range(n):
+        clip = db.create_clip(project["id"], rank=k, start=0.0, end=30.0, title="t", hook="", hooks_alt=[],
+                              caption_text=text, hashtags=[], category="", score=60.0, scores={},
+                              score_source="Local analysis", reason="", analysis={}, post={}, edit={},
+                              status="ready", duration=30.0)
+        for age, views in readings:
+            db.execute("INSERT INTO brain_observations (id, clip_id, platform, cohort, group_version, provenance, "
+                       "observed_at, age_hours, metrics, dedupe_key, created_at, updated_at) VALUES "
+                       "(?, ?, 'tiktok', ?, ?, 'owner_import', ?, ?, ?, ?, ?, ?)",
+                       (db.new_id(), clip["id"], COHORT, GROUP, time.time() - 30 * DAY + age * 3600, age,
+                        json.dumps({"views": views + 10 * k}), db.new_id(), time.time(), time.time()))
+
+
+def test_view_counts_are_compared_at_one_age(audience):
+    # the same reach, but the plain clips are older and were read again later: not a lesson about reactions
+    for source in range(3):
+        _viewed(REACTION, 3, [(72, 1000)], source)
+        _viewed(PLAIN, 3, [(72, 1000), (720, 1600)], 10 + source)
+    assert lessons.learn(db.get_settings())["lessons"] == 0
+
+
+def test_noise_alone_rarely_makes_a_lesson():
+    import random
+
+    def run(seed: int, videos: int, effect: float, per: int = 3, video_sd: float = 5.0, clip_sd: float = 12.0,
+            clustered: bool = False) -> list[dict]:
+        rnd = random.Random(seed)
+        pts = []
+        for v in range(videos):
+            base = rnd.gauss(0, video_sd)             # clips of one video move together
+            # an owner's videos differ in what they hold: one stream is all reactions, another all stories
+            share = {k.id: (0.8 if rnd.random() < 0.3 else 0.1) if clustered else 0.3 for k in steer.KINDS}
+            for _ in range(per):
+                kinds = [k for k, p in share.items() if rnd.random() < p]
+                value = 40 + base + rnd.gauss(0, clip_sd) + (effect if "reaction" in kinds else 0)
+                pts.append({"source": f"v{v}", "value": value, "weight": per ** -0.5, "kinds": kinds})
+        return lessons.compare(pts, "watched")
+
+    false = sum(1 for seed in range(200) if run(seed, 10, 0.0))
+    assert false / 200 <= 0.1                         # was about half before the bar was split over the kinds
+    # kinds that come with some videos more than others must not make a strong video's luck a lesson
+    false = sum(1 for seed in range(200) if run(seed, 20, 0.0, per=5, video_sd=10, clip_sd=10, clustered=True))
+    assert false / 200 <= 0.1                         # about a fifth when clips were counted as independent
+    found = sum(1 for seed in range(100) if any(x["kind"] == "reaction" and x["sign"] > 0
+                                                for x in run(1000 + seed, 30, 20.0)))
+    assert found >= 90                                # a real, sizeable difference is still found
+    assert lessons.t_bar(0.05, 10) == pytest.approx(2.228, abs=0.001)
+
+
+def test_one_long_video_is_not_a_lesson_and_a_gap_inside_each_video_is_found():
+    import random
+
+    def stream(seed: int, share: float, others: float | None) -> list[dict]:
+        """A 20-clip stream mostly of reactions and 12 short videos with few: no real difference."""
+        rnd = random.Random(seed)
+        base = rnd.gauss(0, 15)
+        pts = [{"source": "s", "value": 40 + base + rnd.gauss(0, 8), "weight": 20 ** -0.5,
+                "kinds": ["reaction"] if rnd.random() < share else []} for _ in range(20)]
+        for v in range(12):
+            base = rnd.gauss(0, 15)
+            for i in range(3):
+                mine = (v < 2 and i == 0) if others is None else rnd.random() < others
+                pts.append({"source": f"v{v}", "value": 40 + base + rnd.gauss(0, 8), "weight": 3 ** -0.5,
+                            "kinds": ["reaction"] if mine else []})
+        return pts
+
+    def within(seed: int, even: bool = True) -> list[dict]:
+        """12 videos that differ a lot in reach; inside each, the reaction clips got twice the views (two of four
+        clips in every video, or one to three)."""
+        rnd = random.Random(seed)
+        pts = []
+        for v in range(12):
+            base, mine = rnd.gauss(0, 0.6), 2 if even else rnd.randint(1, 3)
+            for i in range(4):
+                pts.append({"source": f"v{v}", "value": 3 + base + rnd.gauss(0, 0.15) + (0.301 if i < mine else 0),
+                            "weight": 0.5, "kinds": ["reaction"] if i < mine else []})
+        return pts
+
+    def capped(pts: list[dict]) -> list[dict]:
+        """The outlier cap of autopilot/brain._points, which keeps each value from before it as "raw"."""
+        vals = sorted(p["value"] for p in pts)
+        lo, hi = vals[int(0.1 * (len(vals) - 1))], vals[int(math.ceil(0.9 * (len(vals) - 1)))]
+        return [{**p, "raw": p["value"], "value": min(hi, max(lo, p["value"]))} for p in pts]
+
+    def volatile(seed: int) -> list[dict]:
+        """No real difference: 3 reaction videos whose reach swings a lot, 20 steady plain ones."""
+        rnd = random.Random(seed)
+        pts = []
+        for v in range(23):
+            base = rnd.gauss(0, 20 if v < 3 else 3)
+            pts += [{"source": f"v{v}", "value": 40 + base + rnd.gauss(0, 3), "weight": 3 ** -0.5,
+                     "kinds": ["reaction"] if v < 3 else []} for _ in range(3)]
+        return pts
+
+    for share, others in ((1.0, None), (0.9, 0.15)):  # 21% and 10% of runs made a lesson from the stream's luck
+        assert sum(1 for seed in range(200) if lessons.compare(stream(seed, share, others), "watched")) <= 10
+    for even in (True, False):                        # 3 and 11 in 100 when each side's error stood alone
+        found = sum(1 for seed in range(100) if any(x["kind"] == "reaction" and x["sign"] > 0
+                                                    for x in lessons.compare(within(seed, even), "views")))
+        assert found >= 90, even
+    # the cap flattens the few volatile videos: their error is read from the values before it (was 16% of runs)
+    assert sum(1 for seed in range(200) if lessons.compare(capped(volatile(seed)), "watched")) <= 10
+
+
+def test_a_few_videos_with_both_sides_do_not_throw_away_the_rest():
+    import random
+
+    picked = [k.id for k in steer.KINDS if k.id not in steer.UNWANTED][:6]
+
+    def streams(seed: int, n: int, effect: float) -> list[dict]:
+        """n streams of 8 clips and 25 one-clip videos; each clip shows each kind about a third of the time."""
+        rnd = random.Random(seed)
+        pts = []
+        for v, clips in enumerate([8] * n + [1] * 25):
+            base = rnd.gauss(0, 8)
+            for _ in range(clips):
+                kinds = [k for k in picked if rnd.random() < 0.35]
+                value = 40 + base + rnd.gauss(0, 8) + (effect if "reaction" in kinds else 0)
+                pts.append({"source": f"v{v}", "value": value, "weight": clips ** -0.5, "kinds": kinds})
+        vals = sorted(p["value"] for p in pts)       # the outlier cap of autopilot/brain._points
+        lo, hi = vals[int(0.1 * (len(vals) - 1))], vals[int(math.ceil(0.9 * (len(vals) - 1)))]
+        return [{**p, "raw": p["value"], "value": min(hi, max(lo, p["value"]))} for p in pts]
+
+    for n in (3, 4):   # 22 and 51 in 100 when the gap was taken inside the three or four streams alone
+        found = sum(1 for seed in range(100) if any(x["kind"] == "reaction" and x["sign"] > 0
+                                                    for x in lessons.compare(streams(seed, n, 20.0), "watched")))
+        assert found >= 85, n
+        assert sum(1 for seed in range(100) if lessons.compare(streams(500 + seed, n, 0.0), "watched")) <= 5, n
+
+
+def test_an_owners_rewrite_of_a_lesson_is_theirs(audience):
+    for source in range(3):
+        _posted(REACTION, 3, 62.0, source)
+        _posted(PLAIN, 3, 38.0, 10 + source)
+    lessons.learn(db.get_settings())
+    row = memories.list_("local", q="results")[0]
+    mine = "From your results: pass over a big reaction. Those were all one lucky streak."
+    memories.edit("local", row["id"], text=mine)
+    assert steer.build("local")["kinds"]["reaction"]["w"] < 0            # read from the owner's words
+    report = lessons.learn(db.get_settings())
+    assert report["added"] == report["changed"] == report["dropped"] == []
+    assert [r["text"] for r in memories.list_("local", q="results")] == [mine]
+
+
+def test_a_lesson_is_recorded_even_after_a_run_that_failed(audience):
+    from clipfoundry.autopilot import state
+
+    for source in range(3):
+        _posted(REACTION, 3, 62.0, source)
+        _posted(PLAIN, 3, 38.0, 10 + source)
+    lessons.learn(db.get_settings())
+    state.put(lessons.STATE, {})                      # as if the run had stopped before it saved what it made
+    assert lessons.learn(db.get_settings())["added"] == []
+    memories.forget("local", memories.list_("local", q="results")[0]["id"])
+    assert lessons.learn(db.get_settings())["added"] == []               # forgotten stays forgotten
+    lessons._forget("local", "gone")  # noqa: SLF001 - a memory forgotten meanwhile does not stop the run
+
+
+def test_view_counts_read_long_after_48_hours_are_not_compared(audience):
+    for source in range(3):
+        _viewed(REACTION, 3, [(50, 1000)], source)
+        _viewed(PLAIN, 3, [(720, 1600)], 10 + source)     # one import a month after posting
+    assert lessons.learn(db.get_settings())["lessons"] == 0
+    for source in range(3):                                # under the floor at 48 hours: left out, not read later
+        _viewed(REACTION, 3, [(50, 5), (720, 110)], 20 + source)
+    assert lessons.learn(db.get_settings())["lessons"] == 0
+
+
+def test_an_import_of_old_view_counts_does_not_unsettle_a_lesson(audience):
+    for source in range(4):
+        _viewed(REACTION, 3, [(50, 3000)], source)
+        _viewed(PLAIN, 3, [(50, 1000)], 10 + source)
+    assert lessons.learn(db.get_settings())["lessons"] == 1
+    for source in range(10):                               # last month's clips, counted at four weeks
+        _viewed(PLAIN, 3, [(600 + 20 * source, 1500)], 20 + source)
+    assert lessons.learn(db.get_settings()) == {"added": [], "changed": [], "dropped": [], "lessons": 1}
+
+
+def test_a_few_early_readings_do_not_hide_the_many_read_on_day_three(audience):
+    for source in range(5):
+        _viewed(REACTION, 4, [(78, 3000)], source)
+        _viewed(PLAIN, 4, [(78, 1000)], 10 + source)
+    for source in range(4):                                # four newer videos, read at two days
+        _viewed(PLAIN, 3, [(50, 1000)], 20 + source)
+    report = lessons.learn(db.get_settings())
+    assert report["lessons"] == 1 and "(20 clips against 20" in report["added"][0]
+
+
+def test_view_counts_imported_after_day_four_still_teach(audience):
+    for source in range(4):                                # every count imported on day 4 to 7
+        _viewed(REACTION, 4, [(100 + 20 * source, 3000)], source)
+        _viewed(PLAIN, 4, [(100 + 20 * source, 1000)], 10 + source)
+    report = lessons.learn(db.get_settings())
+    assert report["lessons"] == 1 and "times the views" in report["added"][0]
+
+
+def test_a_lesson_replaced_by_a_run_that_fails_comes_back(audience, monkeypatch):
+    for source in range(3):
+        _posted(REACTION, 3, 62.0, source)
+        _posted(PLAIN, 3, 38.0, 10 + source)
+    lessons.learn(db.get_settings())
+    for source in range(3):                                # new numbers: the same lesson with other words
+        _posted(REACTION, 1, 70.0, 30 + source)
+    real = memories.remember
+    monkeypatch.setattr(memories, "remember", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("locked")))
+    with pytest.raises(RuntimeError):
+        lessons.learn(db.get_settings())
+    monkeypatch.setattr(memories, "remember", real)
+    assert lessons.learn(db.get_settings())["added"]       # not taken for the owner's Forget
+    assert steer.build("local")["kinds"]["reaction"]["w"] > 0
+
+
+def test_a_lessons_strength_follows_the_numbers_while_its_words_stay(audience, monkeypatch):
+    for source in range(3):
+        _posted(REACTION, 3, 62.0, source)
+        _posted(PLAIN, 3, 38.0, 10 + source)
+    lessons.learn(db.get_settings())
+    row = memories.list_("local", q="results")[0]
+    assert steer.lesson_of(row)["strong"]
+    weaker, text, real = {**steer.lesson_of(row), "strong": False}, row["text"], lessons.compare
+    monkeypatch.setattr(lessons, "compare",
+                        lambda pts, what: [weaker if x["kind"] == "reaction" else x for x in real(pts, what)])
+    assert lessons.learn(db.get_settings())["changed"] == []
+    row = memories.list_("local", q="results")[0]
+    assert row["text"] == text and steer.lesson_of(row)["strong"] is False
+    assert steer.build("local")["kinds"]["reaction"]["w"] == pytest.approx(steer.WEIGHT["results"])
+
+
+def test_saved_old_default_lengths_move_to_the_new_ones_once():
+    assert (config.DEFAULT_SETTINGS["min_duration"], config.DEFAULT_SETTINGS["target_duration"],
+            config.DEFAULT_SETTINGS["max_duration"]) == (25.0, 45.0, 90.0)
+    db.save_settings(dict(db.OLD_CLIP_LENGTHS))
+    db.execute("DELETE FROM autopilot_state WHERE key = ?", (db.CLIP_LENGTHS_MIGRATION,))
+    with db.connect() as conn:
+        db._migrate_clip_lengths(conn)  # noqa: SLF001
+    assert db.get_settings()["min_duration"] == 25.0 and db.get_settings()["max_duration"] == 90.0
+    db.save_settings(dict(db.OLD_CLIP_LENGTHS))                           # chosen after the move: kept
+    with db.connect() as conn:
+        db._migrate_clip_lengths(conn)  # noqa: SLF001
+    assert db.get_settings()["min_duration"] == 15.0
+    db.execute("DELETE FROM autopilot_state WHERE key = ?", (db.CLIP_LENGTHS_MIGRATION,))
+    db.save_settings({"min_duration": 15.0, "max_duration": 45.0, "target_duration": 30.0})  # one changed: theirs
+    with db.connect() as conn:
+        db._migrate_clip_lengths(conn)  # noqa: SLF001
+    assert db.get_settings()["max_duration"] == 45.0 and db.get_settings()["min_duration"] == 15.0

@@ -1,6 +1,7 @@
 # ClipFoundry Autopilot
 
-Autopilot makes clips from a recorded video you submit. In **Missions**, paste a supported public video link or
+Autopilot makes clips from a recorded video you submit, or from live streams while they are live (**Missions →
+Live streams**, several at once). In **Missions**, paste a supported public video link or
 choose a file, then choose **Make & upload clips** or **Make clips only**. Relevant supported Brain notes and
 example preferences guide selection and editing; Settings fill missing choices. Processing stays on this PC.
 No search API key is needed for this workflow.
@@ -23,13 +24,18 @@ Queue, rather than asking you to type it for each resulting clip. It does not au
 **Submitted videos is the default input mode.** Periodic searches, folder admission and stale queued discovery
 handlers do not find new work in this mode. Existing media, saved search connections, old sources and post history
 remain intact. Optional **Discover videos** mode is under Settings → Advanced → Autopilot details → Video input.
-The discovery, watched-folder and live-monitor descriptions later in this document apply only to that optional
-mode; existing explicitly queued stream tools remain available separately.
+The discovery, watched-folder and live-monitor *discovery* descriptions later in this document apply only to that
+optional mode. Live streams you add yourself are covered under *Clip live streams* below.
 
-For **Make & upload clips**, the form shows the actual connected YouTube channel and confirmed audience. Choose a
+For **Make & upload clips**, the form lists every connected YouTube channel and the confirmed audience. Tick the
+channels this input's clips go to: one, a few, or **All** (the channels marked *Tick for new posts* in Accounts start
+ticked). Each passing clip uploads once to each ticked channel; every channel keeps its own posting pace, and a
+channel that needs Reconnect holds only its own posts. All is saved as the channels connected at that moment, so a
+channel you connect later is never included. Choose a
 genuine made-for-kids answer and the reuse basis for this video's footage and sound, then confirm the input once.
 Qualifying new clips from that input can upload without another click on every clip. The stored request is bound
-to that source, acquired original hash, project, account, audience, kids answer and current terms/credit. Every
+to that source, acquired original hash, project, the ticked channels, audience, kids answer and current
+terms/credit. A request saved before channels could be chosen names the default channel only and behaves as before. Every
 post still needs grounded metadata, a passing exact-file quality report and a fresh hash before upload. An
 assertion does not verify ownership or grant rights you do not have. Merely pasting a link grants no permission.
 Permission answers are stored with the submission/posts, never in Brain.
@@ -87,10 +93,10 @@ visibility. TikTok's app audit remains separate; a private TikTok account cannot
 1. Connect your intended YouTube channel in Settings → Integrations and confirm **Who watches**. Public and Private
    remain deliberate choices; existing posts keep their audience. Private sharing still happens in YouTube Studio.
 2. Open **Missions → Add a video**. Paste a public recorded-video link or select/drop a supported file (default
-   source cap 8 GB; configured duration and disk limits also apply). Login-only, protected, unavailable and live
-   sources are not accepted by this new recorded-video form. Link import contacts the supplied service using the
+   source cap 8 GB; configured duration and disk limits also apply). Login-only, protected and unavailable
+   sources are not accepted. A live link pasted here is recorded like one added in **Live streams** (below). Link import contacts the supplied service using the
    guarded importer, without search-service keys, cookies or authentication bypass.
-3. Choose **Make & upload clips**. Review the actual account/audience, answer made-for-kids, choose your reuse basis
+3. Choose **Make & upload clips**. Tick the YouTube channels, review the audience, answer made-for-kids, choose your reuse basis
    and tick the confirmation. **Another legal basis** needs your explanation; the other bases offer optional
    details. Press **Make & upload clips** once. Or choose **Make clips only** to keep results local.
 4. Keep the app open and PC awake. **Submitted videos** reports actual ready/waiting/uploading/uploaded counts and
@@ -102,13 +108,144 @@ was not yet queued, without reviving deliberately canceled work. Re-pasting an e
 old project/backlog a new upload request. The original uploaded file is copied under the data folder's
 `submitted/<id>/`; your own original is not changed. Saved requests and post history remain for audit/recovery.
 
+### Clip live streams (several at once)
+
+**Missions → Live streams** (`#/missions/live`; also **Make → Clip a live stream**). Paste one or more stream links,
+one per line (at most 10 at a time): a Twitch or Kick channel (`twitch.tv/name`, `kick.com/name`), a YouTube live
+video or a channel's live page (`youtube.com/@name/live`), or a public `https://…m3u8` stream. RTMP, SRT and RTSP
+addresses are refused. Each link becomes its own input with its own **Make & upload clips** request (the same
+account, audience, made-for-kids answer and reuse basis as a video). The saved request says that the link is
+recorded while it is live and that qualifying clips upload during the stream and from the full recording afterwards.
+It covers that one broadcast only, never the channel's later streams.
+
+- **Waiting for the stream.** The link check uses the guarded public extractor (no cookies or sign-ins). A channel
+  that is not live yet (yt-dlp `UserNotLive`, or a page still showing its last ended broadcast) waits for the stream
+  to start, for up to a day after you added it; then the input fails with "add the link again".
+- **Recording and clipping.** The recorder (FFmpeg in its own process) writes one-minute segments. Live Monitor has
+  three lanes (`queue.WORKER_LANES`), so up to three streams are transcribed, searched and clipped at the same moment;
+  more streams keep recording and take turns. A turn never lasts long (`TURN_SECONDS`), and one stream never runs two
+  turns at once. Strong moments from the last 15 minutes become vertical clips as the stream runs.
+- **Uploads during the stream.** While recording there is no original file yet, so the request is bound to the
+  stream's recording project (`submissions.bind_live`). Each upload is still bound to the exact clip file that passed
+  its final checks. When the stream ends, the joined recording's path and SHA-256 are bound
+  (`bind_live_recording`) before the full-recording analysis (`post_live`, now on the Deep Clip Analyzer, so it never
+  holds a live lane). Timing follows the posting settings: with no daily limit or target, a clip goes out as soon as
+  it passes, and later ones at least **Minimum gap** apart (30 minutes by default) per YouTube account, shared by all
+  streams. A live clip that is approved, uploading or uploaded is never replaced by a better post-live cut.
+- **Fewer, stronger clips.** Each stream has its own **How picky** choice, made when you add it (what a new stream
+  starts with is in Settings → Advanced → Autopilot details). **Only the best moments** (the default) listens for six
+  minutes first, then makes at most about three clips for each recorded hour, at least three minutes apart. A moment
+  has to be clearly above the minimum quality and beat most of what this stream has given so far, and the bar rises
+  with every clip already made in the last hour; when a strong moment has just happened ClipForge waits up to two
+  minutes in case a better one follows; the moment it waits for is remembered from one minute to the next and rated
+  again, so waiting never loses it (`live_pick.keep`). Only a standout moment (15 points above the stream's own bar)
+  may be a fourth clip of the hour or come sooner than three minutes after the last one; before six minutes of the
+  stream were rated there is no such bar, so nothing counts as a standout yet. **Balanced** makes about six an hour,
+  each above the stream's average. **Every good moment** makes a clip for every moment that passes the minimum
+  quality, as before. The live score is the Clip Score estimate plus how lively the moment sounds (louder than the
+  stream usually is, a rising or emphatic voice, laughter); to hear that, each recorded minute's sound is kept as a
+  small file for the rolling 15 minutes and deleted afterwards. The stream's card says in a line why nothing is being
+  made right now. The full-recording check afterwards keeps the same minimum and the same pace over the whole stream
+  (`autopilot/live_pick.py`). All scores are estimates.
+- **The whole moment, not its strongest lines.** A moment is found as its strongest few sentences, which used to
+  make clips near the shortest length allowed: the punchline without what led up to it. For each moment the picker
+  now also looks at fuller versions (more of what was said before it and after it, never across a change of subject
+  or a silence of more than three seconds, never over your longest clip length) and clips the fuller one when its
+  live score is about as strong: every second a version is short of the length you aim for (Settings → clip length)
+  counts like 0.15 points, so the build-up and the ending are kept unless they cost more than about four points. A
+  moment that falls apart when it is made longer stays as it was found, and so does one whose fuller version is
+  under the stream's minimum, and a fuller version never shows more of a clip already made than the moment itself
+  does. The clip's reasons then say *Kept the build-up and the ending: 79 s instead of 45 s*
+  (`live_pick.fuller`, `live_pick.ranked`, used in `live.detect`). Live clips follow the same clip length settings
+  as every other clip; there are no separate live lengths.
+- **Split view.** Each stream also has a **Split view** choice: *when there is a face cam* (the default), *always*,
+  or *no split view*. When ClipForge finds a face cam laid over the picture (`pipeline/reframe.find_cam`), the clip
+  shows the face cam across the top, a strip for the headline and the captions under it, and below that the
+  **whole picture** at full width, nothing cut off, over a blurred fill (`reframe.split_panels`). Settings →
+  Defaults → **Under the face cam** switches new split views to *Zoomed in* (the picture's middle fills
+  everything under the cam, captions on the line between), and the clip editor has the same choice for one clip.
+  Without a face cam the clip uses the layout from Settings. This also fixes clips that used to park on the corner
+  holding the face cam. Split view is not only for streams: any clip whose layout nobody chose (no choice in the
+  clip editor or for the video, no Brain note, style or skill that decides the layout) looks for a face cam and
+  uses split view when it finds one. Settings → Defaults → **Split view** → *Off* stops that for new clips. A clip
+  that was already rendered keeps the look it was made with when it is rendered again (a caption fix, a version), so
+  a clip made before split view existed is not turned into one, and the clip editor shows what a new render gives;
+  the same holds for *Under the face cam*.
+  An Autopilot plan keeps its layout without a face cam and its *Under the face cam* choice. In the clip editor,
+  Layout offers **Split view** and **Split if face cam** for any clip; choosing **Framing follows** something other
+  than automatic gives one picture placed as asked (the Layout shown changes with it), unless a split view is then
+  picked again. Captions placed at the top go on the line between the pictures, never on the face cam. A stream that
+  was being recorded before this update keeps the layout from Settings, as its card says (*No split view*).
+- **Split the clips between channels.** With two or more YouTube channels ticked, the request asks how the clips are
+  shared: **Every channel gets every clip**, or **Split the clips between the channels**. Split means each clip is
+  uploaded to one channel only; the channels take turns (the one with the fewest of this stream's clips goes next;
+  on a tie, the one with the fewest clips over all your videos and streams that split their clips, then your ticking
+  order), so no clip appears on two of them and streams with one clip each still share the channels. A clip never
+  changes channel once it has a planned post or was uploaded there by hand, and a channel that needs Reconnect is
+  passed over until it is back. The agreement text names the choice, and the videos and streams lists say *taking
+  turns*. Submitted videos have the same choice (`submissions.clip_turn`, stored as `settings.split = "turns"`).
+  Known limit: a clip waits for its own channel; when that channel's planning days are full (only possible with a
+  daily limit set), it is not moved to the other channel.
+- **Stop clipping** (on the card of a stream that is recording, with a confirmation) is for when you have enough:
+  the recorder stops, no more clips are made now and the full recording is not searched for more. Everything already
+  made stays exactly as it is: clips keep their final checks, planned posts keep their times, and with Make & upload
+  they still upload. It cannot be undone for that stream (Try again does not take it back); add the link again to
+  clip the channel from then on. Nothing is canceled or deleted.
+- **Stop recording** (on the stream's card, with a confirmation) stops the recorder, joins what was recorded and
+  analyzes it like an ended stream; the uploads made so far stay, and so do the live clips, except that the
+  full-recording check may swap one nobody approved for a clearly better cut of the same moment (see above). Before
+  anything was recorded it ends the input. It works while Autopilot is paused, and never contacts the platform.
+  **Cancel stream** still cancels. The dialog says that a YouTube video link cannot be added again; the stream's card
+  offers "Add the link again" only for channel pages and stream addresses (`submissions._finished_broadcast`).
+- **Recording limits.** Every live recording stops at **Largest source** (Settings → Advanced; 8 GB and 240 minutes
+  by default), even while the stream is still live, and is then finished like an ended stream (shown as Stopped).
+  The Live streams page names the owner's current limits under the link box.
+- **One broadcast per input.** A channel that goes offline after recording started gets 5 minutes' grace (a dropped
+  connection), then the recording is finished. If a channel page shows a different broadcast (a new broadcast id, or
+  a gap of more than 5 minutes that cannot be shown to be the same broadcast), the recorded one is finished and not
+  extended. A gap while ClipForge itself had stopped the recorder (a pause, closing, disk space) counts from when it
+  stopped it. A link to one stream (a live video, an `.m3u8` address) is that stream however long the gap. Add the link again for the next broadcast: once the earlier recording has finished, the same link makes a
+  new input with a new request (`external_id` ends in `:<previous input>`), and the earlier input can no longer be
+  retried. Twitch and Kick links are compared in one spelling (`www.`, `m.`, case and a trailing slash ignored).
+- **Staying up.** A minute that waits more than 45 seconds for the GPU hands its turn to another stream and is
+  transcribed on a later turn (`Wait("gpu")`); the recorder keeps recording. An unreadable minute stays on the
+  timeline and is transcribed in the full-recording pass. Joining places every minute by its recorded length (the
+  recorder's segment list), not its file's length, which with stream copy runs some 40-70 ms past each cut and would
+  add up to seconds over a long stream; each minute but the last also ends there, so media past it (sound after a
+  stalled picture) never overlaps the next minute. When some minutes have no sound, or a reconnect changed the
+  sound's settings (each minute's are saved), the picture is still joined by stream copy and the sound is rebuilt
+  minute by minute exactly as each was heard live, then encoded once (a stream copy keeps only the first minute's
+  tracks and settings). Live clips use the same join for the minutes around their moment, so a clip right after a
+  minute without sound keeps its sound. It leaves out a minute FFmpeg cannot open and keeps its time as a gap, so
+  every later time still matches (FFmpeg would otherwise skip it and still report success); a minute found broken
+  only then is transcribed again in the full-recording pass. A join that FFmpeg still cuts short, or a recording
+  whose first minute cannot be read, stops with a clear reason and keeps the live clips. A moment whose plan or
+  render failed is not tried again on every later minute. The recording size limit (also through the stream relay) and a recorder that keeps failing
+  after minutes were saved finish with what was recorded instead of failing. A dropped connection after recording
+  reconnects without using an attempt. A stream that starts or reconnects reserves the remaining recording size of
+  the streams still recording on disk (room checked earlier may since have been taken, for example by a stream that
+  started while this one had no recorder); streams starting at the same moment count each other, so two links added
+  together never both start on a disk with room for one, and a link still being looked up (it may be offline) holds
+  no room. **Stop all jobs** holds recordings (the recorder stops;
+  nothing is canceled); **Resume** continues them from their saved minutes, including a held full-recording analysis.
+  A turn that was still running when Resume was pressed ends held and the worker supervisor continues it within
+  30 seconds. A turn that ends with a retry or a crash after Stop all jobs (or Cancel, or its time limit) arrived is
+  held, canceled or failed accordingly, never left waiting with a stop request no worker would take (all job kinds).
+  Stop all jobs never turns your own Cancel of a running job into a hold, and Cancel pressed after the time limit
+  stays a cancel. Once the full recording is queued for analysis, another turn of that stream never reopens or rewrites
+  the recording's files (only Try again after a failed analysis whose joined file is gone records the join again).
+
+What is not tested from the cloud: real Twitch, Kick and YouTube broadcasts (YouTube cannot be reached from the
+build machines), and whether CPU Whisper on a Mac keeps up with two or three streams at once. The tests use local
+streams played at real speed (`tests/test_review_submitted_live.py`, slow `tests/test_review_submitted_live_streams.py`).
+
 ### Optional discovery and earlier intake tools
 
 Select **Discover videos** explicitly to use searches, watched folders, channel lists and live monitoring. The
 older three-step setup and **Open videos folder** tools remain for that mode. Starting Autopilot in the default
 submitted mode does not create an automatic Owned folder rule or admit its files. Existing folders and their
 files are preserved. Old standalone link/live tools do not create a new Make & upload request; in submitted mode,
-use the new Missions form for new recorded inputs. Discovery keys and access/reuse rules remain separate from
+use the new Missions forms for new recorded inputs and live streams. Discovery keys and access/reuse rules remain separate from
 upload authorization. Streams retain their existing bounded capture/public-archive recovery and restart behavior.
 
 **Keeping the PC awake.** While Autopilot is on, ClipFoundry asks Windows not to put the PC to sleep (the screen may
@@ -358,9 +495,9 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 | Trend Scout | `trend_scan` | Reads YouTube search/chart results (within its quota share), feeds and watch folders. Stores every signal with its history and a Trend Score. Metrics carry their provenance: *observed*, *estimated* or *unavailable*. |
 | Source Scout | `source_scout`, `feed_scan` | Turns signals into sources, scores them (Source Score, expected strong clips) and picks up to 3 per day, skipping duplicates, weak and unavailable ones. |
 | Rights and Content Safety Gate | `rights_check` | Applies your rules, agreements and licenses. Only *Owned*, *Licensed*, *Allowlisted*, *Creative Commons* (CC BY) and public-domain sources continue automatically (each kind can be turned off in Settings → Advanced → Discovery and rights → *Use automatically*); everything else is skipped and listed in Autopilot → Activity. The gate runs again before every later stage, before scheduling and before publishing, so a later *Blocked* rule stops a post and a source queued before a check cannot skip it. Channel claims are confirmed first (see *Confirmed channels*). |
-| Live Monitor | `live_watch`, `live_capture`, `post_live` | Records authorized live sources in segments, transcribes each segment (one GPU job at a time), clips strong moments from a rolling 15-minute window, and after the stream ends runs a full pass that can replace weaker live clips that were not published yet. |
+| Live Monitor (3 lanes) | `live_watch`, `live_capture` | Records authorized live sources in segments, transcribes each segment (one GPU job at a time; a minute that waits more than 45 s hands its turn to another stream), and clips strong moments from a rolling 15-minute window. Three lanes work on three streams at once; more keep recording and take turns. When a stream ends it queues `post_live` for the Deep Clip Analyzer. |
 | Clip Hunter | `hunt_source` | Brings the source in (hard link or copy of a local file, a direct media URL, or the URL importer only when allowed), transcribes on the GPU and builds a large candidate pool. |
-| Deep Clip Analyzer | `analyze_source` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Then the **Engagement Strategist** writes a Clip Blueprint for each chosen clip (see below) and the clip is rendered from it. Renders up to 5 clips that pass the quality bar. |
+| Deep Clip Analyzer | `analyze_source`, `regenerate_clip`, `post_live` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Then the **Engagement Strategist** writes a Clip Blueprint for each chosen clip (see below) and the clip is rendered from it. Renders up to 5 clips that pass the quality bar. |
 | Packaging AI | `package_clip` | Writes title/description/caption/hashtag options in six styles from the words heard in the rendered clip (its final transcript), optionally with an AI provider, validates grounding, repetition and duplicates, and scores them. Each option records which render it was written for. |
 | Final Quality Gate | `quality_check` | Checks the exact file that would be published: SHA-256 against the render record, streams and codecs, 1080×1920, duration, a full decode (a truncated file still reports its full length), black, frozen and silent stretches judged in context, caption timing, cuts inside words, and the hook/context/payoff estimates. Re-checks each platform's selected text against what is heard in that file. The report is bound to the file's hash, final transcript and time map. Failures keep the clip out of the schedule; warnings are shown with the post. |
 | Smart Scheduler | `schedule_tick` | Places packaged clips whose current file and text passed the Final Quality Gate on each platform's time grid within your active hours and limits, computes the Final Opportunity Score, replaces weaker unpublished posts with clearly stronger new ones (a slot is swapped at most once every 24 hours, and it never has more than one swap waiting for your approval), and hands due approved posts to the publisher. |

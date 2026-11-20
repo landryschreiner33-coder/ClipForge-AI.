@@ -1,17 +1,22 @@
 import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText } from "./api";
 import { ap } from "./autopilot";
-import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, toast, ToastHost } from "./components/ui";
+import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, MastheadTitle, toast, ToastHost, useMenu } from "./components/ui";
+import { BlackHole } from "./components/BlackHole";
+import { StarSky } from "./components/StarSky";
+import { afterTabs, arrive } from "./transitions";
 import { leaveGuard, leaveTo, navigate, setLeaveAsker, useRoute, type Route } from "./router";
 import { autopilotState, StatusProvider, useStatus } from "./status";
 import { MotionProvider } from "./motion";
 import { AppearanceProvider, useAppearance } from "./prefs";
 import { installRequestProtection, loadMe, Me, signOut, SIGNED_OUT } from "./session";
 import Office from "./pages/Office";
-import Home from "./pages/Home";
+import Studio from "./pages/Studio";
 import MakeClips from "./pages/MakeClips";
 import MakeVideo from "./pages/MakeVideo";
+import MakeShort from "./pages/MakeShort";
 import VideoReview from "./pages/VideoReview";
+import Customize from "./components/Customize";
 import Projects from "./pages/Projects";
 import Accounts from "./pages/Accounts";
 import SignIn from "./pages/SignIn";
@@ -30,16 +35,17 @@ import SettingsPage from "./pages/Settings";
 
 export { navigate };
 
-type NavKey = "home" | "projects" | "brain" | "publishing" | "accounts" | "office" | "settings";
+// Studio combines Home and the Office (studio upgrade handoff, section 2); #/office is the Studio's expanded office.
+type NavKey = "studio" | "talk" | "projects" | "brain" | "publishing" | "accounts" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
-  "": "home", create: "home", projects: "projects", project: "projects", clip: "projects", publish: "projects",
+  "": "studio", create: "studio", projects: "projects", project: "projects", clip: "projects", publish: "projects",
   video: "projects", brain: "brain", publishing: "publishing", post: "publishing", accounts: "accounts",
-  office: "office", missions: "office", setup: "office", dev: "office", settings: "settings",
+  office: "studio", missions: "studio", setup: "studio", dev: "studio", settings: "settings",
 };
 const SECTION_TITLE: Record<string, string> = {
-  "": "Home", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
-  video: "Full video", brain: "Brain", publishing: "Publishing", post: "Post review", accounts: "Accounts",
-  office: "Office", missions: "Autopilot", setup: "Set up", dev: "Robot gallery", settings: "Settings",
+  "": "Studio", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
+  video: "Video", brain: "Brain", publishing: "Publishing", post: "Post review", accounts: "Accounts",
+  office: "Studio · Office", missions: "Autopilot", setup: "Set up", dev: "Robot gallery", settings: "Settings",
 };
 
 function page(route: Route) {
@@ -48,9 +54,10 @@ function page(route: Route) {
     case "office": return id === "team" ? <Team /> : <Office />;
     case "dev": return <RobotGallery />;
     case "setup": return <Setup step={id} />;
-    case "create": return id === "video" ? <MakeVideo /> : id === "link" ? <Create /> : <MakeClips />;
+    case "create": return id === "video" ? <MakeVideo key={route.parts[2] || "new"} id={route.parts[2] || ""} /> : id === "short" ? <MakeShort /> : id === "transcript" ? <Create />
+      : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
-    case "project": return <ProjectView id={id} key={id} />;
+    case "project": return <ProjectView id={id} key={id} focus={route.parts[2] || ""} />;
     case "clip": return <ClipEditor id={id} key={id} />;
     case "publish": return <PublishPage id={id} key={id} />;
     case "video": return <VideoReview id={id} key={id} />;
@@ -60,7 +67,7 @@ function page(route: Route) {
     case "accounts": return <Accounts />;
     case "settings": return <SettingsPage tab={id} />;
     case "brain": return <Brain tab={id} />;
-    default: return <Home />;
+    default: return <Studio />;
   }
 }
 
@@ -88,7 +95,7 @@ export default function App() {
 
 function Shell({ me }: { me: Me }) {
   const route = useRoute();
-  const { namesVersion, appearance, set } = useAppearance();
+  const { namesVersion } = useAppearance();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("clipforge.sidebar") === "collapsed";
@@ -97,16 +104,25 @@ function Shell({ me }: { me: Me }) {
     }
   });
   const [makeOpen, setMakeOpen] = useState(false);
+  const makeMenu = useMenu(makeOpen, setMakeOpen);
   const { st, lost, lastOk, refresh } = useStatus();
   const [drawer, setDrawer] = useState(false);
   // Where the person wanted to go when the page had unsaved changes ("" is the Office); null while nobody is asked.
   const [leaving, setLeaving] = useState<string | null>(null);
   const main = useRef<HTMLElement>(null);
+  const pageWrap = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLParagraphElement>(null);
+  // The section shown before this move: a new section fades the whole page in, a new tab only what is under the tabs.
+  const lastSection = useRef<string | null>(null);
   // The page whose title last got focus: none on first load (focus stays at the top, so Tab reaches the skip link),
   // and React's development double run of effects must not count as a move.
   const shown = useRef<string | null>(null);
   const section = route.parts[0] || "";
-  const active = SECTION_NAV[section] || "home";
+  // Talk to AI has its own place in the navigation (the owner, 2026-11-19: "make sure im still able to talk to the
+  // AI ... simple to access"); the chat itself stays the Brain's Talk to AI tab.
+  const talking = section === "brain" && route.parts[1] === "talk";
+  const active: NavKey = talking ? "talk" : SECTION_NAV[section] || "studio";
+  const title = talking ? "Talk to ClipForge AI" : SECTION_TITLE[section] || "";
   const wide = section === "office" && !route.parts[1];
 
   useEffect(() => {
@@ -116,7 +132,6 @@ function Shell({ me }: { me: Me }) {
 
   // After moving to another page: the tab title, the top of the page, and focus on its title for screen readers.
   useLayoutEffect(() => {
-    const title = SECTION_TITLE[section];
     document.title = title ? `${title} · ClipForge` : "ClipForge";
     setMakeOpen(false);
     setDrawer(false);
@@ -124,10 +139,21 @@ function Shell({ me }: { me: Me }) {
     const first = shown.current === null;
     if (first || shown.current === key) {
       shown.current = key;
+      lastSection.current = section;
       return;
     }
+    const before = `#/${(shown.current ?? "").split("|")[0]}`;
     shown.current = key;
     window.scrollTo(0, 0);
+    // a smooth arrival (the owner, 2026-11-20): the content is already there, only its look eases in
+    const pages = Array.from(pageWrap.current?.children || []);
+    const tabbed = lastSection.current === section && main.current ? afterTabs(main.current, before) : [];
+    if (tabbed.length) arrive(tabbed, "tab");
+    else {
+      arrive(pages, "page");
+      if (titleRef.current && lastSection.current !== section) arrive([titleRef.current], "tab", false);
+    }
+    lastSection.current = section;
     const focus = () => {
       const h1 = main.current?.querySelector<HTMLElement>("h1");
       if (!h1) return false;
@@ -142,22 +168,22 @@ function Shell({ me }: { me: Me }) {
       watch.disconnect();
       clearTimeout(stop);
     };
-  }, [route.path, route.unknown, section]);
+  }, [route.path, route.unknown, section, title]);
 
   const state = autopilotState(st, lost);
   const review = st?.home.posts?.review || 0;
   const fix = st?.home.posts?.fix || 0;
   const nav = (
     <>
-      <NavLink href="#/" icon="home" label="Home" on={active === "home"} />
-      <NavLink href="#/projects" icon="film" label="Projects" on={active === "projects"} />
-      <NavLink href="#/brain/styles" icon="spark" label="Brain" on={active === "brain"} />
-      <NavLink href="#/publishing/review" icon="posts" label="Publishing" on={active === "publishing"}
+      <NavLink href="#/" icon="clapper" label="Studio" on={active === "studio"} />
+      <NavLink href="#/brain/talk" icon="chat" label="Talk to AI" on={active === "talk"} />
+      <NavLink href="#/projects" icon="folder" label="Projects" on={active === "projects"} />
+      <NavLink href="#/brain/styles" icon="brain" label="Brain" on={active === "brain"} />
+      <NavLink href="#/publishing/review" icon="layers" label="Publishing" on={active === "publishing"}
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>
           : fix ? <span className="count bad" title={`${fix} need you to settle something`}><span className="sr-only">, need you: </span>{fix}</span> : null} />
       <NavLink href="#/accounts" icon="user" label="Accounts" on={active === "accounts"} />
-      <NavLink href="#/office" icon="cpu" label="Office" on={active === "office"} />
-      <NavLink href="#/settings/appearance" icon="settings" label="Settings" on={active === "settings"} />
+      <NavLink href="#/settings/appearance" icon="settings" label="Settings" on={active === "settings"} bottom />
     </>
   );
   const foot = (
@@ -169,8 +195,8 @@ function Shell({ me }: { me: Me }) {
     </div>
   );
   const brand = (
-    <a className="brand" href="#/" aria-label="ClipForge, Home">
-      <Logo />
+    <a className="brand" href="#/" aria-label="ClipForge, Studio">
+      <Logo size={40} />
       <span className="brand-name" aria-hidden="true">ClipForge</span>
     </a>
   );
@@ -184,7 +210,6 @@ function Shell({ me }: { me: Me }) {
       return !c;
     });
   };
-  const dark = document.documentElement.dataset.theme === "dark";
 
   return (
     <ConnectionContext.Provider value={{ lost, lastOk }}>
@@ -192,36 +217,42 @@ function Shell({ me }: { me: Me }) {
         e.preventDefault();
         main.current?.focus();
       }}>Skip to content</a>
-      <div className={`cf-shell${collapsed ? " collapsed" : ""}`}>
+      <div className={`cf-shell${collapsed ? " collapsed" : ""}`} data-page={section || "studio"}>
+        <StarSky />
         <aside className="cf-side" aria-label="ClipForge">
           {brand}
           <nav className="nav" aria-label="Main">{nav}</nav>
-          <button type="button" className="btn btn-small btn-quiet" onClick={toggleSide} aria-pressed={collapsed}>
+          <button type="button" className="btn btn-small btn-quiet" onClick={toggleSide} aria-pressed={collapsed}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
             <Icon name="menu" /><span className="side-foot-label">{collapsed ? "" : "Collapse sidebar"}</span></button>
           {foot}
         </aside>
         <div className="cf-body">
           <header className="cf-top">
+            {/* the masthead paints its own copy of the sky, so it carries its own copy of the moving stars */}
+            <StarSky strip />
             <button type="button" className="btn btn-small menu-btn" aria-haspopup="dialog" aria-expanded={drawer} onClick={() => setDrawer(true)}>
               <Icon name="menu" />Menu
             </button>
-            <p className="page-title">{SECTION_TITLE[section] || "ClipForge"}</p>
+            <p className="page-title" ref={titleRef}>{title || "ClipForge"}</p>
+            {/* the Studio draws its own large black hole in the sky; every other page keeps a slim one up here */}
+            {section !== "" && <BlackHole size="small" className="masthead-hole" />}
             <span className="spacer" />
-            <div className="make-menu">
-              <button type="button" className="btn btn-primary btn-small" aria-haspopup="menu" aria-expanded={makeOpen}
-                onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
+            <a href="#/missions" id="top-state" className={`pill autopilot-pill ${state.tone} hide-xs`} aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
+              <span className="state-dot" aria-hidden="true" />Autopilot: {state.word}
+            </a>
+            <div className="make-menu" ref={makeMenu.wrap} onKeyDown={makeMenu.onKey}>
+              <button ref={makeMenu.button} type="button" className="btn btn-primary make-btn" aria-haspopup="menu"
+                aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
-                <div role="menu" aria-label="Make" onKeyDown={(e) => e.key === "Escape" && setMakeOpen(false)}>
-                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights or full stories, vertical</span></a>
-                  <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>From your clips and four questions</span></a>
+                <div role="menu" aria-label="Make">
+                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>The best moments, or each story from start to finish</span></a>
+                  <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>Drop in your files and tell ClipForge AI your idea</span></a>
+                  <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
+                  <a role="menuitem" href="#/missions/live" onClick={() => setMakeOpen(false)}><b>Clip a live stream</b><span>Clips while it is live, one or several streams at once</span></a>
                 </div>
               )}
             </div>
-            <button type="button" className="btn btn-small btn-icon hide-xs" aria-label={dark ? "Use the light theme" : "Use the dark theme"}
-              onClick={() => set({ theme: dark ? "light" : "dark" })} title={`Theme: ${appearance.theme}`}><Icon name="moon" /></button>
-            <a href="#/missions" id="top-state" className={`pill ${state.tone} hide-xs`} aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
-              <Icon name="autopilot" />Autopilot: {state.word}
-            </a>
             {me.mode === "cloud" && <>
               <span className="who clamp-1" title={me.name}>{me.name}</span>
               <button type="button" className="btn btn-small" onClick={() => void signOut()}>Sign out</button>
@@ -243,11 +274,13 @@ function Shell({ me }: { me: Me }) {
               )}
               {route.unknown !== undefined && (
                 <Banner tone="info" title="That address does not exist">
-                  There is no page at “#/{route.unknown}”, so Home is shown instead.
+                  There is no page at “#/{route.unknown}”, so the Studio is shown instead.
                 </Banner>
               )}
             </div>
-            <div key={namesVersion} style={{ display: "contents" }}>{page(route)}</div>
+            <MastheadTitle.Provider value={title}>
+              <div key={namesVersion} ref={pageWrap} style={{ display: "contents" }}>{page(route)}</div>
+            </MastheadTitle.Provider>
           </main>
         </div>
       </div>
@@ -259,19 +292,24 @@ function Shell({ me }: { me: Me }) {
           </div>
           <nav className="nav" aria-label="Main">{nav}</nav>
           <div className="nav-sep" />
+          <a href="#/missions" className={`pill autopilot-pill drawer-autopilot ${state.tone}`}
+            aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
+            <span className="state-dot" aria-hidden="true" />Autopilot: {state.word}</a>
           {me.mode === "cloud" && <button type="button" className="btn" onClick={() => void signOut()}>Sign out</button>}
           {foot}
         </Drawer>
       )}
       {leaving !== null && <LeaveDialog target={leaving} onClose={() => setLeaving(null)} />}
+      <Customize cloud={me.mode === "cloud"} />
       <ToastHost />
     </ConnectionContext.Provider>
   );
 }
 
-function NavLink({ href, icon, label, on, extra }: { href: string; icon: IconName; label: string; on: boolean; extra?: ReactNode }) {
+function NavLink({ href, icon, label, on, extra, bottom = false }: { href: string; icon: IconName; label: string; on: boolean;
+  extra?: ReactNode; bottom?: boolean }) {
   return (
-    <a href={href} className={`nav-item ${on ? "active" : ""}`} aria-current={on ? "page" : undefined}>
+    <a href={href} className={`nav-item${on ? " active" : ""}${bottom ? " nav-bottom" : ""}`} aria-current={on ? "page" : undefined}>
       <Icon name={icon} />
       <span>{label}</span>
       {extra}
@@ -365,7 +403,7 @@ function LeaveDialog({ target, onClose }: { target: string; onClose: () => void 
       }}>Discard and leave</button>
       {g.save && <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>Save and leave</button>}
     </>}>
-      <p className="muted">You changed {g.what}. If you leave now, those changes are lost.</p>
+      <p className="muted">{g.say || `You changed ${g.what}. If you leave now, those changes are lost.`}</p>
     </Dialog>
   );
 }

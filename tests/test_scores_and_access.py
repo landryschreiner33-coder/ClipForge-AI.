@@ -169,6 +169,8 @@ def _timeout():
     (_timeout, "network"),
     (lambda: OSError(errno.ENOSPC, "No space left on device"), "disk_space"),
     (lambda: _extractor("Unable to extract video data"), "extraction_failed"),
+    (lambda: _extractor("You have requested merging of multiple formats but ffmpeg is not installed. Aborting due "
+                        "to --abort-on-error"), "tools_missing"),
 ])
 def test_fake_ytdlp_errors_get_a_specific_code(make, code):
     from clipfoundry import media_import

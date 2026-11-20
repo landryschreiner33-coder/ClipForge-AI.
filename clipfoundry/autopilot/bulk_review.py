@@ -11,6 +11,7 @@ from ..pipeline import artifact
 from ..publish import audience
 from ..publish.common import PublishError
 from . import gate, packaging, queue, rights, scheduler
+from .targets import account_name, account_view, usable
 
 MAX_ITEMS = 50
 PREVIEW_SECONDS = 10 * 60
@@ -68,9 +69,15 @@ def _inspect(item: dict, settings: dict, *, sha: str | None = None) -> tuple[dic
         raise ValueError("This post has upload work pending. Open its individual review to check its status.")
     if item["status"] == "approved" and sha is None and not scheduler.approval_problem(item):
         raise ValueError("This post is already approved.")
-    account = db.get_account("youtube") or {}
-    if not account.get("account_id") or not account.get("has_tokens"):
-        raise ValueError("Connect your YouTube account before approving these posts.")
+    if item.get("connection_id"):  # the post's own channel must be connected, whichever channel is the default
+        own = db.get_connection(item["connection_id"])
+        if not usable(own) or not own.get("external_id"):
+            raise ValueError(f"Reconnect {account_name(own) or 'its YouTube channel'} in Accounts before approving "
+                             "this post.")
+    else:
+        account = db.get_account("youtube") or {}
+        if not account.get("account_id") or not account.get("has_tokens"):
+            raise ValueError("Connect your YouTube account before approving these posts.")
     clip, source = rights._post_source(item)
     if not clip or clip.get("status") != "ready":
         raise ValueError("The clip is missing or not rendered.")
@@ -108,6 +115,7 @@ def _inspect(item: dict, settings: dict, *, sha: str | None = None) -> tuple[dic
     info = rights.review_info(item, settings) if not supplied_sha else {}
     binding = rights._confirmation_binding(item, settings, sha)
     fingerprint = {"binding": binding, "path": path, "status": item["status"],
+                   "connection_id": item.get("connection_id") or "",
                    "planned_at": item.get("planned_at"), "replaces": item.get("replaces"),
                    "metadata_id": item.get("metadata_id"), "publication_id": item.get("publication_id"),
                    "audience": item.get("audience"), "options": options,
@@ -133,6 +141,7 @@ def preview(ids: list[str]) -> dict:
     for item_id in ids:
         item = db.fetch("scheduled_publications", item_id)
         row = {"id": item_id, "eligible": False, "reason": "", "item": item,
+               "account": account_view(item) if item else None,
                "needs_reuse_confirmation": False, "needs_made_for_kids": False}
         try:
             if not item:

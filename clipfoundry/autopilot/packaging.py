@@ -21,6 +21,7 @@ import re
 import time
 
 from .. import db
+from ..brain import poststyle
 from ..pipeline import artifact, fingerprint, llm, postpack
 from ..pipeline.text_utils import (CONTRAST_WORDS, EMOTION_WORDS, INTENSIFIERS, OPEN_LOOP_PHRASES, clean_text,
                                    content_tokens, count_phrases, keywords, tokens)
@@ -189,9 +190,14 @@ def _caption(sents: list[str], lead: str, limit: int = 300) -> str:
 
 
 def build(platform: str, style: str, title: str, caption: str, hashtags: list[str], cta: str, attribution: str,
-          clip_keywords: list[str]) -> dict:
-    """A complete platform package from a title and caption."""
+          clip_keywords: list[str], owner: dict | None = None) -> dict:
+    """A complete platform package from a title and caption. `owner`: how the owner wants post text to look
+    (brain/poststyle.py): letter case, no emoji, fewer hashtags, no call to action. It never adds a word."""
     hashtags = hashtags[:5]
+    if owner:
+        title, caption = poststyle.title(owner, title), poststyle.text(owner, caption)
+        hashtags = poststyle.tags(owner, hashtags)
+        cta = "" if owner.get("cta") is False else cta
     if platform == "youtube":
         parts = [caption, "", cta] if cta else [caption]
         if hashtags:
@@ -210,7 +216,7 @@ def build(platform: str, style: str, title: str, caption: str, hashtags: list[st
 
 
 def extracted_candidates(platform: str, sents: list[str], clip: dict, attribution: str, clip_keywords: list[str],
-                         hashtags: list[str]) -> list[dict]:
+                         hashtags: list[str], owner: dict | None = None) -> list[dict]:
     lines = style_lines(sents, clip.get("hook") or "")
     post = clip.get("post") or {}
     cta = post.get("cta") or postpack.CTA_DEFAULT
@@ -224,32 +230,37 @@ def extracted_candidates(platform: str, sents: list[str], clip: dict, attributio
         seen.append(title)
         style_cta = DEBATE_CTA if style == "debate" else cta
         out.append({**build(platform, style, title, _caption(sents, line), hashtags, style_cta, attribution,
-                            clip_keywords), "origin": "extracted"})
+                            clip_keywords, owner), "origin": "extracted"})
     return out
 
 
-def _ai_prompt(platform: str, sents: list[str], feedback: list[str]) -> str:
+def _ai_prompt(platform: str, sents: list[str], feedback: list[str], read: str = "") -> str:
+    """`read`: the know-how, the owner's skills and the owner's rules for post text the model reads first."""
     numbered = "\n".join(f"- {s}" for s in sents)
     extra = ("\nYour previous suggestions were rejected because: " + "; ".join(feedback[:8]) +
              ". Fix these problems.") if feedback else ""
     what = "YouTube Shorts titles (max 70 characters)" if platform == "youtube" else "TikTok captions (max 150 " \
                                                                                       "characters, no hashtags)"
     return (f"Short video clip transcript:\n{numbered}\n\nWrite {what} in these styles: {', '.join(STYLES)}. "
+            + (read.strip() + "\n" if read.strip() else "") +
             "Use ONLY information in the transcript: no names, numbers, quotes, facts, events, outcomes or claims "
             "that are not in it, and no hype words the speaker does not use. Quotes must be exact. "
             f"Reply with JSON: {{\"suggestions\": [{{\"style\": one of the styles, \"text\": ...}}]}}{extra}")
 
 
 def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, attribution: str,
-                  clip_keywords: list[str], hashtags: list[str], clip_text: str, prior: list[str]) -> list[dict]:
+                  clip_keywords: list[str], hashtags: list[str], clip_text: str, prior: list[str],
+                  owner: dict | None = None) -> list[dict]:
     """AI suggestions that pass validation, regenerating up to MAX_ATTEMPTS times with the problems explained."""
     if settings.get("ai_provider", "heuristic") not in llm.PROVIDERS:
         return []
     feedback: list[str] = []
     cta = (clip.get("post") or {}).get("cta") or postpack.CTA_DEFAULT
+    read = "\n".join(x for x in (postpack.advice(settings), poststyle.prompt(owner or {})) if x)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            text = llm.complete(settings, _ai_prompt(platform, sents, feedback), unattended=True, task="packaging")
+            text = llm.complete(settings, _ai_prompt(platform, sents, feedback, read), unattended=True,
+                                task="packaging")
             m = re.search(r"\{.*\}", text or "", re.S)
             data = json.loads(m.group(0)) if m else {}
         except (llm.ProviderError, ValueError):
@@ -263,7 +274,7 @@ def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, a
                 continue
             title = _title(line) if platform == "youtube" else _title(sents[0] if sents else line)
             caption = line if platform != "youtube" else _caption(sents, sents[0] if sents else line)
-            meta = {**build(platform, style, title, caption, hashtags, cta, attribution, clip_keywords),
+            meta = {**build(platform, style, title, caption, hashtags, cta, attribution, clip_keywords, owner),
                     "origin": "ai", "attempt": attempt}
             problems = validate(meta, clip_text, prior, [attribution])
             if problems:
@@ -276,17 +287,17 @@ def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, a
 
 
 def fallback(platform: str, sents: list[str], clip: dict, attribution: str, clip_keywords: list[str],
-             hashtags: list[str], clip_text: str, prior: list[str]) -> dict:
+             hashtags: list[str], clip_text: str, prior: list[str], owner: dict | None = None) -> dict:
     """Safe, transcript-extracted package: the clip's own lines, a fixed CTA, its own words as hashtags."""
     post = clip.get("post") or {}
     for t in [*(post.get("titles") or []), clip.get("title") or "", *(_title(s) for s in sents)]:
         meta = {**build(platform, "fallback", t, _caption(sents, sents[0] if sents else ""), hashtags,
-                        postpack.CTA_DEFAULT, attribution, clip_keywords), "origin": "fallback"}
+                        postpack.CTA_DEFAULT, attribution, clip_keywords, owner), "origin": "fallback"}
         if t and not validate(meta, clip_text, prior, [attribution]):
             return meta
     first = _title(sents[0]) if sents else (clip.get("title") or "Clip")
     return {**build(platform, "fallback", first, _caption(sents, sents[0] if sents else ""), [], postpack.CTA_DEFAULT,
-                    attribution, clip_keywords), "origin": "fallback"}
+                    attribution, clip_keywords, owner), "origin": "fallback"}
 
 
 # ------------------------------------------------------------------ the worker
@@ -329,8 +340,13 @@ def package(clip: dict, source: dict | None, platform: str, settings: dict) -> d
                 if not postpack.hashtag_problems(t, clip_text)] or postpack.hashtags_for(clip_text)
     attribution = rights.current_attribution(source, settings)
     prior = prior_titles(clip["id"])
-    cands = extracted_candidates(platform, sents, clip, attribution, clip_kw, hashtags)
-    cands += ai_candidates(settings, platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior)
+    project = db.get_project(str(clip.get("project_id") or "")) or {}
+    ws = str(project.get("workspace_id") or "local")
+    settings = {**settings, "workspace_id": ws}
+    # how the owner wants this platform's text to look: read from their Brain, applied to every candidate
+    owner = poststyle.build(ws, str(project.get("id") or ""), platform)
+    cands = extracted_candidates(platform, sents, clip, attribution, clip_kw, hashtags, owner)
+    cands += ai_candidates(settings, platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior, owner)
     db.execute("DELETE FROM metadata_candidates WHERE clip_id = ? AND platform = ?", (clip["id"], platform))
     scored = []
     for meta in cands:
@@ -338,8 +354,11 @@ def package(clip: dict, source: dict | None, platform: str, settings: dict) -> d
         sc = score(meta, platform, clip_text, clip_kw, trend_kw, prior, problems)
         scored.append((sc["score"], meta, sc, problems))
     passing = [x for x in scored if not x[3]]
+    if owner and platform == "youtube":
+        # a title that keeps the owner's rule (its length, a question) goes before a better-scoring one that does not
+        passing = [x for x in passing if not poststyle.miss(owner, x[1]["title"])] or passing
     if not passing:
-        meta = fallback(platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior)
+        meta = fallback(platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior, owner)
         problems = validate(meta, clip_text, prior, [attribution], required_attribution=attribution, platform=platform)
         sc = score(meta, platform, clip_text, clip_kw, trend_kw, prior, [])
         scored.append((sc["score"], meta, {**sc, "note": "safe fallback"}, problems))

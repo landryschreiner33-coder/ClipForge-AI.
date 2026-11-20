@@ -5,6 +5,7 @@ import {
 import { at, plural } from "../format";
 import { editHash, TimeField, Timeline } from "../components/editorParts";
 import { ExportDialog, useClipPosts } from "../components/libParts";
+import { SoundCompare } from "../components/SoundCompare";
 import { hasPostText, PostDraft, postPatch, PostTextFields, RewritePostDialog } from "../components/postpack";
 import {
   announce, Banner, ConfirmDialog, EmptyState, Icon, LoadingPage, PageHead, Pill, ProgressBar, Segmented, StylePicker,
@@ -12,6 +13,7 @@ import {
 } from "../components/ui";
 import { VersionsCard } from "../components/versions";
 import { useLeaveGuard } from "../router";
+import { fmtTime, STORY_MAX_S } from "../studio";
 import "./editor.css";
 
 type Group = "trim" | "captions" | "layout" | "audio" | "post";
@@ -29,16 +31,16 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
   trim: ["start", "end"],
   captions: ["captions_enabled", "caption_style", "caption_position", "caption_size", "caption_emphasis",
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
-  layout: ["tracking", "crop_x", "layout", "zoom", "auto_zoom"],
-  audio: ["gain_db", "normalize_audio", "silence", "remove_fillers", "speed"],
+  layout: ["tracking", "crop_x", "layout", "split_game", "zoom", "auto_zoom"],
+  audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
 // What the renderer uses when neither the clip, the video's options nor Settings say otherwise.
 const FALLBACK: Partial<Record<Key, unknown>> = {
-  tracking: "auto", crop_x: 0.5, layout: "fill", zoom: 1, auto_zoom: true,
+  tracking: "auto", crop_x: 0.5, layout: "fill", split_game: "whole", zoom: 1, auto_zoom: true,
   captions_enabled: true, caption_style: "bold", caption_position: "bottom", caption_size: 1, caption_emphasis: false,
   highlight_words: true, highlight_color: "", hook_overlay: true, hook_seconds: 3,
-  gain_db: 0, normalize_audio: true, silence: "light", remove_fillers: true, speed: 1,
+  gain_db: 0, normalize_audio: true, clean_sound: "auto", silence: "light", remove_fillers: true, speed: 1,
 };
 const TITLE_MAX = 100;
 const CAPTION_MAX = 2200;
@@ -180,10 +182,19 @@ export default function ClipEditor({ id }: { id: string }) {
   const opts = (project?.options || {}) as Record<string, unknown>;
   const saved = (clip?.edit || {}) as Record<string, unknown>;
   const d = draft as Record<string, unknown>;
+  // The layout: what this clip's last render was asked for when that was a look for a face cam (Settings → Split
+  // view does that for a clip nobody chose a layout for), so the choice shown is the one that made the picture.
   const base = (k: Key): unknown =>
     k === "start" ? clip?.start : k === "end" ? clip?.end : k === "hook" ? clip?.hook
-      : opts[k] ?? settings[k] ?? FALLBACK[k];
+      : k === "layout" ? clip?.render_info?.layout_asked ?? opts[k] ?? settings[k] ?? FALLBACK[k]
+        // a split view keeps the look it was made with when it is rendered again
+        : k === "split_game" ? clip?.render_info?.split_game ?? opts[k] ?? settings[k] ?? FALLBACK[k]
+        : opts[k] ?? settings[k] ?? FALLBACK[k];
   const eff = (k: Key) => d[k] ?? base(k);
+  // the layout a clip gets without a split view: what its last render would have used, else the video's own, else
+  // the one from Settings
+  const usualLayout = [clip?.render_info?.layout_fallback, opts.layout, settings.layout]
+    .find((v) => v === "fill" || v === "fit") ?? "fill";
   const num = (k: Key) => Number(eff(k) ?? 0);
   const bool = (k: Key) => !!eff(k);
   const str = (k: Key) => String(eff(k) ?? "");
@@ -244,6 +255,8 @@ export default function ClipEditor({ id }: { id: string }) {
   const lo = Math.max(0, Math.min(savedStart - 10, start));
   const hi = Math.min(dur, Math.max(savedEnd + 10, end));
   const trimChanged = changed("start") || changed("end");
+  // a hook can show for up to 15 seconds, or for the whole clip ("Part N" on a story part does)
+  const hookMax = Math.max(15, Math.ceil(end - start) + 1, num("hook_seconds"));
   const canReset = !same(start, clip.start) || !same(end, clip.end);
 
   const set = (patch: Partial<ClipEdit>) => setDraft((x) => ({ ...x, ...patch }));
@@ -432,6 +445,8 @@ export default function ClipEditor({ id }: { id: string }) {
     { knowledge_id: string; revision: number; snapshot: { title: string } }[];
   const sizePct = Math.round(num("caption_size") * 100);
   const gain = num("gain_db");
+  const cleanNote = String((ri.audio_processing as { clean_sound?: { summary?: string } } | undefined)
+    ?.clean_sound?.summary || "");
 
   const panels: Record<Group, ReactElement> = {
     trim: (
@@ -445,6 +460,12 @@ export default function ClipEditor({ id }: { id: string }) {
           Length: <b>{(end - start).toFixed(1)} s</b>
           {trimChanged && <span className="faint"> (saved: {(savedEnd - savedStart).toFixed(1)} s)</span>}
         </p>
+        {clip.category === "story" && (
+          <p className={end - start > STORY_MAX_S + 0.001 ? "error-text" : "hint"} role={end - start > STORY_MAX_S + 0.001 ? "alert" : undefined}>
+            A story clip can be at most {fmtTime(STORY_MAX_S)} long. For a longer story, split it into parts under Stories on the
+            project page.
+          </p>
+        )}
         <p className="hint">
           ClipForge suggested {fmtPrecise(clip.start)} to {fmtPrecise(clip.end)}. Silence cleanup, filler cuts and
           pacing (in Audio) can make the video shorter than this.
@@ -464,7 +485,13 @@ export default function ClipEditor({ id }: { id: string }) {
           <Segmented labelledBy={`${uid}-pos`} value={str("caption_position")}
             onChange={(v) => set({ caption_position: v })}
             options={[{ value: "top", label: "Top" }, { value: "middle", label: "Middle" },
-              { value: "bottom", label: "Bottom" }]} />
+              { value: "bottom", label: "Bottom" },
+              ...(str("layout") === "fit" || str("caption_position") === "above"
+                ? [{ value: "above", label: "Above the picture" }] : [])]} />
+          {str("caption_position") === "above" && (
+            <p className="hint">Right above the video when the layout is Fit, so none of the picture is covered. When there is no room
+              (a tall picture, or Fill), the captions go to the bottom.</p>
+          )}
         </div>
         <div className="field">
           <label htmlFor={`${uid}-size`}>Size <span className="faint tnum">{sizePct}%</span></label>
@@ -540,10 +567,10 @@ export default function ClipEditor({ id }: { id: string }) {
         <div className="row wrap hook-row">
           <Check label="Show the hook on screen for" on={bool("hook_overlay")}
             onChange={(v) => set({ hook_overlay: v })} />
-          <input type="number" min={1} max={15} step={0.5} aria-label="Seconds the hook shows"
+          <input type="number" min={1} max={hookMax} step={0.5} aria-label="Seconds the hook shows"
             value={num("hook_seconds")} disabled={!bool("hook_overlay")} onChange={(e) => {
               const n = Number(e.target.value);
-              if (e.target.value !== "" && Number.isFinite(n)) set({ hook_seconds: Math.min(15, Math.max(1, n)) });
+              if (e.target.value !== "" && Number.isFinite(n)) set({ hook_seconds: Math.min(hookMax, Math.max(1, n)) });
             }} />
           <span className="small">seconds</span>
         </div>
@@ -557,7 +584,14 @@ export default function ClipEditor({ id }: { id: string }) {
       <>
         <div className="field">
           <label htmlFor={`${uid}-tr`}>Framing follows</label>
-          <select id={`${uid}-tr`} value={str("tracking")} onChange={(e) => set({ tracking: e.target.value })}>
+          <select id={`${uid}-tr`} value={str("tracking")} onChange={(e) => {
+            const tracking = e.target.value;
+            // Framing the picture by hand means one picture: a split view places its two pictures itself and would
+            // ignore it. Unless a split view was picked for this clip, the layout shown changes with it.
+            const toUsual = tracking !== "auto" && (str("layout") === "split" || str("layout") === "auto")
+              && d.layout == null && saved.layout == null;
+            set({ tracking, ...(toUsual ? { layout: usualLayout } : {}) });
+          }}>
             {[...TRACKING, { value: "manual", label: "A position you choose" }].map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
@@ -576,8 +610,23 @@ export default function ClipEditor({ id }: { id: string }) {
         <div className="field">
           <span className="label" id={`${uid}-lay`}>Layout</span>
           <Segmented labelledBy={`${uid}-lay`} value={str("layout")} onChange={(v) => set({ layout: v })}
-            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" }]} />
+            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" },
+              { value: "split", label: "Split view" }, { value: "auto", label: "Split if face cam" }]} />
+          {(str("layout") === "split" || str("layout") === "auto") && <p className="hint">Split view shows the face
+            cam on top and the picture below it, with the captions between them.
+            {str("layout") === "auto" ? " It is used only when a face cam is found in this clip;"
+              : " If no small face is found in this clip,"} otherwise the clip uses the layout from Settings.
+            {str("tracking") !== "auto" && " Split view places both pictures itself, so Framing does not change it."}
+          </p>}
         </div>
+        {(str("layout") === "split" || str("layout") === "auto") && <div className="field">
+          <span className="label" id={`${uid}-game`}>Under the face cam</span>
+          <Segmented labelledBy={`${uid}-game`} value={str("split_game")} onChange={(v) => set({ split_game: v })}
+            options={[{ value: "whole", label: "Whole picture" }, { value: "zoom", label: "Zoomed in" }]} />
+          <p className="hint">{str("split_game") === "zoom"
+            ? "The middle of the picture fills everything below the face cam; its sides are cut off."
+            : "All of the picture stays in view, as wide as the clip, over a blurred background."}</p>
+        </div>}
         <div className="field">
           <label htmlFor={`${uid}-zoom`}>Zoom <span className="faint tnum">{num("zoom").toFixed(2)}×</span></label>
           <input id={`${uid}-zoom`} type="range" min={1} max={2} step={0.05} value={num("zoom")}
@@ -606,6 +655,19 @@ export default function ClipEditor({ id }: { id: string }) {
         </div>
         <Check label="Normalize loudness (target −14 LUFS; preserve peaks)" on={bool("normalize_audio")}
           onChange={(v) => set({ normalize_audio: v })} />
+        <div className="field">
+          <span className="label" id={`${uid}-clean`}>Clean up the sound</span>
+          <Segmented labelledBy={`${uid}-clean`} value={str("clean_sound") || "auto"}
+            onChange={(v) => set({ clean_sound: v })}
+            options={[{ value: "off", label: "Off" }, { value: "auto", label: "Auto" },
+              { value: "gentle", label: "Gentle" }, { value: "strong", label: "Strong" }]} />
+          <p className="hint">
+            Lowers background noise and hum, softens breaths, evens out quiet and loud parts and polishes the voice.
+            Auto leaves music and clips that are mostly not speech as they are.
+          </p>
+        </div>
+        <SoundCompare clipId={clip.id} mode={str("clean_sound") || "auto"} />
+        {cleanNote && <p className="hint">Last render: {cleanNote}</p>}
         <div className="field">
           <span className="label" id={`${uid}-sil`}>Silence cleanup</span>
           <Segmented labelledBy={`${uid}-sil`} value={str("silence")} onChange={(v) => set({ silence: v })}
@@ -672,7 +734,7 @@ export default function ClipEditor({ id }: { id: string }) {
         </span>}
         actions={<>
           <button type="button" className="btn" disabled={!clip.has_video} onClick={() => setDialog("export")}>
-            <Icon name="download" />Export
+            <Icon name="download" />Save to computer
           </button>
           <a className="btn" href={`#/publish/${clip.id}`}><Icon name="upload" />Prepare post</a>
         </>}
@@ -737,7 +799,7 @@ export default function ClipEditor({ id }: { id: string }) {
                   <span>
                     {videoFailed === "format"
                       ? (view === "source" ? "The cut can still be set with the timeline and words."
-                        : "Use Export to download it and watch it in another player.")
+                        : "Use Save to computer and watch it in another player.")
                       : view === "source" ? "The source file may have been moved or deleted."
                         : "The file may have been moved or deleted. Rendering the clip makes it again."}
                   </span>

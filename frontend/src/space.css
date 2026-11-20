@@ -1,0 +1,584 @@
+/* The space studio (2026-11-19, design/space-studio/README.md): deep navy space with fine stars and blue-violet
+   nebulae, warm white type, thin blue-grey dividers and glacier-cyan controls. Loaded after styles.css and theme.css;
+   colours come from the theme tokens, so every palette and accent still applies. The brightest art (the black hole,
+   the ship's lights) stays away from text and inputs, and nothing here moves unless motion is allowed. */
+
+/* ------------------------------------------------------------------ type: Courier everywhere (the owner, 2026-11-19)
+   Courier Prime, SIL Open Font License 1.1 (assets/fonts/OFL-CourierPrime.txt), bundled so no font is fetched online.
+   Its letters are smaller and wider than the old sans serif, so the type scale steps up one notch. */
+@font-face { font-family: "Courier Prime"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("./assets/fonts/courier-prime-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Courier Prime"; font-style: italic; font-weight: 400; font-display: swap;
+  src: url("./assets/fonts/courier-prime-latin-ext-400-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Courier Prime"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("./assets/fonts/courier-prime-latin-ext-700-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Courier Prime"; font-style: italic; font-weight: 700; font-display: swap;
+  src: url("./assets/fonts/courier-prime-latin-ext-700-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Courier Prime"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("./assets/fonts/courier-prime-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Courier Prime"; font-style: italic; font-weight: 400; font-display: swap;
+  src: url("./assets/fonts/courier-prime-latin-400-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Courier Prime"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("./assets/fonts/courier-prime-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Courier Prime"; font-style: italic; font-weight: 700; font-display: swap;
+  src: url("./assets/fonts/courier-prime-latin-700-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+:root {
+  --font: "Courier Prime", "Courier New", Courier, monospace;
+  --font-display: var(--font);
+  --mono: "Courier Prime", "Courier New", Courier, monospace;
+  --fs-h2: 1.125rem; --fs-h3: 1rem; --fs-body: 1rem; --fs-small: 0.875rem; --fs-tiny: 0.8125rem;
+}
+h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { letter-spacing: 0; }
+
+/* ------------------------------------------------------------------ the sky behind every page
+   One sky for the whole window (the owner, 2026-11-19: "all the background goes together"): the rail, the masthead and
+   the page show the same picture and have no tint of their own. The nebula is fixed and dimmed (--sky-deep). The small
+   stars come from two tiles drawn at screen size, so they stay sharp and visible on every screen, and they slide past
+   as if the ship were flying on (the owner, 2026-11-20: "make the backround animated like we are moving"): see
+   components/starSky.ts. */
+:root {
+  --sky-deep: linear-gradient(180deg, color-mix(in srgb, var(--canvas) 18%, transparent),
+      color-mix(in srgb, var(--canvas) 46%, transparent)),
+    url("/space/sky.jpg") center top / cover no-repeat, var(--canvas);
+  --sky-far: url("/space/stars-far.png") 211px 97px / 797px 797px repeat;
+  --sky-near: url("/space/stars-near.png") 0 0 / 512px 512px repeat;
+}
+.cf-shell { position: relative; isolation: isolate; background: var(--canvas); }
+.cf-shell::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background: var(--sky-deep); }
+/* The tiles, each as wide as the window plus one tile, slid one tile to the left over and over by the compositor; then
+   one canvas for the brighter stars, dust and shooting stars. The masthead covers the sky with its own copy of both
+   (.sky-back), its tiles shifted to line up with the window's (.sky-shift). */
+.sky-drift { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+.sky-tile { position: absolute; left: 0; top: 0; height: 100%; will-change: transform; }
+.sky-tile.far { width: calc(100% + 797px); background: var(--sky-far); }
+.sky-tile.near { width: calc(100% + 512px); background: var(--sky-near); }
+.sky-shift { position: absolute; left: 0; top: 0; }
+.sky-stars { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; display: block; }
+.cf-top > .sky-back { position: absolute; inset: 0; z-index: 0; }
+.cf-shell[data-page="studio"] .cf-top > .sky-back { display: none; }
+
+/* ------------------------------------------------------------------ the left rail */
+.cf-side { background: none; border-right: 0; box-shadow: none; padding: var(--s5) var(--s3) var(--s4); gap: var(--s5);
+}
+.cf-side .brand { flex-direction: column; gap: 6px; padding: 0 0 var(--s4); border-bottom: 1px solid var(--line);
+  min-height: 0; }
+.brand img { border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--line-strong), 0 0 24px -6px color-mix(in srgb, var(--primary) 45%, transparent); }
+.brand-name { font-size: 1.25rem; color: var(--text); }
+.cf-side .nav { flex: 1; gap: 4px; }
+.nav a { min-height: 44px; padding: 0 14px; gap: 12px; font-size: 1rem; color: var(--text-2);
+  transition: background-color 120ms ease, color 120ms ease; }
+.nav a .icon { width: 20px; height: 20px; color: var(--text-3); }
+.nav a:hover { background: color-mix(in srgb, var(--raised) 75%, transparent); }
+.nav a[aria-current="page"] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 22%, var(--surface)),
+    color-mix(in srgb, var(--primary) 8%, transparent));
+  color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 28%, transparent);
+}
+.nav a[aria-current="page"]::before {
+  left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--primary);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 70%, transparent);
+}
+.nav a.nav-bottom { margin-top: auto; }
+.nav a.nav-bottom::after { content: ""; position: absolute; left: 6px; right: 6px; top: calc(-1 * var(--s3));
+  border-top: 1px solid var(--line); }
+.cf-side .nav a.nav-bottom { margin-top: auto; }
+.cf-side > .btn { min-height: 32px; font-size: var(--fs-tiny); }
+.side-foot { margin-top: 0; }
+.cf-shell.collapsed .cf-side .brand { border-bottom: 0; }
+
+/* ------------------------------------------------------------------ the masthead: title, slim black hole, Autopilot,
+   Make */
+/* The masthead stays at the top while a page scrolls; it paints the same fixed sky, so it hides what scrolls beneath
+   it without looking like a bar of its own. */
+.cf-top {
+  height: auto; min-height: 76px; padding: var(--s3) var(--s6); gap: var(--s4); position: sticky; top: 0;
+  background: var(--sky-deep); background-attachment: fixed; backdrop-filter: none; -webkit-backdrop-filter: none;
+    border-bottom: 0;
+}
+.cf-top .page-title { font-size: 1.75rem; line-height: 1.15; color: var(--text); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+/* On the Studio the masthead floats on the sky, so the big black hole can rise behind it */
+.cf-shell[data-page="studio"] .cf-top { background: none; border-bottom: 0; backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  position: relative; z-index: auto; }
+.cf-shell[data-page="studio"] .cf-top .page-title { font-size: 2.25rem; }
+/* named with .black-hole so it wins over that rule's position: relative: it sits behind the masthead, not in its row */
+.black-hole.masthead-hole { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(230px, 20vw); z-index: 0; }
+.cf-top > :not(.masthead-hole):not(.sky-back) { position: relative; z-index: 1; }
+.autopilot-pill { min-height: 40px; padding: 0 16px; gap: 8px; border-radius: var(--r-pill); font-size: var(--fs-body);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--canvas) 70%, transparent); border: 1px solid var(--line-strong);
+    color: var(--text); text-decoration: none; }
+.autopilot-pill:hover { border-color: var(--control-border); }
+.autopilot-pill .state-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-3); flex: none; }
+.autopilot-pill.good .state-dot { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.autopilot-pill.warn .state-dot { background: var(--warn); }
+.autopilot-pill.bad .state-dot { background: var(--bad); }
+.make-btn { min-height: 40px; padding: 0 18px; font-size: 1rem; border-radius: 12px;
+  box-shadow: 0 0 22px -6px color-mix(in srgb, var(--primary) 70%, transparent); }
+/* narrower windows: a smaller hole a little left of the middle, clear of the Autopilot pill */
+@media (max-width: 1280px) {
+  .black-hole.masthead-hole { width: min(180px, 15vw); left: 45%; }
+}
+@media (max-width: 1023px) {
+  .cf-top { padding: var(--s2) var(--s4); min-height: 60px; }
+  .cf-top .page-title, .cf-shell[data-page="studio"] .cf-top .page-title { font-size: 1.25rem; }
+  .masthead-hole { display: none; }
+}
+/* phones keep the page's name in view: the heading inside the page is hidden when the top bar carries it */
+@media (max-width: 479px) {
+  .cf-top .page-title, .cf-shell[data-page="studio"] .cf-top .page-title { display: block; font-size: 1.125rem; }
+}
+
+/* ------------------------------------------------------------------ the black hole (painted by
+   components/blackHoleArt.ts) */
+.black-hole { position: relative; aspect-ratio: 27 / 10; pointer-events: none; }
+.black-hole canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* the slim hole fades in when you leave the Studio, where the big one was */
+.black-hole.masthead-hole { animation: cf-fade 600ms ease; }
+
+/* ------------------------------------------------------------------ smooth changes (the owner, 2026-11-20: "when you
+   swich tabs have it be a smotth transition"). A new page or tab eases in (transitions.ts); a tab's highlight glides
+   to the new tab. All instant under Reduced motion (theme.css). */
+@keyframes cf-arrive { from { opacity: 0; transform: translateY(8px); } }
+@keyframes cf-fade { from { opacity: 0; } }
+.tabs a, .tabs button { transition: color 200ms ease, background-color 200ms ease, border-color 220ms ease,
+  box-shadow 220ms ease; }
+.tabs.tabs-side a::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--primary); opacity: 0; transform: scaleY(0.2);
+  transition: opacity 200ms ease, transform 260ms cubic-bezier(0.2, 0.75, 0.25, 1); }
+.tabs.tabs-side a[aria-current="page"]::before { opacity: 1; transform: none; }
+@media (max-width: 900px) { .tabs.tabs-side a::before { display: none; } }
+
+/* ------------------------------------------------------------------ surfaces over the sky */
+.panel, .card, .office-panel, .settings-frame,
+  .dialog { background-color: color-mix(in srgb, var(--surface) 90%, transparent); }
+.page-head { border-bottom-color: var(--line); }
+.page-head.title-in-masthead { padding-bottom: 0; border-bottom: 0; }
+.page-head.title-in-masthead > div:first-child:not(:has(> :not(h1))) { display: contents; }
+/* nothing to show but the hidden heading: the page's own gap must not leave an empty row above the content */
+.page-head.title-in-masthead:not(:has(.actions, .crumbs, .kind-label, p)) { display: contents; }
+.btn-primary { box-shadow: 0 0 18px -8px color-mix(in srgb, var(--primary) 80%, transparent); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.btn, .pill, .chip, .seg button, input, select,
+  textarea { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 140ms ease;
+}
+:root[data-motion="reduced"] .btn, :root[data-motion="reduced"] .nav a { transition: none; }
+
+/* ------------------------------------------------------------------ the ship: canvas, targets and the tools beneath */
+.office-world[data-smooth="true"] canvas { image-rendering: auto; }
+.office-map { background: transparent; border: 0; }
+/* Every room wears its name, and every robot shows its real job state in a badge above its head (the owner,
+   2026-11-19). The names under the robots still appear on hover, focus or selection. */
+.office-map .room-sign {
+  left: calc(var(--s) * 14px); top: auto; bottom: 0; transform: translateY(50%); padding: 2px 7px; border-radius: 4px;
+    opacity: 1;
+  font-family: var(--font); font-weight: 700; font-size: max(11px, calc(var(--s) * 14px)); line-height: 1.15;
+    color: var(--text);
+  background: rgba(5, 8, 20, 0.86); border: 1px solid var(--accent); box-shadow: 0 0 10px -3px var(--accent);
+  /* a name too long for one line in its room shows its one-word form (OfficeMap's signText); wrapping is a fallback */
+  white-space: normal; width: max-content; max-width: calc(100% - var(--s) * 14px);
+}
+/* A phone-sized ship: one-word names, centred in their rooms, and resting robots marked by a dot, so the names and
+   the badges of robots at work can still be told apart (2026-11-20). A name covers the dots of resting and absent
+   robots, and every other robot's badge covers the name, so its state always shows. */
+.office-map[data-narrow="true"] .room-sign { left: 50%; transform: translate(-50%, 50%); padding: 1px 4px;
+  font-size: 9px; white-space: nowrap; max-width: none; z-index: 3; }
+.office-map[data-narrow="true"] .robot-hit:not([data-state="idle"], [data-state="unavailable"]) { z-index: 4; }
+.office-map[data-narrow="true"] .robot-hit .robot-state { width: 13px; height: 13px; margin-bottom: 2px;
+  border-radius: 4px; }
+.office-map[data-narrow="true"] .robot-hit .robot-state::after { border-width: 3px; border-bottom-width: 0; }
+.office-map[data-narrow="true"] .robot-hit .robot-state .icon { width: 9px; height: 9px; }
+.office-map[data-narrow="true"] .robot-hit .robot-state:is(.state-idle, .state-unavailable) { width: 6px; height: 6px;
+  border-width: 0; background: currentColor; }
+.office-map[data-narrow="true"] .robot-hit .robot-state:is(.state-idle, .state-unavailable) .icon { display: none; }
+.office-map[data-tags="chosen"] .robot-tag { opacity: 0; }
+.office-map[data-tags="chosen"] .robot-hit:hover .robot-tag,
+  .office-map[data-tags="chosen"] .robot-hit:focus-visible .robot-tag,
+.office-map[data-tags="chosen"] .robot-hit.on .robot-tag { opacity: 1; }
+/* A badge is 21px from a ship drawn at 0.44 of its size up (windows about 1330 wide and up), and grows with a bigger
+   ship. A smaller ship (windows about 1190 to 1320 wide) shrinks it towards 15px, so the badge of a robot in a lower
+   room reaches less far over the name of the room above: up to 7% of the name's line instead of 24% (2026-11-20). */
+.office-map .robot-hit .robot-state {
+  top: auto; bottom: 100%; margin-bottom: 4px;
+    width: max(clamp(15px, calc(var(--s) * 48px), 21px), calc(var(--s) * 30px));
+    height: max(clamp(15px, calc(var(--s) * 48px), 21px), calc(var(--s) * 30px));
+  border-radius: 6px; border-width: 1.5px; background: rgba(5, 8, 20, 0.92); opacity: 1;
+    box-shadow: 0 0 8px -2px currentColor;
+}
+.office-map .robot-hit .robot-state::after {
+  content: ""; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 4px solid transparent;
+  border-top-color: currentColor; border-bottom-width: 0;
+}
+.office-map .robot-hit .robot-state .icon { width: clamp(10px, calc(var(--s) * 30px), 13px);
+  height: clamp(10px, calc(var(--s) * 30px), 13px); }
+/* a resting or absent robot gets a small round marker, so the badges of robots at work stand out */
+.office-map .robot-hit .robot-state:is(.state-idle, .state-unavailable) {
+  width: 14px; height: 14px; min-width: 0; min-height: 0; border-radius: 50%; border-width: 1px; box-shadow: none;
+    opacity: 0.9;
+}
+.office-map .robot-hit .robot-state:is(.state-idle, .state-unavailable)::after { display: none; }
+.office-map .robot-hit .robot-state:is(.state-idle, .state-unavailable) .icon { width: 8px; height: 8px; }
+.office-map .robot-hit .robot-state.state-idle { color: var(--text-2); }
+.office-map .robot-hit .robot-state.state-unavailable { color: var(--text-3); }
+.office-map .room-hit:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.office-map .room-hit:focus-visible, .office-map .room-hit.on { outline: 2px solid var(--accent); outline-offset: -3px;
+  border-radius: 10px; }
+.office-map .robot-hit:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.office-map .robot-hit:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.office-map .brain-core-hit > span { opacity: 0; transition: opacity 140ms ease; }
+.office-map .brain-core-hit:is(:hover, :focus-visible) > span,
+  .office-map[data-tags="all"] .brain-core-hit > span { opacity: 1; }
+.ship-missing { position: absolute; left: 50%; bottom: 8%; transform: translateX(-50%); max-width: 90%;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+    background: color-mix(in srgb, var(--canvas) 88%, transparent); color: var(--text-2); }
+.office-map[data-renderer="plain"] .room-hit { border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent); }
+.office-map[data-renderer="plain"] .room-sign, .office-map[data-renderer="plain"] .robot-tag { opacity: 1; }
+
+/* ------------------------------------------------------------------ type: the pixel art stays in the pictures */
+.office-page h1, .team-page h1, .op-head h2, .op-name b, .cb-title, .dept-card h3, .team-group h2, .team-card b,
+.office-studio .studio-title { font-family: var(--font); font-weight: 700; }
+.office-studio .cb-title { color: var(--text); }
+
+/* ------------------------------------------------------------------ the row beneath the ship */
+.office-map-legend .lounge-life-caption {
+  position: static; margin-left: auto; padding: 0; border: 0; background: none; color: var(--text-3);
+    font-size: var(--fs-tiny);
+}
+.office-map-legend.simple { gap: var(--s3); padding: var(--s3) 0 0; background: none; border: 0; color: var(--text-2);
+  font-size: var(--fs-body); }
+.office-map-legend.simple > * + *:not(.handoff-note):not(.lounge-life-caption) { position: relative; }
+.office-map-legend.simple > .ship-tool::before {
+  content: ""; position: absolute; left: calc(-1 * var(--s3) / 2 - 1px); top: 9px; bottom: 9px;
+    border-left: 1px solid var(--line-strong);
+}
+.office-map-legend.simple .office-camera select {
+  min-height: 40px; height: 40px; padding: 0 36px 0 16px; border-radius: 12px; font-size: 1rem; font-weight: 600;
+    max-width: 220px;
+  border: 1.5px solid color-mix(in srgb, var(--primary) 70%, transparent);
+    background-color: color-mix(in srgb, var(--canvas) 70%, transparent);
+}
+.ship-tool {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border: 0;
+    border-radius: 10px;
+  background: transparent; color: var(--text-2); font: inherit; font-size: 1rem; cursor: pointer;
+}
+.ship-tool:hover { color: var(--text); background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.ship-tool[aria-pressed="true"] { color: var(--text); background: color-mix(in srgb, var(--primary) 16%, transparent); }
+.ship-tool .icon { width: 18px; height: 18px; color: var(--text-2); }
+.ship-tool.switch { gap: 8px; min-height: 40px; }
+.ship-tool.switch .track { margin-left: 4px; }
+
+
+/* ------------------------------------------------------------------ the Studio page */
+.page.studio-space { max-width: 1480px; display: grid; gap: var(--s6); }
+.studio-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 380px);
+  grid-template-areas: "ship side"; gap: var(--s5) var(--s6); align-items: start; }
+.studio-layout > .studio-ship { grid-area: ship; }
+.studio-layout > .studio-side { grid-area: side; }
+
+/* Make something (the Studio panel's Make tab): the four kinds of work, each one big press away */
+.studio-make { display: grid; gap: var(--s3); }
+.studio-make h2 { margin: 0; font-size: clamp(1.375rem, 1.8vw, 1.875rem); }
+.studio-make ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.make-tile {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px;
+    align-items: center;
+  min-height: 60px; padding: 8px 14px 8px 8px; border-radius: 14px; text-decoration: none; color: var(--text);
+  background: color-mix(in srgb, var(--surface) 62%, transparent); border: 1.5px solid var(--line-strong);
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 140ms ease;
+}
+.make-tile .make-icon { grid-row: 1 / span 2; display: grid; place-items: center; width: 44px; height: 44px;
+  border-radius: 11px;
+  color: var(--primary); background: color-mix(in srgb, var(--primary) 16%, transparent); }
+.make-tile .make-icon .icon { width: 24px; height: 24px; }
+.make-tile b { font-size: 1.0625rem; line-height: 1.2; }
+.make-tile .make-words { color: var(--text-2); font-size: 0.875rem; line-height: 1.3; }
+.make-tile:hover { border-color: var(--primary);
+  box-shadow: 0 0 18px -6px color-mix(in srgb, var(--primary) 80%, transparent); }
+.make-tile:hover .make-icon { background: color-mix(in srgb, var(--primary) 26%, transparent); }
+.make-tile.first { background: color-mix(in srgb, var(--primary) 20%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent); }
+.make-tile.first .make-icon { color: var(--on-primary, #04121c); background: var(--primary); }
+:root[data-motion="reduced"] .make-tile { transition: none; }
+.studio-ship { position: relative; display: grid; gap: var(--s3); min-width: 0; }
+.studio-sky { position: relative; height: clamp(120px, 16vw, 236px); margin-top: calc(-1 * clamp(60px, 6.5vw, 104px));
+  pointer-events: none; }
+.studio-sky .black-hole { position: absolute; left: 50%; top: 0; width: min(780px, 74%); transform: translateX(-50%); }
+.ship-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s2) var(--s4); }
+.ship-head h2 { margin: 0; font-size: clamp(1.5rem, 2.2vw, 2.125rem); }
+.ship-count { padding-left: var(--s4); border-left: 1px solid var(--line-strong); color: var(--text-2);
+  font-size: clamp(1.0625rem, 1.4vw, 1.375rem); }
+.ship-live { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: var(--fs-small); }
+.ship-live .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.ship-live.on .state-dot { background: var(--good); box-shadow: 0 0 6px var(--good); }
+.ship-head .spacer { flex: 1; }
+.studio-space .office-map-frame { background: none; border: 0; box-shadow: none; }
+.studio-space .office-map { aspect-ratio: 1608 / 768; min-height: 0; height: auto; }
+.studio-space.ship-compact .studio-ship .office-map-frame { max-width: 860px; }
+.ship-loading { min-height: 240px; display: grid; place-items: center; }
+.ship-hidden { padding: var(--s5) 0; display: grid; gap: var(--s2); }
+
+.studio-today {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3) 0; margin-top: var(--s3); padding-top: var(--s4);
+  border-top: 1px solid var(--line-strong);
+}
+.studio-today > a, .studio-today > span { display: inline-flex; align-items: baseline; gap: 10px;
+  padding: 4px var(--s5); color: var(--text-2);
+  text-decoration: none; font-size: 1.0625rem; border-left: 1px solid var(--line-strong); min-height: 44px;
+    align-items: center; }
+.studio-today > a:first-child { padding-left: 0; border-left: 0; }
+.studio-today > a b { color: var(--text); font-size: 1.875rem; font-weight: 700; line-height: 1; }
+.studio-today > a:hover { color: var(--text); }
+.studio-today > a:hover b { color: var(--primary); }
+.studio-compute { margin-left: auto; gap: 8px !important; border-left: 0 !important; padding-right: 0 !important; }
+.studio-compute .icon { width: 20px; height: 20px; }
+.studio-compute .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.studio-compute.good .state-dot { background: var(--good); }
+.studio-compute.warn .state-dot { background: var(--warn); }
+.studio-compute.bad .state-dot { background: var(--bad); }
+
+/* The Studio panel (2026-11-19 8:47 PM): two tabs, Working on and Make, over the panel they show */
+.studio-side { display: grid; gap: var(--s4); align-content: start; min-width: 0; padding-top: var(--s2); }
+.side-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent); border: 1px solid var(--line-strong); }
+.side-tab { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px;
+  padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text-2); font: inherit;
+  font-size: 1.0625rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.side-tab .icon { width: 20px; height: 20px; }
+.side-tab:hover { color: var(--text); background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.side-tab[aria-selected="true"] { color: var(--text); background: transparent; }
+/* the chosen tab's highlight slides across to the other tab (the owner, 2026-11-20: a smooth switch); Studio.tsx
+   measures where the chosen tab is (--pill-x, --pill-w) */
+.side-tabs { position: relative; }
+.side-tabs::before { content: ""; position: absolute; top: 4px; bottom: 4px; left: 0;
+  width: var(--pill-w, calc((100% - 12px) / 2)); transform: translateX(var(--pill-x, 4px));
+  border-radius: 10px; pointer-events: none; background: color-mix(in srgb, var(--primary) 22%, var(--surface));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--primary) 75%, transparent); }
+.side-tabs[data-pill="slide"]::before {
+  transition: transform 320ms cubic-bezier(0.3, 0.75, 0.25, 1), width 320ms cubic-bezier(0.3, 0.75, 0.25, 1); }
+.side-tab { position: relative; z-index: 1; transition: color 200ms ease, background-color 200ms ease; }
+.side-tab[aria-selected="true"] .icon { color: var(--primary); }
+.side-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.side-tab .tab-count { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px;
+  border-radius: 12px; background: var(--primary); color: var(--on-primary, #04121c); font-size: 0.875rem; }
+.side-panel { display: grid; gap: var(--s5); align-content: start; min-width: 0;
+  animation: cf-arrive 280ms cubic-bezier(0.2, 0.75, 0.25, 1); }
+.side-panel > * { align-self: start; min-width: 0; }
+.side-panel[hidden] { display: none; }
+.side-panel > * + * { padding-top: var(--s5); border-top: 1px solid var(--line-strong); }
+.side-panel > .studio-ask, .side-panel > .needs-row { padding-top: 12px; }
+.studio-side h2 { margin: 0 0 var(--s3); font-size: 1.25rem; }
+.studio-side .now-making h2, .studio-side .studio-make h2 { font-size: clamp(1.375rem, 1.8vw, 1.875rem); }
+.now-making { display: grid; gap: var(--s3); }
+.now-making h2 { margin-bottom: 0; }
+/* the screen: the project's picture in a dark bezel, with a light that says what it is doing */
+.now-screen { position: relative; display: block; padding: 7px; border-radius: 16px;
+  background: linear-gradient(180deg, #0d1426, #04060d); border: 1px solid var(--line-strong);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), 0 12px 28px -16px rgba(0, 0, 0, 0.9); }
+.now-screen::after { content: ""; position: absolute; inset: 7px; border-radius: 9px; pointer-events: none;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.12), transparent 36%); }
+.now-thumb { display: block; aspect-ratio: 16 / 9; border-radius: 9px; overflow: hidden; background: var(--raised); }
+.now-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 200ms ease; }
+.now-screen:hover .now-thumb img { transform: scale(1.03); }
+:root[data-motion="reduced"] .now-thumb img { transition: none; }
+.screen-light { position: absolute; left: 16px; top: 16px; z-index: 1; display: inline-flex; align-items: center;
+  gap: 7px; padding: 3px 10px; border-radius: 999px; background: rgba(4, 6, 14, 0.84); color: var(--text);
+  font-size: 0.875rem; font-weight: 700; }
+.screen-light .state-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); }
+.screen-light.on .state-dot { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.screen-light.wait .state-dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.screen-light.ready .state-dot { background: var(--primary); box-shadow: 0 0 8px var(--primary); }
+.screen-pct { position: absolute; right: 16px; bottom: 16px; z-index: 1; padding: 2px 9px; border-radius: 8px;
+  background: rgba(4, 6, 14, 0.84); color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.thumb-empty { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-3); }
+.now-title h3 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
+.now-title .muted { font-size: 1rem; }
+.now-step { display: flex; justify-content: space-between; gap: var(--s3); margin: 0; font-size: 1.0625rem;
+  color: var(--text); }
+.now-step b { font-variant-numeric: tabular-nums; }
+.now-making .bar { height: 10px; border-radius: 5px; }
+.now-making .bar > span, .now-making .bar > div { border-radius: 5px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 60%, transparent); }
+.now-crew { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--s2); }
+.now-empty { margin: 0; font-size: 1.0625rem; line-height: 1.5; }
+.btn-outline { background: transparent; border: 1.5px solid var(--text-2); color: var(--text); min-height: 44px;
+  font-size: 1rem; }
+.btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+.now-making .btn-wide { min-height: 46px; font-size: 1.0625rem; }
+.studio-queue ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s3); }
+.queue-row { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: var(--s3); align-items: center;
+  padding: 4px;
+  margin: -4px; border-radius: 10px; color: var(--text); text-decoration: none; }
+.queue-row:hover { background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.queue-row img, .queue-row .thumb-empty { width: 112px; height: 63px; object-fit: cover; border-radius: 8px;
+  background: var(--raised);
+  border: 1px solid var(--line); }
+.queue-row b { font-size: 1.0625rem; }
+.queue-row .muted { font-size: 0.9375rem; }
+/* What's going on: the crew's last steps */
+.studio-going { display: grid; align-content: start; }
+.studio-going h2 { margin-bottom: var(--s1); }
+.studio-going .op-activity li { font-size: 0.9375rem; line-height: 1.35; }
+.studio-going .link-btn { justify-self: start; margin-top: var(--s2); min-height: 32px; }
+/* Needs you and Talk to ClipForge AI: one row each, a big target */
+.needs-row, .studio-ask { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center;
+  width: 100%; padding: 12px 4px 4px; border: 0; background: none; color: var(--text); font: inherit; text-align: left;
+  text-decoration: none; cursor: pointer; }
+.needs-row > .icon { width: 26px; height: 26px; justify-self: center; color: var(--warn); }
+.studio-ask .ask-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 11px;
+  color: var(--mint, var(--primary)); background: color-mix(in srgb, var(--mint, var(--primary)) 16%, transparent); }
+.studio-ask .ask-icon .icon { width: 24px; height: 24px; }
+.needs-row b, .studio-ask b { font-size: 1.0625rem; }
+.needs-row .muted, .studio-ask .muted { font-size: 0.9375rem; }
+.needs-row:hover b, .studio-ask:hover b { color: var(--primary); }
+/* Next to publish, at the bottom: a little screen of the clip (upright, like a phone), what it is and when */
+.studio-next { display: grid; gap: var(--s3); }
+.studio-next h2 { margin: 0; }
+.studio-next p { margin: 0; }
+.next-row { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: var(--s3); align-items: center;
+  padding: 4px; margin: -4px; border-radius: 10px; color: var(--text); text-decoration: none; }
+.next-row:hover { background: color-mix(in srgb, var(--raised) 70%, transparent); }
+.next-row b { font-size: 1.0625rem; line-height: 1.25; }
+.next-row .icon { vertical-align: -2px; color: var(--text-2); }
+.little-screen { display: block; width: 62px; aspect-ratio: 9 / 16; padding: 3px; border-radius: 10px;
+  background: linear-gradient(180deg, #0d1426, #04060d); border: 1px solid var(--line-strong); }
+.little-screen img, .little-screen .thumb-empty { display: block; width: 100%; height: 100%; object-fit: cover;
+  border-radius: 7px; background: var(--raised); }
+.studio-next > a.small { justify-self: start; }
+.ship-details { display: grid; gap: var(--s3); min-width: 0; }
+.ship-details .op-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--s2); padding: 0;
+  min-height: 0; border: 0; }
+.ship-details .op-head h2 { margin: 0; font-size: 1.625rem; }
+.ship-details .op-body { padding: 0; max-height: none; overflow: visible; }
+.studio-band { display: grid; gap: var(--s4); padding-top: var(--s5); border-top: 1px solid var(--line); }
+.studio-band h2 { margin: 0; font-size: 1.375rem; }
+
+@media (max-width: 1100px) {
+  /* one column: the Studio panel comes under the ship, its sections side by side where they fit */
+  .studio-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ship" "side"; }
+  .studio-make ul { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .studio-sky { height: 84px; margin-top: 0; }
+  .side-tabs { max-width: 520px; }
+  .side-panel { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s5) var(--s6); }
+  .side-panel > * + * { padding-top: 0; border-top: 0; }
+  .studio-compute { margin-left: 0; }
+}
+@media (max-width: 640px) {
+  .studio-sky { display: none; }
+  .side-tab { gap: 6px; padding: 0 6px; }
+  .side-tab > .icon { display: none; }
+  .studio-today > a, .studio-today > span { padding: 4px var(--s3); font-size: 0.9375rem; }
+  .studio-today > a b { font-size: 1.375rem; }
+  .ship-head .btn { display: none; }
+}
+
+/* ------------------------------------------------------------------ project cards (Projects and the Studio) */
+.lib-card { background: color-mix(in srgb, var(--surface) 72%, transparent); border-color: var(--line-strong);
+  border-radius: 14px; gap: 0; }
+.lib-card:hover { border-color: color-mix(in srgb, var(--primary) 60%, var(--line));
+  box-shadow: 0 0 22px -10px var(--primary); }
+.lib-thumb { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); }
+.lib-thumb .thumb { display: block; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover;
+  transition: transform 220ms ease; }
+.lib-card:hover .lib-thumb img.thumb { transform: scale(1.03); }
+:root[data-motion="reduced"] .lib-thumb .thumb { transition: none; }
+.lib-length { position: absolute; right: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px;
+  border-radius: 8px; background: rgba(4, 6, 16, 0.82); color: #fff; font-size: 0.875rem; font-weight: 700;
+    font-variant-numeric: tabular-nums; }
+.lib-card .body { padding: 10px 12px 14px; gap: 6px; align-content: start; }
+.lib-card { grid-template-rows: auto 1fr; height: 100%; }  /* a short card in a tall row keeps its words at the top */
+.lib-card .body > b { font-size: 1.0625rem; padding-right: 40px; }  /* room for the pin button */
+.lib-card-wrap:has(.lib-del-btn) .lib-card .body > b { padding-right: 76px; }  /* and the delete button */
+.lib-line { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 0.875rem; }
+.lib-line .icon { color: var(--text-3); flex: none; }
+.lib-line .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary);
+  box-shadow: 0 0 6px var(--primary); flex: none; }
+.lib-line.running { color: var(--text); }
+/* the pin and delete buttons sit on the name's row, just under the picture */
+.lib-card-tools { position: absolute; left: 0; right: 0; top: 0; aspect-ratio: 16 / 9; pointer-events: none; }
+.lib-card-tools > * { pointer-events: auto; position: absolute; top: calc(100% + 8px); }
+.lib-card-tools .pin-btn { right: 44px; }
+.lib-card-tools .lib-del-btn { right: 8px; }
+.lib-card-tools .pin-btn:only-child { right: 8px; }
+.lib-card-tools .pin-btn, .lib-card-tools .lib-del-btn {
+  display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 8px;
+    border: 1px solid transparent;
+  background: transparent; color: var(--text-2); cursor: pointer; box-shadow: none; left: auto;
+}
+.lib-card-tools .pin-btn:hover, .lib-card-tools .lib-del-btn:hover { border-color: var(--line-strong);
+  color: var(--text); background: var(--raised); }
+.lib-card-tools .pin-btn.on { color: var(--primary); }
+.lib-card-tools .pin-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; }
+
+/* ------------------------------------------------------------------ the Projects page */
+.projects-space { max-width: 1480px; display: grid; gap: var(--s5); }
+.projects-toolbar { gap: var(--s4); padding-bottom: var(--s4); border-bottom: 1px solid var(--line-strong); }
+.projects-toolbar .seg { min-height: 44px; }
+.projects-toolbar .seg button { min-height: 38px; font-size: 1rem; padding: 0 16px; }
+.projects-search { position: relative; display: flex; align-items: center; flex: 1 1 260px; max-width: 420px; }
+.projects-search > .icon { position: absolute; left: 12px; width: 18px; height: 18px; color: var(--text-3);
+  pointer-events: none; }
+.projects-search input, .projects-search input[type="search"] { width: 100%; min-height: 44px; padding: 0 12px 0 40px;
+  border-radius: 12px; font-size: 1rem; }
+.projects-order { margin-left: auto; }
+.projects-order select { min-height: 44px; border-radius: 12px; font-size: 1rem; padding: 0 36px 0 14px; }
+.projects-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 28vw, 440px); gap: var(--s6);
+  align-items: start; }
+.projects-layout h2 { margin: 0 0 var(--s4); font-size: clamp(1.375rem, 1.8vw, 1.875rem); }
+.projects-space .lib-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--s5); }
+.projects-foot { margin: var(--s5) 0 0; color: var(--text-3); }
+.projects-live { padding-left: var(--s6); border-left: 1px solid var(--line-strong); min-width: 0; }
+.live-table { width: 100%; border-collapse: collapse; font-size: 1rem; }
+.live-table th, .live-table td { padding: 14px 6px; border-bottom: 1px solid var(--line-strong); text-align: left;
+  white-space: nowrap; }
+.live-table thead th { color: var(--text-2); font-weight: 400; padding-top: 0; }
+.live-table th:nth-child(2), .live-table th:nth-child(3), .live-table td { text-align: right;
+  font-variant-numeric: tabular-nums; }
+.live-table tbody th { font-weight: 700; max-width: 0; width: 60%; white-space: normal; }
+.live-name { display: grid; gap: 2px; min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
+.live-name small { color: var(--text-3); font-weight: 400; font-size: 0.8125rem; }
+.live-table tbody th a { display: flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none;
+  min-width: 0; }
+.live-table tbody th a:hover .live-name { text-decoration: underline; }
+.live-pill { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 2px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong); font-size: 0.875rem; font-weight: 700; }
+.live-pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px var(--good); }
+.live-empty { display: grid; gap: var(--s3); justify-items: start; }
+.live-empty p { margin: 0; }
+@media (max-width: 1100px) {
+  .projects-layout { grid-template-columns: minmax(0, 1fr); }
+  .projects-live { padding-left: 0; border-left: 0; padding-top: var(--s5); border-top: 1px solid var(--line-strong); }
+  .projects-order { margin-left: 0; }
+}
+
+/* ------------------------------------------------------------------ the Studio preview frame (preview.ts) */
+/* Inside Settings → Appearance's preview the page shows no scroll bars; the frame is a still picture of the top. */
+html[data-preview], html[data-preview] body { overflow: hidden; }
+html[data-preview] * { scrollbar-width: none; }
+html[data-preview] *::-webkit-scrollbar { display: none; }

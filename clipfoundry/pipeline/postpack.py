@@ -8,6 +8,10 @@ templates, which ask the viewer to do something and state nothing about the cont
 `grounding_problems` checks text against the transcript: numbers, names, claims and words that are not in the clip
 are reported. An AI provider's suggestions are used only when they pass that check; everything else falls back to the
 extracted text. The user edits and approves the package before anything is published.
+
+How the text looks follows the owner: what they told ClipForge AI about titles, post text and hashtags ("titles in
+lower case, no emoji", "three hashtags at most") is read by brain/poststyle.py and applied to the finished package.
+It changes letter case, removes emoji and hashtags and picks among the clip's own lines; it never adds a word.
 """
 from __future__ import annotations
 
@@ -15,6 +19,7 @@ import re
 import time
 from collections import Counter
 
+from .. import db
 from . import hooks as hk
 from . import llm
 from .common import log
@@ -24,7 +29,39 @@ from .text_utils import (PAYOFF_PHRASES, STOPWORDS, build_sentences, clean_text,
 TITLE_MAX = 100          # YouTube's limit; TikTok has no separate title
 CAPTION_MAX = 2200       # TikTok's caption limit (YouTube descriptions allow 5000 bytes)
 DESCRIPTION_MAX = 160
-HASHTAG_LIMIT = 6
+HASHTAG_LIMIT = 5        # three to five specific hashtags do more than a long row of them (brain/knowhow.py)
+ADVICE_CHARS = 600       # what a model reads of the owner's skills before it writes post text
+# Hashtags that say nothing about the video. They are left out even when the speaker says the word ("this went
+# viral"): a hashtag is there to say what the clip is about.
+GROWTH_TAGS = {"fyp", "foryou", "foryoupage", "fy", "viral", "trending", "trend", "explore", "explorepage",
+               "xyzbca", "follow", "like", "likes", "subscribe"}
+# What a clip is: never a hashtag ("In this video I show you ...").
+MEDIUM_TAGS = {"video", "videos", "clip", "clips", "short", "content"}
+# Where a clip is posted: no hashtag, unless the clip is about the platform, which its title shows by naming it as
+# its subject ("Why I quit Instagram", "YouTube Shorts or TikTok?"); "This went viral on TikTok" is not about TikTok.
+PLATFORM_TAGS = {"tiktok", "youtube", "shorts", "reels", "instagram"}
+GENERIC_TAGS = GROWTH_TAGS | MEDIUM_TAGS | PLATFORM_TAGS
+_PLATFORM = r"(?:tik ?tok|you ?tube|shorts|reels|instagram|insta)"
+_POSTED_ON = re.compile(rf"\b(?:on|to|from|for|via|in|at|across|onto)\s+(?:the\s+|my\s+)?({_PLATFORM}"
+                        rf"(?:(?:\s*,\s*|\s+(?:and|or|&)\s+|\s+){_PLATFORM})*)\b")
+
+
+def title_subject(title: str) -> set[str]:
+    """The content words of a title, without the platforms it names only as where the clip went."""
+    words = content_tokens(title)
+    places = [set(content_tokens(m.group(1))) for m in _POSTED_ON.finditer(str(title or "").lower())]
+    named = PLATFORM_TAGS & set(words)
+    # platforms named apart ("from TikTok to YouTube", "left TikTok for YouTube") are what the title compares
+    where = set().union(*places) if any(named <= p for p in places) else set()
+    return {w for w in words if not (w in PLATFORM_TAGS and w in where)}
+
+
+def generic_tag(word: str, lead: set[str] | frozenset[str] = frozenset()) -> bool:
+    """A hashtag word that says nothing about this clip; `lead`: its title's subject words (title_subject)."""
+    word = word.lstrip("#").lower()
+    if word in PLATFORM_TAGS:
+        return word not in lead
+    return word in GROWTH_TAGS or word in MEDIUM_TAGS
 
 # Call-to-action templates. They ask for an action and make no statement about the clip.
 CTAS = {
@@ -143,6 +180,7 @@ def _title_score(t: str) -> float:
     s = hk._hookiness(t, 0.0)  # noqa: SLF001
     n = len(t)
     s += 1.0 if 25 <= n <= 70 else (-1.0 if n > 90 else 0.0)
+    s += 0.4 if 40 <= n <= 60 else 0.0   # the length that reads whole on a phone
     s -= 0.8 if t.endswith("...") else 0.0
     return s
 
@@ -183,9 +221,9 @@ later earlier soon everyone someone anyone almost also maybe
 def hashtags_for(clip_text: str, global_df: Counter | None = None, n_docs: int = 1, prefer: str = "") -> list[str]:
     """Topic words the clip actually uses, weighted by how specific they are to it within the video. Words that also
     appear in `prefer` (the title) rank first."""
-    lead = set(content_tokens(prefer))
-    kws = [k for k in keywords(clip_text, global_df, n_docs, top=HASHTAG_LIMIT * 3)
-           if k.isalpha() and k not in WEAK_TAGS and not k.endswith(("ly", "est"))]
+    lead = title_subject(prefer)
+    kws = [k for k in keywords(clip_text, global_df, n_docs, top=HASHTAG_LIMIT * 4)
+           if k.isalpha() and k not in WEAK_TAGS and not generic_tag(k, lead) and not k.endswith(("ly", "est"))]
     kws.sort(key=lambda k: k not in lead)  # stable: keeps the keyword order otherwise
     tags = [f"#{k}" for k in kws]
     return [t for t in dict.fromkeys(tags) if not hashtag_problems(t, clip_text)][:HASHTAG_LIMIT]
@@ -237,16 +275,48 @@ def extract(sents: list[str], hook: str, hooks_alt: list[str], category: str,
 
 
 # ------------------------------------------------------------------ optional AI provider
-def _ai_package(settings: dict, sents: list[str], category: str) -> dict:
+ADVICE_ABOUT = ("titles", "post text and descriptions", "hashtags")
+
+
+def advice(settings: dict) -> str:
+    """What the owner's switched-on skills say about titles and post text, for a model that writes them: the
+    advice lines that fit, in a small budget. The built-in craft is already in the prompt as one line
+    (knowhow.principles), so the playbooks written for the chat are not repeated here. "" when no skill is about
+    it. Each question is one part of the job, not the clip's words: a skill has to be about titles, post text or
+    hashtags to be read, whatever the speaker talks about."""
+    try:
+        from ..brain import library
+
+        ws = str(settings.get("workspace_id") or "local")
+        hits, left = [], ADVICE_CHARS
+        for about in ADVICE_ABOUT:
+            for hit in library.search(about, ws, task="post", sources=("skill",), limit=2, budget_chars=left,
+                                      settings=settings, meaning=False).hits:  # no meaning model for every clip
+                if all(hit.entry.id != h.entry.id for h in hits):
+                    hits.append(hit)
+                    left = max(0, left - len(hit.text) - 1)
+        return library.Found(hits[:2]).prompt()
+    except Exception:  # noqa: BLE001 - advice is extra; the writer works without it
+        log.exception("post text advice failed")
+        return ""
+
+
+def _ai_package(settings: dict, sents: list[str], category: str, style: dict | None = None) -> dict:
+    from ..brain import knowhow, poststyle
+
     numbered = "\n".join(f"- {s}" for s in sents)
+    read = advice(settings)
     prompt = (
         f"Short video clip transcript ({category or 'clip'}):\n{numbered}\n\n"
-        "Write a post package for TikTok and YouTube Shorts. Use ONLY information in the transcript: no names, "
+        "Write a post package for TikTok and YouTube Shorts. " + knowhow.principles("post") + " "
+        + (read + "\n" if read else "") +
+        "Use ONLY information in the transcript: no names, "
         "numbers, facts, events or claims that are not in it, and no hype words the speaker does not use. "
+        + poststyle.prompt(style or {}) +
         "Reply with JSON: {\"titles\": [3 different titles, max 70 characters], \"recommended\": index 0-2, "
         "\"captions\": [3 different captions, max 220 characters, no hashtags], \"description\": one sentence, max "
-        "150 characters, \"hook\": on-screen hook, max 12 words, \"hashtags\": [3-6 hashtags made of words the "
-        "speaker says]}"
+        "150 characters, \"hook\": on-screen hook, max 12 words, \"hashtags\": [3-5 hashtags made of words the "
+        "speaker says, about the topic, never #fyp or #viral]}"
     )
     text = llm.complete(settings, prompt)
     m = re.search(r"\{.*\}", text or "", re.S)
@@ -287,7 +357,10 @@ def _merge_ai(base: dict, ai: dict, clip_text: str) -> tuple[dict, int]:
             base[key] = v
             used += 1
     tags = ["#" + re.sub(r"[^\w]", "", str(t)) for t in (ai.get("hashtags") or []) if re.sub(r"[^\w]", "", str(t))]
-    tags = [t for t in tags if not hashtag_problems(t, clip_text)]
+    titles = base.get("titles") or []
+    rec = base.get("recommended_title") or 0
+    lead = title_subject(titles[rec] if 0 <= rec < len(titles) else "")
+    tags = [t for t in tags if not hashtag_problems(t, clip_text) and not generic_tag(t, lead)]
     if tags:
         base["hashtags"] = list(dict.fromkeys(tags + base["hashtags"]))[:HASHTAG_LIMIT]
         used += 1
@@ -297,17 +370,24 @@ def _merge_ai(base: dict, ai: dict, clip_text: str) -> tuple[dict, int]:
 # ------------------------------------------------------------------ public API
 def generate(sents: list[str], hook: str, hooks_alt: list[str], category: str, settings: dict | None = None,
              global_df: Counter | None = None, n_docs: int = 1, use_ai: bool = True) -> dict:
+    from ..brain import poststyle
+
     clip_text = " ".join(sents)
     pkg = extract(sents, hook, hooks_alt, category, global_df, n_docs)
     source = "Extracted from the clip's transcript"
     settings = settings or {}
+    style = poststyle.for_settings(settings)
     if use_ai and settings.get("ai_provider", "heuristic") in llm.PROVIDERS and sents:
         try:
-            pkg, used = _merge_ai(pkg, _ai_package(settings, sents, category), clip_text)
+            pkg, used = _merge_ai(pkg, _ai_package(settings, sents, category, style), clip_text)
             if used:
                 source = f"{llm.provider_label(settings)}, checked against the transcript"
         except llm.ProviderError as exc:
             log.warning("post package: AI provider failed (%s); using the extracted text", exc)
+    if style:
+        pkg = poststyle.dress(pkg, style)   # the owner's way: case, emoji, hashtags; never a new word
+        source += " · " + poststyle.note(style)
+        pkg["brain"] = {"rules": list(style.get("lines") or []), "memories": list(style.get("ids") or [])}
     pkg["title"] = pkg["titles"][pkg["recommended_title"]] if pkg["titles"] else ""
     pkg["caption"] = pkg["captions"][0] if pkg["captions"] else ""
     pkg.update({"source": source, "generated_at": time.time(), "edited": False,
@@ -339,8 +419,14 @@ def clip_sentences(words: list[dict], clip: dict) -> list[str]:
 def for_clip(clip: dict, words: list[dict], settings: dict, use_ai: bool = True) -> dict:
     from .scoring import document_frequencies
 
+    from ..brain import poststyle
+
     all_sents = build_sentences(words) if words else []
     df = document_frequencies(all_sents)
+    if "post_style" not in settings:  # a clip written again on its own: read what the Brain says for its video
+        project = db.get_project(str(clip.get("project_id") or "")) or {}
+        ws = str(project.get("workspace_id") or "local")
+        settings = {**settings, "workspace_id": ws, "post_style": poststyle.build(ws, str(project.get("id") or ""))}
     return generate(clip_sentences(words, clip), clip.get("hook", ""), clip.get("hooks_alt") or [],
                     clip.get("category", ""), settings, df, max(1, len(all_sents)), use_ai)
 

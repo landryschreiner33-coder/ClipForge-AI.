@@ -22,8 +22,24 @@ OUTPUT_W, OUTPUT_H = 1080, 1920
 CAPTION_STYLES = ["clean", "bold", "high_energy", "minimal"]
 TRACKING_MODES = ["auto", "center", "face", "speaker", "screen", "manual"]
 LAYOUTS = ["fill", "fit"]
+# What one clip can be framed as: the two above, plus split view (the face cam on top, the rest of the picture
+# below). "auto" makes a split view only when a face cam is found, "split" whenever a face is. They are chosen
+# per live stream and per clip, not in Settings: the full-video editor and saved styles know only LAYOUTS.
+CLIP_LAYOUTS = LAYOUTS + ["auto", "split"]
+# Settings → Split view: "auto" looks for a face cam in every clip whose layout nobody chose (render.cam_layout).
+SPLIT_VIEWS = ["auto", "off"]
+# What is under the cam in a split view: the whole picture, or its middle zoomed in to fill (reframe.split_panels)
+SPLIT_GAMES = ["whole", "zoom"]
+LIVE_PICKS = ["best", "balanced", "most"]   # how picky a live stream is (autopilot/live_pick.py)
+# How a live stream's clips are framed: "auto" and "split" as above (without a face cam the clip gets the layout
+# from Settings), "off" never makes a split view.
+LIVE_FRAMINGS = ["auto", "split", "off"]
 SILENCE_MODES = ["off", "light", "aggressive"]
-AI_PROVIDERS = ["heuristic", "ollama", "openai_compatible", "anthropic", "nvidia"]
+CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
+AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]
+BUILTIN_AI_LEVELS = ["auto", "basic", "standard", "pro"]
+EDIT_ENGINES = ("auto", "filmcraft", "ffmpeg")
+ENGINES_COMFYUI = ("clipforge", "app", "remote", "off")
 NVIDIA_MODES = ["development", "production"]
 CLIP_COUNTS = [3, 5, 10]
 
@@ -66,13 +82,23 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "language": "",                   # "" = auto-detect
     # Clip discovery
     "clip_count": 5,
-    "min_duration": 15.0,
-    "max_duration": 60.0,
-    "target_duration": 30.0,
+    # 25 / 90 / 45 since 2026-11: at 15 / 60 / 30 a clip was often only the strongest lines of a longer moment.
+    "min_duration": 25.0,
+    "max_duration": 90.0,
+    "target_duration": 45.0,
     "min_score": 50.0,                # clips below this AI estimate are dropped (best one is always kept)
     # Stage 2 AI evaluation (all optional; heuristic works fully offline)
     "ai_provider": "heuristic",
     "ai_max_candidates": 12,
+    "deep_analysis": True,              # staged analysis for every "Make clips" (pipeline/deep.py), not only Autopilot
+    "ai_scout": True,                   # the model reads the whole video and ranks the finalists (pipeline/scout.py)
+    "ai_eyes": True,                    # the model looks at frames of the finalists (pipeline/eyes.py)
+    # "Tell the editor what to change" (studio/edit_requests.py): only used when an AI service above is set up
+    "ai_edit_requests_per_day": 40,     # requests sent to the AI service per workspace per day (0: never send)
+    "ai_edit_timeout_s": 60.0,          # stop waiting after this; nothing is changed
+    # The built-in model (builtin_ai.py): llama.cpp and a free model, downloaded once from Settings → ClipForge AI
+    "builtin_ai_level": "auto",          # auto (the best one installed) | basic | standard | pro
+    "builtin_ai_idle_minutes": 10.0,     # the engine stops after this long without work, freeing its memory
     "ollama_url": "http://localhost:11434",
     "ollama_model": "llama3.1:8b",
     "openai_url": "http://localhost:1234/v1",
@@ -100,6 +126,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "highlight_words": True,
     "tracking": "auto",
     "layout": "fill",
+    "split_view": "auto",             # a video with a face cam gets a split view (the cam on top, the picture below)
+    "split_game": "whole",            # ... showing the whole picture under the cam ("zoom": its middle, filling)
     "silence": "light",
     "remove_fillers": True,           # with silence cleanup: an "um"/"uh" goes together with the pause around it
     "auto_zoom": True,                # subtle push-ins on sentences with an emphasized word
@@ -107,6 +135,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "hook_overlay": True,
     "hook_seconds": 3.0,
     "normalize_audio": True,
+    "clean_sound": "auto",            # off | auto | gentle | strong: noise, hum, breaths, levels, voice polish
+    "meaning_model": True,            # the small sentence-meaning model (embedder.py): downloaded once (90 MB)
     "encoder": "auto",                # auto | nvenc | videotoolbox | x264
     "crf": 20,
     "x264_preset": "veryfast",
@@ -135,7 +165,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "audience_tiktok_group_version": 1,
     # Autopilot (docs/AUTOPILOT.md). Off initially; a source request can authorize only its own YouTube clips.
     "autopilot_enabled": False,
-    "autopilot_input_mode": "submitted",  # submitted: process only explicitly added links/files; discovery is optional
+    "autopilot_input_mode": "submitted",  # process only the links/files you add (discovery is retired)
     "setup_mode": "",                   # first-time setup: "autopilot", or "manual" (you make clips yourself)
     "autopilot_process": "separate",    # separate: workers run in their own process | in_app: threads in the app
     "autopilot_daily_target": 0,        # 0: no app daily cap; quality, rights and platform allowances still apply
@@ -153,6 +183,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # swap a day per slot keeps the plan, and the approvals it needs, from changing back and forth
     "autopilot_replacement_cooldown_hours": 24.0,
     "autopilot_live_monitoring": True,  # authorized live sources only (the rights gate applies as always)
+    # Live streams: what a new stream starts with; each stream keeps the choice made when it was added.
+    "autopilot_live_pick": "best",      # how picky: best (few, strongest), balanced, most (every good moment)
+    "autopilot_live_framing": "auto",   # split view: auto (when a face cam is found), split (always), off
     "autopilot_learning": True,
     # Brain (autopilot/brain.py): the guards on audience-driven strategy changes (section 14 of the build brief)
     "brain_paused": False,              # keep collecting results, change no strategy
@@ -192,6 +225,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tavily_api_key": "",               # optional web search (tavily.com): public TikTok links and originals of clips
     "tavily_free_credits": 1000,        # credits your Tavily plan includes each month (the free plan: 1,000)
     "discovery_monthly_budget_usd": 0.0,  # paid use beyond free credits; 0 = never spend money
+    # Find media (studio/media_sources.py): searched only when you search or ask for one project's supporting media
+    "media_openverse": True,            # Openverse: openly licensed images, music and sound effects (no key)
+    "media_commons": True,              # Wikimedia Commons: images, footage and sounds (no key)
+    "media_pexels": True,               # Pexels: photos and footage (needs the free key below)
+    "pexels_api_key": "",               # sealed at rest; never shown again after saving
     "library_discovery": True,          # search free-license libraries (Wikimedia Commons) for reusable videos
     "autopilot_public_videos": True,   # public internet videos for local clipping; grants no publishing rights
     # Rights: which statuses allow automatic clipping (OWNED always does; BLOCKED never)
@@ -215,16 +253,59 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_allow_cpu_fallback": False,  # off (strict GPU): a GPU failure pauses Autopilot transcription
     "autopilot_max_source_gb": 8.0,     # Autopilot never downloads a bigger source file
     "autopilot_max_source_minutes": 240,  # ...nor processes a longer source (manual projects have no limit)
+    # Editing apps (craft/): FilmCraft (video editor) and EffectCraft (motion graphics), fetched by ClipForge itself
+    "edit_engine": "auto",              # auto: FilmCraft edits and renders final videos once it is set up, the
+                                        # built-in engine if it fails | filmcraft: FilmCraft only | ffmpeg: built-in
+    "craft_auto_install": True,         # the desktop app fetches the editing apps in the background
+    "craft_ai_finish": True,            # with an AI service set up, the AI finishes the edit with FilmCraft's tools
+    # Make a YouTube video previews (studio/proxies.py): a small copy of each big video (wider than 1280 pixels or
+    # longer than ten minutes) is made once and read by previews instead of the full file; finals use the original
+    "preview_proxies": True,
+    # Local makers (engines/, Settings → Pictures, video, voice): pictures and short video clips from words through
+    # ComfyUI, speech through a built-in voice; everything runs on this computer once it is downloaded
+    "engines_comfyui": "clipforge",    # clipforge: ClipForge's own ComfyUI | app: a ComfyUI already on this computer
+                                       # (the ComfyUI desktop app or a manual install) | remote: a ComfyUI on the
+                                       # person's rented cloud computer (engines/remote.py) | off: no pictures or video
+    "engines_comfyui_url": "",         # the "app" address; empty: look on 127.0.0.1:8000 (desktop app), then :8188
+    "engines_remote_url": "",          # the cloud computer's ComfyUI: https (plain http only to this computer)
+    "engines_remote_key": "",          # its key or name:password, only if it asks for one (sealed like a password)
+    "engines_picture": "",             # the picture model (engines/catalog.py id); empty: the best one set up
+    "engines_video": "",               # the video model; empty: the one set up
+    "engines_voice": "",               # the voice; empty: the one set up
+    "engines_idle_minutes": 10.0,      # ClipForge's ComfyUI stops after this long without work, freeing its memory
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-               "youtube_api_key", "tavily_api_key", "nvidia_api_key"}
+               "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key", "engines_remote_key"}
 SEARCH_API_KEYS = {"youtube_api_key", "tavily_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
-ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port"}
+# set only by their own routes, never by PUT /api/settings (the cloud computer's address and key: only from ClipForge's
+# own page, POST /api/engines/remote, so no other page can point the key somewhere else)
+ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port",
+                    "engines_remote_url", "engines_remote_key"}
+# not secret enough to seal, but shown as ******** by GET /api/settings (which any page could ask): whoever has the
+# cloud computer's address can use it while it is on. Its own page reads it from GET /api/engines (this computer only).
+UNSHOWN_KEYS = {"engines_remote_url"}
 AUTOPILOT_PROCESS = ["separate", "in_app"]
 YOUTUBE_PRIVACY = ["private", "public"]  # public also needs an explicitly confirmed public audience
 AUDIENCE_INTENTS = ["selected", "owner_only", "local_only", "public"]
+
+
+def _remote_url_ok(url: str) -> bool:
+    """A cloud ComfyUI's address: https with a host and no name or password in it; plain http only to this computer."""
+    from urllib.parse import urlsplit
+
+    if any(c.isspace() or ord(c) < 32 for c in url):
+        return False
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        parts.port  # noqa: B018 - a port that is not a number raises
+    except ValueError:
+        return False
+    if not host or parts.username is not None or parts.password is not None:
+        return False
+    return parts.scheme == "https" or (parts.scheme == "http" and host in ("127.0.0.1", "localhost", "::1"))
 
 
 def coerce_setting(key: str, value: Any) -> Any:
@@ -256,10 +337,37 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "layout" and v not in LAYOUTS:
             continue
+        elif key == "split_view" and v not in SPLIT_VIEWS:
+            continue
+        elif key == "split_game" and v not in SPLIT_GAMES:
+            continue
         elif key == "silence" and v not in SILENCE_MODES:
+            continue
+        elif key == "clean_sound" and v not in CLEAN_SOUND_MODES:
             continue
         elif key == "ai_provider" and v not in AI_PROVIDERS:
             continue
+        elif key == "edit_engine" and v not in EDIT_ENGINES:
+            continue
+        elif key == "builtin_ai_level" and v not in BUILTIN_AI_LEVELS:
+            continue
+        elif key == "engines_comfyui" and v not in ENGINES_COMFYUI:
+            continue
+        elif key == "engines_comfyui_url":
+            v = v.rstrip("/")[:300]
+            if v and not v.lower().startswith(("http://", "https://")):
+                continue
+        elif key == "engines_remote_url":  # the key and the words cross the internet: never in clear
+            v = v.rstrip("/")
+            if len(v) > 300 or (v and not _remote_url_ok(v)):  # never cut short: that would be another address
+                continue
+        elif key == "engines_remote_key":  # it goes in a header as it is: printable ASCII only
+            if len(v) > 1024 or any(not 33 <= ord(c) <= 126 for c in v):
+                continue
+        elif key in ("engines_picture", "engines_video", "engines_voice"):
+            v = v[:80]
+            if v and not all(c.isalnum() or c in "-._" for c in v):
+                continue
         elif key == "crf":
             v = max(10, min(35, v))
         elif key == "max_fps":
@@ -271,7 +379,12 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "autopilot_process" and v not in AUTOPILOT_PROCESS:
             continue
-        elif key == "autopilot_input_mode" and v not in {"submitted", "discovery"}:
+        elif key == "autopilot_input_mode" and v not in ({"submitted"} if DISCOVERY_RETIRED else
+                                                          {"submitted", "discovery"}):
+            continue  # discovery is retired: an old client asking for it keeps the submitted-input mode
+        elif key == "autopilot_live_pick" and v not in LIVE_PICKS:
+            continue
+        elif key == "autopilot_live_framing" and v not in LIVE_FRAMINGS:
             continue
         elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:
             continue
@@ -301,9 +414,17 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# Automatic source discovery (trend scans, watched feeds, live discovery and automatic source selection) is retired:
+# ClipForge works on the videos you supply (a file, or the link to one video you choose). The engine's code stays
+# dormant until it is deleted; no setting, migration, screen or restart can turn it on (db._migrate_discovery_retired
+# parks old discovery work). Project-specific supporting-media search (studio/media_library.py) is separate.
+DISCOVERY_RETIRED = True
+DISCOVERY_JOB_KINDS = ("trend_scan", "feed_scan", "source_scout", "live_watch")
+
+
 def discovery_enabled(settings: dict) -> bool:
-    """Background searching and watched feeds require the explicit discovery mode."""
-    return settings.get("autopilot_input_mode", "submitted") == "discovery"
+    """Background searching and watched feeds: retired (always False in the product)."""
+    return not DISCOVERY_RETIRED and settings.get("autopilot_input_mode", "submitted") == "discovery"
 
 
 _RANGES: dict[str, tuple[float, float]] = {
@@ -311,7 +432,9 @@ _RANGES: dict[str, tuple[float, float]] = {
     "discovery_candidates_per_scan": (1, 30), "discovery_queue_limit": (1, 100),
     "discovery_creator_limit": (1, 30),
     "brain_min_clips": (30, 1000), "brain_max_step": (0.01, 0.10), "brain_min_views": (1, 100000),
-    "brain_min_testers": (2, 100), "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
+    "brain_min_testers": (2, 100), "ai_edit_requests_per_day": (0, 1000), "ai_edit_timeout_s": (5.0, 300.0),
+    "builtin_ai_idle_minutes": (1.0, 120.0), "engines_idle_minutes": (1.0, 120.0),
+    "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
     "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),
     "nvidia_timeout_s": (5.0, 300.0), "nvidia_price_per_mtok_usd": (-1.0, 1000.0),
     "nvidia_daily_spend_cap_usd": (0.0, 1000.0),

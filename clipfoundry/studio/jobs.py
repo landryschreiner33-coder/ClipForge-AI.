@@ -20,6 +20,7 @@ LEASE_S = 90.0
 MAX_ATTEMPTS = 3
 log = logging.getLogger(__name__)
 HANDLERS: dict[str, Callable[[dict, "Lease"], dict]] = {}
+STOP_HOOKS: dict[str, Callable[[dict, str], None]] = {}
 
 
 class Canceled(Exception):
@@ -31,6 +32,25 @@ def handler(kind: str):
         HANDLERS[kind] = fn
         return fn
     return wrap
+
+
+def on_stop(kind: str):
+    """`fn(job, how)` runs when a job of this kind is canceled or given up (`how` is "canceled" or "failed"), so what
+    it was making can say so: its handler may never run again to do that itself."""
+    def wrap(fn):
+        STOP_HOOKS[kind] = fn
+        return fn
+    return wrap
+
+
+def _stopped(job_id: str, how: str) -> None:
+    job = db.fetch("studio_jobs", job_id) or {}
+    fn = STOP_HOOKS.get(job.get("kind", ""))
+    if fn is not None:
+        try:
+            fn(job, how)
+        except Exception:  # noqa: BLE001 - stopping a job never fails because of what it was making
+            log.exception("after stopping studio job %s", job_id)
 
 
 def enqueue(workspace_id: str, kind: str, target_id: str, revision: int = 0, *, submit: bool = True) -> dict:
@@ -107,8 +127,11 @@ def fail(lease: Lease, error: str) -> None:
 
 
 def cancel(job_id: str) -> bool:
-    return bool(db.execute("UPDATE studio_jobs SET status = 'canceled', message = 'Canceled', updated_at = ? "
+    done = bool(db.execute("UPDATE studio_jobs SET status = 'canceled', message = 'Canceled', updated_at = ? "
                            "WHERE id = ? AND status IN ('queued', 'running')", (time.time(), job_id)))
+    if done:
+        _stopped(job_id, "canceled")
+    return done
 
 
 def run(job_id: str) -> None:
@@ -120,9 +143,15 @@ def run(job_id: str) -> None:
             # another worker holds it (or a previous process did); look again when that lease runs out
             wait = row["lease_until"] - time.time() + 1
             threading.Timer(wait, lambda: _resubmit(job_id)).start()
-        elif row.get("status") == "queued" and row.get("attempts", 0) >= MAX_ATTEMPTS:
-            db.update("studio_jobs", job_id, status="failed", message="Failed",
-                      error="Stopped after repeated interruptions. Press Retry to try once more.")
+        elif row.get("status") in ("queued", "running") and row.get("attempts", 0) >= MAX_ATTEMPTS:
+            # interrupted too often (queued, or running with a lease nobody renews any more): give up, and say so
+            now = time.time()
+            if db.execute("UPDATE studio_jobs SET status = 'failed', message = 'Failed', error = ?, lease_token = '', "
+                          "updated_at = ? WHERE id = ? AND attempts >= ? AND (status = 'queued' OR "
+                          "(status = 'running' AND lease_until < ?))",
+                          ("Stopped after repeated interruptions. Press Retry to try once more.", now, job_id,
+                           MAX_ATTEMPTS, now)):
+                _stopped(job_id, "failed")
         return
     job = db.fetch("studio_jobs", job_id) or {}
     fn = HANDLERS.get(job.get("kind", ""))

@@ -1,255 +1,194 @@
+/* The knowledge map (pages/BrainGraph.tsx): the darkest surface on the Brain page, a faint grid, glowing nodes. */
 .brain-graph {
-  position: relative;
-  min-width: 0;
-  overflow: hidden;
-  background: #070f1a;
+  position: relative; min-width: 0; overflow: hidden; display: flex; flex-direction: column;
+  background: var(--canvas);
   background-image:
-    radial-gradient(ellipse at 45% 42%, #10253790, transparent 65%),
-    radial-gradient(#97c4df16 0.7px, transparent 0.7px);
-  background-size:
-    auto,
-    22px 22px;
-  display: flex;
-  flex-direction: column;
+    radial-gradient(ellipse at 45% 42%, color-mix(in srgb, var(--primary-tint) 70%, transparent), transparent 65%),
+    radial-gradient(rgba(255, 255, 255, 0.07) 0.7px, transparent 0.7px);
+  background-size: auto, 22px 22px;
 }
-.brain-graph-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 20px 20px 0;
-}
-.brain-graph-heading > span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #94aec8;
-  font-size: 9px;
-  letter-spacing: 0.13em;
-}
-.brain-graph-heading i {
-  width: 5px;
-  height: 5px;
-  background: #6cdae0;
-  border-radius: 100%;
-  box-shadow: 0 0 10px #64e1e070;
-}
-.brain-graph-motion {
-  border: 0;
-  background: transparent;
-  color: #879eb5;
-  font-size: 10px;
-  cursor: pointer;
-  padding: 5px;
-}
-.brain-graph-motion:hover {
-  color: #d6eafa;
-}
+.brain-graph-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s4) var(--s4) 0; }
+.brain-graph-heading > span { display: flex; align-items: center; gap: var(--s2); color: var(--text-2); font-size: var(--fs-tiny); font-weight: 600; }
+.brain-graph-heading i { width: 6px; height: 6px; background: var(--mint); border-radius: 100%; box-shadow: 0 0 10px color-mix(in srgb, var(--mint) 60%, transparent); }
+.brain-graph-motion { color: var(--text-3); font-size: var(--fs-tiny); padding: 5px; }
 .brain-graph-canvas {
-  display: block;
-  width: 100%;
-  height: 525px;
-  flex: 1;
-  min-height: 360px;
-  touch-action: none;
-  cursor: grab;
+  display: block; width: 100%;
+  /* a fixed share of the window: a long list beside it must not stretch the map into a tall, mostly empty box */
+  height: clamp(360px, 62vh, 620px); flex: 0 0 auto; touch-action: none; cursor: grab;
 }
-.brain-graph-canvas:active {
-  cursor: grabbing;
+.brain-graph-canvas:active { cursor: grabbing; }
+.brain-graph-canvas:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
+.brain-graph-edges path { fill: none; stroke-width: 0.75; opacity: 0.22; vector-effect: non-scaling-stroke; }
+.brain-graph-edges .edge-topic { opacity: 0.16; }
+.brain-graph-edges .edge-evidence { stroke-dasharray: 3 4; opacity: 0.28; }
+.brain-graph-edges path[data-highlighted="true"] { opacity: 0.7; stroke-width: 1.3; }
+.brain-graph-node { cursor: pointer; outline: none; }
+.brain-node-hit { fill: transparent; stroke: transparent; }
+.brain-node-ring { fill: none; stroke: currentColor; stroke-width: 0.75; opacity: 0.25; }
+/* The dots' own glow stays still; the lightning under them (brainLightning.ts) is the map's decoration. */
+.brain-node-aura { fill: currentColor; opacity: 0.08; }
+/* Something a project really applied in the last few minutes: a few rings, then a steady outline. */
+.brain-node-applied {
+  fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.85; transform-origin: center; transform-box: fill-box;
+  animation: brain-applied 1.6s ease-out 5;
 }
-.brain-graph-canvas:focus-visible {
-  outline: 2px solid #82bbfb;
-  outline-offset: -4px;
-}
-.brain-graph-edges line {
-  stroke-width: 0.75;
-  opacity: 0.22;
-  vector-effect: non-scaling-stroke;
-}
-.brain-graph-edges .edge-topic {
-  opacity: 0.16;
-}
-.brain-graph-edges .edge-evidence {
-  stroke-dasharray: 3 4;
-  opacity: 0.28;
-}
-.brain-graph-edges line[data-highlighted="true"] {
-  opacity: 0.7;
-  stroke-width: 1.3;
-}
-.brain-graph-node {
-  cursor: pointer;
-  outline: none;
-}
-.brain-node-hit {
-  fill: transparent;
-  stroke: transparent;
-}
-.brain-node-ring {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 0.75;
-  opacity: 0.25;
-}
-.brain-node-aura {
-  fill: currentColor;
-  opacity: 0.065;
-  transform-origin: center;
-  animation: brain-map-glow 7s ease-in-out infinite;
-}
-.brain-graph-node .brain-node-core {
-  filter: drop-shadow(0 0 3px currentColor);
-}
-.brain-graph-node.node-brain .brain-node-core {
-  filter: drop-shadow(0 0 12px #52e6f2);
-}
-.brain-graph-node.node-collection .brain-node-core {
-  filter: drop-shadow(0 0 8px currentColor);
-}
-.brain-graph-node.node-collection .brain-node-aura {
-  animation-delay: -2s;
-}
-.brain-graph-node.node-brain .brain-node-aura {
-  animation-duration: 9s;
-}
-.brain-node-label {
-  fill: #9eafc3;
-  font-family: inherit;
-  font-size: 9px;
-  opacity: 0.8;
-  pointer-events: none;
-}
-.brain-graph-node.node-brain .brain-node-label {
-  fill: #a8e6f2;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  font-weight: 600;
-}
-.brain-graph-node.node-collection .brain-node-label {
-  fill: currentColor;
-  font-size: 11px;
-}
-.brain-graph-node.node-topic .brain-node-label {
-  font-size: 8px;
-}
+.brain-graph.is-still .brain-node-applied { animation: none; }
+.brain-graph-edges .edge-use { opacity: 0.3; }
+.brain-graph-edges .edge-provenance { opacity: 0.45; }
+.brain-graph-node .brain-node-core { filter: drop-shadow(0 0 3px currentColor); }
+.brain-graph-node.node-brain .brain-node-core { filter: drop-shadow(0 0 12px var(--cyan)); }
+.brain-graph-node.node-collection .brain-node-core { filter: drop-shadow(0 0 8px currentColor); }
+
+.brain-node-label { fill: var(--text-3); font-family: inherit; font-size: 9px; opacity: 0.85; pointer-events: none; }
+.brain-graph-node.node-brain .brain-node-label { fill: var(--cyan); font-size: 10px; letter-spacing: 0.06em; font-weight: 600; }
+.brain-graph-node.node-collection .brain-node-label { fill: currentColor; font-size: 11px; }
+.brain-graph-node.node-topic .brain-node-label { font-size: 8px; }
 /* Dense graphs stay legible; individual titles appear when the owner explores a saved item. */
-.brain-graph-node.node-knowledge .brain-node-label,
-.brain-graph-node.node-decision .brain-node-label,
-.brain-graph-node.node-result .brain-node-label {
-  opacity: 0;
-}
-.brain-graph-node[aria-pressed="true"] .brain-node-ring,
-.brain-graph-node:focus-visible .brain-node-ring,
-.brain-graph-node:hover .brain-node-ring {
-  opacity: 1;
-  stroke-width: 2;
-}
-.brain-graph-node[aria-pressed="true"] .brain-node-label,
-.brain-graph-node:focus-visible .brain-node-label,
-.brain-graph-node:hover .brain-node-label {
-  fill: #e5f4ff;
-  opacity: 1;
-}
-.brain-graph-node:focus-visible .brain-node-hit {
-  stroke: #e0f1ff;
-  stroke-width: 1;
-  stroke-dasharray: 2 2;
-}
-.brain-node-disabled {
-  stroke: #e1e7ef;
-  stroke-width: 1.5;
-}
-.brain-graph-node:has(.brain-node-disabled) .brain-node-core {
-  opacity: 0.45;
-}
-.brain-graph.is-still .brain-node-aura {
-  animation-play-state: paused;
-}
+/* A hidden name takes no room, so a dot's clickable box stays the dot (pointer tools and voice control click the middle
+   of it); a name that shows can be clicked like its dot. */
+.brain-graph-node.node-knowledge .brain-node-label, .brain-graph-node.node-decision .brain-node-label,
+.brain-graph-node.node-result .brain-node-label { display: none; }
+.brain-graph-node[aria-pressed="true"] .brain-node-ring, .brain-graph-node:focus-visible .brain-node-ring,
+.brain-graph-node:hover .brain-node-ring { opacity: 1; stroke-width: 2; }
+.brain-graph-node[aria-pressed="true"] .brain-node-label, .brain-graph-node:focus-visible .brain-node-label,
+.brain-graph-node:hover .brain-node-label { fill: var(--text); opacity: 1; display: inline; }
+.brain-graph-node:focus-visible .brain-node-hit { stroke: var(--text); stroke-width: 1; stroke-dasharray: 2 2; }
+.brain-node-disabled { stroke: var(--text-2); stroke-width: 1.5; }
+.brain-graph-node:has(.brain-node-disabled) .brain-node-core { opacity: 0.45; }
+
 .brain-graph-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 14px 16px;
-  border-top: 1px solid #23344a80;
-  flex-wrap: wrap;
+  margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--line); flex-wrap: wrap;
 }
-.brain-graph-bottom p {
-  margin: 0;
-  font-size: 9px;
-  color: #768aa4;
-  line-height: 1.6;
-}
-.brain-graph-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
+.brain-graph-bottom p { margin: 0; font-size: var(--fs-tiny); color: var(--text-3); line-height: 1.6; }
+.brain-graph-controls { display: flex; align-items: center; gap: 4px; }
 .brain-graph-controls button {
-  background: #111d2c;
-  border: 1px solid #27394e;
-  border-radius: 5px;
-  color: #c6d5e6;
-  cursor: pointer;
-  min-height: 30px;
-  min-width: 30px;
-  font-size: 11px;
-  padding: 4px 8px;
+  background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--r-sm); color: var(--text); cursor: pointer;
+  min-height: 30px; min-width: 30px; font-size: var(--fs-small); font-weight: 600; padding: 4px 8px; box-shadow: var(--lift-sm);
 }
-.brain-graph-controls button:hover {
-  background: #1a2c40;
-}
-.brain-graph-controls span {
-  font-size: 10px;
-  min-width: 35px;
-  text-align: center;
-  color: #93a7bf;
-}
-.brain-graph-empty {
-  position: absolute;
-  left: 15%;
-  right: 15%;
-  bottom: 100px;
-  text-align: center;
-  pointer-events: none;
-  display: grid;
-  gap: 8px;
-}
-.brain-graph-empty strong {
-  font-size: 14px;
-  color: #c6dfed;
-  font-weight: 500;
-}
-.brain-graph-empty span {
-  font-size: 12px;
-  color: #819bb4;
-  line-height: 1.6;
-}
-@keyframes brain-map-glow {
-  0%,
-  100% {
-    opacity: 0.05;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 0.12;
-    transform: scale(1.12);
-  }
+.brain-graph-controls button:hover { background: var(--hover); }
+.brain-graph-controls span { font-size: var(--fs-tiny); min-width: 40px; text-align: center; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.brain-graph-empty { position: absolute; left: 15%; right: 15%; bottom: 100px; text-align: center; pointer-events: none; display: grid; gap: var(--s2); }
+.brain-graph-empty strong { font-size: var(--fs-body); color: var(--text); font-weight: 600; }
+.brain-graph-empty span { font-size: var(--fs-small); color: var(--text-3); line-height: 1.6; }
+@keyframes brain-applied {
+  0% { opacity: 0.9; transform: scale(0.8); }
+  100% { opacity: 0.25; transform: scale(1.6); }
 }
 @media (max-width: 700px) {
-  .brain-graph-canvas {
-    height: 400px;
-    min-height: 350px;
-  }
-  .brain-graph-heading {
-    padding: 16px 14px 0;
-  }
-  .brain-graph-bottom {
-    padding: 12px;
-  }
+  .brain-graph-canvas { height: 400px; min-height: 350px; }
+  .brain-graph-heading { padding: var(--s3) var(--s3) 0; }
+  .brain-graph-bottom { padding: var(--s3); }
 }
 @media (prefers-reduced-motion: reduce) {
-  html:not([data-motion="full"]) .brain-node-aura {
-    animation: none;
-  }
+  html:not([data-motion="full"]) .brain-node-applied { animation: none; }
 }
+
+/* "Just used" in the list and the inspector: a word, not only the pulse */
+.brain-just-used {
+  margin-left: auto; padding: 1px 7px; border-radius: var(--r-pill); border: 1px solid var(--good); color: var(--good);
+  font-size: var(--fs-tiny); font-weight: 600; white-space: nowrap;
+}
+.brain-just-used-note { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--fs-small); color: var(--text-2); }
+
+/* ------------------------------------------------------------------ the galaxy (2026-11-19)
+   A spiral galaxy painted once (pages/galaxy.ts) sits behind the real graph, tilted,
+     and holds still: the map moves only
+   when something was just used (the studio upgrade's rule). CORE is the dark centre. Picking a node sends one light
+   from CORE along its real path and settles a ring round it. The galaxy is decoration; every dot and line over it is a
+   real record. */
+.brain-graph { background: transparent; background-image: none; }
+.brain-graph-stage { position: relative; overflow: hidden; }
+.brain-galaxy { position: absolute; pointer-events: none; opacity: 0.92; }
+.brain-galaxy-tilt { position: absolute; inset: 0; transform: rotate(-18deg) scale(1, 0.74); }
+.brain-galaxy-art { position: absolute; inset: 0; }
+.brain-galaxy-art canvas { display: block; width: 100%; height: 100%; }
+.brain-graph-canvas { position: relative; height: clamp(420px, 64vh, 680px); }
+.brain-graph-heading { position: absolute; z-index: 1; left: 0; right: 0; top: 0; }
+.brain-graph-bottom { position: relative; z-index: 1; border-top-color: var(--line);
+  background: color-mix(in srgb, var(--canvas) 70%, transparent); }
+.brain-graph-actions { display: flex; gap: var(--s2); }
+
+/* labels keep a dark halo so they read over the bright arms; a name you can see is clicked like its dot */
+.brain-node-label { paint-order: stroke; stroke: rgba(4, 6, 18, 0.88); stroke-width: 3px; stroke-linejoin: round;
+  font-size: 12.5px; fill: var(--text-2);
+  pointer-events: auto; cursor: pointer; }
+.brain-graph-node.node-collection .brain-node-label { font-size: 15px; font-weight: 700; }
+.brain-graph-node.node-brain .brain-node-label.brain-core-word { fill: #ffe2b8; stroke: none; font-size: 12px;
+  font-weight: 700; letter-spacing: 0.12em; }
+.brain-graph-node.node-brain .brain-node-core { filter: drop-shadow(0 0 14px rgba(255, 200, 140, 0.85));
+  stroke: #ffd9a8; stroke-width: 1.5; }
+.brain-graph-edges path { opacity: 0.3; }
+/* CORE's branches: brighter, thicker and in their collection's colour */
+.brain-graph-edges .edge-branch { opacity: 0.85; stroke-width: 2; filter: drop-shadow(0 0 3px currentColor); }
+
+/* the path from CORE to the chosen node: a faint line, and one light that runs along it once */
+.brain-path { pointer-events: none; }
+.brain-path-line { fill: none; stroke: currentColor; stroke-width: 1.4; opacity: 0.55;
+  vector-effect: non-scaling-stroke; }
+.brain-path-trace {
+  fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke;
+    stroke-dasharray: 9 91;
+  stroke-dashoffset: 100; opacity: 0; filter: drop-shadow(0 0 4px currentColor);
+    animation: brain-trace 1.1s steps(22, end) 1 forwards;
+}
+@keyframes brain-trace { 0% { stroke-dashoffset: 100; opacity: 1; } 92% { opacity: 1; } 100% { stroke-dashoffset: 9;
+  opacity: 0; } }
+.brain-graph-node[data-on-path="true"] .brain-node-ring { opacity: 0.7; }
+.brain-node-settle { fill: none; stroke: currentColor; stroke-width: 2; transform-box: fill-box;
+  transform-origin: center;
+  animation: brain-settle 0.5s steps(6, end) 1.05s both; }
+@keyframes brain-settle { from { opacity: 0; transform: scale(1.8); } to { opacity: 1; transform: scale(1); } }
+.brain-graph.is-still .brain-path-trace { animation: none; opacity: 0; }
+.brain-graph.is-still .brain-node-settle { animation: none; opacity: 1; }
+
+/* the map's name, and its controls laid over the bottom of the map (zoom at the left, Teach preference at the right) */
+.brain-graph-heading { padding: var(--s4) var(--s5) 0; pointer-events: none; }
+.brain-graph-heading > span:first-child { font-size: 1.25rem; font-weight: 700; color: var(--text);
+  text-shadow: 0 1px 6px #000; }
+.brain-graph-heading > span:first-child i { display: none; }
+.brain-graph-motion { text-shadow: 0 1px 4px #000; }
+.brain-graph-bottom {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; background: none; border-top: 0; margin: 0;
+  padding: var(--s4) var(--s5); align-items: flex-end; flex-wrap: nowrap; pointer-events: none;
+}
+.brain-graph-bottom > * { pointer-events: auto; }
+.brain-graph-bottom p { flex: 1; text-align: center; color: var(--text-2); text-shadow: 0 1px 4px #000;
+  pointer-events: none;
+  font-size: 0.75rem; }
+.brain-graph-controls { background: rgba(5, 8, 20, 0.82); border: 1px solid var(--line-strong); border-radius: 12px;
+  padding: 3px; gap: 2px; }
+.brain-graph-controls button { background: transparent; border: 0; box-shadow: none; min-width: 38px; min-height: 38px;
+  font-size: 1.125rem; }
+.brain-graph-controls button:hover { background: var(--raised); }
+.brain-graph-controls span { font-size: 0.9375rem; color: var(--text); min-width: 52px; }
+.brain-graph-controls button:last-child { font-size: 0.875rem; border-left: 1px solid var(--line-strong);
+  border-radius: 0 9px 9px 0; padding: 0 12px; }
+.brain-graph-actions .btn { background: rgba(5, 8, 20, 0.82); border-color: var(--mint); color: var(--text);
+  min-height: 44px; }
+.brain-graph-actions .btn:hover { box-shadow: 0 0 16px -4px var(--mint); }
+.brain-graph-empty { bottom: 120px; }
+@media (max-width: 900px) { .brain-graph-bottom p { display: none; } }
+@media (max-width: 560px) { .brain-graph-bottom { flex-wrap: wrap; padding: var(--s3); } }
+
+/* a dot's name shows when it is chosen, linked to the chosen one, pointed at, focused, just used or zoomed in on */
+.brain-graph[data-names="chosen"] .brain-graph-node:not(.node-brain, .node-collection):not([aria-pressed="true"],
+  [data-connected="true"], .is-applied, :hover, :focus-visible) .brain-node-label { display: none; }
+.brain-graph[data-names="all"] .brain-graph-node .brain-node-label,
+.brain-graph-node[data-connected="true"] .brain-node-label, .brain-graph-node.is-applied .brain-node-label {
+  opacity: 1; display: inline; }
+
+/* ------------------------------------------------------------------ lightning (2026-11-19 8:49 PM)
+   The owner: "make the brain lines and balls look like lighting and make sure its animated". A canvas under the dots
+   (pages/brainLightning.ts) draws each real link as a bolt and each dot as a glowing ball; the SVG keeps the dots,
+   their names, the chosen path and every control. Without a canvas the plain lines stay. */
+.brain-bolts { position: absolute; left: 0; top: 0; pointer-events: none; }
+/* the map fills its frame: with a taller panel beside it, the sky grows instead of the galaxy being cut off above an
+   empty band */
+.brain-graph-stage { flex: 1 1 auto; display: flex; flex-direction: column; }
+.brain-graph-stage > .brain-graph-canvas { flex: 1 1 auto; }
+.brain-graph.has-lightning .brain-graph-edges path { stroke-opacity: 0; filter: none; }
+.brain-graph.has-lightning .brain-graph-node .brain-node-core { stroke: rgba(255, 255, 255, 0.55); stroke-width: 0.8; }
+.brain-graph.has-lightning .brain-graph-node.node-brain .brain-node-core { stroke: #ffd9a8; stroke-width: 1.5; }
+.brain-graph.has-lightning .brain-graph-node.node-brain .brain-node-label.brain-core-word {
+  stroke: rgba(4, 6, 18, 0.9); stroke-width: 3px; paint-order: stroke; }

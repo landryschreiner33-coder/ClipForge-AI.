@@ -80,9 +80,19 @@ def test_quality_over_quantity_only_strong_clips_no_filler(podcast):
                       "Why do most people give up on running after three weeks?"]  # 10 requested, 2 good ones exist
     assert all(c["score"] >= 70 for c in chosen)
     report = scoring.quality_report(results, chosen, 10, 50)
-    assert report["shown"] == 2 and report["requested"] == 10 and report["rejected"]
+    assert report["shown"] == 2 and report["requested"] == 10 and report["evaluated"] == len(results)
     assert all(r["reasons"] for r in report["rejected"])
     assert "Not a guarantee" in report["note"]
+    # With the 25-second shortest clip, the camera talk and the warm-up are too short to be weighed at all. With the
+    # old 15-second one they are weighed, and the report lists them as left out, each with its reason.
+    words, sents, loud, _ = _setup(PODCAST)
+    opts = {**config.DEFAULT_SETTINGS, "min_duration": 15.0, "max_duration": 60.0, "target_duration": 30.0}
+    cands = candidates.find_candidates(words, sents, loud, opts, pool_size=12)
+    short, _ = scoring.evaluate(cands, sents, opts, JobContext(), "podcast", 0, 1, words=words, loud=loud)
+    picked = scoring.select(short, 10, 50)
+    assert sorted(sents[c["s0"]]["text"] for c in picked) == firsts
+    report = scoring.quality_report(short, picked, 10, 50)
+    assert report["shown"] == 2 and report["rejected"] and all(r["reasons"] for r in report["rejected"])
 
 
 def test_nothing_passes_means_no_clips():

@@ -1,0 +1,81 @@
+name: Built-in AI and sound cleanup check
+# Downloads the pinned engine and models on real Mac, Linux and Windows machines, checks them against their sources,
+# starts the engine and measures its speed, and times the sound cleanup's voice model (scripts/builtin_ai_check.py).
+on:
+  push:
+    branches: ['claude/project-thread-4sg7wk', 'claude/project-thread-hud5t5']
+    paths: ['clipfoundry/builtin_ai.py', 'clipfoundry/pipeline/cleanup.py', 'clipfoundry/embedder.py',
+            'clipfoundry/pipeline/eyes.py', 'scripts/builtin_ai_check.py', '.github/workflows/builtin-ai-check.yml']
+  workflow_dispatch:
+    inputs:
+      standard:
+        description: 'Also check the Standard level on Linux and Windows (a 5 GB download)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: builtin-ai-check-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  mac-and-linux:
+    if: github.event.repository.private == false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            flags: '--sound --meaning --eyes --no-catalog'
+          - os: ubuntu-latest
+            flags: '--sound --meaning --eyes'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tools for the speech sample
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; else sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng; fi
+          python -m pip install httpx numpy onnxruntime
+      - name: Check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/builtin_ai_check.py --out "$RUNNER_TEMP/builtin-ai-check.json" ${{ matrix.flags }} ${{ (inputs.standard && matrix.os == 'ubuntu-latest') && '--standard' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: builtin-ai-check-${{ matrix.os }}
+          path: ${{ runner.temp }}/builtin-ai-check.json
+          retention-days: 14
+  windows:
+    if: github.event.repository.private == false
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch the files the check needs (this repository's folder name cannot be checked out on Windows)
+        shell: pwsh
+        working-directory: ${{ runner.temp }}
+        run: |
+          $base = "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}"
+          New-Item -ItemType Directory -Force check/clipfoundry, check/scripts | Out-Null
+          foreach ($f in 'clipfoundry/__init__.py', 'clipfoundry/config.py', 'clipfoundry/builtin_ai.py', 'clipfoundry/embedder.py', 'scripts/builtin_ai_check.py') {
+            Invoke-WebRequest -Uri "$base/$f" -OutFile "check/$f"
+          }
+          python -m pip install httpx numpy onnxruntime
+      - name: Check
+        shell: pwsh
+        working-directory: ${{ runner.temp }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python check/scripts/builtin_ai_check.py --no-catalog --out builtin-ai-check.json ${{ inputs.standard && '--standard' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: builtin-ai-check-windows
+          path: ${{ runner.temp }}/builtin-ai-check.json
+          retention-days: 14

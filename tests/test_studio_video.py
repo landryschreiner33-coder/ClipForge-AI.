@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -43,12 +44,16 @@ def env(monkeypatch, tmp_path):
     music = tmp_path / "music.m4a"
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
                     "sine=frequency=220:sample_rate=48000:duration=60", "-c:a", "aac", str(music)], check=True)
-    by_duration = {}
+    scripts = {a.name: t1, c.name: t3}
 
     def fake_transcribe(wav, duration, *a, **k):  # the measured scripts stand in for a speech model offline
-        best = min((t1, t3), key=lambda script: abs(script["duration"] - duration))
-        if abs(best["duration"] - duration) < 0.2:
-            return best
+        from clipfoundry import db
+
+        # Encoders pad the container differently across FFmpeg versions. Match the source asset,
+        # not its rounded container duration, so the fixture still exercises the real edit requests.
+        source = next(row for row in db.select("assets") if Path(row["path"]).parent == Path(wav).parent)
+        if source["filename"] in scripts:
+            return scripts[source["filename"]]
         return {"language": "", "duration": duration, "source": "fixture", "segments": []}
 
     monkeypatch.setattr(transcribe, "transcribe", fake_transcribe)
@@ -57,8 +62,7 @@ def env(monkeypatch, tmp_path):
     from clipfoundry.api import app
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as api:
-        yield {"api": api, "files": {"a": a, "b": b, "c": c, "img": img, "music": music}, "t1": t1, "t3": t3,
-               "by_duration": by_duration}
+        yield {"api": api, "files": {"a": a, "b": b, "c": c, "img": img, "music": music}, "t1": t1, "t3": t3}
 
 
 def _upload(api, path) -> dict:
@@ -104,7 +108,9 @@ def test_cf09_mixed_media_assembly_edits_reopen_and_server_render(env):
     assert any("boring part" in n for n in plan["notes"])  # the avoid request removed that sentence
     c_parts = [c for c in plan["clips"] if c["asset_id"] == ids["c"]]
     assert len(c_parts) == 2 and c_parts[0]["out_ms"] < c_parts[1]["in_ms"]
-    assert plan["transition"] == {"type": "dissolve", "ms": 400} and plan["music"]["asset_id"] == ids["music"]
+    assert plan["transition"] == {"type": "dissolve", "ms": 400}
+    music = [i for i in plan["audio"] if i["role"] == "music"]  # the brief's music is an item on the music track
+    assert [(m["asset_id"], m["loop"], m["duck"]) for m in music] == [(ids["music"], True, True)]
     assert [s["name"] for s in api.get("/api/studio/styles").json()] == ["Trip style"]  # Remember this style
     assert api.get("/api/studio/styles").json()[0]["values"].get("feel") == "balanced"
     assert "must_keep" not in api.get("/api/studio/styles").json()[0]["values"]
@@ -156,7 +162,7 @@ def test_cf09_mixed_media_assembly_edits_reopen_and_server_render(env):
     media = api.get(f"/api/studio/videos/{vid}/media?kind=final&revision={rev1 + 3}&download=1")
     assert media.status_code == 200 and media.content[:12].find(b"ftyp") >= 0
     exported = api.get(f"/api/studio/videos/{vid}/export?revision={rev1 + 3}").json()
-    assert exported["plan"] == saved and exported["format"] == "clipforge.edit-plan/v1"
+    assert exported["plan"] == saved and exported["format"] == "clipforge.edit-plan/v2"
 
     # cancellation: the render stops, no artifact appears for that revision, the plan stays
     api.post(f"/api/studio/videos/{vid}/render", json={"revision": rev1 + 4})

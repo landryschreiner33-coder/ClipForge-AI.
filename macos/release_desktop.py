@@ -48,7 +48,7 @@ def release(app: Path, sources: Path, work: Path, identity: str, profile: str, c
         if not macho(path) or path == signed / 'Contents/MacOS/ClipFoundry':
             continue
         args = ['codesign', '--force', '--sign', identity, '--timestamp', '--options', 'runtime']
-        if path == signed / 'Contents/Resources/Python/bin/python3.12':
+        if path in (signed / 'Contents/Resources/Python/bin/python3.12', signed / 'Contents/Resources/Python/bin/deno'):
             args += ['--entitlements', str(entitlements)]
         run(*args, path)
     run('codesign', '--force', '--sign', identity, '--timestamp', '--options', 'runtime', signed)

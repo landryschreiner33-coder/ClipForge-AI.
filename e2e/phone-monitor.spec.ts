@@ -19,7 +19,7 @@ const snapshot = {
   health: { status: "healthy", label: "Everything looks good", checked_at: now - 5 },
   health_checks: [{ id: "workers", label: "Background work", status: "healthy", checked_at: now - 5 }],
   needs_you: [{ kind: "approve", title: "A post needs approval on your PC" }],
-  desktop_note: "Use ClipFoundry on your PC to make changes.",
+  desktop_note: "Use ClipForge on your PC to make changes.",
 };
 
 type Mode = "ready" | "offline" | "unauthorized";

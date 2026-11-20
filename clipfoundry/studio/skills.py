@@ -52,6 +52,48 @@ BLOCKED = [
 CODE_FENCE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)")
 
 
+def refused(text: str) -> str | None:
+    """Why a line of a skill is refused (a link is kept as text, never read as advice), or None. Its words are
+    taken as one line first: a line break must not split a refused sentence past the checks."""
+    low = " ".join(str(text or "").split()).lower()
+    why = next((w for pattern, w in BLOCKED if pattern.search(low)), None)
+    if why:
+        return why
+    return "links are kept as text and never fetched" if re.search(r"https?://|www\.", low) else None
+
+
+NAME_WHY = "name: "
+
+
+def shown_name(row: dict) -> str:
+    """The name a model may see as the title of a skill's advice: one kept before names were checked is "Skill"."""
+    name = " ".join(str(row.get("name") or "").split())[:80]
+    return name if name and not refused(name) else "Skill"
+
+
+def match_words(row: dict) -> list[str]:
+    """What a skill is about, for finding it and never shown: its topics and its name as its file gave it, also when
+    that name may not be shown (the importer keeps such a name with the refused lines)."""
+    said = [str(b.get("text") or "") for b in row.get("blocked") or []
+            if isinstance(b, dict) and str(b.get("why") or "").startswith(NAME_WHY)]
+    return [str(t) for t in row.get("topics") or []] + [str(row.get("name") or "")] + said
+
+
+def _listed_refused(entry: dict, blocked: list[dict]) -> bool:
+    """A JSON skill's own "unsupported" line gets the same checks as a line of instructions: a refused one is moved
+    to the refused lines and a link is kept as text, whatever reason the file gives. Only a line that passes may
+    stay readable advice (brain/library.py reads it), kept as one line."""
+    text = " ".join(str(entry.get("text") or "").split())
+    entry["text"] = text
+    why = refused(text)
+    if why and why.startswith("links"):
+        entry["why"] = why
+    elif why:
+        blocked.append({"text": text[:300], "why": why})
+        return True
+    return False
+
+
 def _seconds(text: str) -> float | None:
     m = re.search(r"(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b", text)
     if not m or not re.search(r"\b(length|long|duration|runtime|keep (it|videos?)|target|around|about)\b", text):
@@ -164,6 +206,7 @@ def parse(filename: str, data: bytes) -> dict:
     meta: dict = {}
     explicit: dict = {}
     unsupported: list[dict] = []
+    blocked_early: list[dict] = []
     if fmt == "json":
         try:
             doc = json.loads(text)
@@ -185,7 +228,8 @@ def parse(filename: str, data: bytes) -> dict:
             raise SkillError("preferences must be an object.")
         explicit, problems = capabilities.clean(prefs)
         unsupported += [{"text": p, "why": "not an editing choice ClipForge applies"} for p in problems]
-        unsupported += [u for u in doc.get("unsupported") or [] if isinstance(u, dict) and "text" in u]
+        listed = [u for u in doc.get("unsupported") or [] if isinstance(u, dict) and "text" in u]
+        unsupported += [u for u in listed if not _listed_refused(u, blocked_early)]
         body = doc.get("instructions") or ""
         if not isinstance(body, str):
             raise SkillError("instructions must be text.")
@@ -195,7 +239,7 @@ def parse(filename: str, data: bytes) -> dict:
         meta.setdefault("topics", [])
     supported: dict = dict(explicit)
     sources: dict[str, list] = {k: [{"line": "preferences", "value": v}] for k, v in explicit.items()}
-    blocked: list[dict] = []
+    blocked: list[dict] = blocked_early
     in_code, code_lang, code_lines = False, "", []
     for raw in body.splitlines():
         fence = CODE_FENCE.match(raw)
@@ -241,8 +285,14 @@ def parse(filename: str, data: bytes) -> dict:
     clean, problems = capabilities.clean(supported)
     unsupported += [{"text": p, "why": "invalid value"} for p in problems]
     modes = [m for m in meta.get("modes") or [] if m in capabilities.MODES] or list(capabilities.MODES)
-    name = str(meta.get("name") or Path(filename).stem)[:80].strip() or "Imported skill"
-    return {"skill_key": _slug(str(meta.get("id") or name)), "name": name,
+    name = " ".join(str(meta.get("name") or Path(filename).stem).split())[:80].strip() or "Imported skill"
+    key = _slug(str(meta.get("id") or name))   # the file's own name keeps two skills apart, shown or not
+    if refused(name):             # the name is shown to a model as the title of the skill's advice; it is kept with
+        blocked.append({"text": name, "why": f"{NAME_WHY}{refused(name)}"})   # the refused lines, for finding it
+        name = " ".join(Path(filename).stem.split())[:80].strip() or "Imported skill"
+        if refused(name):
+            name = "Imported skill"
+    return {"skill_key": key, "name": name,
             "description": str(meta.get("description") or "")[:300], "version": str(meta.get("version") or "1")[:20],
             "modes": modes, "topics": [str(t)[:40] for t in meta.get("topics") or []][:20],
             "original": text, "original_format": fmt, "supported": clean,
@@ -284,6 +334,9 @@ def edit(skill_id: str, text: str) -> dict:
         raise SkillError("Skill not found.")
     ext = {"markdown": ".md", "text": ".txt", "json": ".json"}[row["original_format"]]
     parsed = parse(f"edited{ext}", text.encode("utf-8"))
+    # the name is not edited, so the name it is found by stays with it
+    kept = [b for b in row.get("blocked") or [] if isinstance(b, dict) and str(b.get("why") or "").startswith(NAME_WHY)]
+    parsed["blocked"] = [b for b in parsed["blocked"] if not str(b.get("why") or "").startswith(NAME_WHY)] + kept
     db.update("skills", skill_id, revision=row["revision"] + 1, **{
         k: parsed[k] for k in ("description", "version", "modes", "topics", "original", "supported", "unsupported",
                                "blocked")})

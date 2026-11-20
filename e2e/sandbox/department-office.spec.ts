@@ -41,14 +41,16 @@ const animations = (page: Page) => page.getByRole("combobox", { name: "Animation
 const task = (id = "department-job", stage = "render") => ({ job_id: id, kind: "analyze_source", stage,
   status: "running", ref_type: "source", ref_id: "department-source", message: "Controlled department task",
   progress: null, updated_at: Date.now() / 1000 });
+// The cast and rooms of the studio upgrade (section 5; frontend/src/office/cast.ts): each department's manager, a
+// worker given real work, and everyone in that department, who gathers while it has work.
 const departments = [
-  { room: "discover", manager: "tracker", worker: "radar", peers: ["tracker", "radar", "archive"] },
-  { room: "analyze", manager: "vector", worker: "pulse", peers: ["pulse", "gavel", "boost", "vector"] },
-  { room: "studio", manager: "frame", worker: "splice", peers: ["frame", "spark", "story", "splice"] },
-  { room: "caption", manager: "script", worker: "glyph", peers: ["glyph", "quill", "script"] },
-  { room: "schedule", manager: "clock", worker: "clock", peers: ["clock"] },
-  { room: "dock", manager: "harbor", worker: "dock", peers: ["lock", "dock", "harbor"] },
-  { room: "system", manager: "switch", worker: "patch", peers: ["switch", "check", "patch"] },
+  { room: "intake", manager: "tracker", worker: "radar", peers: ["tracker", "radar", "gavel"] },
+  { room: "research", manager: "clock", worker: "pulse", peers: ["clock", "pulse"] },
+  { room: "story", manager: "vector", worker: "boost", peers: ["vector", "archive", "spark", "boost"] },
+  { room: "editing", manager: "frame", worker: "splice", peers: ["frame", "story", "splice"] },
+  { room: "sound", manager: "script", worker: "glyph", peers: ["script", "glyph"] },
+  { room: "publishing", manager: "harbor", worker: "dock", peers: ["harbor", "quill", "lock", "dock"] },
+  { room: "quality", manager: "switch", worker: "patch", peers: ["switch", "check", "patch"] },
   { room: "brain", manager: "curator", worker: "synapse", peers: ["metric", "synapse", "curator"] },
 ];
 
@@ -81,6 +83,24 @@ test("every department gathers its whole cast, with honest support and manager s
     }
   }
   await expect(robot(page, "command")).toHaveAttribute("data-room", "lounge");
+  // Managers watch their teams from their own desks, and a name too long for one line shows one word, so no robot's
+  // state badge covers another's or the words of a room's name (the owner, 2026-11-19: "lable the rooms" and "make
+  // sure you can see the activity thing above the robot").
+  const covered = () => page.locator(".office-map").evaluate(map => {
+    const cut = (a: DOMRect, b: DOMRect) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
+      && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+    const badges = [...map.querySelectorAll<HTMLElement>(".robot-hit")].map(hit => ({ id: hit.dataset.id,
+      box: hit.querySelector(".robot-state")!.getBoundingClientRect() }));
+    const names = [...map.querySelectorAll<HTMLElement>(".room-sign")].map(sign => {
+      const words = document.createRange(); words.selectNodeContents(sign);
+      return { name: sign.textContent, lines: [...words.getClientRects()] };
+    });
+    return [
+      ...badges.flatMap((a, i) => badges.slice(i + 1).filter(b => cut(a.box, b.box)).map(b => `${a.id} + ${b.id}`)),
+      ...names.flatMap(n => badges.filter(b => n.lines.some(l => cut(l, b.box))).map(b => `${b.id} on ${n.name}`)),
+    ];
+  });
+  await expect.poll(covered, { message: "badges that cover another badge or a room's name" }).toEqual([]);
   expect(feed.writes).toEqual([]);
 });
 
@@ -93,10 +113,10 @@ async ({ page, request }) => {
   Object.assign(feed.role("splice"), { state: "working", task: task() });
   feed.emit("job_started", "splice");
   await expect(robot(page, "splice")).toHaveAttribute("data-state", "working", { timeout: 8000 });
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing");
   await expect(robot(page, "splice")).toHaveAttribute("data-posture", "desk");
-  for (const id of ["frame", "spark", "story"])
-    await expect(robot(page, id)).toHaveAttribute("data-room", "studio", { timeout: 20_000 });
+  for (const id of ["frame", "story"])
+    await expect(robot(page, id)).toHaveAttribute("data-room", "editing", { timeout: 20_000 });
   await expect(robot(page, "frame")).toHaveAttribute("data-duty", "supervising");
   await expect(robot(page, "frame")).toHaveAttribute("data-state", "idle");
   await expect(robot(page, "frame")).toHaveAttribute("title", /Supervising/);
@@ -111,7 +131,7 @@ async ({ page, request }) => {
   Object.assign(feed.role("splice"), { state: "idle", task: null });
   feed.emit();
   await expect(robot(page, "splice")).toHaveAttribute("data-duty", "support", { timeout: 8000 });
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing");
   await expect(robot(page, "splice")).toHaveAttribute("data-posture", "desk");
   await expect(robot(page, "splice")).toHaveAttribute("data-break-activity", "");
   Object.assign(feed.role("story"), { state: "idle", task: null }); feed.emit();
@@ -123,31 +143,32 @@ async ({ page, request }) => {
 
 test("real backlog and failed work gather quiet peers; timers and stale paused tasks do not",
 async ({ page, request }) => {
+  // Story & analysis has a manager, a worker and two support robots, so both quiet cases are shown together.
   const feed = await fixture(page, request);
-  Object.assign(feed.role("splice"), { state: "waiting", task: { ...task(), status: "queued" } });
-  feed.role("story").state = "paused"; feed.role("spark").state = "unavailable";
+  Object.assign(feed.role("boost"), { state: "waiting", task: { ...task(), status: "queued" } });
+  feed.role("archive").state = "paused"; feed.role("spark").state = "unavailable";
   await page.goto("/#/office");
   await animations(page).selectOption("reduced");
-  for (const id of ["frame", "spark", "story", "splice"])
-    await expect(robot(page, id)).toHaveAttribute("data-room", "studio");
-  for (const id of ["spark", "story"]) {
+  for (const id of ["vector", "spark", "archive", "boost"])
+    await expect(robot(page, id)).toHaveAttribute("data-room", "story");
+  for (const id of ["spark", "archive"]) {
     await expect(robot(page, id)).toHaveAttribute("data-duty", "quiet");
     await expect(robot(page, id)).toHaveAttribute("data-posture", "desk");
     await expect(robot(page, id)).toHaveAttribute("data-break-activity", "");
   }
-  Object.assign(feed.role("splice"), { state: "waiting", queued: 12, task: {
+  Object.assign(feed.role("boost"), { state: "waiting", queued: 12, task: {
     ...task(), kind: "schedule_tick", status: "queued", ref_type: "", ref_id: "",
   } });
   feed.emit();
-  await expect(robot(page, "frame")).toHaveAttribute("data-room", "lounge", { timeout: 8000 });
-  feed.role("splice").task = null; feed.emit();
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "lounge");
-  Object.assign(feed.role("splice"), { state: "error", task: { ...task(), status: "blocked" } });
+  await expect(robot(page, "vector")).toHaveAttribute("data-room", "lounge", { timeout: 8000 });
+  feed.role("boost").task = null; feed.emit();
+  await expect(robot(page, "boost")).toHaveAttribute("data-room", "lounge");
+  Object.assign(feed.role("boost"), { state: "error", task: { ...task(), status: "blocked" } });
   feed.emit();
-  await expect(robot(page, "frame")).toHaveAttribute("data-room", "studio", { timeout: 8000 });
-  await expect(robot(page, "splice")).toHaveAttribute("data-pose", "error");
+  await expect(robot(page, "vector")).toHaveAttribute("data-room", "story", { timeout: 8000 });
+  await expect(robot(page, "boost")).toHaveAttribute("data-pose", "error");
   for (const row of feed.snap.roles) row.state = "paused";
-  feed.role("splice").task.status = "queued";
+  feed.role("boost").task.status = "queued";
   feed.snap.run.state = "paused"; feed.emit();
   await expect(page.locator('.robot-hit[data-posture="rest"]')).toHaveCount(25);
   await expect(page.locator('.robot-hit[data-duty="supervising"]')).toHaveCount(0);
@@ -169,7 +190,7 @@ async ({ page, request }) => {
   const note = page.locator(".handoff-note");
   await expect(note).toHaveAttribute("data-from", "splice", { timeout: 8000 });
   await expect(note).toHaveAttribute("data-to", "frame");
-  await expect(robot(page, "glyph")).toHaveAttribute("data-room", "caption");
+  await expect(robot(page, "glyph")).toHaveAttribute("data-room", "sound");
   await expect(note).toHaveAttribute("data-phase", "pass", { timeout: 20_000 });
   await expect(note).toHaveAttribute("data-phase", "received", { timeout: 5000 });
   await expect(note).toHaveAttribute("data-from", "frame", { timeout: 8000 });
@@ -179,7 +200,7 @@ async ({ page, request }) => {
   await expect(note).toHaveAttribute("data-to", "glyph");
   await expect(note).toHaveAttribute("data-phase", "received", { timeout: 8000 });
   await expect(robot(page, "glyph")).toHaveAttribute("data-posture", "desk", { timeout: 8000 });
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio", { timeout: 20_000 });
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing", { timeout: 20_000 });
   await expect(robot(page, "splice")).toHaveAttribute("data-duty", "support");
   await expect(robot(page, "splice")).toHaveAttribute("data-posture", "desk");
   await expect(robot(page, "splice")).toHaveAttribute("data-state", "idle");
@@ -187,29 +208,30 @@ async ({ page, request }) => {
   expect(feed.writes).toEqual([]);
 });
 
-test("Canvas fallback preserves department supervision and freezes its pixels in Reduced",
+// The ship (office/StudioScene.ts, 2026-11-19) replaced the Pixi scene and its canvas fallback; it draws the same
+// department attendance and freezes its pixels in Reduced.
+test("the ship preserves department supervision and freezes its pixels in Reduced",
 async ({ page, request }) => {
   const feed = await fixture(page, request);
   Object.assign(feed.role("splice"), { state: "working", task: task() });
   feed.role("frame").state = "working";
-  await page.route("**/assets/StudioScene-*.js", route => route.abort());
   await page.goto("/#/office");
   await animations(page).selectOption("full");
-  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "canvas");
-  for (const id of ["frame", "spark", "story", "splice"])
-    await expect(robot(page, id)).toHaveAttribute("data-room", "studio");
+  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "ship");
+  for (const id of ["frame", "story", "splice"])
+    await expect(robot(page, id)).toHaveAttribute("data-room", "editing");
   await expect(robot(page, "frame")).toHaveAttribute("data-duty", "supervising");
   const image = () => robot(page, "frame").evaluate(button => {
     const canvas = button.parentElement!.querySelector("canvas")!;
     const x = parseFloat((button as HTMLElement).style.left) * canvas.width / 100;
     const y = parseFloat((button as HTMLElement).style.top) * canvas.height / 100;
-    const crop = document.createElement("canvas"); crop.width = 48; crop.height = 72;
-    crop.getContext("2d")!.drawImage(canvas, x - 5, y - 3, 48, 72, 0, 0, 48, 72);
+    const crop = document.createElement("canvas"); crop.width = 96; crop.height = 128;
+    crop.getContext("2d")!.drawImage(canvas, x - 28, y - 36, 96, 128, 0, 0, 96, 128);
     return crop.toDataURL();
   });
   const active = await image();
   // Poll across the two idle frames: a fixed delay can sample the same 900 ms clipboard frame twice.
-  await expect.poll(image, { message: "supervision changes visible artwork", timeout: 3500,
+  await expect.poll(image, { message: "supervision changes visible artwork", timeout: 6000,
     intervals: [100, 150, 250] }).not.toBe(active);
   await animations(page).selectOption("reduced");
   await page.waitForTimeout(400); const still = await image(); await page.waitForTimeout(1250);
@@ -232,12 +254,12 @@ async ({ page, request }) => {
   Object.assign(feed.role("splice"), { state: "working", task: task("new-render-job") });
   feed.emit();
   await expect(robot(page, "splice")).toHaveAttribute("data-state", "working", { timeout: 8000 });
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing");
   await expect(robot(page, "splice")).toHaveAttribute("data-posture", "desk");
   await expect(robot(page, "splice")).toHaveAttribute("data-pose", "work");
   await expect(robot(page, "splice")).toHaveAttribute("data-carrying", "false");
   await expect(page.locator(".handoff-note")).toHaveAttribute("data-phase", "idle");
-  await expect(robot(page, "glyph")).toHaveAttribute("data-room", "caption");
+  await expect(robot(page, "glyph")).toHaveAttribute("data-room", "sound");
   await expect(robot(page, "glyph")).toHaveAttribute("data-posture", "desk");
   expect(feed.writes).toEqual([]);
 });

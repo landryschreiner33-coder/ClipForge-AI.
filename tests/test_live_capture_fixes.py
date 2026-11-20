@@ -172,8 +172,8 @@ def test_archive_recovery_uses_same_project_and_schedules_post_live_once(data, m
     (pdir / "transcript.json").write_text('{"segments":[{"text":"archived speech"}]}')
     assert live.live_capture(job)["minutes"] == 2
     assert "archived speech" in (pdir / "transcript.json").read_text()
-    posts = [r for r in queue.jobs(worker="live_monitor") if r["kind"] == "post_live"]
-    assert len(calls) == len(posts) == 1 and calls[0][0] == project["id"]
+    posts = [r for r in queue.jobs(limit=1000) if r["kind"] == "post_live"]
+    assert len(calls) == len(posts) == 1 and calls[0][0] == project["id"] and posts[0]["worker"] == "analyzer"
     assert calls[0][2]["max_bytes"] > 0 and calls[0][2]["max_seconds"] == 240 * 60
 
 

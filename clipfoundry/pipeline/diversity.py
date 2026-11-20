@@ -44,8 +44,8 @@ def similarity(a: dict, b: dict, sentences: list[dict], emb: np.ndarray | None =
     transcript = cosine(tf_vector(ta), tf_vector(tb))
     sem = 0.0
     if emb is not None and len(emb) and a.get("s0", -1) >= 0 and b.get("s0", -1) >= 0:
-        sem = max(0.0, semantic.cos(semantic.window_vector(emb, a["s0"], a["s1"]),
-                                    semantic.window_vector(emb, b["s0"], b["s1"])))
+        sem = max(0.0, semantic.cos_cal(emb, semantic.window_vector(emb, a["s0"], a["s1"]),
+                                        semantic.window_vector(emb, b["s0"], b["s1"])))
     ka, kb = set(content_tokens(ta)), set(content_tokens(tb))
     topic = len(ka & kb) / len(ka | kb) if ka and kb else 0.0
     fa, la = _first_last(a, sentences)

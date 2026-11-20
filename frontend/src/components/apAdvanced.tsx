@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, errorText, Health, timeAgo } from "../api";
-import { ActionItem, ap, AutopilotStatus, Job, Metric, TrendSignal, WORKER_BADGE } from "../autopilot";
-import { at, num, plural } from "../format";
+import { ActionItem, ap, AutopilotStatus, Job, WORKER_BADGE } from "../autopilot";
+import { at, plural } from "../format";
 import { PLATFORMS } from "./apShared";
 import { PLATFORM_NAME } from "./accounts";
 import {
@@ -36,10 +36,6 @@ const TOP = { alignContent: "start" } as const;
 const WORKER_LOOK: Record<string, [Tone, IconName]> = {
   idle: ["neutral", "dot"], working: ["info", "refresh"], waiting: ["warn", "clock"], completed: ["good", "check"],
   failed: ["bad", "alert"],
-};
-const PROVIDER: Record<string, [Tone, string]> = {
-  ok: ["good", "Working"], unavailable: ["neutral", "Unavailable"], not_configured: ["warn", "Not set up"],
-  error: ["bad", "Error"], quota: ["warn", "Quota used up"],
 };
 const ACTION_LINK: Record<string, string> = {
   approve: "#/publishing/review", publish: "#/publishing/problems", rights: "#/missions/sources",
@@ -142,7 +138,6 @@ function SystemView({ st, refresh }: { st: AutopilotStatus; refresh: () => void 
         </section>
       </div>
 
-      <TrendsPanel trends={st.trends} providers={st.providers} />
     </>
   );
 }
@@ -328,76 +323,7 @@ function QuotaPanel({ st }: { st: AutopilotStatus }) {
         </div>
       ))}
       {q.warnings.map((w, i) => <p key={i} className="small warn-text">{w}</p>)}
-      <p className="tiny faint">Counted by ClipForge. Discovery uses only its share and never the quota kept for
-        publishing and statistics.</p>
-    </section>
-  );
-}
-
-function MetricCell({ m, label }: { m?: Metric; label: string }) {
-  if (!m) return null;
-  const v = m.value;
-  const text = v == null ? "—" : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M`
-    : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : num(v);
-  const why = `${label}: ${m.status === "observed" ? "as the platform reported it" : m.status === "estimated"
-    ? "calculated by ClipForge" : "not reported"}${m.note ? ` (${m.note})` : ""}`;
-  return (
-    <span className={`small ${v == null ? "metric-missing" : ""}`} title={why}>
-      {text} <span className="faint">{label}</span>
-    </span>
-  );
-}
-
-function TrendsPanel({ trends, providers }: { trends: TrendSignal[]; providers: AutopilotStatus["providers"] }) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <section className="panel" style={TOP} aria-labelledby="sys-trends">
-      <div className="panel-head">
-        <h2 id="sys-trends">Trend opportunities</h2>
-        <button type="button" className="btn btn-small" disabled={busy} onClick={async () => {
-          setBusy(true);
-          try {
-            await ap.scan();
-            toast("Trend scan started");
-          } catch (e) {
-            toast(errorText(e), true);
-          }
-          setBusy(false);
-        }}><Icon name="refresh" />Scan now</button>
-      </div>
-      <div className="row wrap" role="group" aria-label="Where trends come from">
-        {Object.entries(providers).map(([k, p]) => {
-          const [tone, word] = PROVIDER[p.status] || ["neutral", p.status];
-          return (
-            <Pill key={k} tone={tone} title={`${p.detail}${p.fix ? ` · ${p.fix}` : ""}`}>{p.name}: {word}</Pill>
-          );
-        })}
-      </div>
-      {trends.length ? (
-        <div className="rows">
-          {trends.map((s) => (
-            <div key={s.id} className="row wrap trend" style={{ padding: "10px 0" }}>
-              <span className="score" title={s.notes.join(" ")}>
-                <b>{s.score == null ? "—" : Math.round(s.score)}</b>estimate</span>
-              <span className="grow stack" style={{ gap: 0, flexBasis: 240 }}>
-                <a className="post-title break" href={s.url} target="_blank" rel="noreferrer">{s.title}
-                  <span className="sr-only"> (opens a new tab)</span></a>
-                <span className="tiny faint">{[s.channel_title, s.kind === "live" ? "Live" : "", s.topic || s.category,
-                  s.score_mode === "platform_order" ? "YouTube's order" : ""].filter(Boolean).join(" · ")}</span>
-              </span>
-              <span className="row wrap">
-                <MetricCell m={s.metrics.views} label="views" />
-                <MetricCell m={s.metrics.live_viewers?.value != null ? s.metrics.live_viewers : undefined}
-                  label="watching" />
-                <MetricCell m={s.metrics.likes} label="likes" />
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : <p className="small muted">Nothing found yet. Connect YouTube (Settings → Accounts) or add a YouTube API key
-        (Settings → Advanced).</p>}
-      <p className="tiny faint">Numbers are as the platform reported them; “—” means not reported. Scores are
-        ClipForge's own estimates, not platform numbers.</p>
+      <p className="tiny faint">Counted by ClipForge. The quota is kept for publishing and statistics.</p>
     </section>
   );
 }

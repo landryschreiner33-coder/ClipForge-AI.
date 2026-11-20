@@ -2,3 +2,7 @@
 -r requirements.txt
 keyring>=25.6,<27
 cryptography>=44,<49
+# Full YouTube support for "Video link": yt-dlp runs YouTube's player code in Deno (sandboxed: no file, network or
+# environment access) with the yt-dlp-ejs solver at the version this yt-dlp expects. pip puts Deno in the bundled
+# Python's bin folder, where yt-dlp looks first.
+yt-dlp[default,deno]

@@ -13,30 +13,105 @@ import time
 from pathlib import Path
 from typing import BinaryIO
 
-from .. import config, db
+from urllib.parse import urlsplit
+
+from .. import config, db, netguard
 from ..pipeline import artifact
 from ..publish import audience
 from . import intake, queue, rights, state
+from .targets import account_name, usable
 
 REUSE_BASES = [
     {"id": "owned", "label": "My original video", "text": "I own this video's footage and sound and may edit and upload clips from it."},
-    {"id": "permission", "label": "I have permission", "text": "I have permission or a license covering this video's footage and sound, editing, and uploading clips to this YouTube channel."},
+    {"id": "permission", "label": "I have permission", "text": "I have permission or a license covering this video's footage and sound, editing, and uploading clips to this YouTube channel.",
+     # Said, and saved, when the request names more than one channel: the permission must cover each of them.
+     "text_many": "I have permission or a license covering this video's footage and sound, editing, and uploading clips to each YouTube channel I chose."},
     {"id": "legal_exception", "label": "Another legal basis", "text": "I checked the footage and sound and have the legal basis described below to edit and upload clips from this video."},
 ]
 
 
+MAX_CHANNELS = 20
+CONNECT_FIRST = "Connect a YouTube channel in Accounts first."
+# A request from before channel choice names the default channel only; it keeps its original wording and checks.
+LEGACY_CONNECT_FIRST = "Connect your YouTube channel in Settings → Integrations first."
+
+
+def _workspace() -> str:
+    from ..cloud import principal
+
+    try:
+        return principal.workspace_id()
+    except principal.NotSignedIn:  # a background worker in cloud mode: Autopilot runs in the primary workspace
+        return db.PRIMARY_WORKSPACE
+
+
+def channels(workspace_id: str = "") -> list[dict]:
+    """Every YouTube channel of this workspace (default first), and whether a new upload can go to it now."""
+    from ..publish import connection_routes
+
+    return [{"id": acc["id"], "account_id": acc["external_id"], "name": account_name(acc),
+             "avatar": acc.get("avatar_url") or "", "is_default": acc["is_default"],
+             "post_by_default": connection_routes.post_by_default(acc), "ok": usable(acc),
+             "text": connection_routes.health(acc)["text"]}
+            for acc in db.list_connections(workspace_id or _workspace(), "youtube")]
+
+
+def _audience_blocker(dest: dict) -> str:
+    return ("Choose and confirm who watches in Settings → Integrations → YouTube first." if not dest["confirmed"] else
+            "YouTube is set to keep clips on this PC." if dest["intent"] == audience.LOCAL_ONLY else "")
+
+
 def setup(settings: dict | None = None) -> dict:
+    """What Make and upload would use now. `account_id`/`account_name` describe the default channel (older pages);
+    `channels` lists every channel the owner can choose. Uploading needs at least one usable channel."""
     settings = settings if settings is not None else db.get_settings()
     account = db.get_account("youtube") or {}
     dest = audience.destination("youtube", settings)
     privacy = audience.visibility("youtube", dest["intent"], settings)
-    blocker = ("Connect your YouTube channel in Settings → Integrations first." if not account.get("has_tokens") or
-               not account.get("account_id") else "Choose and confirm who watches in Settings → Integrations → YouTube first."
-               if not dest["confirmed"] else "YouTube is set to keep clips on this PC." if dest["intent"] == audience.LOCAL_ONLY else "")
+    found = channels()
+    blocker = CONNECT_FIRST if not any(c["ok"] for c in found) else _audience_blocker(dest)
     return {"account_id": str(account.get("account_id") or ""), "account_name": account.get("display_name") or
             account.get("account_id") or "", "connected": bool(account.get("has_tokens")), "audience": dest,
             "privacy": privacy, "can_upload": not blocker, "blocker": blocker, "reuse_bases": REUSE_BASES,
-            "input_mode": settings.get("autopilot_input_mode", "submitted")}
+            "input_mode": settings.get("autopilot_input_mode", "submitted"), "channels": found}
+
+
+def _legacy_blocker(view: dict) -> str:
+    """The check a request without a channel list always had: the default channel must be connected."""
+    return LEGACY_CONNECT_FIRST if not view["connected"] or not view["account_id"] else _audience_blocker(view["audience"])
+
+
+def _chosen(options: dict, view: dict) -> dict[str, str] | None:
+    """The channels ticked for this video, checked now: {connection_id: channel ID} in the owner's order. "All" was
+    already resolved to explicit channels by the page, so a channel connected later is never included. A request
+    without a channel list (an older page) means the default channel, exactly as before (None)."""
+    raw = options.get("connections")
+    if raw in (None, []) and options.get("account_id"):
+        blocker = _legacy_blocker(view)
+        if blocker:
+            raise ValueError(blocker)
+        if options.get("account_id") != view["account_id"]:
+            raise ValueError("The connected YouTube channel changed. Review this submission again.")
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("Choose at least one YouTube channel.")
+    if len(raw) > MAX_CHANNELS:
+        raise ValueError(f"Choose at most {MAX_CHANNELS} YouTube channels for one video.")
+    workspace = _workspace()
+    chosen: dict[str, str] = {}
+    for entry in raw:
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not entry["id"] or \
+                not isinstance(entry.get("account_id"), str) or not entry["account_id"]:
+            raise ValueError("Choose the YouTube channels for this video again.")
+        if entry["id"] in chosen:
+            raise ValueError("Choose each YouTube channel only once.")
+        acc = db.get_connection(entry["id"])
+        mine = bool(acc and acc["workspace_id"] == workspace and acc["platform"] == "youtube")
+        if not mine or not usable(acc) or acc["external_id"] != entry["account_id"]:
+            name = (account_name(acc) if mine else "") or "A chosen YouTube channel"
+            raise ValueError(f"{name} changed or needs Reconnect. Review this video again.")
+        chosen[entry["id"]] = acc["external_id"]
+    return chosen
 
 
 def _options(options: dict) -> dict:
@@ -51,8 +126,7 @@ def _options(options: dict) -> dict:
         raise ValueError("Confirm that this video may be edited and its finished clips uploaded automatically.")
     if type(options.get("made_for_kids")) is not bool:
         raise ValueError("Say whether this video's clips are made for kids (YouTube requires this answer).")
-    if options.get("account_id") != view["account_id"]:
-        raise ValueError("The connected YouTube channel changed. Review this submission again.")
+    chosen = _chosen(options, view)
     if options.get("privacy") not in ("private", "public") or options["privacy"] != view["privacy"]:
         raise ValueError("Who watches changed. Review the visibility in Settings and submit again.")
     if type(options.get("audience_version")) is not int or options["audience_version"] != view["audience"]["group_version"]:
@@ -63,12 +137,22 @@ def _options(options: dict) -> dict:
         raise ValueError("Choose your reuse basis and use at most 4,000 characters for its details.")
     if basis["id"] == "legal_exception" and not statement.strip():
         raise ValueError("Explain the legal basis covering the footage, sound, edits and YouTube upload.")
-    full_statement = basis["text"] + (" Details: " + statement.strip() if statement.strip() else "")
+    said = basis.get("text_many") if chosen and len(chosen) > 1 else None
+    said = said or basis["text"]
+    full_statement = said + (" Details: " + statement.strip() if statement.strip() else "")
     if len(full_statement) > 4000:
-        available = 4000 - len(basis["text"]) - len(" Details: ")
+        available = 4000 - len(said) - len(" Details: ")
         raise ValueError(f"The reuse statement, including the selected basis, must fit within 4,000 characters. "
                          f"Shorten its details to at most {available:,} characters.")
-    return {"auto_upload": True, "account_id": view["account_id"], "privacy": view["privacy"],
+    split = options.get("split") or "each"
+    if split not in SPLITS:
+        raise ValueError("Choose how the clips are shared between the channels again.")
+    if split == "turns" and (chosen is None or len(chosen) < 2):
+        raise ValueError("Tick at least two YouTube channels to split the clips between them.")
+    destination = {"account_id": view["account_id"]} if chosen is None else \
+        {"account_id": next(iter(chosen.values())), "connections": chosen,
+         **({"split": "turns"} if split == "turns" else {})}  # absent means every channel gets every clip
+    return {"auto_upload": True, **destination, "privacy": view["privacy"],
             "made_for_kids": options["made_for_kids"], "audience": {"intent": view["audience"]["intent"],
             "platform": "youtube", "policy_version": audience.POLICY_VERSION,
             "group": view["audience"]["group"], "group_version": view["audience"]["group_version"],
@@ -101,7 +185,8 @@ def reuse_confirmation(item: dict, settings: dict) -> dict | None:
     project = db.get_project(clip.get("project_id") or "") or {}
     source = db.fetch("sources", project.get("source_id") or item.get("source_id") or "") or {}
     row = for_source(source)
-    if not row or problem(source, settings):
+    if not row or not _covers(row["settings"], item) or \
+            problem(source, settings, connection_id=item.get("connection_id") or ""):
         return None
     cfg = row["settings"]
     if clip.get("project_id") != cfg.get("bound_project_id") or \
@@ -119,9 +204,41 @@ def reuse_confirmation(item: dict, settings: dict) -> dict | None:
     return {**confirmation, "submission_id": row["id"], "confirmed_from": "source_submission"}
 
 
-def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "") -> dict:
-    if db.select("sources", "platform = ? AND external_id = ?", (fields["platform"], fields["external_id"])):
+def _finished_broadcast(source: dict) -> bool:
+    """A channel page (twitch.tv/name, youtube.com/@name/live) names every broadcast of that channel. Once the
+    recording of an earlier broadcast is over, the same link may start a new input for the next one."""
+    if source.get("kind") != "live" or source.get("platform") not in ("url", "stream"):
+        return False
+    if not (source.get("live_status") in ("ended", "stopped") or source.get("status") in ("failed", "canceled", "error")):
+        return False
+    return not db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE kind IN ('identify_link', 'live_capture') AND "
+                         "status IN ('queued', 'retrying', 'waiting', 'running') AND "
+                         "json_extract(payload, '$.source_id') = ?", (source["id"],))
+
+
+def _live_choices(options: dict) -> dict:
+    """What the owner chose for this stream in Live streams: how picky it is and whether its clips get a split
+    view. A choice left out follows Settings; a wrong one is refused, never guessed."""
+    out = {}
+    for key, name, allowed in (("live_pick", "pick", config.LIVE_PICKS), ("live_framing", "framing",
+                                                                       config.LIVE_FRAMINGS)):
+        value = options.get(key) or ""
+        if value and value not in allowed:
+            raise ValueError("Choose how this stream is clipped again, then add it.")
+        if value:
+            out[name] = value
+    return out
+
+
+def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "", live: bool = False,
+            live_choices: dict | None = None) -> dict:
+    # Earlier broadcasts of the same channel link carry ":<id>" after the link's identity.
+    same_identity = db.select("sources", "platform = ? AND (external_id = ? OR external_id LIKE ?)",
+                              (fields["platform"], fields["external_id"], fields["external_id"] + ":%"), "created_at DESC")
+    again = bool(same_identity) and all(_finished_broadcast(row) for row in same_identity)
+    if same_identity and not again:
         raise ValueError("This video was already added. Its existing work and permissions are unchanged; check its progress below.")
+    previous = same_identity[0] if again else None
     if fields["platform"] != "local":
         from . import verify
 
@@ -134,21 +251,40 @@ def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "") -
                 same = same or intake._direct_url(existing["url"]) == fields["url"]
             except ValueError:
                 pass
-            if same:
+            if same and not _finished_broadcast(existing):
                 raise ValueError("This video was already added. Its existing work and permissions are unchanged; check its progress below.")
+            if same and (previous is None or existing["created_at"] > previous["created_at"]):
+                previous = existing
     now, source_id, submission_id = time.time(), db.new_id(), db.new_id()
+    if previous is not None:
+        # A new broadcast on the same channel page is a new input with its own identity and its own request. It
+        # never reuses the earlier broadcast's source, project, recording or upload permission. The identity names
+        # the input it follows, so two adds of the same link at once collide instead of recording twice.
+        fields = {**fields, "external_id": f"{fields['external_id'].split(':')[0][:64]}:{previous['id'][:16]}"}
     source = {**fields, "id": source_id, "user_added": 1, "status": "queued", "status_note": "Waiting to make clips",
               "created_at": now, "updated_at": now,
               "intake": {"submitted": True, "submission_id": submission_id, "original_url": original_url,
-                         "added_at": now, "priority": intake.LINK_PRIORITY}}
+                         "added_at": now, "priority": intake.LINK_PRIORITY, "live_requested": bool(live),
+                         **({"live_choices": live_choices} if live_choices else {})}}
     cfg = {**cfg, "source_identity": _identity(source), "source_sha256": sha,
            "source_path": fields.get("local_path") or "", "bound_project_id": "", "terms_sha256": ""}
+    where, others = f"YouTube channel {cfg.get('account_id')}", "other inputs"
+    if cfg["auto_upload"] and not _legacy(cfg):
+        names = [account_name(db.get_connection(cid)) or external for cid, external in targets(cfg).items()]
+        where = f"YouTube channel {names[0]}" if len(names) == 1 else \
+            f"YouTube channels {', '.join(names[:-1])} and {names[-1]}"
+        if takes_turns(cfg):
+            where += " (each clip to one of them, taking turns)"
+        others = "other inputs, other YouTube channels"
     text = (f"Make clips from this video using relevant saved Brain guidance and app settings. Upload qualifying "
-            f"finished clips automatically to YouTube channel {cfg['account_id']} as {cfg['privacy']}, marked "
+            f"finished clips automatically to {where} as {cfg['privacy']}, marked "
             f"{'made for kids' if cfg['made_for_kids'] else 'not made for kids'}. {cfg['reuse_statement']} "
+            "If this link is a live stream, record it while it is live, and upload qualifying clips during the "
+            "stream and from the full recording afterwards. "
             "This request covers this input only, with current required credit and final quality checks. It does not "
-            "approve earlier clips, other inputs or TikTok posts. I can cancel this video's future work."
-            if cfg["auto_upload"] else "Make local clips from this input using relevant Brain guidance and app settings. Do not upload them automatically.")
+            f"approve earlier clips, {others} or TikTok posts. I can cancel this video's future work."
+            if cfg["auto_upload"] else "Make local clips from this input using relevant Brain guidance and app "
+            "settings. If it is a live stream, record it while it is live. Do not upload them automatically.")
     # Insert both records together. Neither a periodic scout nor a worker can see a half-created publishing grant.
     try:
         with db.connect() as conn:
@@ -157,6 +293,10 @@ def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "") -
             conn.execute("INSERT INTO source_submissions (id,source_id,platform,settings,text,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
                          (submission_id, source_id, "youtube", json.dumps(cfg), text, now, now))
             conn.execute("INSERT INTO settings (key,value) VALUES ('autopilot_enabled','true') ON CONFLICT(key) DO UPDATE SET value='true'")
+            if previous is not None:
+                # The earlier input stays as it is (its clips and uploads), but it cannot start recording again.
+                conn.execute("UPDATE sources SET intake = json_set(COALESCE(intake, '{}'), '$.superseded_by', ?) "
+                             "WHERE id = ?", (source_id, previous["id"]))
     except sqlite3.IntegrityError as exc:
         raise ValueError("This video was already added. Check its existing progress; no new upload permission was created.") from exc
     source = db.fetch("sources", source_id) or source
@@ -199,12 +339,17 @@ def recover_unstarted(limit: int = 24) -> int:
     return recovered
 
 
-def add_link(url: str, options: dict) -> dict:
+def add_link(url: str, options: dict, *, live: bool = False) -> dict:
+    """A video or a live stream. `live` only says where the owner added it (Live streams); what the link really is
+    (a recorded video, a live broadcast, or a channel waiting to go live) is decided when it is checked."""
     cfg = _options(options)
     fields = intake.canonical_url(url)
-    if fields.get("kind") == "live" or fields["platform"] == "stream":
-        raise ValueError("Use a recorded video for Make and upload. Live streams remain available in the existing stream tools.")
-    return _create(fields, cfg, original_url=url.strip())
+    if urlsplit(fields["url"]).scheme.lower() not in netguard.HTTP:
+        # The recorder reads typed links only through the guarded public HTTP relay (live.input_args).
+        raise ValueError("Use the stream's web page or an https:// stream link. RTMP, SRT and RTSP addresses "
+                         "cannot be recorded safely.")
+    return _create(fields, cfg, original_url=url.strip(), live=live,
+                   live_choices=_live_choices(options) if live else None)
 
 
 def add_file(file: BinaryIO, filename: str, options: dict) -> dict:
@@ -263,13 +408,233 @@ def bind_project(source: dict, project: dict) -> None:
         raise ValueError("The submitted video changed; add it as a new input before creating or uploading new clips.")
     if cfg.get("bound_project_id") and cfg["bound_project_id"] != project["id"]:
         raise ValueError("The submitted video is already bound to another project.")
+    if cfg.get("live"):
+        # Only the live recorder (bind_live, bind_live_recording) binds a live input's recording.
+        raise ValueError("This live input's recording is bound by its live recorder.")
     if not cfg.get("bound_project_id"):
         settings = db.get_settings()
         db.update("source_submissions", row["id"], settings={**cfg, "source_sha256": sha,
                   "source_path": str(path), "bound_project_id": project["id"], "terms_sha256": _terms(source, settings)})
 
 
-def problem(source: dict, settings: dict | None = None, require_bound: bool = True, *, quick: bool = False) -> str:
+def bind_live(source: dict, project: dict) -> None:
+    """Bind a submitted live input to the project its recorder writes into.
+
+    A live stream has no original file while it is being recorded. Its grant is bound to the source and this one
+    project instead; every clip is still approved against its own exact final bytes. The joined recording is bound
+    by bind_live_recording when the stream ends, before the full-recording analysis.
+    """
+    row = for_source(source)
+    if not row:
+        return
+    cfg = row["settings"]
+    if project.get("source_id") != source.get("id") or source.get("kind") != "live":
+        raise ValueError("The submitted live input does not match this recording's project.")
+    if cfg.get("bound_project_id") and cfg["bound_project_id"] != project["id"]:
+        raise ValueError("The submitted live input is already bound to another project.")
+    if cfg.get("bound_project_id"):
+        return
+    if cfg.get("source_path") or cfg.get("source_sha256"):
+        raise ValueError("This input was submitted as a file, not a live stream.")
+    db.update("source_submissions", row["id"], settings={**cfg, "live": True, "bound_project_id": project["id"],
+              "terms_sha256": _terms(source, db.get_settings())})
+
+
+def bind_live_recording(source: dict, project: dict, path: Path) -> None:
+    """After a submitted live stream ends: bind the full recording ClipForge joined from its own minutes."""
+    row = for_source(source)
+    if not row or not row["settings"].get("live"):
+        return
+    cfg = row["settings"]
+    if cfg.get("bound_project_id") != project.get("id") or project.get("source_id") != source.get("id"):
+        raise ValueError("The submitted live input is bound to another project.")
+    try:
+        sha = artifact.sha256_file(path)
+    except OSError as exc:
+        raise ValueError("The joined live recording cannot be read.") from exc
+    if sha and (cfg.get("source_path"), cfg.get("source_sha256")) != (str(path), sha):
+        # Joining again after a crash may write a new container around the same minutes; the newest join is the
+        # file every later post-live clip is cut from, so it is the one later approvals check.
+        db.update("source_submissions", row["id"], settings={**cfg, "source_path": str(path), "source_sha256": sha})
+
+
+def targets(cfg: dict) -> dict[str, str]:
+    """The channels a make-and-upload request covers: {connection_id: channel ID}, in the owner's order. A request
+    from before channel choice has no list ({}): it covers the default channel it named (see problem())."""
+    chosen = (cfg or {}).get("connections")
+    return dict(chosen) if isinstance(chosen, dict) else {}
+
+
+def _legacy(cfg: dict) -> bool:
+    return not isinstance((cfg or {}).get("connections"), dict)
+
+
+SPLITS = ("each", "turns")   # every chosen channel gets every clip, or each clip goes to one of them in turn
+
+
+def takes_turns(cfg: dict) -> bool:
+    """Do the request's channels share its clips, each clip going to one of them? Only with two or more channels;
+    a request that does not say gives every channel every clip, as before."""
+    return (cfg or {}).get("split") == "turns" and len(targets(cfg)) > 1
+
+
+HOLDS = ("awaiting_approval", "approved", "publishing", "reconciling", "published")  # a post that is or goes out
+UPLOADS = ("done", "action_needed", "uploading", "processing", "queued")  # an upload by hand that is or was sent
+GONE = ("canceled", "replaced")  # a post that no longer holds its clip's place
+
+
+def clip_turn(source: dict, clip: dict, dealt: dict) -> str | None:
+    """The one channel (connection ID) a clip's post goes to when its request's channels take turns; None when
+    they do not. A clip never changes channel: a post of it that is planned, approved or out, else an upload of it
+    made by hand, else whatever became of an earlier post of it (held, failed, canceled) names its channel, and the
+    next post goes there. A new clip goes to the channel that has the fewest of this input's clips so far. On a
+    tie, the channel with the fewest clips over every input whose channels take turns goes first, then the owner's
+    order: an input with one clip (or an odd number) would otherwise always give its extra clip to the first
+    channel ticked. A channel that needs Reconnect gets no new clips meanwhile (the ones it has wait for it) and
+    catches up afterwards.
+
+    `dealt` is one planning pass's memory ({} at its start): the clips given out in the pass before their posts
+    exist (`took_turn`)."""
+    cfg = (for_source(source) or {}).get("settings") or {}
+    if not cfg.get("auto_upload") or not takes_turns(cfg):
+        return None
+    chosen = targets(cfg)
+    memo = _turns(source, chosen, dealt)
+    if clip["id"] in memo["clips"]:
+        return memo["clips"][clip["id"]]
+    posts = db.select("scheduled_publications", "clip_id = ? AND platform = 'youtube'", (clip["id"],), "created_at")
+    marks = ", ".join("?" * len(UPLOADS))
+    uploads = db.select("publications", f"clip_id = ? AND platform = 'youtube' AND status IN ({marks})",
+                        (clip["id"], *UPLOADS))
+    bound = _bound(posts, uploads, chosen)
+    if bound:
+        return bound
+    overall, order = _turns_overall(dealt), list(chosen)
+    return min(memo["open"], key=lambda cid: (memo["counts"][cid], overall.get(cid, 0), order.index(cid)))
+
+
+def _bound(posts: list[dict], uploads: list[dict], chosen) -> str | None:
+    """The chosen channel a clip already belongs to, from its posts (oldest first) and its uploads made by hand."""
+    from .targets import effective_connection_id
+
+    for group in ([p.get("connection_id") for p in posts if p["status"] in HOLDS],
+                  [effective_connection_id(u) for u in uploads],
+                  [p.get("connection_id") for p in posts]):
+        cid = next((c for c in group if c in chosen), None)
+        if cid:
+            return cid
+    return None
+
+
+def _places(source: dict, chosen) -> dict[str, str]:
+    """The input's clips that hold a place on one of its chosen channels (a post that is not canceled or replaced,
+    or an upload made by hand), each with that channel (`_bound`): every clip counts once."""
+    posts: dict[str, list[dict]] = {}
+    for row in db.select("scheduled_publications", "source_id = ? AND platform = 'youtube'", (source["id"],),
+                         "created_at"):
+        posts.setdefault(row["clip_id"], []).append(row)
+    uploads: dict[str, list[dict]] = {}
+    marks = ", ".join("?" * len(UPLOADS))
+    for row in db.select("publications", f"platform = 'youtube' AND status IN ({marks}) AND clip_id IN "
+                                         "(SELECT id FROM clips WHERE project_id = ?)",
+                         (*UPLOADS, source.get("project_id") or "")):
+        uploads.setdefault(row["clip_id"], []).append(row)
+    out = {}
+    for clip_id in {*posts, *uploads}:
+        mine, by_hand = posts.get(clip_id, []), uploads.get(clip_id, [])
+        if by_hand or any(p["status"] not in GONE for p in mine):
+            cid = _bound(mine, by_hand, chosen)
+            if cid:
+                out[clip_id] = cid
+    return out
+
+
+def _turns(source: dict, chosen: dict[str, str], dealt: dict) -> dict:
+    """This pass's count of an input's clips per chosen channel (`_places`)."""
+    memo = dealt.setdefault(source["id"], {})
+    if "counts" not in memo:
+        memo["counts"], memo["counted"], memo["clips"] = {cid: 0 for cid in chosen}, set(), {}
+        for clip_id, cid in _places(source, chosen).items():
+            memo["counted"].add((clip_id, cid))
+            memo["counts"][cid] += 1
+        memo["open"] = [cid for cid in chosen if not _channel_problem(chosen, cid)] or list(chosen)
+    return memo
+
+
+def _turns_overall(dealt: dict) -> dict[str, int]:
+    """Clips per channel over every input whose channels take turns (this pass's included): the tie-breaker."""
+    if "*overall" not in dealt:
+        counts: dict[str, int] = {}
+        for row in db.select("source_submissions", "1 = 1", ()):
+            cfg = row.get("settings") or {}
+            source = db.fetch("sources", row["source_id"]) if takes_turns(cfg) else None
+            for cid in _places(source, targets(cfg)).values() if source else ():
+                counts[cid] = counts.get(cid, 0) + 1
+        dealt["*overall"] = counts
+    return dealt["*overall"]
+
+
+def took_turn(source: dict, clip: dict, connection_id: str, dealt: dict) -> None:
+    """Count a clip for its channel for the rest of this planning pass (its post may not exist yet). A clip whose
+    place on the channel is already counted (an earlier post of it that holds its place) is not counted twice; one
+    planned there again after its post was canceled or replaced is counted, so it is not dealt an extra clip."""
+    cfg = (for_source(source) or {}).get("settings") or {}
+    memo = _turns(source, targets(cfg), dealt)
+    memo["clips"].setdefault(clip["id"], connection_id)
+    if connection_id in memo["counts"] and (clip["id"], connection_id) not in memo["counted"]:
+        memo["counted"].add((clip["id"], connection_id))
+        memo["counts"][connection_id] += 1
+        overall = _turns_overall(dealt)
+        overall[connection_id] = overall.get(connection_id, 0) + 1
+
+
+def _covers(cfg: dict, item: dict) -> bool:
+    """Is this post's destination one the request names? A request from before channel choice covers only posts
+    that go to the default channel (no connection of their own)."""
+    if _legacy(cfg):
+        return not item.get("connection_id")
+    return bool(item.get("connection_id")) and item["connection_id"] in targets(cfg)
+
+
+def _channel_problem(chosen: dict[str, str], connection_id: str) -> str:
+    if connection_id not in chosen:
+        return "This channel was not chosen for this video."
+    acc = db.get_connection(connection_id)
+    name = account_name(acc) or "A chosen YouTube channel"
+    if not acc or acc.get("platform") != "youtube" or not usable(acc):
+        return f"{name} needs Reconnect. Other channels continue."
+    if acc["external_id"] != chosen[connection_id]:
+        return f"The account behind {name} changed; this video's request does not cover it."
+    return ""
+
+
+def held_channels(source: dict) -> list[str]:
+    """Why some of this video's chosen channels take no upload now while at least one other still does (one
+    sentence per held channel; [] when none is held, all are, or the request is from before channel choice)."""
+    row = for_source(source)
+    cfg = (row or {}).get("settings") or {}
+    if not row or row.get("revoked_at") or _legacy(cfg):
+        return []
+    chosen = targets(cfg)
+    found = [_channel_problem(chosen, cid) for cid in chosen]
+    return [why for why in found if why] if "" in found else []
+
+
+def _destination_problem(cfg: dict, connection_id: str = "") -> str:
+    """One channel's problem, or, without a channel, "" when at least one chosen channel can still take uploads."""
+    chosen = targets(cfg)
+    if connection_id:
+        return _channel_problem(chosen, connection_id)
+    found = [_channel_problem(chosen, cid) for cid in chosen]
+    if not found:
+        return "Choose at least one YouTube channel."
+    return "" if "" in found else found[0]
+
+
+def problem(source: dict, settings: dict | None = None, require_bound: bool = True, *, quick: bool = False,
+            connection_id: str = "") -> str:
+    """Why this video's request does not cover a new upload now ("" when it does). With `connection_id`, for that
+    one chosen channel; a channel that needs Reconnect holds only its own posts."""
     settings = settings if settings is not None else db.get_settings()
     source = db.fetch("sources", source.get("id") or "") or source
     row = for_source(source)
@@ -283,10 +648,18 @@ def problem(source: dict, settings: dict | None = None, require_bound: bool = Tr
     if rights._stopped(source) or rights.evaluate(source, settings)["status"] == rights.BLOCKED:
         return "This submitted video is blocked or canceled."
     current = setup(settings)
-    if not current["can_upload"]:
-        return current["blocker"]
-    if cfg.get("account_id") != current["account_id"]:
-        return "Another YouTube channel is connected now; this submission does not authorize that channel."
+    if _legacy(cfg):
+        blocker = _legacy_blocker(current)
+        if blocker:
+            return blocker
+        if cfg.get("account_id") != current["account_id"]:
+            return "Another YouTube channel is connected now; this submission does not authorize that channel."
+    else:
+        if not current["can_upload"]:
+            return current["blocker"]
+        why = _destination_problem(cfg, connection_id)
+        if why:
+            return why
     stamp = cfg.get("audience") or {}
     if cfg.get("privacy") != current["privacy"] or any(stamp.get(k) != current["audience"].get(k) for k in
                                                        ("intent", "group", "group_version")):
@@ -295,14 +668,17 @@ def problem(source: dict, settings: dict | None = None, require_bound: bool = Tr
         return "The submitted video needs a genuine made-for-kids answer."
     if require_bound:
         project = db.get_project(source.get("project_id") or "") or {}
+        # While a submitted live stream records there is no original file yet: the grant covers this project only.
+        recording = bool(cfg.get("live")) and not cfg.get("source_path") and source.get("kind") == "live"
         if not cfg.get("bound_project_id") or project.get("id") != cfg["bound_project_id"] or \
-                project.get("source_path") != cfg.get("source_path") or project.get("source_id") != source.get("id"):
+                project.get("source_id") != source.get("id") or \
+                (not recording and project.get("source_path") != cfg.get("source_path")):
             return "The submitted original has not been bound to its project yet, or was replaced."
         from .scheduler import video_sha256
 
         # A quick display check may reuse the memo; every actual approval/dispatch hashes the original again.
-        source_sha = video_sha256(cfg.get("source_path") or "", quick=quick)
-        if not source_sha or source_sha != cfg.get("source_sha256"):
+        source_sha = "" if recording else video_sha256(cfg.get("source_path") or "", quick=quick)
+        if not recording and (not source_sha or source_sha != cfg.get("source_sha256")):
             return "The submitted original's bytes changed or are missing; new clips need a new submission."
         if cfg.get("terms_sha256") != _terms(source, settings):
             return "The reuse terms or source credit changed since this video was prepared; review it again."
@@ -312,6 +688,18 @@ def problem(source: dict, settings: dict | None = None, require_bound: bool = Tr
 def target_platforms(source: dict, settings: dict) -> list[str] | None:
     row = for_source(source)
     return (["youtube"] if (row["settings"] or {}).get("auto_upload") else []) if row else None
+
+
+def target_connections(source: dict) -> list[str] | None:
+    """The YouTube connections this video's posts go to: None without a request, [] for Make clips only, the chosen
+    connection IDs, or [""] (the default channel, unbound) for a request from before channel choice."""
+    row = for_source(source)
+    if not row:
+        return None
+    cfg = row["settings"] or {}
+    if not cfg.get("auto_upload"):
+        return []
+    return [""] if _legacy(cfg) else list(targets(cfg))
 
 
 def post_fields(source: dict) -> dict | None:
@@ -326,7 +714,8 @@ def still_covers(item: dict, *, quick: bool = False) -> bool:
     approval = item.get("approval") or {}
     source = db.fetch("sources", item.get("source_id") or "") or {}
     row = for_source(source)
-    if not row or approval.get("submission_id") != row["id"] or problem(source, quick=quick):
+    if not row or approval.get("submission_id") != row["id"] or not _covers(row["settings"], item) or \
+            problem(source, quick=quick, connection_id=item.get("connection_id") or ""):
         return False
     cfg = row["settings"]
     clip = db.get_clip(item.get("clip_id") or "") or {}
@@ -361,7 +750,10 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         if not any(a.get("event") == "submission_approved" for a in events) or clip.get("edit") or clip.get("active_version") or \
                 any(item.get(k) != metadata.get(k) for k in ("title", "description", "tags")):
             return False
-    why = problem(source, settings)
+    if not _covers(row["settings"], item):
+        scheduler._note(item, "Submission held: this channel was not chosen for this video.")
+        return False
+    why = problem(source, settings, connection_id=item.get("connection_id") or "")
     if why:
         scheduler._note(item, "Submission held: " + why)
         return False
@@ -402,7 +794,8 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         return False
     updated["reuse_confirmation"].update(submission_id=row["id"], confirmed_from="source_submission")
     approval = scheduler.approval_record(updated, at=now, by="submission", submission_id=row["id"])
-    if not approval or approval["video_sha256"] != sha or problem(source, settings):
+    if not approval or approval["video_sha256"] != sha or \
+            problem(source, settings, connection_id=item.get("connection_id") or ""):
         return False
     # A newer manual edit/cancellation must not lose ownership while hashing the original and rendered files.
     with db.connect() as conn:
@@ -439,11 +832,67 @@ def item(source: dict) -> dict:
               "local_ready" if not cfg.get("auto_upload") and view["status"] in ("ready", "finished") else "creating")
     view["submission"] = {"id": row["id"], "auto_upload": cfg.get("auto_upload", False), "account_id": cfg.get("account_id", ""),
                           "privacy": cfg.get("privacy", ""), "made_for_kids": cfg.get("made_for_kids"), "created_at": row["created_at"],
-                          "status": status, "progress": counts, "hold_reason": hold}
+                          "status": status, "progress": counts, "hold_reason": hold, "channels": _channel_list(cfg),
+                          "split": "turns" if cfg.get("auto_upload") and takes_turns(cfg) else "each"}
     if cfg.get("auto_upload") and counts["posts_waiting"] and view["status"] not in ("canceled", "removed"):
         view["can_cancel"] = True
     return view
 
 
+def _channel_list(cfg: dict) -> list[dict]:
+    """The channels this video's request uploads to, named as in Accounts now."""
+    if not cfg.get("auto_upload"):
+        return []
+    if not _legacy(cfg):
+        return [{"id": cid, "name": account_name(db.get_connection(cid)) or external, "account_id": external}
+                for cid, external in targets(cfg).items()]
+    external = cfg.get("account_id") or ""
+    if not external:
+        return []
+    acc = next((c for c in db.list_connections(_workspace(), "youtube") if c["external_id"] == external), None)
+    return [{"id": (acc or {}).get("id") or "", "name": account_name(acc) or external, "account_id": external}]
+
+
 def list_items() -> list[dict]:
     return [item(source) for source in db.select("sources", "user_added=1 AND json_extract(intake,'$.submitted')=1", (), "created_at DESC", 200)]
+
+
+def _live_view(source: dict, view: dict) -> dict:
+    """What the Live streams card shows. Counts only; nothing here hashes a recording."""
+    project = db.get_project(source.get("project_id") or "") or {}
+    clips = db.select("clips", "project_id = ?", (project.get("id") or "",)) if project else []
+    recording = view["status"] == "watching_live" and source.get("live_status") == "live"
+    from . import live_pick
+
+    # The stream's own choices: saved with its project once it records, before that as it was added.
+    chosen = {**live_pick.choices(source, db.get_settings()), **{k: v for k, v in (project.get("options") or {}).items()
+                                                                 if k in ("live_pick", "live_framing")}}
+    if project.get("origin") == "live" and "live_framing" not in (project.get("options") or {}):
+        chosen["live_framing"] = "off"  # a stream that was being recorded before streams had this choice
+    # A link added here that turned out to be a recorded video is clipped like any other video: the stream
+    # choices do not apply to it, so none is shown.
+    recorded = bool(project) and project.get("origin") != "live"
+    return {"recording": recording, "finishing": view.get("finishing", False),
+            "minutes": round(float(project.get("duration") or 0) / 60, 1) if project.get("origin") == "live" else 0.0,
+            "live_clips": sum(c["status"] == "ready" and c.get("score_source") == "Live analysis" for c in clips),
+            "ended": source.get("live_status") in ("ended", "stopped"), "stopped": source.get("live_status") == "stopped",
+            "clipping_stopped": bool(view.get("clipping_stopped")),
+            "pick": chosen["live_pick"], "pick_label": "" if recorded else live_pick.LABELS[chosen["live_pick"]],
+            "framing": chosen["live_framing"],
+            "framing_label": "" if recorded else live_pick.FRAMING_LABELS[chosen["live_framing"]],
+            # why no clip is being made right now, while the stream is recorded
+            "note": ((project.get("info") or {}).get("live_note") or "") if recording else ""}
+
+
+def live_items() -> list[dict]:
+    """Inputs added in Live streams, and submitted links that turned out to be live broadcasts."""
+    rows = db.select("sources", "user_added=1 AND json_extract(intake,'$.submitted')=1 AND (kind='live' OR "
+                     "json_extract(intake,'$.live_requested')=1)", (), "created_at DESC", 200)
+    out = []
+    for source in rows:
+        if (source.get("intake") or {}).get("removed"):
+            continue
+        view = item(source)
+        # the channel the platform named when the link was read ("" when it named none)
+        out.append({**view, "channel": source.get("channel_title") or "", "live": _live_view(source, view)})
+    return out

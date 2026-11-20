@@ -285,7 +285,10 @@ remain after project deletion/cancellation until the data folder is removed; pro
 normal deletion. Source assertions do not verify ownership or rewrite source rights. The accepted source, grant
 and enabled worker state commit together; `recover_unstarted` closes only a no-job enqueue gap, never a prior
 attempt/cancellation. Re-adding a known video refuses to give old media a fresh grant. Link acquisition uses
-supported guarded media import without discovery credentials or login/access bypass; new live links are rejected.
+supported guarded media import without discovery credentials or login/access bypass. Live links are accepted
+since 2026-11-16 (Missions → Live streams): the grant is bound to the recording project while recording
+(`bind_live`) and to the joined recording afterwards (`bind_live_recording`); see docs/AUTOPILOT.md, *Clip live
+streams*.
 
 `packaging.platforms(settings, source)` and the gate honor the explicit per-input YouTube target. The scheduler
 restricts new plans to submitted sources in this mode, with `approval.by=submission` for exact final bytes/text

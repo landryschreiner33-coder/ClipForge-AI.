@@ -215,12 +215,12 @@ def build(work: Path, *, compile_only: bool = False):
         (contents / directory).mkdir(parents=True, exist_ok=True)
     revision = output('git', 'rev-parse', 'HEAD', cwd=ROOT)
     info = {'CFBundleExecutable': 'ClipFoundry', 'CFBundleIdentifier': 'com.clipfoundry.studio',
-            'CFBundleName': 'ClipFoundry', 'CFBundleDisplayName': 'ClipFoundry', 'CFBundlePackageType': 'APPL',
+            'CFBundleName': 'ClipForge', 'CFBundleDisplayName': 'ClipForge', 'CFBundlePackageType': 'APPL',
             'CFBundleIconFile': 'ClipFoundry', 'CFBundleShortVersionString': '1.0.0',
             'CFBundleVersion': os.environ.get('GITHUB_RUN_NUMBER', '1'), 'LSMinimumSystemVersion': '15.0',
             'NSHighResolutionCapable': True, 'NSSupportsAutomaticGraphicsSwitching': True,
             'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True},
-            'NSHumanReadableCopyright': 'ClipFoundry · Runs locally on your Mac', 'ClipFoundrySourceCommit': revision}
+            'NSHumanReadableCopyright': 'ClipForge · Runs locally on your Mac', 'ClipFoundrySourceCommit': revision}
     (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
     run('swiftc', '-O', '-target', 'arm64-apple-macosx15.0', '-framework', 'AppKit', '-framework', 'WebKit',
         ROOT / 'macos/desktop/ClipFoundry.swift', '-o', contents / 'MacOS/ClipFoundry')

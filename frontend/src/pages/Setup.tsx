@@ -4,7 +4,6 @@ import { ap } from "../autopilot";
 import { ConnectAction, connectedOk, OpenVideosFolder, PLATFORMS } from "../components/apShared";
 import { AutoPublishLine } from "../components/autoPublish";
 import { AudiencePanel } from "../components/integrations";
-import { DEFAULT_TOPICS, splitTopics, TopicChoice } from "../components/topics";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, PlatformName, Pill, toast } from "../components/ui";
 import { plural } from "../format";
 import { audienceApi, AudienceView } from "../office/api";
@@ -24,7 +23,7 @@ const STEPS = [
 type How = "" | "manual" | "autopilot";
 
 // The choices live outside the page so they survive a trip to Add video and back (setup keeps no draft on disk).
-const draft: { how: How; topics: string | null } = { how: "", topics: null };
+const draft: { how: How } = { how: "" };
 
 /** Kept with the settings, so Home knows you chose to make clips yourself (and skips its welcome). */
 const remember = (how: How) => api.saveSettings({ setup_mode: how === "manual" ? "manual" : "" });
@@ -72,14 +71,8 @@ export default function Setup({ step }: { step?: string }) {
   const idx = Math.max(0, STEPS.findIndex((s) => s.id === step));
   const started = st.home.setup.started;
   const how: How = draft.how || (started ? "autopilot" : "");
-  const topics = draft.topics ?? (st.home.setup.topics || DEFAULT_TOPICS);
   const setHow = (v: How) => {
     draft.how = v;
-    setError("");
-    redraw((x) => x + 1);
-  };
-  const setTopics = (t: string) => {
-    draft.topics = t;
     setError("");
     redraw((x) => x + 1);
   };
@@ -91,10 +84,6 @@ export default function Setup({ step }: { step?: string }) {
       firstChoice.current?.focus();
       return;
     }
-    if (how === "autopilot" && !splitTopics(topics).length) {
-      setError("Choose at least one topic, or type your own.");
-      return;
-    }
     navigate("setup/posting");
   };
 
@@ -102,10 +91,9 @@ export default function Setup({ step }: { step?: string }) {
     setBusy(true);
     try {
       if (how === "autopilot" && !st.enabled) {
-        setData(await ap.start(topics));
+        setData(await ap.start());
         toast("Autopilot is on. Connecting an account did not allow any post by itself.");
       } else if (how === "autopilot") {
-        if (topics !== st.home.setup.topics) await api.saveSettings({ trend_topics: topics });
         refresh();
         toast("Setup saved");
       } else {
@@ -166,15 +154,13 @@ export default function Setup({ step }: { step?: string }) {
             <input type="radio" name="how" value="autopilot" checked={how === "autopilot"}
               onChange={() => setHow("autopilot")} />
             <span className="stack" style={{ gap: 2 }}>
-              <b>Let Autopilot do it</b>
-              <span className="small muted">It clips your videos folder and public videos about your topics, writes
-                titles and plans posting times. Clips of other people's videos stay on this PC: only videos you may
-                reuse are planned for posting. Nothing is posted without your OK, or a permission you give
-                separately.</span>
+              <b>Process the videos I add automatically</b>
+              <span className="small muted">Each video or link you add is clipped, checked and titled without more
+                questions, and its clips are planned for posting. ClipForge never searches the internet for videos
+                to clip. Nothing is posted without your OK, or a permission you give separately.</span>
             </span>
           </label>
         </fieldset>
-        {how === "autopilot" && <TopicChoice topics={topics} setTopics={setTopics} />}
         {error && <p className="error-text" role="alert"><Icon name="alert" className="sm" />{error}</p>}
         <div className="row wrap">
           <a className="btn btn-quiet" href="#/setup/videos">Back</a>
@@ -197,7 +183,7 @@ export default function Setup({ step }: { step?: string }) {
               <div key={p} className="row wrap" style={{ padding: "12px 0" }}>
                 <PlatformName platform={p} />
                 <span className="grow small muted">{p === "youtube"
-                  ? "Posts Shorts to your channel and finds videos you may use."
+                  ? "Posts Shorts and videos to your channel."
                   : "Posts to your TikTok account, with your OK on each post."}</span>
                 {connectedOk(acc) ? <Pill tone="good" icon="check">Connected: {acc.name || acc.account_id}</Pill> : (
                   <span className="row wrap">

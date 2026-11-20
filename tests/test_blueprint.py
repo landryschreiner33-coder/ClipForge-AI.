@@ -235,7 +235,7 @@ def test_the_strategist_cuts_only_when_the_clip_stays_long_enough():
     assert short_ok.payoff.text == "Ask them which problem costs them real money every week."
     assert "Subscribe" not in [e["word"] for e in short_ok.emphasis]
     default = bpm.build(clip, {"id": "p1", "options": {}}, TALK_WORDS, dict(config.DEFAULT_SETTINGS))
-    assert config.DEFAULT_SETTINGS["min_duration"] == 15.0 and kept(default) == [(0.1, 15.0)]
+    assert config.DEFAULT_SETTINGS["min_duration"] == 25.0 and kept(default) == [(0.1, 15.0)]
 
 
 def test_a_cut_clip_is_described_by_what_is_heard():

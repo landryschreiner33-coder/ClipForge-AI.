@@ -195,6 +195,8 @@ class CompleteLoopFixture:
                           "autopilot_upload_lead_minutes": 720,
                           "autopilot_tiktok": False, "autopilot_youtube": True,
                           "min_duration": 12.0, "max_duration": 45.0, "target_duration": 25.0,
+                          # The fixture stream is short: the default live pick waits minutes for its first clip.
+                          "autopilot_live_pick": "most",
                           "youtube_derived_metrics_approved": True})
         self.add_catalog(FIRST, "Podcast business mistakes and talking to customers", self.first)
         self.add_catalog(BROKEN, "Podcast with an unreadable original recording", self.broken, views=990_000)

@@ -15,9 +15,11 @@ from __future__ import annotations
 import math
 from collections import Counter
 
+from ..brain import steer
 from .audio import Loudness
-from .text_utils import (BACKREF_PHRASES, CONTRAST_WORDS, INTENSIFIERS, OPEN_LOOP_PHRASES, SETUP_PHRASES,
-                         SLOW_OPEN_PHRASES, content_tokens, cosine, count_phrases, tf_vector, tokens)
+from .text_utils import (BACKREF_PHRASES, CAUSAL_PHRASES, CAUSAL_WORDS, CONTRAST_WORDS, EPISODIC_PHRASES,
+                         INTENSIFIERS, OPEN_LOOP_PHRASES, SETUP_PHRASES, SLOW_OPEN_PHRASES, content_tokens, cosine,
+                         count_phrases, tf_vector, tokens)
 
 FACTORS = ["hook", "opening", "curiosity", "emotion", "density", "payoff", "standalone", "pacing", "uniqueness",
            "clarity", "retention"]
@@ -32,6 +34,13 @@ WEIGHTS = {**APPEAL, **QUALITY}  # every factor counts; see finalize() for how t
 SUBSCORES = {"hook": "Hook Score", "retention": "Retention Potential", "context": "Context Score",
              "engagement": "Engagement Potential"}
 PENALTY = {"warn": 0.045, "block": 0.10}
+# Length. A clip that runs under the shortest length the owner set loses a little (never a hard cut: a tight,
+# complete moment may still win). And when the same moment can be cut short or with its build-up and ending
+# (`grown`), each second short of the ideal length costs the short version a little, so the fuller one wins unless
+# it is clearly weaker. Both are small on purpose: length never beats a better moment.
+SHORT_PENALTY = 0.10
+SHORT_OF_IDEAL = 0.0025     # per second, about half a point mid-scale
+GROW_LINES = (6, 8)         # how many lines a moment may grow back and forward
 ESTIMATE_NOTE = "Estimates from the clip's transcript and audio, used to rank clips. Not a guarantee of views."
 
 FILLERS = {"um", "uh", "erm", "hmm", "mm"}
@@ -45,6 +54,10 @@ def _clamp(x: float) -> float:
 
 def _sig(x: float) -> float:
     return 1.0 / (1.0 + math.exp(-x))
+
+
+def _potential(raw: float) -> float:
+    return round(100.0 / (1.0 + math.exp(-(raw - 0.45) * 7.5)), 1)
 
 
 def _flag(fid: str, label: str, severity: str, detail: str) -> dict:
@@ -106,8 +119,15 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     contrast = min(1.0, sum(1 for t in all_toks if t in CONTRAST_WORDS) / max(1.0, dur / 12.0))
     late = fs[max(k_early, ns - max(1, math.ceil(ns * 0.4))):] if ns > 1 else []
     closed = any(f["payoff"] for f in late) or (ns > 1 and fj["complete"] and not fj["question"])
+    # the causal engine (retention guide): beats joined by "but" / "therefore" keep the viewer guessing; a chain of
+    # "and then... and then" lets them see where it goes and leave
+    whole_low = " ".join(s["text"] for s in sents).lower()
+    pivots = sum(1 for t in all_toks if t in CAUSAL_WORDS) + sum(whole_low.count(ph) for ph in CAUSAL_PHRASES)
+    episodic = sum(whole_low.count(ph) for ph in EPISODIC_PHRASES)
+    and_then_chain = episodic >= 2 and pivots == 0
     curiosity = _clamp(0.5 * open_loop + 0.2 * contrast + 0.25 * (open_loop > 0 and closed)
-                       + 0.05 * any(f["you"] for f in fs))
+                       + 0.05 * any(f["you"] for f in fs) + 0.06 * min(1.0, pivots / max(1.0, dur / 15.0))
+                       - 0.10 * and_then_chain)
 
     # --- emotional intensity: emotional words, intensifiers, vocal energy and dynamics
     emo = sum(f["emo"] for f in fs)
@@ -141,6 +161,9 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     # "Exactly. And that's what he told me too." near the end: the clip drifts into a back-and-forth after its point
     late_reply = ns > 2 and any(f["response"] for f in fs[max(1, ns - max(2, ns // 3)):])
     payoff -= 0.2 if late_reply else 0.0
+    # "To recap..." / "Thanks for watching": the video announces its end instead of stopping on the payoff
+    outro = bool(fj["outro"] or (ns > 1 and fs[-2]["outro"]))
+    payoff -= 0.2 if outro else 0.0
     payoff = _clamp(payoff)
 
     # --- standalone context: no dependence on what came before, no topic change inside
@@ -182,8 +205,18 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     else:  # imported subtitles: no confidence values
         clarity = _clamp(0.45 + 0.35 * snr)
 
-    # --- retention potential: hook, pacing, payoff, open loop and a length that suits short-form
-    length_fit = (dur / 15.0 if dur < 15 else 1.0 if dur <= 45 else math.exp(-(((dur - 45.0) / 25.0) ** 2)))
+    # --- retention potential: hook, pacing, payoff, open loop and a length that suits short-form. The length is
+    # read against the owner's own range: full marks from the shortest clip up to the middle of ideal and longest
+    # (never less than 45 s), fading beyond.
+    min_d = float(opts.get("min_duration") or 15.0)
+    max_d = float(opts.get("max_duration") or 60.0)
+    target_d = min(max_d, max(min_d, float(opts.get("target_duration") or 30.0)))
+    spoken = sentences[-1]["end"] - sentences[0]["start"]
+    if spoken < min_d:
+        min_d = max(5.0, 0.5 * spoken)  # a video shorter than the shortest clip: as in `variants`
+    full_to = max(45.0, 0.5 * (target_d + max_d))
+    length_fit = (dur / min_d if dur < min_d else 1.0 if dur <= full_to
+                  else math.exp(-(((dur - full_to) / 25.0) ** 2)))
     retention = _clamp(0.30 * hook + 0.20 * pacing + 0.20 * payoff + 0.15 * curiosity + 0.15 * length_fit
                        - min(0.2, dead_air))
 
@@ -196,7 +229,7 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     middle = fs[1:-1]
     has_context = (ns >= 3 and sum(f["content"] for f in middle) >= 4 and not internal_transition
                    and standalone >= 0.5)
-    has_payoff = ns > 1 and fj["complete"] and not fj["question"] and not fj["setup"] and (
+    has_payoff = ns > 1 and fj["complete"] and not fj["question"] and not fj["setup"] and not outro and (
         end_hits > 0 or payoff >= 0.55)
     parts = [p for p, ok in (("Hook", has_hook), ("Context", has_context), ("Payoff", has_payoff)) if ok]
     structure = {"hook": bool(has_hook), "context": bool(has_context), "payoff": bool(has_payoff),
@@ -210,8 +243,14 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
         why = ("starts with a warm-up line" if f0["slow_open"] else
                f"{to_content:.1f} s before the first real word" if to_content > 2.0 else "weak first line")
         flags.append(_flag("slow_opening", "Slow opening", "warn", why))
-    first_strong = next((k for k, f in enumerate(fs) if f["opener"] >= 0.5 or f["payoff"]), ns - 1)
-    preamble = sents[first_strong]["start"] - start
+    first_strong = next((k for k, f in enumerate(fs) if f["opener"] >= 0.5 or f["payoff"]), None)
+    if first_strong is None and payoff >= 0.55:
+        # Plain talk has no marked line ("here's why", "the lesson is") to measure the setup against. When the clip
+        # still ends on a finished point, a long build-up is the story, not setup: the weak first line is already
+        # counted in the hook, and docking every longer clip of plain talk made clips short.
+        preamble = 0.0
+    else:
+        preamble = sents[first_strong if first_strong is not None else ns - 1]["start"] - start
     setups = sum(count_phrases(s["text"].lower(), SETUP_PHRASES + SLOW_OPEN_PHRASES) for s in sents[:k_early])
     if (hook < 0.4 and preamble > max(10.0, 0.45 * dur)) or setups >= 3:
         flags.append(_flag("excessive_setup", "Excessive setup", "warn",
@@ -244,10 +283,34 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
                "drifts into a back-and-forth after the point" if late_reply else
                "ends on a transition to another topic" if fj["transition"] else "ends without a clear payoff")
         flags.append(_flag("weak_ending", "Weak ending", "warn", why))
+    if outro:
+        flags.append(_flag("outro", "Ends with an outro", "warn",
+                           "announces the end (\"to recap\", \"thanks for watching\") instead of stopping on the point"))
+
+    if and_then_chain:
+        flags.append(_flag("and_then", "\"And then\" chain", "warn",
+                           "events strung together with \"and then\"; no turn (\"but\", \"which meant\") to keep "
+                           "the viewer guessing"))
+
+    # --- the owner's Brain: kinds of moment and subjects it looks for or passes over (brain/steer.py)
+    st = opts.get("brain_steer") or {}
+    facts = {"emotion": emotion, "density": density, "hook": hook, "curiosity": curiosity, "question_early": early_q,
+             "story": sum(f["story"] for f in fs), "complete": structure["complete"],
+             "promo": sum(f["promo"] for f in fs), "outro": outro, "slow_open": bool(f0["slow_open"]),
+             "numbers": specifics, "text": low,
+             "short_lines": sum(1 for f in fs if 2 <= f["n"] <= 8 and f["complete"]
+                                and (f["hookw"] or f["emo"] or f["you"]))}
+    said = steer.judge(st, low, facts) if (st.get("kinds") or st.get("topics")) else None
+    if said and said.get("avoid"):
+        flags.append(_flag("brain_avoid", "Your Brain says to pass this over", "warn",
+                           f"{said['avoid']['label']}: “{said['avoid']['by'].get('text', '')[:120]}”"))
+    priorities = list(dict.fromkeys(list(opts.get("brain_priorities") or []) + list(st.get("priorities") or [])))
 
     result = {"s0": s0, "s1": s1, "start": start, "end": end, "dur": dur, "factors": factors,
-              "structure": structure, "flags": flags, "brain_priorities": list(opts.get("brain_priorities") or []),
+              "structure": structure, "flags": flags, "brain_priorities": priorities, "brain_steer": said,
+              "short_by": round(max(0.0, 1.0 - dur / min_d), 4), "facts": facts,
               "signals": {"wps": round(wps, 2), "dead_air": round(dead_air, 3), "to_content_s": round(to_content, 2),
+                          "outro": outro, "causal_pivots": pivots, "episodic": episodic,
                           "repetition": round(rep, 3), "mean_confidence": round(sum(probs) / len(probs), 3)
                           if probs else None, "internal_uniqueness": round(internal_unique, 3)},
               "tf": tf_vector(low)}
@@ -284,8 +347,13 @@ def finalize(r: dict) -> dict:
     raw += 0.06 if st.get("complete") else 0.02 if sum(bool(st.get(k)) for k in ("hook", "context", "payoff")) == 2 \
         else 0.0
     raw -= sum(PENALTY[fl["severity"]] for fl in r.get("flags", []))
+    raw -= SHORT_PENALTY * float(r.get("short_by") or 0.0)
+    said = r.get("brain_steer")
+    if said:  # kept on the result, so a later recount (uniqueness, an AI's factors) keeps what the Brain said
+        said["points"] = round(_potential(raw + said["adjust"]) - _potential(raw), 1)
+        raw += said["adjust"]
     r["raw"] = raw
-    r["viral_potential"] = round(100.0 / (1.0 + math.exp(-(raw - 0.45) * 7.5)), 1)
+    r["viral_potential"] = _potential(raw)
     r["subscores"] = {
         "hook": round(100 * (0.5 * f["hook"] + 0.3 * f["opening"] + 0.2 * f["curiosity"])),
         "retention": round(100 * f["retention"]),
@@ -343,6 +411,67 @@ def variants(s0: int, s1: int, sentences: list[dict], opts: dict, feats: list[di
     return out
 
 
+def _topic_words(text: str) -> set[str]:
+    return {t[:5] for t in content_tokens(text) if len(t) >= 3}
+
+
+def grown(s0: int, s1: int, sentences: list[dict], opts: dict, feats: list[dict]) -> list[tuple[int, int]]:
+    """Fuller versions of a moment: the same lines with more of what leads up to them and what follows, for a clip
+    that would otherwise be only the strongest lines of a longer story. Never across a change of topic or a long
+    pause, never longer than the longest clip, and not far past the ideal length.
+
+    A line is taken in only while it is about the same thing (it shares a word with what the clip already holds, or
+    sits between two lines that do). One line that does not is still taken when it is where the story plainly
+    starts (a strong first line) or ends (a payoff line), and nothing beyond it."""
+    n = len(sentences)
+    max_d = float(opts["max_duration"])
+    reach = min(max_d, 1.3 * float(opts.get("target_duration") or max_d))
+
+    def new_start(k: int) -> bool:  # sentence k begins something else
+        return bool(feats[k]["transition"] or feats[k]["boundary"] > 1.0 or feats[k]["gap_before"] > 3.0)
+
+    held = set()
+    for k in range(s0, s1 + 1):
+        held |= _topic_words(sentences[k]["text"])
+
+    def walk(first: int, step: int, most: int, edge) -> list[int]:
+        """The lines taken going back (step -1) or forward (step 1) from `first`."""
+        got, seen, good, off, k = [first], set(held), 0, 0, first + step
+        while 0 <= k < n and len(got) <= most and not new_start(k if step > 0 else k + 1):
+            words = _topic_words(sentences[k]["text"])
+            if words & seen:
+                seen |= words
+                got.append(k)
+                good, off = len(got) - 1, 0
+            elif feats[k]["n"] <= 3:     # a word or two in passing ("Eleven.") is carried along
+                got.append(k)
+            elif not off:                # one line off the subject, kept only if the next ones are back on it
+                off = 1
+                got.append(k)
+            else:
+                break
+            k += step
+        tail = got[good + 1:]
+        got = got[:good + 1]
+        if tail and edge(tail[0]):       # where the story plainly starts, or ends
+            got.append(tail[0])
+        return got
+
+    starts = walk(s0, -1, GROW_LINES[0], lambda k: feats[k]["opener"] >= 0.5 and not feats[k]["dangling"])
+    ends = walk(s1, 1, GROW_LINES[1], lambda k: bool(feats[k]["payoff"]))
+    out = []
+    for a in starts:
+        for b in ends:
+            if (a, b) != (s0, s1) and sentences[b]["end"] - sentences[a]["start"] <= reach:
+                out.append((a, b))
+    return out
+
+
+def short_of_ideal(r: dict, opts: dict) -> float:
+    """What a version of a moment loses for each second it is short of the ideal length (see SHORT_OF_IDEAL)."""
+    return SHORT_OF_IDEAL * max(0.0, float(opts.get("target_duration") or 0.0) - float(r["dur"]))
+
+
 def summary(r: dict) -> dict:
     """What is stored with a clip (0-10 factors, 0-100 sub-scores)."""
     return {
@@ -352,5 +481,9 @@ def summary(r: dict) -> dict:
         "flags": r["flags"],
         "signals": {k: v for k, v in r.get("signals", {}).items() if k != "internal_uniqueness"},
         "viral_potential": r["viral_potential"],
+        **({"brain": {k: r["brain_steer"].get(k) for k in ("points", "why", "used", "avoid")}}
+           if r.get("brain_steer") else {}),
+        # the kinds of moment the clip shows ("reaction", "story"): what its results are later compared by
+        **({"moment": steer.shown_kinds(r["facts"]["text"], r["facts"])} if r.get("facts") else {}),
         "note": ESTIMATE_NOTE,
     }

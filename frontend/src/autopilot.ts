@@ -224,6 +224,12 @@ export interface AutopilotLink {
   can_cancel: boolean;
   can_retry: boolean;
   can_prioritize: boolean;
+  /** A live recording that "Stop recording" can end (the minutes so far are kept and finished). */
+  can_finish?: boolean;
+  finishing?: boolean;
+  /** A live stream whose clipping "Stop clipping" can end: recording stops and no more clips are made. */
+  can_stop_clipping?: boolean;
+  clipping_stopped?: boolean;
 }
 
 /** Something that really needs you, in plain words (the simple Autopilot page). */
@@ -415,10 +421,22 @@ export interface AutopilotStatus {
   home: HomeView;
 }
 
+/** The exact account a planned post goes to (or went to), as the server resolves it (autopilot/routes.py). */
+export interface PostAccount {
+  connection_id: string;
+  name: string;
+  account_id: string;
+  /** The post records its own account; false for an old post, which goes to the platform's default account. */
+  bound: boolean;
+}
+
 export interface ScheduledItemRow {
   id: string;
   clip_id: string;
   platform: "youtube" | "tiktok";
+  /** The account it goes to; empty on an old post, which goes to the platform's default account. */
+  connection_id?: string;
+  account?: PostAccount;
   title: string;
   description: string;
   tags: string[];
@@ -525,7 +543,7 @@ const A = "/api/autopilot";
 export const ap = {
   links: () => req<AutopilotLink[]>("GET", `${A}/links`),
   addLink: (url: string) => req<{ item: AutopilotLink; already_added: boolean }>("POST", `${A}/links`, { url }),
-  linkAction: (id: string, action: "cancel" | "retry" | "prioritize" | "remove") =>
+  linkAction: (id: string, action: "cancel" | "retry" | "prioritize" | "remove" | "finish" | "stop_clipping") =>
     req<AutopilotLink>("POST", `${A}/links/${id}/${action}`),
   status: () => req<AutopilotStatus>("GET", `${A}/status`),
   enable: (enabled: boolean) => req<AutopilotStatus>("POST", `${A}/enable`, { enabled }),

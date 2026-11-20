@@ -17,6 +17,7 @@ class Worker:
         self.q: queue.Queue = queue.Queue()
         self.cancelled: set[str] = set()
         self.current: str | None = None
+        self.current_kind: str | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
@@ -71,6 +72,10 @@ class Worker:
         if self.current:
             self.cancelled.add(self.current)
             keys.append(self.current)
+            if self.current_kind == "studio":  # a studio job checks its own row, not this set
+                from .studio import jobs as studio_jobs
+
+                studio_jobs.cancel(self.current)
         return len(keys)
 
     def resume(self, work: dict) -> dict:
@@ -109,7 +114,7 @@ class Worker:
     def _loop(self) -> None:
         while True:
             kind, key, extra = self.q.get()
-            self.current = key
+            self.current, self.current_kind = key, kind
             try:
                 if key in self.cancelled:
                     self._mark_cancelled(kind, key)
@@ -120,13 +125,14 @@ class Worker:
                 elif kind == "version":
                     self._run_version(key)
                 elif kind == "studio":
-                    from .studio import jobs as studio_jobs, video_flow  # noqa: F401 - registers the handlers
+                    from .studio import jobs as studio_jobs, link_import, video_flow  # noqa: F401 - handlers
+                    from .makers import shorts  # noqa: F401 - handlers
 
                     studio_jobs.run(key)
             except Exception:  # noqa: BLE001 - never let the worker die
                 log.exception("job crashed")
             finally:
-                self.current = None
+                self.current = self.current_kind = None
                 self.q.task_done()
 
     def _mark_cancelled(self, kind: str, key: str) -> None:
@@ -161,9 +167,9 @@ class Worker:
             msg = f"{ready} clip{'s' if ready != 1 else ''} ready" if clips else "No strong moments found"
             info = (db.get_project(project_id) or {}).get("info") or {}
             if (db.get_project(project_id) or {}).get("clip_mode") == "full_stories":
-                held = int((info.get("stories") or {}).get("held") or 0)
+                unsure = int((info.get("stories") or {}).get("unsure") or 0)
                 msg = (f"{ready} story clip{'s' if ready != 1 else ''} ready" if clips else
-                       "No complete story found yet") + (f"; {held} waiting for your check" if held else "")
+                       "No story found; add the stories by hand") + (f"; {unsure} worth a look" if unsure else "")
             info.pop("resume_count", None)
             db.update_project(project_id, status="ready", progress=1.0, stage="done", message=msg, info=info)
         except Cancelled:
@@ -221,25 +227,48 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
                  max_seconds: float | None = None) -> None:
     """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention.
     Autopilot passes size and length limits; a video over them is not downloaded (DownloadRefused)."""
-    from . import config
-    from .media_import import MediaUnavailable, public_extractor
     import os
-    import shutil
+
     project = db.get_project(project_id)
     assert project
     pdir = Path(project["source_path"]).parent
-    staging = pdir / "download"
-    staging.mkdir(parents=True, exist_ok=True)
     db.update_project(project_id, stage="download", message="Downloading video")
 
+    def progress(done: int, total: int, text: str) -> None:
+        db.update_project(project_id, progress=round(0.02 * done / total, 4), message=f"Downloading {text}")
+
+    path, meta = fetch_public_video(url, pdir / "download", progress=progress, cancelled=ctx.cancelled,
+                                    max_bytes=max_bytes, max_seconds=max_seconds, free_space_dir=pdir)
+    destination = pdir / f"source{path.suffix.lower()}"
+    os.replace(path, destination)
+    name = (meta or {}).get("title") or project["name"]
+    db.update_project(project_id, source_path=str(destination), source_filename=destination.name, name=name[:120])
+
+
+def fetch_public_video(url: str, staging: Path, *, progress=None, cancelled=lambda: False,
+                       max_bytes: int | None = None, max_seconds: float | None = None,
+                       free_space_dir: Path | None = None, refuse_live: bool = False) -> tuple[Path, dict]:
+    """Download one public recording into `staging` with the bounded public extractor; (file, metadata).
+
+    Exactly one video: a playlist or channel is refused, and `noplaylist` makes a watch link that also names a
+    playlist fetch only its own video. Interrupted downloads continue from yt-dlp's partial file when the same
+    staging folder is used again. `refuse_live` refuses streams that are live, upcoming or still processing
+    (a supplied link must be a finished recording). No cookies, sign-ins or protected formats are ever used."""
+    from . import config
+    from .media_import import MediaUnavailable, public_extractor
+    import shutil
+
+    staging.mkdir(parents=True, exist_ok=True)
+    space = free_space_dir or staging
+
     def hook(d: dict) -> None:
-        if ctx.cancelled():
+        if cancelled():
             raise Cancelled()
-        if shutil.disk_usage(pdir).free < 2_000_000_000:
+        if shutil.disk_usage(space).free < 2_000_000_000:
             raise DownloadRefused("The download stopped to keep 2 GB of free disk space", "disk_space")
-        if d.get("status") == "downloading" and d.get("total_bytes"):
-            db.update_project(project_id, progress=round(0.02 * d["downloaded_bytes"] / d["total_bytes"], 4),
-                              message=f"Downloading {d.get('_percent_str', '').strip()}")
+        total = d.get("total_bytes") or d.get("total_bytes_estimate")
+        if progress and d.get("status") == "downloading" and total:
+            progress(int(d.get("downloaded_bytes") or 0), int(total), d.get("_percent_str", "").strip())
 
     ydl_opts = {
         "outtmpl": str(staging / "source.%(ext)s"),
@@ -257,12 +286,17 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
     def one_video(info, *, incomplete=False):
         if info.get("_type") in ("playlist", "multi_video"):
             raise DownloadRefused("Use a link to one video, rather than a playlist or channel", "playlist")
+        if refuse_live and (info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming",
+                                                                               "post_live")):
+            raise DownloadRefused("This is a live or upcoming stream. Add it once the finished recording is "
+                                  "available, or upload your own copy of the video.", "live_only")
         if max_seconds and (info.get("duration") or 0) > max_seconds:
             raise DownloadRefused("The video exceeds the configured duration limit")
         return None
 
     ydl_opts["match_filter"] = one_video
-    with public_extractor(ydl_opts, max_bytes=max_bytes or 8_000_000_000, cancelled=ctx.cancelled) as ydl:
+    meta: dict = {}
+    with public_extractor(ydl_opts, max_bytes=max_bytes or 8_000_000_000, cancelled=cancelled) as ydl:
         try:
             meta = ydl.extract_info(url, download=False)
             if not isinstance(meta, dict):
@@ -272,7 +306,7 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
                            for f in meta.get("requested_formats") or [meta])
             if max_bytes and expected > max_bytes:
                 raise DownloadRefused("The video exceeds the configured size limit")
-            if shutil.disk_usage(pdir).free < max(expected * 2, 0) + 2_000_000_000:
+            if shutil.disk_usage(space).free < max(expected * 2, 0) + 2_000_000_000:
                 raise DownloadRefused("Not enough free disk space to download and merge this video", "disk_space")
             meta = ydl.process_ie_result(meta, download=True)
             path = Path(ydl.prepare_filename(meta))
@@ -298,11 +332,7 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
                     f"{(max_seconds or 0) / 60:.0f} min (Autopilot limits)")
             raise RuntimeError("Download finished but no video file was found")
         path = candidates[0]
-    destination = pdir / f"source{path.suffix.lower()}"
-    os.replace(path, destination)
-    path = destination
-    name = (meta or {}).get("title") or project["name"]
-    db.update_project(project_id, source_path=str(path), source_filename=path.name, name=name[:120])
+    return path, meta or {}
 
 
 worker = Worker()

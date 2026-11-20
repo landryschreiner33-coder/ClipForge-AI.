@@ -25,6 +25,7 @@ def view(row: dict) -> dict:
     values = row.get("values_json") or {}
     return {"id": row["id"], "name": row["name"], "revision": row["revision"], "modes": row.get("modes") or [],
             "values": values, "source": row.get("source"), "is_default": bool(row.get("is_default")),
+            "reference_id": row.get("reference_id") or "", "provenance": row.get("provenance") or {},
             "effects": [capabilities.FIELDS[k].describe(v) for k, v in values.items() if k in capabilities.FIELDS
                         and capabilities.FIELDS[k].kind != "text"],
             "updated_at": row.get("updated_at")}
@@ -40,8 +41,15 @@ def _clean(values: dict, modes: list[str]) -> dict:
     return clean
 
 
+def _revision_row(style_id: str, rev: int, name: str, clean: dict, modes: list, provenance: dict, at: float) -> None:
+    enc = db._encode("style_revisions", {"values_json": clean, "modes": modes, "provenance": provenance})  # noqa: SLF001
+    db.execute("INSERT INTO style_revisions (style_id, revision, name, values_json, modes, provenance, created_at) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?)", (style_id, rev, name, enc["values_json"], enc["modes"],
+                                                enc["provenance"], at))
+
+
 def create(workspace_id: str, name: str, values: dict, modes: list[str], source: str = "manual",
-           make_default: bool = False) -> dict:
+           make_default: bool = False, reference_id: str = "", provenance: dict | None = None) -> dict:
     name = " ".join((name or "").split())[:60]
     if not name:
         raise StyleError("Give the style a name.")
@@ -50,12 +58,11 @@ def create(workspace_id: str, name: str, values: dict, modes: list[str], source:
     first = not db.select("styles", "workspace_id = ?", (workspace_id,), limit=1)
     row = db.insert("styles", {"id": "st-" + os.urandom(6).hex(), "workspace_id": workspace_id, "name": name,
                                "modes": modes, "values_json": clean, "source": source,
-                               "is_default": int(make_default or first)})
+                               "is_default": int(make_default or (first and source != "example")),
+                               "reference_id": reference_id, "provenance": provenance or {}})
     if make_default:
         set_default(row["id"])
-    db.execute("INSERT INTO style_revisions (style_id, revision, name, values_json, modes, created_at) "
-               "VALUES (?, 1, ?, ?, ?, ?)", (row["id"], name, db._encode("styles", {"values_json": clean})[  # noqa: SLF001
-                   "values_json"], db._encode("styles", {"modes": modes})["modes"], row["created_at"]))  # noqa: SLF001
+    _revision_row(row["id"], 1, name, clean, modes, provenance or {}, row["created_at"])
     return view(db.fetch("styles", row["id"]))  # type: ignore[arg-type]
 
 
@@ -72,7 +79,7 @@ def at_revision(style_id: str, revision: int) -> dict | None:
 
 
 def update(style_id: str, workspace_id: str, *, expected_revision: int, name: str | None = None,
-           values: dict | None = None) -> dict:
+           values: dict | None = None, provenance: dict | None = None) -> dict:
     """Save a new revision. A stale `expected_revision` (another tab saved first) is a conflict, never a lost edit."""
     row = get(style_id, workspace_id)
     if expected_revision != row["revision"]:
@@ -80,15 +87,14 @@ def update(style_id: str, workspace_id: str, *, expected_revision: int, name: st
     clean = _clean(values, row["modes"]) if values is not None else row["values_json"]
     new_name = " ".join((name or row["name"]).split())[:60] or row["name"]
     rev = row["revision"] + 1
-    changed = db.execute("UPDATE styles SET name = ?, values_json = ?, revision = ?, updated_at = ? "
-                         "WHERE id = ? AND revision = ?", (new_name, db._encode("styles", {"values_json": clean})[  # noqa: SLF001
-                             "values_json"], rev, time.time(), style_id, row["revision"]))
+    prov = provenance if provenance is not None else (row.get("provenance") or {})
+    enc = db._encode("styles", {"values_json": clean, "provenance": prov})  # noqa: SLF001
+    changed = db.execute("UPDATE styles SET name = ?, values_json = ?, provenance = ?, revision = ?, updated_at = ? "
+                         "WHERE id = ? AND revision = ?", (new_name, enc["values_json"], enc["provenance"], rev,
+                                                           time.time(), style_id, row["revision"]))
     if not changed:
         raise Conflict("This style was changed elsewhere. Reload it and try again.")
-    db.execute("INSERT INTO style_revisions (style_id, revision, name, values_json, modes, created_at) "
-               "VALUES (?, ?, ?, ?, ?, ?)",
-               (style_id, rev, new_name, db._encode("styles", {"values_json": clean})["values_json"],  # noqa: SLF001
-                db._encode("styles", {"modes": row["modes"]})["modes"], time.time()))  # noqa: SLF001
+    _revision_row(style_id, rev, new_name, clean, row["modes"], prov, time.time())
     return view(db.fetch("styles", style_id))  # type: ignore[arg-type]
 
 

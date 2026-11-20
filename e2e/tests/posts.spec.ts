@@ -31,7 +31,7 @@ const VIEW: Record<string, (p: Item) => boolean> = {
   problems: (p) => ["reconciling", "failed", "blocked", "action_needed"].includes(p.status),
 };
 const EMPTY: Record<string, string> = {
-  review: "Nothing waits for your OK", scheduled: "Nothing is scheduled", published: "Nothing uploaded yet",
+  review: "Review queue clear", scheduled: "Nothing is scheduled", published: "Nothing uploaded yet",
   history: "No history yet", problems: "No problems",
 };
 
@@ -66,10 +66,23 @@ test("the tab counts match the posts that wait for you", async ({ page, request 
   }).toPass();
 });
 
-test("the time zone is stated once, under the title", async ({ page, request }) => {
+test("the time zone is stated once, beside the tabs", async ({ page, request }) => {
   const { timezone } = await allPosts(request);
   await page.goto("/#/publishing/review");
-  await expect(page.locator(".page-head p")).toContainText(timezone);
+  await expect(page.locator(".pub-zone")).toHaveCount(1);
+  await expect(page.locator(".pub-zone")).toContainText(timezone);
+});
+
+test("the next scheduled post is the one with the earliest planned time", async ({ page, request }) => {
+  await page.goto("/#/publishing/review");
+  const panel = page.getByRole("complementary", { name: "Next scheduled post" });
+  await expect(async () => {
+    const { items } = await allPosts(request);
+    const next = items.filter((p) => VIEW.scheduled(p) && !!p.planned_at)
+      .sort((a, b) => (a.planned_at || 0) - (b.planned_at || 0))[0];
+    if (!next) await expect(panel).toContainText("Nothing is scheduled yet.", { timeout: 1000 });
+    else await expect(panel.locator("h3 a")).toHaveAttribute("href", `#/post/${next.id}`, { timeout: 1000 });
+  }).toPass();
 });
 
 test("old Publish Center, Posts and Queue addresses open Publishing", async ({ page }) => {

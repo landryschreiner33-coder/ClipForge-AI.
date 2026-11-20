@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel, Field, StrictBool, StrictInt
+from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
@@ -21,16 +21,26 @@ READ = [Depends(local_only)]
 WRITE = [Depends(app_request)]
 
 
+class SubmissionChannel(BaseModel):
+    id: StrictStr                  # the connection (Accounts row) ticked for this video
+    account_id: StrictStr          # its channel ID as shown when the owner confirmed
+
+
 class SubmissionIn(BaseModel):
     url: str = ""
     auto_upload: StrictBool
-    account_id: str = ""
+    account_id: str = ""           # the first chosen channel (older pages: the default channel)
+    connections: list[SubmissionChannel] | None = None  # every chosen YouTube channel, in the owner's order
     privacy: str = ""
     made_for_kids: StrictBool | None = None
     audience_version: StrictInt = 0
     reuse_basis: str = ""
     reuse_statement: str = ""
     agreed: StrictBool = False
+    live: StrictBool = False  # added in Live streams (what the link really is is checked afterwards)
+    split: str = ""           # with several channels: "turns" gives each clip to one of them ("" = each gets all)
+    live_pick: str = ""       # Live streams only: how picky this stream is ("" follows Settings)
+    live_framing: str = ""    # Live streams only: split view for this stream's clips ("" follows Settings)
 
 
 @router.get("/submissions/setup", dependencies=READ)
@@ -52,9 +62,16 @@ def submit_link(body: SubmissionIn) -> dict:
     from . import submissions
 
     try:
-        return submissions.add_link(body.url, body.model_dump())
+        return submissions.add_link(body.url, body.model_dump(exclude={"live"}), live=body.live)
     except (ValueError, httpx.HTTPError) as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/submissions/live", dependencies=READ)
+def live_streams() -> list[dict]:
+    from . import submissions
+
+    return submissions.live_items()
 
 
 @router.post("/submissions/file", dependencies=WRITE)
@@ -563,8 +580,12 @@ def stop_all() -> dict:
 
 @router.post("/resume", dependencies=WRITE)
 def resume() -> dict:
+    from . import live
+
     state.put("emergency_stop", False)
-    state.event("resumed", "Jobs allowed again after Stop all jobs")
+    resumed = live.resume_held()  # live streams held by Stop all jobs continue with their saved minutes
+    state.event("resumed", "Jobs allowed again after Stop all jobs" + (f"; {resumed} live stream(s) continue"
+                                                                        if resumed else ""))
     return {"paused": False}
 
 
@@ -715,13 +736,10 @@ def _public_item(item: dict, settings: dict) -> dict:
     publishing_job = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
     if publishing_job and publishing_job["status"] == "retrying":
         delivery_state = "retrying"
-    # The exact account this post goes to (or went to): its own binding, never just whichever account is the default.
-    cid = item.get("connection_id") or (pub or {}).get("connection_id") or db.default_connection_id(item["platform"])
-    acc = db.get_connection(cid) if cid else None
-    account = {"connection_id": cid, "name": (acc or {}).get("nickname") or (acc or {}).get("display_name") or "",
-               "account_id": (acc or {}).get("external_id") or "", "bound": bool(item.get("connection_id") or
-                                                                            (pub or {}).get("connection_id"))}
-    return {**item, "account": account, "local_time": _local_time(item.get("planned_at"), settings),
+    # The exact account this post goes to (or went to), by the one rule every check uses (autopilot/targets.py).
+    from .targets import account_view
+
+    return {**item, "account": account_view(item), "local_time": _local_time(item.get("planned_at"), settings),
             "reuse_review": rights.review_info(item, settings),
             "publishing_job": ({k: publishing_job.get(k) for k in
                                 ("status", "attempts", "max_attempts", "run_after", "message", "error", "fix",
@@ -889,13 +907,18 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
 
     if not body.confirm:
         raise PublishError("Approving needs your explicit confirmation.", "Review the post and press Approve.")
+    from .targets import item_account
+
     item = _item_or_404(item_id)
-    if body.expected_account_id and body.expected_account_id != autopublish.account_id(item["platform"]):
+    # The account this post goes to now, by the same rule its page shows (targets.account_view). A page names it
+    # only while that account is connected; with none connected nothing is compared, as before.
+    if body.expected_account_id and body.expected_account_id != item_account(item):
         raise HTTPException(409, "Another account is connected now. Review the destination and approve again")
     fields = _fields(item, body)
     creator = None
     if item["platform"] == "tiktok" and (fields["options"].get("mode") or "direct") == "direct":
-        creator = tiktok.creator_info(tiktok.Token(db.get_settings()))  # read fresh before every approval
+        # read fresh before every approval, for the account this post goes to
+        creator = tiktok.creator_info(tiktok.Token(db.get_settings(), item.get("connection_id") or None))
     try:
         basis = bulk_review.resolve_reuse_basis(body.reuse_kind or "custom", body.reuse_basis)
         out = scheduler.approve(item_id, fields, creator, reuse_confirmed=body.reuse_confirmed,
@@ -1041,7 +1064,8 @@ def _manual_publication(item: dict) -> str:
                                 requested_privacy=(item.get("audience") or {}).get("visibility") or "",
                                 video_path=video, version_id=version, options=item.get("options") or {},
                                 scheduled_id=item["id"], audience=item.get("audience") or {},
-                                delivery=item.get("delivery") or {})
+                                delivery=item.get("delivery") or {},
+                                connection_id=item.get("connection_id") or "")  # "": the default account
     db.update("scheduled_publications", item["id"], publication_id=pub["id"])
     return pub["id"]
 

@@ -152,12 +152,14 @@ clipfoundry/
   pipeline/nvidia.py optional NVIDIA-hosted text AI (off by default)
 frontend/src/      App.tsx (shell), router.ts (addresses, old-address aliases, unsaved-changes guard), status.tsx
                    (one shared Autopilot status poll), format.ts, api.ts, autopilot.ts, styles.css (design tokens),
-                   office/ (cast.ts registry, sprites.ts pixel art, world.ts floor plan, OfficeMap.tsx, panels.tsx,
-                   useOffice.ts event feed, api.ts), pages/ (Office, Team, Setup, Autopilot = Missions, Library =
-                   Clips, Feedback, Create, ProjectView, ClipEditor, Publish, Posts = Queue, PostReview, Settings),
-                   components/ (ui.tsx shared controls, integrations.tsx, page parts)
-design/            robots/ (art notes, manifest, contact sheet), robot-office/screenshots/, ui-redesign/ and
-                   retro-studio/ (earlier designs)
+                   office/ (cast.ts registry, crew.ts crew atlas, world.ts floor plan from space/ship-world.json,
+                   StudioScene.ts Canvas 2D ship, OfficeMap.tsx, panels.tsx, useOffice.ts event feed, api.ts),
+                   space.css + public/space/ (the space studio's look and art), pages/ (Studio, Office, Team, Setup,
+                   Autopilot = Missions, Projects, Feedback, MakeClips, Create, ProjectView, ClipEditor, Publish,
+                   Posts = Publishing, PostReview, Accounts, Brain, Settings), components/ (ui.tsx shared controls,
+                   integrations.tsx, page parts)
+design/            space-studio/ (the 2026-11-19 space studio: art tools and README), robots/ (art notes, manifest,
+                   contact sheet), robot-office/screenshots/, ui-redesign/ and retro-studio/ (earlier designs)
 tests/             pytest suites; fake_platforms.py (fake YouTube/TikTok), synthetic_media.py (ffmpeg test video)
 e2e/               Playwright tests for the user's own running app (read-only by design)
 data/              created at runtime (gitignored): clipfoundry.db, projects/<id>/..., models/, logs/workers.log
@@ -413,6 +415,23 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     work or substantive assigned backlog gathers the whole department; actual workers appear immediately at their
     own stations, idle peers remain idle, and managers supervise without inventing jobs or reports. Quiet paused
     or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
+    The owner's 2026-11-19 space studio adds decoration that shows no work: engine exhaust, CORE's idle rings, the
+    black hole's turning disk, the satellite's drift and the empty dock's beacon. They hold still under Reduced
+    motion, Low power or a hidden page. The owner's 2026-11-20 requests ("give the backround animation like the stars
+    and black hole", "make the backround animated like we are moving") add the moving sky: star tiles sliding past,
+    brighter stars that drift and twinkle, dust rushing by and the odd shooting star (components/starSky.ts), still
+    under Reduced motion, Low power or a hidden page; the black hole also holds still off screen and for a while once a
+    computer draws it too slowly. Pages and tabs fade up as they arrive (transitions.ts), never delaying or hiding
+    content, and arrive at once under Reduced motion. The galaxy behind the Brain graph is painted once and holds still.
+    Anything painted once onto a canvas (a picture, a sprite, a still frame) paints itself again on `contextrestored`:
+    Chromium on Windows draws canvases on the graphics chip, and a reset of the chip gives them back empty.
+    The owner's later 2026-11-19 request ("make the brain lines and balls look like lighting and make sure its
+    animated") draws the graph's real links as bolts and its dots as glowing balls that strike again about twelve times
+    a second (pages/brainLightning.ts): decoration that shows no work or learning, still under Reduced motion, Low
+    power, a hidden or off-screen page or a lost connection; only rings and the words "just used" mark what a project
+    used. DOCK's beacon cues once only for a post newly seen in review.
+    Settings → Appearance's Studio preview is the real app in an inert frame that saves nothing
+    (design/space-studio/README.md).
 
 ## Historical continuation scope (2026-10-08)
 
@@ -436,6 +455,31 @@ checks remain unchanged. Prose is interpreted only into a bounded local editing 
 sent raw to a model. Uploaded examples supply measured length hints, not visual model training or result evidence.
 
 ## Standing instructions from the owner
+
+**Whole gameplay and longer live clips (2026-11-18):** Landry asked to "see the full gamplay and face cam like a
+split veiw or how other apps have it" and for clips that "arent so short and ... are actually longer and more
+engaging". Keep: a split view shows the whole picture under the face cam unless *Zoomed in* is chosen; any clip with
+a face cam gets a split view unless somebody chose its layout or Settings → Split view is Off (a chosen layout is
+never overridden: `render.layout_chosen`); a live clip keeps its moment's build-up and ending when that is about as
+strong, never across a change of subject or a long silence and never over the longest clip length
+(`live_pick.fuller`); live clips read the ordinary clip length Settings and have no lengths of their own.
+
+**Live clip quality continuation (2026-11-17):** Landry asked for better live moments with quality over quantity,
+fixed framing with a split view (face cam one half, gameplay the other, if needed), clips split between channels,
+and a way to stop clipping at any time while the scheduled clips still upload. Keep: each stream's own choices
+(`intake.live_choices`: how picky, split view) are copied to its project and never change mid-stream; the default is
+few, strong clips (`autopilot/live_pick.py`); split view is used only when a face cam is found, else the Settings
+layout; "split between channels" sends each clip to exactly one of the chosen channels and a clip never changes
+channel (`submissions.clip_turn`); Stop clipping never cancels, deletes or un-approves anything already made, and is
+not taken back by Try again. Scores stay labelled estimates. Details: docs/AUTOPILOT.md, *Clip live streams*.
+
+**Live streams continuation (2026-11-16):** Landry asked to clip streams while they are live, with Autopilot
+uploading the clips during the live, and to clip several streams at once. Missions → Live streams takes several
+links; each is its own input with its own Make & upload request, recorded and clipped while live and uploaded during
+the stream at the owner's posting pace (Minimum gap per account, shared by all streams). Keep: the request covers one
+broadcast only (a channel's next broadcast is a new input added by the owner), uploads stay bound to exact checked
+bytes, Stop recording keeps what was made, Stop all jobs holds recordings and Resume continues them. Live Monitor runs
+three lanes; post_live runs on the analyzer. Details: docs/AUTOPILOT.md, *Clip live streams*.
 
 **Confirmed upload-audio continuation (2026-10-29, America/Chicago):** The matching supplied media proves the
 local MP4 has a damaged AAC timing table that default FFmpeg parsing hides; Google's processed copy loses the

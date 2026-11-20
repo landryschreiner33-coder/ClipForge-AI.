@@ -165,7 +165,7 @@ def test_full_api_flow(media, tmp_path, monkeypatch):
         assert client.delete(f"/api/versions/{faster}").status_code == 200
         assert client.get(f"/api/clips/{cid}/versions").json()["active"] == ""  # back to the original
 
-        assert client.delete(f"/api/projects/{pid}").json()["ok"]
+        assert client.delete(f"/api/projects/{pid}", headers={"X-ClipFoundry": "1"}).json()["ok"]
         assert client.get(f"/api/projects/{pid}").status_code == 404
 
 

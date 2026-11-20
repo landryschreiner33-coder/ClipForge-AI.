@@ -1,12 +1,14 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Accounts, api, Clip, ClipVersion, clipThumbUrl, downloadZip, errorText, fmtTime, PlatformAccount, Project,
+  Accounts, api, Clip, ClipVersion, clipThumbUrl, downloadZip, errorText, fmtTime, Platform, PlatformAccount, Project,
   Publication, TikTokCreator, versionDownloadUrl, versionThumbUrl, versionVideoUrl,
 } from "../api";
 import { useLeaveGuard } from "../router";
 import { useStatus } from "../status";
 import { audienceApi, AudienceDestination, AudienceView } from "../office/api";
 import { AccountBadge, ConnectButton } from "../components/accounts";
+import { accountName, ChannelPicker, defaultTicks, isPostable, nameList } from "../components/channelPicker";
+import { Connection, studio } from "../studio";
 import { loadPosts, Post, postStatus, privacyLabel, TIKTOK_PRIVACY, timeLabel } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
 import { YouTubeComments, YouTubeCommentsResult } from "../components/YouTubeComments";
@@ -30,9 +32,10 @@ const metaOf = (c: Clip): Meta => ({
 
 /**
  * Prepare post: post one clip yourself, now. Preview the exact file (the clip's posting version), its text, and a
- * panel per platform with every option the platform asks for. Nothing is uploaded until you press a platform's
- * button and confirm in a dialog that says what happens. Posts Autopilot planned for this clip are listed and open
- * their own page; changing the posting version happens in the editor.
+ * panel per platform with every option the platform asks for and the accounts it goes to (one upload per ticked
+ * account). Nothing is uploaded until you press a platform's button and confirm in a dialog that says what happens.
+ * Posts Autopilot planned for this clip are listed and open their own page; changing the posting version happens in
+ * the editor.
  */
 export default function PublishPage({ id }: { id: string }) {
   const { st } = useStatus();
@@ -40,6 +43,8 @@ export default function PublishPage({ id }: { id: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [loadError, setLoadError] = useState("");
   const [accounts, setAccounts] = useState<Accounts | null>(null);
+  const [conns, setConns] = useState<Connection[] | null>(null);
+  const [ticks, setTicks] = useState<Ticks | null>(null);
   const [audience, setAudience] = useState<AudienceView | null>(null);
   const [pubs, setPubs] = useState<Publication[]>([]);
   const [version, setVersion] = useState<ClipVersion | undefined>();
@@ -65,6 +70,38 @@ export default function PublishPage({ id }: { id: string }) {
     api.accounts().then(setAccounts).catch((e) => toast(errorText(e), true));
     audienceApi.view().then(setAudience).catch((e) => toast(errorText(e), true));
   }, [id]);
+
+  // Every connected account; read again when you come back from signing in to one in another tab.
+  const loadConns = useCallback((quiet: boolean) => studio.connections().then((r) => setConns(r.connections))
+    .catch((e) => {
+      setConns((c) => c ?? []);
+      if (!quiet) toast(errorText(e), true);
+    }), []);
+  useEffect(() => {
+    void loadConns(false);
+    const back = () => document.visibilityState === "visible" && void loadConns(true);
+    document.addEventListener("visibilitychange", back);
+    window.addEventListener("focus", back);
+    return () => {
+      document.removeEventListener("visibilitychange", back);
+      window.removeEventListener("focus", back);
+    };
+  }, [loadConns]);
+  const changeAccounts = (a: Accounts) => {
+    setAccounts(a);
+    void loadConns(true);
+  };
+  // Ticked at first: the accounts this clip's project was made to upload to, else the accounts ticked for new posts.
+  useEffect(() => {
+    if (!conns || !project || ticks) return;
+    const fromProject = projectConnections(project);
+    const start = (platform: Platform) => {
+      const usable = new Set(conns.filter((c) => c.platform === platform && isPostable(c)).map((c) => c.id));
+      const chosen = fromProject.filter((cid) => usable.has(cid));
+      return chosen.length ? chosen : defaultTicks(conns, [platform]);
+    };
+    setTicks({ youtube: start("youtube"), tiktok: start("tiktok") });
+  }, [conns, project, ticks]);
 
   const loadPubs = useCallback(() => api.publications(id).then(setPubs).catch(() => undefined), [id]);
   useEffect(() => {
@@ -97,12 +134,31 @@ export default function PublishPage({ id }: { id: string }) {
   } : null), [dirtyKeys.join(), meta, saved]); // eslint-disable-line react-hooks/exhaustive-deps
   useLeaveGuard(guard);
 
-  const publish = async (platform: "youtube" | "tiktok", body: Record<string, unknown>) => {
+  /** One upload per chosen account, one after another. One that is refused never stops the others. */
+  const publish = async (platform: Platform, chosen: Connection[], body: Record<string, unknown>) => {
     await saveMeta();
-    const p = await api.publish(id, platform, { ...body, confirm: true });
-    setPubs((list) => [p, ...list]);
-    toast(platform === "youtube" ? "The YouTube upload started." : p.mode === "inbox"
-      ? "Sending the draft to your TikTok inbox." : "The TikTok upload started.");
+    const started: string[] = [];
+    const failed: string[] = [];
+    let only: unknown = null;
+    for (const c of chosen) {
+      try {
+        const p = await api.publish(id, platform, { ...body, confirm: true, connection_id: c.id,
+          expected_account_id: c.account_id });
+        setPubs((list) => [p, ...list]);
+        started.push(accountName(c));
+      } catch (e) {
+        only = e;
+        failed.push(`${accountName(c)}: ${errorText(e)}`);
+      }
+    }
+    if (!started.length) throw chosen.length === 1 ? only : new Error(failed.join(" "));
+    const names = nameList(started);
+    const one = started.length === 1;
+    const lead = platform === "youtube" ? `Started ${one ? "the YouTube upload" : "YouTube uploads"} to ${names}.`
+      : body.mode === "inbox"
+        ? `Sending ${one ? "the draft to the TikTok inbox" : "drafts to the TikTok inboxes"} of ${names}.`
+        : `Started ${one ? "the TikTok post" : "TikTok posts"} to ${names}.`;
+    toast([lead, ...failed].join(" "), failed.length > 0);
   };
 
   const exportClip = async () => {
@@ -135,9 +191,18 @@ export default function PublishPage({ id }: { id: string }) {
   const videoUrl = version ? versionVideoUrl(clip, version) : `/api/clips/${clip.id}/video?v=${clip.version}`;
   const thumbUrl = version ? versionThumbUrl(clip, version) : clipThumbUrl(clip);
   const downloadUrl = versionDownloadUrl(clip, version);
-  const acc = (p: "youtube" | "tiktok") => accounts?.[p];
-  const busy = (p: string) => pubs.some((x) => x.platform === p && (ACTIVE.includes(x.status)
-    || x.info?.outcome_unknown || x.info?.code === "outcome_unknown"));
+  const acc = (p: Platform) => accounts?.[p];
+  // An old upload has no account of its own: it went to the platform's default account.
+  const pubConnection = (p: Publication) =>
+    p.connection_id || conns?.find((c) => c.platform === p.platform && c.is_default)?.id || "";
+  const pubAccount = (p: Publication) => {
+    const c = conns?.find((x) => x.id === pubConnection(p));
+    return c ? accountName(c) : "";
+  };
+  const channels = (platform: Platform): ChannelProps => ({
+    rows: conns, ticked: ticks?.[platform] ?? null, pubs, pubConnection,
+    onTick: (ids) => setTicks((t) => t && { ...t, [platform]: ids }),
+  });
   const setM = (patch: Partial<Meta>) => setMeta((m) => ({ ...m, ...patch }));
 
   return (
@@ -155,7 +220,7 @@ export default function PublishPage({ id }: { id: string }) {
           <a className="btn" href={`#/clip/${clip.id}`}><Icon name="edit" />Edit clip</a>
           <button type="button" className="btn" disabled={!ready || exporting} onClick={exportClip}>
             {exporting ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="download" />}
-            {exporting ? "Preparing the download…" : "Export"}
+            {exporting ? "Preparing the download…" : "Save to computer"}
           </button>
         </>} />
 
@@ -232,12 +297,10 @@ export default function PublishPage({ id }: { id: string }) {
             </p>
           </section>
 
-          <YouTubePanel audience={audience?.youtube} account={acc("youtube")} setAccounts={setAccounts}
-            meta={meta} duration={duration} ready={ready} busy={busy("youtube")} onPublish={publish}
-            outcomeUnknown={pubs.some(p => p.platform === "youtube" && (p.info?.outcome_unknown
-              || p.info?.code === "outcome_unknown"))} />
-          <TikTokPanel audience={audience?.tiktok} account={acc("tiktok")} setAccounts={setAccounts}
-            meta={meta} duration={duration} ready={ready} busy={busy("tiktok")} onPublish={publish}
+          <YouTubePanel audience={audience?.youtube} account={acc("youtube")} setAccounts={changeAccounts}
+            meta={meta} duration={duration} ready={ready} onPublish={publish} {...channels("youtube")} />
+          <TikTokPanel audience={audience?.tiktok} account={acc("tiktok")} setAccounts={changeAccounts}
+            meta={meta} duration={duration} ready={ready} onPublish={publish} {...channels("tiktok")}
             onExport={exportClip} downloadUrl={downloadUrl} />
 
           <section className="panel tight" aria-labelledby="pp-status">
@@ -245,7 +308,8 @@ export default function PublishPage({ id }: { id: string }) {
             {pubs.length ? (
               <div className="pubs">
                 {pubs.map((p) => (
-                  <PubRow key={p.id} p={p} onChange={(np) => setPubs((l) => l.map((x) => (x.id === np.id ? np : x)))} />
+                  <PubRow key={p.id} p={p} account={pubAccount(p)}
+                    onChange={(np) => setPubs((l) => l.map((x) => (x.id === np.id ? np : x)))} />
                 ))}
               </div>
             ) : <p className="small muted">None yet.</p>}
@@ -296,26 +360,66 @@ function PlannedPosts({ posts, tz }: { posts: Post[]; tz?: string }) {
 }
 
 // ------------------------------------------------------------------ one panel per platform
-type PanelProps = {
+type Ticks = Record<Platform, string[]>;
+
+/** The project's own upload request ("Make & upload clips"): the accounts it chose, if any. */
+function projectConnections(p: Project): string[] {
+  const d = (p as Project & { destinations?: unknown }).destinations;
+  const ids = d && typeof d === "object" && !Array.isArray(d) ? (d as { connections?: unknown }).connections : null;
+  return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : [];
+}
+
+const outcomeUnknown = (p: Publication) => !!p.info?.outcome_unknown || p.info?.code === "outcome_unknown";
+const canDirectPost = (c: Connection) => c.can_direct_post ?? (c.scopes || []).includes("video.publish");
+const canInbox = (c: Connection) => c.can_inbox ?? (c.scopes || []).includes("video.upload");
+
+/** Which accounts of a platform are ticked, and what this clip's uploads to each of them are doing. */
+type ChannelProps = {
+  rows: Connection[] | null; ticked: string[] | null; onTick: (ids: string[]) => void;
+  pubs: Publication[]; pubConnection: (p: Publication) => string;
+};
+function channelsOf(platform: Platform, { rows, ticked, pubs, pubConnection }: ChannelProps) {
+  const list = rows ? rows.filter((r) => r.platform === platform) : null;
+  const chosen = list && ticked
+    ? ticked.map((cid) => list.find((r) => r.id === cid)).filter((r): r is Connection => !!r && isPostable(r)) : [];
+  const has = (c: Connection, test: (p: Publication) => boolean) =>
+    pubs.some((p) => p.platform === platform && pubConnection(p) === c.id && test(p));
+  return {
+    loading: !list || !ticked,
+    connected: !!list?.some(isPostable),
+    chosen,
+    names: chosen.map(accountName),
+    /** Still uploading to it: another upload of this clip to the same account waits. */
+    active: chosen.filter((c) => has(c, (p) => ACTIVE.includes(p.status) && !outcomeUnknown(p))),
+    /** Its last upload's outcome is unknown: find out before uploading again. */
+    unknown: chosen.filter((c) => has(c, outcomeUnknown)),
+    /** This clip is already on it. */
+    posted: chosen.filter((c) => has(c, (p) => p.status === "done")),
+    /** This clip already waits in its TikTok inbox as a draft. */
+    drafted: chosen.filter((c) => has(c, (p) => p.status === "action_needed")),
+  };
+}
+
+type PanelProps = ChannelProps & {
   audience?: AudienceDestination; account?: PlatformAccount; setAccounts: (a: Accounts) => void;
-  outcomeUnknown?: boolean;
-  meta: Meta; duration: number; ready: boolean; busy: boolean;
-  onPublish: (platform: "youtube" | "tiktok", body: Record<string, unknown>) => Promise<void>;
+  meta: Meta; duration: number; ready: boolean;
+  onPublish: (platform: Platform, chosen: Connection[], body: Record<string, unknown>) => Promise<void>;
 };
 
-function PlatformPanel({ id, name, account, platform, setAccounts, children }: {
-  id: string; name: string; account?: PlatformAccount; platform: "youtube" | "tiktok";
-  setAccounts: (a: Accounts) => void; children: ReactNode;
+function PlatformPanel({ id, name, account, platform, setAccounts, connected, children }: {
+  id: string; name: string; account?: PlatformAccount; platform: Platform;
+  setAccounts: (a: Accounts) => void; connected: boolean | null; children: ReactNode;
 }) {
-  const ok = !!account?.connected && !account.needs_reconnect;
   return (
     <section className="panel" aria-labelledby={id}>
       <div className="panel-head">
         <h2 id={id}>{name}</h2>
-        <div className="row wrap">
-          <AccountBadge platform={platform} account={account} />
-          {!ok && <ConnectButton platform={platform} account={account} onChange={setAccounts} />}
-        </div>
+        {connected === false && (
+          <div className="row wrap">
+            <AccountBadge platform={platform} account={account} />
+            <ConnectButton platform={platform} account={account} onChange={setAccounts} />
+          </div>
+        )}
       </div>
       {account && !account.configured && (
         <p className="small muted">
@@ -332,8 +436,30 @@ function Note({ children }: { children: ReactNode }) {
   return <p className="small break"><Pill tone="warn" icon="alert">Note</Pill> {children}</p>;
 }
 
-function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, busy, onPublish,
-  outcomeUnknown }: PanelProps) {
+/** The accounts of one platform this post goes to (loaded with the page, ticked as Accounts says). */
+function PanelChannels({ platform, rows, ticked, onTick }: ChannelProps & { platform: Platform }) {
+  if (!rows || !ticked) return <p className="muted small">Loading accounts…</p>;
+  return <ChannelPicker platforms={[platform]} rows={rows} value={ticked} onChange={(ids) => onTick(ids)}
+    idPrefix={`pp-${platform}-to`} legend={platform === "youtube" ? "YouTube channels to publish to"
+      : "TikTok accounts to post to"} />;
+}
+
+/** "Already posted to A; this posts it there again." for each chosen account that has this clip already. */
+function AgainNotes({ posted, drafted = [] }: { posted: Connection[]; drafted?: Connection[] }) {
+  return <>
+    {posted.map((c) => (
+      <Note key={c.id}>Already posted to {accountName(c)}; this posts it there again.</Note>
+    ))}
+    {drafted.filter((c) => !posted.includes(c)).map((c) => (
+      <Note key={c.id}>Already sent to {accountName(c)}'s TikTok inbox as a draft; this sends it there again.</Note>
+    ))}
+  </>;
+}
+
+function YouTubePanel(props: PanelProps) {
+  const { audience, account, setAccounts, meta, duration, ready, onPublish } = props;
+  const ch = channelsOf("youtube", props);
+  const n = ch.chosen.length;
   const privacy = audience?.intent === "PUBLIC" ? "public" : "private";
   const [kids, setKids] = useState<"" | "no" | "yes">("");
   const [shortsTag, setShortsTag] = useState(false);
@@ -343,10 +469,15 @@ function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, b
     const t = shortsTag && !tags.some((x) => x.toLowerCase() === "#shorts") ? [...tags, "#Shorts"] : tags;
     return [meta.caption.trim(), t.join(" ")].filter(Boolean).join("\n\n");
   }, [meta.caption, meta.hashtags, shortsTag]); // eslint-disable-line react-hooks/exhaustive-deps
-  const connected = !!account?.connected && !account.needs_reconnect;
+  const busy = ch.active.length > 0;
+  const unknown = ch.unknown.length > 0;
   const missing = [
     !ready && "render the clip first",
-    !connected && "connect YouTube",
+    ch.loading && "wait for your accounts to load",
+    !ch.loading && !ch.connected && "connect YouTube",
+    ch.connected && !n && "choose at least one channel",
+    ...ch.active.map((c) => `wait for the upload to ${accountName(c)} to finish`),
+    ...ch.unknown.map((c) => `check the outcome of the upload to ${accountName(c)} below`),
     (!audience?.confirmed || audience.intent === "LOCAL_ONLY") && "confirm who watches in Settings → Integrations",
     !!audience?.halted && "resolve the audience warning in Settings → Integrations",
     !meta.title.trim() && "enter a title",
@@ -357,7 +488,9 @@ function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, b
   const privacyWord = privacy === "public" ? "Public" : "Private";
 
   return (
-    <PlatformPanel id="pp-youtube" name="YouTube Shorts" platform="youtube" account={account} setAccounts={setAccounts}>
+    <PlatformPanel id="pp-youtube" name="YouTube Shorts" platform="youtube" account={account} setAccounts={setAccounts}
+      connected={ch.loading ? null : ch.connected}>
+      <PanelChannels platform="youtube" {...props} />
       <div className="field">
         <span className="label">Who can see it</span>
         <span>{privacy === "public" ? "Public: anyone can watch" : audience?.label || "Private"}</span>
@@ -395,38 +528,39 @@ function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, b
       <div className="row wrap">
         <span className="small muted grow">
           {missing.length ? `To publish: ${missing.join(", ")}.`
-            : `Uploads to ${account?.name || "your channel"} as ${privacyWord}.`}
+            : `Uploads to ${nameList(ch.names)} as ${privacyWord}.`}
         </span>
-        <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || busy || undefined}
-          onClick={() => (missing.length ? toast(`To publish: ${missing.join(", ")}.`, true)
-            : !busy && setConfirming(true))}>
-          {busy && !outcomeUnknown ? <span className="inline-spinner" aria-hidden="true" />
-            : <Icon name={outcomeUnknown ? "question" : "upload"} />}
-          {outcomeUnknown ? "Check upload outcome below" : busy ? "Uploading…" : "Publish to YouTube now…"}
+        <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || undefined}
+          onClick={() => (missing.length ? toast(`To publish: ${missing.join(", ")}.`, true) : setConfirming(true))}>
+          {busy && !unknown ? <span className="inline-spinner" aria-hidden="true" />
+            : <Icon name={unknown ? "question" : "upload"} />}
+          {unknown ? "Check upload outcome below" : busy ? "Uploading…"
+            : n > 1 ? `Publish to ${n} YouTube channels now…` : "Publish to YouTube now…"}
         </button>
       </div>
       {confirming && (
-        <ConfirmDialog title="Publish to YouTube now?" confirmLabel="Publish now" cancelLabel="Not now" wide
-          onClose={() => setConfirming(false)}
-          onConfirm={() => onPublish("youtube", {
+        <ConfirmDialog title={n > 1 ? `Publish to ${n} YouTube channels now?` : "Publish to YouTube now?"}
+          confirmLabel="Publish now" cancelLabel="Not now" wide onClose={() => setConfirming(false)}
+          onConfirm={() => onPublish("youtube", ch.chosen, {
             title: meta.title.trim(), description, tags, privacy, made_for_kids: kids === "yes",
-            expected_account_id: account?.account_id,
           })}>
           <dl className="kv">
-            <dt>Channel</dt><dd>{account?.name}</dd>
+            <dt>{n > 1 ? "Channels" : "Channel"}</dt><dd>{nameList(ch.names)}</dd>
             <dt>Title</dt><dd>{meta.title}</dd>
             <dt>Who can see it</dt><dd>{privacyWord}</dd>
             <dt>Made for kids</dt><dd>{kids === "yes" ? "Yes" : "No"}</dd>
             <dt>Tags</dt><dd>{tags.join(" ") || "None"}</dd>
             <dt>When</dt><dd>Right away</dd>
           </dl>
+          <AgainNotes posted={ch.posted} />
           <div className="consequence">
             <span>
+              {n > 1 ? `This starts ${n} separate uploads, one to each channel. ` : ""}
               {privacy === "public" ? "This requests a Public upload now: anyone may watch or share it if YouTube "
                 + "allows public API uploads for your project." : "This uploads it as Private; you choose any viewers "
                   + "in YouTube Studio yourself."}
               {" "}ClipForge cannot take an upload back; you would delete it in YouTube Studio.
-              It uses part of your project's daily YouTube upload allowance.
+              {n > 1 ? " Each upload uses" : " It uses"} part of your project's daily YouTube upload allowance.
             </span>
           </div>
         </ConfirmDialog>
@@ -435,34 +569,55 @@ function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, b
   );
 }
 
-function TikTokPanel({
-  audience, account, setAccounts, meta, duration, ready, busy, onPublish, onExport, downloadUrl,
-}: PanelProps & { onExport: () => void; downloadUrl: string }) {
-  const connected = !!account?.connected && !account.needs_reconnect;
-  const [creator, setCreator] = useState<TikTokCreator | null>(null);
-  const [creatorError, setCreatorError] = useState("");
+function TikTokPanel(props: PanelProps & { onExport: () => void; downloadUrl: string }) {
+  const { audience, account, setAccounts, meta, duration, ready, onPublish, onExport, downloadUrl } = props;
+  const ch = channelsOf("tiktok", props);
+  const n = ch.chosen.length;
+  const [creators, setCreators] = useState<Record<string, TikTokCreator>>({});
+  const [creatorErrors, setCreatorErrors] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<"direct" | "inbox">("direct");
+  // True while "inbox" was chosen for the owner (a ticked account has no Direct Post), not by the owner.
+  const forcedInbox = useRef(false);
+  const pickMode = (m: "direct" | "inbox") => {
+    forcedInbox.current = false;
+    setMode(m);
+  };
   const [privacy, setPrivacy] = useState("");
   const [allow, setAllow] = useState({ comment: false, duet: false, stitch: false });
   const [disclose, setDisclose] = useState(false);
   const [brandOrganic, setBrandOrganic] = useState(false);
   const [brandContent, setBrandContent] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // Direct Post (or an inbox draft) only when every chosen account allows it.
+  const directOk = n > 0 && ch.chosen.every(canDirectPost);
+  const inboxOk = n > 0 && ch.chosen.every(canInbox);
 
-  // TikTok's sharing guidelines: read the creator's options fresh before posting.
+  // TikTok's sharing guidelines: read each chosen account's options fresh before posting.
+  const chosenKey = ch.chosen.map((c) => `${c.id}:${c.connected_at}:${canDirectPost(c) ? 1 : 0}`).join("|");
   useEffect(() => {
     setPrivacy("");
-    setCreator(null);
-    setCreatorError("");
-    if (!connected) return;
-    if (!account?.can_direct_post) {
+    setCreators({});
+    setCreatorErrors({});
+    if (!n) return;
+    if (!directOk) {
+      if (mode === "direct") forcedInbox.current = true;
       setMode("inbox");
       return;
     }
-    api.tiktokCreator()
-      .then((c) => { setCreator(c); setCreatorError(""); })
-      .catch((e) => setCreatorError(errorText(e)));
-  }, [connected, account?.can_direct_post, account?.connected_at]);
+    if (forcedInbox.current) {  // every ticked account has Direct Post again: back to what the owner had chosen
+      forcedInbox.current = false;
+      setMode("direct");
+    }
+    let alive = true;
+    for (const c of ch.chosen) {
+      api.tiktokCreator(c.id)
+        .then((info) => alive && setCreators((m) => ({ ...m, [c.id]: info })))
+        .catch((e) => alive && setCreatorErrors((m) => ({ ...m, [c.id]: errorText(e) })));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [chosenKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const caption = [meta.caption.trim(), tagList(meta.hashtags).join(" ")].filter(Boolean).join(" ");
   const audited = !!account?.audited;
@@ -474,22 +629,35 @@ function TikTokPanel({
   const direct = mode === "direct";
   const branded = direct && disclose && brandContent;
   const label = disclose ? (brandContent ? "Paid partnership" : brandOrganic ? "Promotional content" : "") : "";
-  const allowed = (["comment", "duet", "stitch"] as const).filter((k) => allow[k]).join(", ");
+  // What every chosen account allows right now: the strictest of their current TikTok options.
+  const infos = ch.chosen.map((c) => creators[c.id]).filter((x): x is TikTokCreator => !!x);
+  const readAll = n > 0 && infos.length === n;
+  const lacking = ch.chosen.filter((c) => creators[c.id] && !creators[c.id].privacy_options.includes(expected));
+  const offered = readAll && !lacking.length ? [expected] : [];
+  const off = (k: "comment" | "duet" | "stitch") => infos.some((info) => info[`${k}_disabled`]);
+  const limits = infos.map((info) => info.max_duration).filter((s) => s > 0);
+  const maxDuration = limits.length ? Math.min(...limits) : 0;
+  const allowed = (["comment", "duet", "stitch"] as const).filter((k) => allow[k] && !off(k)).join(", ");
+  const postingNames = ch.chosen.map((c) => creators[c.id]?.nickname || accountName(c));
+  const busy = ch.active.length > 0;
   const missing = [
     !ready && "render the clip first",
-    !connected && "connect TikTok",
+    ch.loading && "wait for your accounts to load",
+    !ch.loading && !ch.connected && "connect TikTok",
+    ch.connected && !n && "choose at least one account",
+    ...ch.active.map((c) => `wait for the upload to ${accountName(c)} to finish`),
+    ...ch.unknown.map((c) => `check the outcome of the upload to ${accountName(c)} below`),
     (!audience?.confirmed || audience.intent === "LOCAL_ONLY") && "confirm who watches in Settings → Integrations",
     !!audience?.halted && "resolve the audience warning in Settings → Integrations",
-    !direct && !account?.can_inbox && "get TikTok approval for inbox uploads, or download and post it yourself",
-    direct && !creator && "read TikTok’s current posting options",
+    !direct && n > 0 && !inboxOk && "get TikTok approval for inbox uploads, or download and post it yourself",
+    direct && n > 0 && !readAll && "read TikTok’s current posting options",
     caption.length > 2200 && "shorten the caption to 2,200 characters",
     direct && !privacy && "choose who can see it",
     direct && disclose && !brandOrganic && !brandContent && "choose what the commercial content is",
     branded && privacy && !["MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"].includes(privacy)
       && "branded content needs Friends or Everyone",
     direct && !audited && privacy && privacy !== "SELF_ONLY" && "choose “Only me” (your TikTok app is not audited)",
-    direct && creator && creator.max_duration > 0 && duration > creator.max_duration
-      && `trim the clip to ${creator.max_duration} seconds`,
+    direct && maxDuration > 0 && duration > maxDuration && `trim the clip to ${maxDuration} seconds`,
   ].filter(Boolean) as string[];
   const copyCaption = () => {
     if (!navigator.clipboard) {
@@ -501,34 +669,49 @@ function TikTokPanel({
   };
 
   return (
-    <PlatformPanel id="pp-tiktok" name="TikTok" platform="tiktok" account={account} setAccounts={setAccounts}>
-      {connected && creator && (
-        <p className="small row" style={{ gap: 8 }}>
-          {creator.avatar && (
-            <img className="avatar" src={creator.avatar} alt="" referrerPolicy="no-referrer"
-              onError={(e) => { e.currentTarget.style.display = "none"; }} />
-          )}
-          <span>
-            Posting as <b>{creator.nickname}</b>
-            {creator.username ? <span className="muted"> @{creator.username}</span> : null}{" "}
-            <span className="faint">(read from TikTok just now)</span>
-          </span>
-        </p>
+    <PlatformPanel id="pp-tiktok" name="TikTok" platform="tiktok" account={account} setAccounts={setAccounts}
+      connected={ch.loading ? null : ch.connected}>
+      <PanelChannels platform="tiktok" {...props} />
+      {infos.length > 0 && (
+        <div className="stack" style={{ gap: 4 }}>
+          {ch.chosen.map((c) => {
+            const info = creators[c.id];
+            if (!info) return null;
+            return (
+              <p key={c.id} className="small row" style={{ gap: 8 }}>
+                {info.avatar && (
+                  <img className="avatar" src={info.avatar} alt="" referrerPolicy="no-referrer"
+                    onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                )}
+                <span>
+                  Posting as <b>{info.nickname}</b>
+                  {info.username ? <span className="muted"> @{info.username}</span> : null}{" "}
+                  <span className="faint">(read from TikTok just now)</span>
+                </span>
+              </p>
+            );
+          })}
+        </div>
       )}
-      {creatorError && <Banner tone="bad" title="TikTok's account details could not be read">{creatorError}</Banner>}
+      {ch.chosen.filter((c) => creatorErrors[c.id]).map((c) => (
+        <Banner key={c.id} tone="bad" title="TikTok's account details could not be read">
+          {n > 1 ? `${accountName(c)}: ` : ""}{creatorErrors[c.id]}
+        </Banner>
+      ))}
       <fieldset>
         <legend className="label">How to post</legend>
         <label className="choice">
-          <input type="radio" name="pp-tt-mode" checked={direct} disabled={connected && !account?.can_direct_post}
-            onChange={() => setMode("direct")} />
+          <input type="radio" name="pp-tt-mode" checked={direct} disabled={n > 0 && !directOk}
+            onChange={() => pickMode("direct")} />
           <span>
             <b>Post directly</b> to your profile
-            {connected && !account?.can_direct_post ? " (your TikTok app has no Direct Post permission)" : ""}
+            {n > 0 && !directOk ? (n > 1 ? " (not every chosen account has Direct Post permission)"
+              : " (your TikTok app has no Direct Post permission)") : ""}
           </span>
         </label>
         <label className="choice">
-          <input type="radio" name="pp-tt-mode" checked={!direct} disabled={connected && !account?.can_inbox}
-            onChange={() => setMode("inbox")} />
+          <input type="radio" name="pp-tt-mode" checked={!direct} disabled={n > 0 && !inboxOk}
+            onChange={() => pickMode("inbox")} />
           <span>
             <b>Send to TikTok inbox</b> as a draft: finish and post it in the TikTok app for {who}. TikTok must
             approve your app for inbox uploads; at most 5 drafts can wait at a time. This is a manual posting step.
@@ -541,7 +724,7 @@ function TikTokPanel({
             <label htmlFor="pp-tt-priv">Who can see it</label>
             <select id="pp-tt-priv" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
               <option value="" disabled>Choose…</option>
-              {(creator?.privacy_options || []).filter((o) => o === expected).map((o) => (
+              {offered.map((o) => (
                 <option key={o} value={o}
                   disabled={(!audited && o !== "SELF_ONLY")
                     || (branded && !["MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"].includes(o))}>
@@ -551,6 +734,13 @@ function TikTokPanel({
                 </option>
               ))}
             </select>
+            {lacking.length > 0 && (
+              <span className="hint warn-text">
+                TikTok does not offer {who} for {nameList(lacking.map(accountName))} right now. Untick{" "}
+                {lacking.length > 1 ? "those accounts" : "that account"} or check {lacking.length > 1 ? "their" : "its"}
+                {" "}privacy settings in TikTok.
+              </span>
+            )}
           </div>
           <Note>
             Choose {who} explicitly; TikTok offers no preset privacy choice. {!audited ? "Public or selected-viewer "
@@ -562,12 +752,13 @@ function TikTokPanel({
             <legend className="label">Allow viewers to</legend>
             <div className="row wrap" style={{ gap: 16 }}>
               {(["comment", "duet", "stitch"] as const).map((k) => {
-                const off = !!creator?.[`${k}_disabled` as const];
+                const isOff = off(k);
                 return (
-                  <label key={k} className="choice" title={off ? "Turned off in your TikTok settings" : undefined}>
-                    <input type="checkbox" disabled={off} checked={allow[k] && !off}
+                  <label key={k} className="choice" title={isOff ? "Turned off in your TikTok settings" : undefined}>
+                    <input type="checkbox" disabled={isOff} checked={allow[k] && !isOff}
                       onChange={(e) => setAllow({ ...allow, [k]: e.target.checked })} />
-                    <span>{k[0].toUpperCase() + k.slice(1)}{off ? " (off in TikTok)" : ""}</span>
+                    <span>{k[0].toUpperCase() + k.slice(1)}
+                      {isOff ? ` (off in TikTok${n > 1 ? " for a chosen account" : ""})` : ""}</span>
                   </label>
                 );
               })}
@@ -607,17 +798,17 @@ function TikTokPanel({
       <div className="row wrap">
         <span className="small muted grow">
           {missing.length ? `To publish: ${missing.join(", ")}.` : direct
-            ? `Posts to ${creator?.nickname || account?.name} (${TIKTOK_PRIVACY[privacy]}).`
-            : "Sends a draft to your TikTok inbox."}
+            ? `Posts to ${nameList(postingNames)} (${TIKTOK_PRIVACY[privacy]}).`
+            : `Sends a draft to the TikTok inbox of ${nameList(postingNames)}.`}
         </span>
-        <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || busy || undefined}
-          onClick={() => (missing.length ? toast(`To publish: ${missing.join(", ")}.`, true)
-            : !busy && setConfirming(true))}>
+        <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || undefined}
+          onClick={() => (missing.length ? toast(`To publish: ${missing.join(", ")}.`, true) : setConfirming(true))}>
           {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="upload" />}
-          {busy ? "Uploading…" : direct ? "Post to TikTok now…" : "Send to TikTok inbox…"}
+          {busy ? "Uploading…" : direct ? (n > 1 ? `Post to ${n} TikTok accounts now…` : "Post to TikTok now…")
+            : n > 1 ? `Send to ${n} TikTok inboxes…` : "Send to TikTok inbox…"}
         </button>
       </div>
-      {(!connected || !audited || !account?.can_direct_post) && (
+      {(!ch.connected || !audited || (n > 0 && !directOk)) && (
         <Banner tone="warn"
           title={publicPosts ? "TikTok public posting needs a manual step" : "TikTok posting needs setup"}>
           {publicPosts ? "Public Direct Post needs an audited app and Everyone among your account’s current options. "
@@ -630,7 +821,8 @@ function TikTokPanel({
       <Disclosure plain summary="Download and post it yourself">
         <ol className="steps-list">
           <li>
-            <button type="button" className="btn btn-small" onClick={onExport}><Icon name="download" />Export</button>
+            <button type="button" className="btn btn-small" onClick={onExport}><Icon name="download" />Save to
+              computer</button>
             {" "}or <a className="textlink" href={downloadUrl} download>download the MP4</a>.
           </li>
           <li>
@@ -647,27 +839,33 @@ function TikTokPanel({
         </ol>
       </Disclosure>
       {confirming && (
-        <ConfirmDialog title={direct ? "Post to TikTok now?" : "Send to your TikTok inbox?"} wide cancelLabel="Not now"
-          confirmLabel={direct ? "Post now" : "Send the draft"} onClose={() => setConfirming(false)}
-          onConfirm={() => onPublish("tiktok", {
-            description: caption, mode, privacy: direct ? privacy : "", allow_comment: allow.comment,
-            allow_duet: allow.duet, allow_stitch: allow.stitch, disclose, brand_organic: brandOrganic,
-            brand_content: brandContent, expected_account_id: account?.account_id,
+        <ConfirmDialog wide cancelLabel="Not now"
+          title={direct ? (n > 1 ? `Post to ${n} TikTok accounts now?` : "Post to TikTok now?")
+            : n > 1 ? `Send to ${n} TikTok inboxes?` : "Send to your TikTok inbox?"}
+          confirmLabel={direct ? "Post now" : n > 1 ? "Send the drafts" : "Send the draft"}
+          onClose={() => setConfirming(false)}
+          onConfirm={() => onPublish("tiktok", ch.chosen, {
+            description: caption, mode, privacy: direct ? privacy : "", allow_comment: allow.comment && !off("comment"),
+            allow_duet: allow.duet && !off("duet"), allow_stitch: allow.stitch && !off("stitch"), disclose,
+            brand_organic: brandOrganic, brand_content: brandContent,
           })}>
           <dl className="kv">
-            <dt>Account</dt><dd>{creator?.nickname || account?.name}</dd>
+            <dt>{n > 1 ? "Accounts" : "Account"}</dt><dd>{nameList(postingNames)}</dd>
             <dt>Caption</dt><dd>{caption || "(empty)"}</dd>
             {direct && <><dt>Who can see it</dt><dd>{TIKTOK_PRIVACY[privacy]}</dd></>}
             {direct && <><dt>Viewers can</dt><dd>{allowed || "Not comment, duet or stitch"}</dd></>}
             {label && <><dt>Label</dt><dd>{label}</dd></>}
             <dt>When</dt><dd>Right away</dd>
           </dl>
+          <AgainNotes posted={ch.posted} drafted={ch.drafted} />
           <div className="consequence">
             <span>
-              {direct ? "This posts the video on your TikTok profile now. ClipForge can't take it back; you would "
-                + "delete it in the TikTok app. It may take a few minutes to appear."
-                : "This sends the video to your TikTok inbox as a draft now. Nobody else can see it until you post "
-                  + `it in the TikTok app for ${who}. This is a manual step, not automatic publishing.`}
+              {n > 1 ? `This sends it to ${n} accounts, one after another. ` : ""}
+              {direct ? `This posts the video on your TikTok ${n > 1 ? "profiles" : "profile"} now. ClipForge can't `
+                + "take it back; you would delete it in the TikTok app. It may take a few minutes to appear."
+                : `This sends the video to your TikTok ${n > 1 ? "inboxes" : "inbox"} as a draft now. Nobody else can `
+                  + `see it until you post it in the TikTok app for ${who}. This is a manual step, not automatic `
+                  + "publishing."}
             </span>
             <span>
               By posting, you agree to TikTok's {branded ? "Branded Content Policy and " : ""}Music Usage Confirmation.
@@ -687,7 +885,7 @@ const STATUS: Record<Publication["status"], [string, Tone, IconName]> = {
   cancelled: ["Canceled", "neutral", "x"],
 };
 
-function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) => void }) {
+function PubRow({ p, account, onChange }: { p: Publication; account: string; onChange: (p: Publication) => void }) {
   const [baseWord, baseTone, baseIcon] = STATUS[p.status];
   const setup = p.delivery?.audience_setup || "";
   const delivery: Record<string, [string, Tone, IconName]> = {
@@ -716,7 +914,9 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
   return (
     <div className="pub">
       <div className="row wrap">
-        <PlatformName platform={p.platform} extra={p.mode === "inbox" ? "inbox" : undefined} />
+        <PlatformName platform={p.platform}
+          extra={[p.mode === "inbox" ? "inbox" : "", account ? `· ${account}` : ""].filter(Boolean).join(" ")
+            || undefined} />
         <Pill tone={tone} icon={icon}>{word}{p.status === "uploading" ? ` ${Math.round(p.progress * 100)}%` : ""}</Pill>
         {privacy && p.status === "done" && <span className="tag">{privacyLabel(p.platform, privacy)}</span>}
         <span className="tiny faint">{new Date(p.created_at * 1000).toLocaleString()}</span>

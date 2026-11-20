@@ -161,3 +161,175 @@ def test_uploads_and_assets_never_cross_workspaces(monkeypatch, tmp_path):
     from clipfoundry.cloud import settings as cloud_settings
 
     cloud_settings.reset()
+
+
+def test_a_project_still_downloading_from_a_link_has_no_picture_yet_and_does_not_crash(api):
+    from clipfoundry import db
+
+    p = db.create_project("From a link", status="importing", stage="download")  # no source file yet
+    assert db.get_project(p["id"])["source_path"] in (None, "")
+    for path in (f"/api/projects/{p['id']}/thumbnail", f"/api/projects/{p['id']}/source"):
+        assert api.get(path).status_code == 404
+    item = next(i for i in api.get("/api/studio/projects").json() if i["id"] == p["id"])
+    assert item["thumbnail"] == ""  # the Studio shows the plain frame instead of asking for a picture
+
+
+def test_a_full_video_whose_first_file_has_no_picture_is_listed_without_one(api, tmp_path):
+    from clipfoundry import db
+
+    sound = tmp_path / "voice.m4a"
+    sound.write_bytes(b"x")
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(b"\xff\xd8\xff")
+    a = db.insert("assets", {"workspace_id": "local", "kind": "audio", "filename": "voice.m4a", "sha256": "s1",
+                             "size": 1, "path": str(sound), "probe": {"duration": 9, "has_audio": True}})
+    b = db.insert("assets", {"workspace_id": "local", "kind": "video", "filename": "trip.mp4", "sha256": "s2",
+                             "size": 1, "path": str(sound), "thumb_path": str(frame), "probe": {"duration": 9}})
+    quiet = db.insert("studio_projects", {"workspace_id": "local", "name": "Voice first", "asset_ids": [a["id"]]})
+    shown = db.insert("studio_projects", {"workspace_id": "local", "name": "Picture first", "asset_ids": [b["id"]]})
+    items = {i["id"]: i for i in api.get("/api/studio/projects?kind=full_video").json()}
+    assert items[quiet["id"]]["thumbnail"] == ""  # no request that can only answer 404
+    assert items[shown["id"]]["thumbnail"] == f"/api/assets/{b['id']}/thumbnail"
+    assert api.get(items[shown["id"]]["thumbnail"]).status_code == 200
+
+
+def _received(api, data: bytes, name: str = "talk.mp4") -> str:
+    """An upload with every byte received, not completed yet."""
+    up = api.post("/api/uploads", json={"filename": name, "size": len(data)}).json()
+    return send(api, up, data)["id"]
+
+
+def test_the_same_file_finishing_twice_at_once_is_stored_once_and_both_finish(api, tmp_path, monkeypatch):
+    """Two uploads of the same file that finish at the same moment (the file dropped twice, or on two pages) both
+    become the one stored asset: neither is refused, left "receiving", or leaves a folder of its own behind."""
+    import threading
+
+    from clipfoundry.studio import uploads
+
+    data = video(tmp_path)
+    first, second = _received(api, data), _received(api, data)
+    arrived, both_in = [], threading.Event()
+    real = uploads._inspect
+
+    def slow_inspect(*a, **k):  # both stores look for the file before either has saved it
+        arrived.append(1)
+        if len(arrived) >= 2:
+            both_in.set()
+        both_in.wait(1.5)
+        return real(*a, **k)
+
+    monkeypatch.setattr(uploads, "_inspect", slow_inspect)
+    answers: dict = {}
+
+    def finish(upload_id: str) -> None:
+        answers[upload_id] = api.post(f"/api/uploads/{upload_id}/complete")
+
+    threads = [threading.Thread(target=finish, args=(u,)) for u in (first, second)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert [answers[u].status_code for u in (first, second)] == [200, 200], [answers[u].text for u in answers]
+    assert answers[first].json()["id"] == answers[second].json()["id"]
+    assert {api.get(f"/api/uploads/{u}").json()["status"] for u in (first, second)} == {"complete"}
+    folders = [p.name for p in uploads.assets_dir("local").iterdir()]
+    assert folders == [answers[first].json()["id"]]  # one copy, no stray folder
+    assert not list(uploads.uploads_dir().glob("*.part"))
+
+
+@pytest.fixture()
+def windows_deletes(monkeypatch):
+    """Deleting as on Windows, which refuses to delete a read-only file (a stored copy is kept read-only)."""
+    import stat
+
+    real_unlink = os.unlink
+
+    def windows_unlink(path, *args, dir_fd=None, **kw):
+        st = os.lstat(path, dir_fd=dir_fd)
+        if not stat.S_ISLNK(st.st_mode) and not st.st_mode & stat.S_IWRITE:
+            raise PermissionError(13, "Access is denied", str(path))
+        return real_unlink(path, *args, dir_fd=dir_fd, **kw)
+
+    monkeypatch.setattr(os, "unlink", windows_unlink)
+    monkeypatch.setattr(os, "remove", windows_unlink)
+
+
+def test_a_file_another_clipforge_stored_a_moment_earlier_is_used_and_the_copy_is_removed(api, tmp_path,
+                                                                                          monkeypatch,
+                                                                                          windows_deletes):
+    """The lock is per program; another ClipForge program (Autopilot runs in its own) can store the same bytes
+    between the check and the save. The save then finds that file, uses it, and removes its own read-only copy."""
+    from clipfoundry import db
+    from clipfoundry.studio import uploads
+
+    data = video(tmp_path)
+    upload_id = _received(api, data)
+    digest = hashlib.sha256(data).hexdigest()
+    other = uploads.assets_dir("local") / "as-other0000000000"
+    other.mkdir()
+    (other / "original.mp4").write_bytes(data)
+    real = uploads._inspect
+    made: list = []
+
+    def other_program_saves_first(file, kind, folder, *a, **k):
+        made.append(folder)
+        db.insert("assets", {"id": "as-other0000000000", "workspace_id": "local", "kind": "video",
+                             "filename": "talk.mp4", "sha256": digest, "size": len(data),
+                             "path": str(other / "original.mp4"), "probe": {"duration": 2.0}})
+        return real(file, kind, folder, *a, **k)
+
+    monkeypatch.setattr(uploads, "_inspect", other_program_saves_first)
+    r = api.post(f"/api/uploads/{upload_id}/complete")
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == "as-other0000000000"
+    assert api.get(f"/api/uploads/{upload_id}").json()["status"] == "complete"
+    assert made and not made[0].exists()  # its own read-only copy was removed, also on Windows
+    assert len(db.select("assets", "workspace_id = 'local'")) == 1 and (other / "original.mp4").is_file()
+
+
+def test_a_file_another_clipforge_stored_and_deleted_again_meanwhile_refuses_the_save_cleanly(api, tmp_path,
+                                                                                             monkeypatch,
+                                                                                             windows_deletes):
+    """If the other program's copy is deleted again before the save can use it, the save is refused (try again):
+    the upload ends failed, not "receiving", and its own read-only copy is removed."""
+    from clipfoundry import db
+    from clipfoundry.studio import uploads
+
+    data = video(tmp_path)
+    upload_id = _received(api, data)
+    digest = hashlib.sha256(data).hexdigest()
+    real = uploads._inspect
+    made: list = []
+
+    def stored_and_deleted_meanwhile(file, kind, folder, *a, **k):
+        made.append(folder)
+        db.insert("assets", {"id": "as-other0000000001", "workspace_id": "local", "kind": "video",
+                             "filename": "talk.mp4", "sha256": digest, "size": len(data), "path": "/nowhere.mp4"})
+        return real(file, kind, folder, *a, **k)
+
+    real_reuse = uploads._reuse
+
+    def deleted_before_reuse(workspace_id, d, *a, **k):
+        db.execute("DELETE FROM assets WHERE id = 'as-other0000000001'")
+        return real_reuse(workspace_id, d, *a, **k)
+
+    monkeypatch.setattr(uploads, "_inspect", stored_and_deleted_meanwhile)
+    monkeypatch.setattr(uploads, "_stored_already", lambda ws, d, folder, real=uploads._stored_already, **k: (
+        monkeypatch.setattr(uploads, "_reuse", deleted_before_reuse), real(ws, d, folder, **k))[1])
+    r = api.post(f"/api/uploads/{upload_id}/complete")
+    assert r.status_code == 409 and "Try again" in r.text
+    got = api.get(f"/api/uploads/{upload_id}").json()
+    assert got["status"] == "failed"
+    assert made and not made[0].exists() and not db.select("assets", "workspace_id = 'local'")
+
+
+def test_a_copy_that_cannot_be_read_is_removed_also_when_it_is_read_only(api, windows_deletes):
+    """A stored copy is kept read-only; an upload that turns out not to be a readable file removes it all the same
+    (Windows refuses to delete a read-only file unless it is made writable first)."""
+    from clipfoundry.studio import uploads
+
+    junk = b"not a video at all" * 100
+    up = api.post("/api/uploads", json={"filename": "broken.mp4", "size": len(junk)}).json()
+    send(api, up, junk)
+    assert api.post(f"/api/uploads/{up['id']}/complete").status_code == 422
+    assert not list(uploads.assets_dir("local").iterdir())

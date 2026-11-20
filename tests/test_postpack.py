@@ -15,7 +15,9 @@ from test_virality import PODCAST, _setup
 
 def _packages(lines: list[str]) -> list[tuple[str, dict]]:
     words, sentences, loud, _ = _setup(lines)
-    opts = dict(config.DEFAULT_SETTINGS)
+    # These talks hold short, complete moments (one is 19 seconds). The lengths they were written for keep all
+    # four in the fixture: this file is about the post text, not about how long a clip is.
+    opts = {**config.DEFAULT_SETTINGS, "min_duration": 15.0, "max_duration": 60.0, "target_duration": 30.0}
     cands = candidates.find_candidates(words, sentences, loud, opts, pool_size=12)
     results, _ = scoring.evaluate(cands, sentences, opts, JobContext(), "x", 0, 1, words=words, loud=loud)
     df = scoring.document_frequencies(sentences)

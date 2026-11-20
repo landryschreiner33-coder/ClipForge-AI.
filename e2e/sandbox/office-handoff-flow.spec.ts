@@ -70,13 +70,13 @@ async ({ page, request }) => {
   await expect.poll(() => page.evaluate(() => (window as any).recordedOfficePasses), {
     timeout: 55_000,
   }).toEqual(["splice>frame", "frame>command", "command>script", "script>glyph"]);
-  await expect(robot(page, "glyph")).toHaveAttribute("data-room", "caption");
+  await expect(robot(page, "glyph")).toHaveAttribute("data-room", "sound");
   await expect(robot(page, "glyph")).toHaveAttribute("data-state", "working");
   await expect(robot(page, "glyph")).toHaveAttribute("data-posture", "desk");
-  await expect(robot(page, "story")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "story")).toHaveAttribute("data-room", "editing");
   await expect(robot(page, "story")).toHaveAttribute("data-posture", "desk");
   await expect(robot(page, "story")).toHaveAttribute("data-carrying", "false");
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing");
   await expect(robot(page, "splice")).toHaveAttribute("data-duty", "support");
   expect(feed.writes).toEqual([]);
 });
@@ -145,7 +145,7 @@ async ({ page, request }, testInfo) => {
   await expect(core).toHaveAttribute("data-mode", "standby");
   await animations(page).selectOption("reduced");
   // The sculpture in the room's center is its own Brain-workspace link; use the room sign for details.
-  await page.getByRole("button", { name: "Brain Room. Open details", exact: true })
+  await page.getByRole("button", { name: "Brain. Open details", exact: true })
     .click({ position: { x: 12, y: 12 } });
   // The room has a separate read-only details endpoint; its explanation remains actual learning state.
   await expect(page.locator(".office-panel")).toContainText("Using saved guidance is separate from learning");

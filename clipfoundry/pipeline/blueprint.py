@@ -38,7 +38,7 @@ WORD_TOLERANCE = 0.03      # a cut this close to a word edge still counts as bet
 SPEED_RANGE = (0.8, 1.25)  # what the renderer can play without changing the voice pitch (atempo)
 GAIN_RANGE = (-12.0, 12.0)
 ZOOM_RANGE = (1.0, 2.5)
-POSITIONS = ("bottom", "middle", "top")
+POSITIONS = ("bottom", "middle", "top", "above")  # "above": over a fitted picture (captions.py)
 ORIGINS = ("strategist", "edit", "version")
 
 
@@ -59,6 +59,11 @@ class Framing:
     layout: str = "fill"
     zoom: float = 1.0
     auto_zoom: bool = False
+    # With a split-view layout: the layout used when no face cam is found, and what goes under the face cam.
+    # Kept in the plan so that a re-render looks the same after the Settings changed (None: an older plan, which
+    # reads them from Settings as it always did).
+    fallback: str | None = None
+    game: str | None = None
 
 
 @dataclass
@@ -207,8 +212,12 @@ def validate(bp: Blueprint, source_duration: float | None, words: list[dict]) ->
     f, c, a = bp.framing, bp.captions, bp.audio
     if f.mode not in config.TRACKING_MODES:
         err(f"unknown framing mode {f.mode!r}")
-    if f.layout not in config.LAYOUTS:
+    if f.layout not in config.CLIP_LAYOUTS:
         err(f"unknown layout {f.layout!r}")
+    if f.fallback not in (None, *config.LAYOUTS):
+        err(f"unknown layout without a face cam {f.fallback!r}")
+    if f.game not in (None, *config.SPLIT_GAMES):
+        err(f"unknown split view look {f.game!r}")
     if not 0.0 <= f.crop_x <= 1.0:
         err(f"crop position {f.crop_x} is outside 0-1")
     if not ZOOM_RANGE[0] <= f.zoom <= ZOOM_RANGE[1]:
@@ -420,6 +429,12 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
     opts = render.effective_options(settings, project.get("options") or {}, {})
     with brain.consultation("blueprint", settings, ref=("clip", clip["id"])):
         opts, influences = knowledge.choose(knowledge.context(clip, project), opts, settings)
+    # A layout nobody chose (not this video's options, not a Brain note) is the Settings one: with Settings → Split
+    # view on, the plan asks for a look for a face cam first.
+    usual = next(v for v in (opts.get("layout"), settings.get("layout"), "fill") if v in config.LAYOUTS)
+    opts["layout"] = render.cam_layout(opts, (project.get("options") or {}).get("layout") is not None
+                                       or any("layout" in i["decisions"] for i in influences))
+    split = opts["layout"] in config.CLIP_LAYOUTS and opts["layout"] not in config.LAYOUTS
     # Selection provenance is persisted with the chosen range, so a resumed render uses the original decision.
     selected = (selection or {}).get("brain_knowledge") or []
     combined = {}
@@ -457,7 +472,9 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
         speed=float(opts.get("speed") or 1.0),
         framing=Framing(mode=opts.get("tracking") or "auto", crop_x=float(opts.get("crop_x", 0.5) or 0.5),
                         layout=opts.get("layout") or "fill", zoom=float(opts.get("zoom") or 1.0),
-                        auto_zoom=bool(opts.get("auto_zoom"))),
+                        auto_zoom=bool(opts.get("auto_zoom")), fallback=usual if split else None,
+                        game=(opts.get("split_game") if opts.get("split_game") in config.SPLIT_GAMES
+                              else config.SPLIT_GAMES[0]) if split else None),
         captions=Captions(style=opts.get("caption_style") or "clean", position=opts.get("caption_position") or "bottom",
                           enabled=bool(opts.get("captions_enabled", True)),
                           highlight_words=bool(opts.get("highlight_words", True)),
@@ -478,6 +495,7 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
 
 # ------------------------------------------------------------------ edits and versions on top of the plan
 _EDIT_FIELDS = {"tracking": ("framing", "mode"), "crop_x": ("framing", "crop_x"), "layout": ("framing", "layout"),
+                "split_game": ("framing", "game"),
                 "zoom": ("framing", "zoom"), "auto_zoom": ("framing", "auto_zoom"),
                 "caption_style": ("captions", "style"), "caption_position": ("captions", "position"),
                 "captions_enabled": ("captions", "enabled"), "highlight_words": ("captions", "highlight_words"),
@@ -546,6 +564,10 @@ def render_options(bp: Blueprint) -> dict:
            "highlight_words": c.highlight_words, "caption_emphasis": c.emphasis, "silence": a.silence,
            "remove_fillers": a.remove_fillers, "normalize_audio": a.normalize, "gain_db": a.gain_db,
            "speed": bp.speed, "hook": h.text, "hook_overlay": h.overlay, "hook_seconds": h.seconds}
+    if f.fallback is not None:
+        out["layout_fallback"] = f.fallback
+    if f.game is not None:
+        out["split_game"] = f.game
     if c.size is not None:
         out["caption_size"] = c.size
     if c.highlight_color is not None:

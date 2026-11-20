@@ -3,7 +3,11 @@ import { createContext, ReactNode, useCallback, useContext, useLayoutEffect, use
 const STORAGE_KEY = "clipfoundry.animationMode";
 const LEGACY_KEY = "clipfoundry.reduceMotion";
 const SYSTEM_QUERY = "(prefers-reduced-motion: reduce)";
+const OFFICE_KEY = "clipforge.officeActivity";
 export type AnimationMode = "system" | "full" | "reduced";
+/** The office's decorative life: full; calm (no lounge break activities); low power (still robots, few redraws).
+ * Real work and states are shown in every mode. */
+export type OfficeActivity = "full" | "calm" | "low_power";
 
 interface MotionState {
   /** Full is an explicit override; only Follow system consults the operating system. */
@@ -15,6 +19,23 @@ interface MotionState {
   persistent: boolean;
   setReduceMotion: (value: boolean) => void;
   setAnimationMode: (value: AnimationMode) => void;
+  officeActivity: OfficeActivity;
+  setOfficeActivity: (value: OfficeActivity) => void;
+}
+
+function storedActivity(): OfficeActivity {
+  try {
+    const v = window.localStorage.getItem(OFFICE_KEY);
+    return v === "calm" || v === "low_power" ? v : "full";
+  } catch {
+    return "full";
+  }
+}
+
+/** Full or Reduced, set the same way by the Studio's Reduce motion switch and Settings → Appearance → Motion, so the two
+ * always agree: Full follows the system when the system allows motion, and overrides it when the system asks for less. */
+export function motionChoice(full: boolean, systemReducedMotion: boolean): AnimationMode {
+  return full ? (systemReducedMotion ? "full" : "system") : "reduced";
 }
 
 const MotionContext = createContext<MotionState | null>(null);
@@ -39,6 +60,15 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   const [stored, setStored] = useState(preference);
   const [systemReducedMotion, setSystemReducedMotion] = useState(systemPreference);
   const [pageHidden, setPageHidden] = useState(() => document.hidden);
+  const [officeActivity, setActivity] = useState<OfficeActivity>(storedActivity);
+  const setOfficeActivity = useCallback((value: OfficeActivity) => {
+    try {
+      window.localStorage.setItem(OFFICE_KEY, value);
+    } catch {
+      /* lasts for this visit */
+    }
+    setActivity(value);
+  }, []);
   const reduceMotion = stored.mode === "reduced" || (stored.mode === "system" && systemReducedMotion);
 
   const setAnimationMode = useCallback((mode: AnimationMode) => {
@@ -71,6 +101,7 @@ export function MotionProvider({ children }: { children: ReactNode }) {
       if (event.key === STORAGE_KEY || event.key === null) {
         setStored(preference());
       }
+      if (event.key === OFFICE_KEY || event.key === null) setActivity(storedActivity());
     };
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("storage", storage);
@@ -88,8 +119,9 @@ export function MotionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ reduceMotion, animationMode: stored.mode,
     preferredReduceMotion: stored.mode === "reduced", systemReducedMotion,
-    pageHidden, persistent: stored.persistent, setReduceMotion, setAnimationMode }),
-  [reduceMotion, stored, systemReducedMotion, pageHidden, setReduceMotion, setAnimationMode]);
+    pageHidden, persistent: stored.persistent, setReduceMotion, setAnimationMode, officeActivity, setOfficeActivity }),
+  [reduceMotion, stored, systemReducedMotion, pageHidden, setReduceMotion, setAnimationMode, officeActivity,
+    setOfficeActivity]);
   return <MotionContext.Provider value={value}>{children}</MotionContext.Provider>;
 }
 

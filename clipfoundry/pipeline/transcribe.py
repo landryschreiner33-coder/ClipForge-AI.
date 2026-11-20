@@ -2,6 +2,11 @@
 
 Also supports importing an existing SRT/VTT/JSON transcript, which skips
 Whisper entirely (word timings are then interpolated inside each cue).
+
+A long recording goes through `transcribe_long`: it is listened to in pieces of about twenty minutes cut where
+nobody speaks, each piece is saved as soon as it is done so a restart continues where it stopped, and only one
+piece of samples is in memory at a time. The Whisper model is held between pieces and files (`load_model`) and
+given back at the end of a batch (`release_model`).
 """
 from __future__ import annotations
 
@@ -10,13 +15,17 @@ import html
 import os
 import platform
 import re
+import shutil
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import Callable
 
-from .. import config
+import numpy as np
+
 from . import audio, cuda, models
-from .common import Cancelled, JobContext, log, read_json
+from .common import Cancelled, JobContext, log, read_json, write_json
 
 
 GPU_MODEL, CPU_MODEL = "large-v3-turbo", "small"
@@ -159,11 +168,13 @@ class GpuTranscriptionFailed(RuntimeError):
         self.fix = fix
 
 
-def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContext,
-               lo: float = 0.0, hi: float = 1.0, vad: bool = True, allow_cpu_fallback: bool = True) -> dict:
-    """Transcribe with word timestamps. `allow_cpu_fallback=False` (strict GPU, Autopilot's default) never runs on
-    the CPU when an NVIDIA GPU is expected: a CUDA failure raises GpuTranscriptionFailed instead. The manual
-    workflow keeps the visible CPU fallback."""
+def _plan_attempts(settings: dict, allow_cpu_fallback: bool) -> tuple[dict, list[tuple[str, str, str]]]:
+    """The plan for this machine and the (model, device, compute type) attempts in order: the plan itself, then
+    int8_float16 on the GPU (tried only after running out of GPU memory) and, when allowed, the CPU model.
+
+    `allow_cpu_fallback=False` (strict GPU, Autopilot's default) never runs on the CPU when an NVIDIA GPU is
+    expected: a GPU that cannot be used raises GpuTranscriptionFailed here, before anything runs.
+    """
     status = cuda.probe(refresh=True)
     plan = whisper_plan(settings, status)
     gpu_expected = plan["device"] == "cuda" or (bool(status.get("gpus")) and
@@ -186,6 +197,15 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
         auto_model = (settings.get("whisper_model", "auto") or "auto") == "auto"
         if allow_cpu_fallback:
             attempts.append((CPU_MODEL if auto_model else plan["model"], "cpu", "int8"))
+    return plan, attempts
+
+
+def _run_attempts(plan: dict, attempts: list[tuple[str, str, str]], ctx: JobContext, lo: float,
+                  allow_cpu_fallback: bool, run: Callable[[str, str, str], dict]) -> dict:
+    """Call `run(model, device, compute type)` for the attempts in order until one succeeds, with the fallback rules
+    shared by whole files and the pieces of a long recording: a GPU failure falls through to the CPU (loudly), and
+    running out of GPU memory first retries the GPU with int8_float16. The result's runtime says what ran and why.
+    """
     warning = plan["problem"] if plan["mode"] == "cpu" and plan["fix"] else ""
     fix = plan["fix"]
     last: Exception | None = None
@@ -194,7 +214,7 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
             continue
         log.info("Transcription starting: device=%s compute_type=%s model=%s", dev, ct, model_name)
         try:
-            result = _run_whisper(audio_path, duration, settings, model_name, dev, ct, ctx, lo, hi, vad)
+            result = run(model_name, dev, ct)
         except Cancelled:
             raise
         except Exception as exc:  # GPU runtime missing (cuBLAS/cuDNN), out of memory, driver, ...
@@ -209,7 +229,7 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
                     log.warning("Falling back to device=%s compute_type=%s model=%s. Fix: %s", nxt[1], nxt[2],
                                 nxt[0], fix)
                     ctx.progress(lo, f"GPU transcription failed, continuing on {nxt[1].upper()} ({nxt[2]})")
-            gc.collect()  # release GPU memory before the next attempt
+            release_model()  # a model that just failed is not worth holding: free its memory before the next attempt
             continue
         rt = result["runtime"]
         if dev == "cuda" and i:
@@ -227,9 +247,180 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
     raise RuntimeError(f"Transcription failed: {last}")
 
 
+def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContext,
+               lo: float = 0.0, hi: float = 1.0, vad: bool = True, allow_cpu_fallback: bool = True) -> dict:
+    """Transcribe a whole file with word timestamps (`transcribe_long` cuts a long recording into pieces).
+
+    `allow_cpu_fallback=False` (strict GPU, Autopilot's default) never runs on the CPU when an NVIDIA GPU is
+    expected: a CUDA failure raises GpuTranscriptionFailed instead. The manual workflow keeps the visible CPU
+    fallback. Progress maps the file onto lo..hi.
+    """
+    plan, attempts = _plan_attempts(settings, allow_cpu_fallback)
+
+    def run(model_name: str, device: str, compute: str) -> dict:
+        return _run_whisper(audio_path, duration, settings, model_name, device, compute, ctx, lo, hi, vad)
+
+    return _run_attempts(plan, attempts, ctx, lo, allow_cpu_fallback, run)
+
+
+# ------------------------------------------------------------------ long recordings
+def _hms(seconds: float) -> str:
+    """h:mm:ss, always with the hour, so positions in a long recording line up."""
+    h, rem = divmod(int(max(0.0, seconds)), 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}"
+
+
+def part_bounds(audio_path: Path, duration: float, chunk_s: float) -> list[tuple[float, float]]:
+    """The [start, end) pieces of a long recording: one every `chunk_s`, the last up to 1.25 × `chunk_s` so there is
+    no tiny tail, and every cut moved to the quietest moment within 30 s of the nominal boundary."""
+    count = int(duration // chunk_s)
+    if duration - count * chunk_s > 0.25 * chunk_s:
+        count += 1
+    radius = min(30.0, chunk_s / 4)  # the cuts stay in order whatever chunk_s is
+    cuts = [0.0] + [audio.quiet_point(audio_path, k * chunk_s, radius_s=radius) for k in range(1, count)] + [duration]
+    return list(zip(cuts, cuts[1:]))
+
+
+def _saved_part(path: Path, start: float, end: float) -> dict | None:
+    """The piece an earlier run saved at `path`, if it covers the planned [start, end) (within 10 ms)."""
+    part = read_json(path, None)
+    if not isinstance(part, dict) or not isinstance(part.get("result"), dict):
+        return None
+    result = part["result"]
+    if not isinstance(result.get("segments"), list) or not isinstance(result.get("runtime"), dict):
+        return None
+    try:
+        same = abs(float(part["start"]) - start) <= 0.01 and abs(float(part["end"]) - end) <= 0.01
+    except (KeyError, TypeError, ValueError):
+        return None
+    return part if same else None
+
+
+def _transcribe_piece(audio_path: Path, settings: dict, ctx: JobContext, plan: dict,
+                      attempts: list[tuple[str, str, str]], start: float, end: float, lo: float, hi: float,
+                      vad: bool, allow_cpu_fallback: bool, report: Callable[[float], None]) -> dict:
+    """One piece of a long recording, [start, end) seconds, through the same attempts as a whole file."""
+    samples = audio.read_samples(audio_path, start, end)
+
+    def run(model_name: str, device: str, compute: str) -> dict:
+        return _run_whisper(audio_path, end - start, settings, model_name, device, compute, ctx, lo, hi, vad,
+                            samples=samples, offset_s=start, report_position=report)
+
+    return _run_attempts(plan, attempts, ctx, lo, allow_cpu_fallback, run)
+
+
+def merge_parts(parts: list[dict], duration: float) -> dict:
+    """One transcript from the pieces of a long recording: segments in order, a sentence heard twice at a seam
+    dropped, times monotonic, the language of the first piece that heard one, and a runtime that sums the pieces'
+    work (with `parts` and `resumed` counts; device, compute type and model are those of the last piece run)."""
+    segments: list[dict] = []
+    for part in parts:
+        segs = [dict(s, words=[dict(w) for w in s.get("words", [])]) for s in part["result"]["segments"]]
+        if (segments and segs and segs[0]["text"] == segments[-1]["text"]
+                and abs(segs[0]["start"] - segments[-1]["end"]) <= 1.0):
+            segs.pop(0)  # the same sentence heard at the end of one piece and the start of the next
+        segments.extend(segs)
+    last_word: dict | None = None
+    for i, seg in enumerate(segments):
+        if i and seg["start"] < segments[i - 1]["start"]:
+            seg["start"] = segments[i - 1]["start"]
+        seg["end"] = max(seg["end"], seg["start"])
+        for word in seg["words"]:
+            if last_word is not None and word["start"] < last_word["start"]:
+                word["start"] = last_word["start"]
+            if word["end"] < word["start"]:
+                word["end"] = round(word["start"] + 0.05, 3)
+            last_word = word
+    runtimes = [part["result"]["runtime"] for part in parts]
+
+    def numbers(key: str) -> list[float]:
+        return [float(rt[key]) for rt in runtimes if isinstance(rt.get(key), (int, float))]
+
+    last = next((part["result"] for part in reversed(parts) if not part.get("resumed")), parts[-1]["result"])
+    seconds = sum(numbers("seconds"))
+    flagged = next((rt for rt in runtimes if rt.get("warning")), {})
+    runtime = dict(last["runtime"])
+    runtime.update({
+        "seconds": round(seconds, 1), "audio_seconds": round(duration, 1),
+        "speed": round(duration / max(seconds, 1e-6), 1),
+        "load_seconds": round(sum(numbers("load_seconds")), 1), "cpu_seconds": round(sum(numbers("cpu_seconds")), 1),
+        "started": min(numbers("started"), default=time.time()), "ended": max(numbers("ended"), default=time.time()),
+        "parts": len(parts), "resumed": sum(1 for part in parts if part.get("resumed")),
+        "warning": flagged.get("warning", ""), "fix": flagged.get("fix", ""),
+    })
+    language = next((part["result"].get("language") for part in parts if part["result"].get("language")), "")
+    return {"language": language, "duration": duration, "source": last["source"], "segments": segments,
+            "runtime": runtime}
+
+
+def transcribe_long(audio_path: Path, duration: float, settings: dict, ctx: JobContext, *, parts_dir: Path,
+                    chunk_s: float = 1200.0, lo: float = 0.0, hi: float = 1.0, vad: bool = True,
+                    allow_cpu_fallback: bool = True, label: str = "", keep_parts: bool = False) -> dict:
+    """Transcribe a recording of any length, in pieces when it is long, with the same result as `transcribe()`.
+
+    Up to 1.25 × `chunk_s` of sound is one `transcribe()` call. Longer sound is cut into pieces of about `chunk_s`
+    (see `part_bounds`), each piece is read from the file on its own (`audio.read_samples`), run through the same
+    device and compute fallback as a whole file, and saved at once as `parts_dir/part-NNNN.json`
+    ({"start", "end", "result"}); a piece already saved for the same [start, end) is reused, so a crash, a closed
+    app or a cancel (`ctx.check()` between pieces) loses at most the piece being listened to. The pieces are merged
+    (`merge_parts`) and `parts_dir` is deleted unless `keep_parts` is set. Progress maps the whole recording onto
+    lo..hi by time position with the message "<label or Transcribing>  h:mm:ss/h:mm:ss" (the caller passes the
+    file's name as `label`). The runtime carries `parts` (pieces) and `resumed` (pieces reused from disk). The
+    Whisper model stays loaded between pieces; the caller releases it with `release_model()` when its batch is done.
+    """
+    if duration <= chunk_s * 1.25:
+        result = transcribe(audio_path, duration, settings, ctx, lo, hi, vad, allow_cpu_fallback)
+        # a stand-in `transcribe` (the tests', or a caller's) may return segments alone: the runtime is added to
+        result.setdefault("runtime", {}).update(parts=1, resumed=0)
+        last_run.update(parts=1, resumed=0)
+        return result
+    bounds = part_bounds(audio_path, duration, chunk_s)
+    plan, attempts = _plan_attempts(settings, allow_cpu_fallback)
+    parts_dir.mkdir(parents=True, exist_ok=True)
+    name, whole = label or "Transcribing", _hms(duration)
+
+    def report(position: float) -> None:
+        ctx.progress(lo + (hi - lo) * min(1.0, position / duration), f"{name}  {_hms(position)}/{whole}")
+
+    parts: list[dict] = []
+    for k, (start, end) in enumerate(bounds):
+        ctx.check()
+        path = parts_dir / f"part-{k:04d}.json"
+        part = _saved_part(path, start, end)
+        if part is not None:
+            log.info("Transcription piece %d/%d (%s-%s) reused from %s", k + 1, len(bounds), _hms(start), _hms(end),
+                     path.name)
+            part["resumed"] = True
+            parts.append(part)
+            report(end)
+            continue
+        report(start)
+        piece_lo, piece_hi = lo + (hi - lo) * start / duration, lo + (hi - lo) * end / duration
+        result = _transcribe_piece(audio_path, settings, ctx, plan, attempts, start, end, piece_lo, piece_hi, vad,
+                                   allow_cpu_fallback, report)
+        rt = result["runtime"]
+        done = (rt["model"], rt["requested_device"], rt["requested_compute_type"])
+        if done in attempts:
+            attempts = attempts[attempts.index(done):]  # the next pieces start from what worked, not from the plan
+        part = {"start": start, "end": end, "result": result}
+        write_json(path, part)
+        parts.append(part)
+    merged = merge_parts(parts, duration)
+    last_run.clear()
+    last_run.update(merged["runtime"], at=time.time())
+    if not keep_parts:
+        shutil.rmtree(parts_dir, ignore_errors=True)  # the caller stores the merged transcript
+    return merged
+
+
+# ------------------------------------------------------------------ the model
 _CUDA_WORDS = ("cuda", "cublas", "cudnn", "out of memory", "device", "driver")
 _FILE_WORDS = ("model.bin", "config.json", "vocabulary", "tokenizer", "preprocessor", "unable to open", "parse",
                "json", "end of file", "eof", "corrupt", "invalid", "no such file", "cannot find")
+
+_held: dict | None = None  # the Whisper model kept between pieces and files: {"key", "model", "loaded"}
+_held_lock = threading.Lock()
 
 
 def _model_file_error(exc: BaseException) -> bool:
@@ -252,27 +443,29 @@ def prepare_model(model_name: str, ctx: JobContext | None = None, lo: float = 0.
     return models.ensure_model(model_name, report)
 
 
-def load_model(model_name: str, device: str, compute: str, ctx: JobContext | None = None,
-               lo: float = 0.0) -> tuple[object, dict]:
-    """Create the faster-whisper model and return it with what CTranslate2 actually loaded it on."""
-    cuda.prepare()
+def _new_whisper(path: Path, device: str, compute: str) -> object:
+    """A fresh WhisperModel: CTranslate2 loads the files here (imported late because faster-whisper is optional)."""
     from faster_whisper import WhisperModel
 
-    ctx = ctx or JobContext()
-    path = prepare_model(model_name, ctx, lo)
+    return WhisperModel(str(path), device=device, compute_type=compute, cpu_threads=min(os.cpu_count() or 4, 8))
+
+
+def _create_model(model_name: str, path: Path, device: str, compute: str, ctx: JobContext,
+                  lo: float) -> tuple[object, dict]:
+    """Load the model from its verified files, repairing them once if they turn out to be damaged."""
+    cuda.prepare()
     where = f"{'GPU' if device == 'cuda' else 'CPU'} ({device}, {compute})"
     ctx.progress(lo, f"Loading Whisper '{model_name}' on {where}...")
     t_load = time.time()
-    threads = min(os.cpu_count() or 4, 8)
     try:
-        model = WhisperModel(str(path), device=device, compute_type=compute, cpu_threads=threads)
+        model = _new_whisper(path, device, compute)
     except Exception as exc:  # noqa: BLE001
         if not _model_file_error(exc) or Path(model_name).is_dir():
             raise
         log.warning("Whisper '%s' could not be loaded from %s (%s); re-checking the files", model_name, path, exc)
         models.mark_suspect(model_name)
         path = prepare_model(model_name, ctx, lo)  # re-verifies every hash, re-downloads bad files
-        model = WhisperModel(str(path), device=device, compute_type=compute, cpu_threads=threads)
+        model = _new_whisper(path, device, compute)
     loaded = {"device": str(getattr(model.model, "device", device)),
               "compute_type": str(getattr(model.model, "compute_type", compute)),
               "seconds": round(time.time() - t_load, 1), "path": str(path)}
@@ -281,13 +474,73 @@ def load_model(model_name: str, device: str, compute: str, ctx: JobContext | Non
     return model, loaded
 
 
+def _drop_held() -> None:
+    """Forget the held model and collect it so CTranslate2 frees its memory. The caller holds `_held_lock`."""
+    global _held
+    if _held is None:
+        return
+    key = _held["key"]
+    _held = None
+    gc.collect()
+    log.info("Whisper '%s' released from %s/%s", key["model"], key["device"], key["compute_type"])
+
+
+def load_model(model_name: str, device: str, compute: str, ctx: JobContext | None = None,
+               lo: float = 0.0) -> tuple[object, dict]:
+    """The faster-whisper model and what CTranslate2 actually loaded it on.
+
+    The model is held once loaded: asking again for the same model, device, compute type and model folder returns
+    the held one (its `loaded` then says `seconds` 0 and `reused` True), so the pieces of a long recording and the
+    files of a batch share one load instead of reloading a gigabyte for each. Asking for a different one releases
+    the held model first, so only one is ever in GPU memory. The heavy worker runs one job at a time; whoever runs
+    a batch (the studio build job) calls `release_model()` at the end to give the GPU back to the local AI model.
+    """
+    global _held
+    ctx = ctx or JobContext()
+    path = prepare_model(model_name, ctx, lo)  # a few stat() calls once the files are verified
+    key = {"model": model_name, "device": device, "compute_type": compute, "path": str(path)}
+    with _held_lock:
+        if _held is not None and _held["key"] == key:
+            log.info("Whisper '%s' is already loaded on %s/%s: reusing it", model_name, _held["loaded"]["device"],
+                     _held["loaded"]["compute_type"])
+            return _held["model"], dict(_held["loaded"], seconds=0.0, reused=True)
+        _drop_held()  # a different model: free its memory before the new one loads
+    model, loaded = _create_model(model_name, path, device, compute, ctx, lo)  # nothing is held while this runs
+    with _held_lock:
+        _drop_held()  # a model another thread loaded meanwhile (the worker never does): the newest one is held
+        _held = {"key": key, "model": model, "loaded": loaded}
+    return model, loaded
+
+
+def release_model() -> None:
+    """Drop the held Whisper model so its (GPU) memory is free for the local AI model; the next load loads again."""
+    with _held_lock:
+        _drop_held()
+
+
+def held_model() -> dict | None:
+    """The held model's key (model, device, compute_type, path) with its `loaded` details, or None (Dashboard)."""
+    with _held_lock:
+        if _held is None:
+            return None
+        return {**_held["key"], "loaded": dict(_held["loaded"])}
+
+
 def run_model(model, loaded: dict, audio_path: Path, duration: float, settings: dict, model_name: str,
               device: str, compute: str, ctx: JobContext, lo: float = 0.0, hi: float = 1.0,
-              vad: bool = True) -> dict:
+              vad: bool = True, *, samples: np.ndarray | None = None, offset_s: float = 0.0,
+              report_position: Callable[[float], None] | None = None) -> dict:
+    """Transcribe the file, or `samples` (a stretch of it that starts `offset_s` seconds in), with a loaded model.
+
+    Every segment and word time is in the file's own time: `offset_s` is added before it is stored. Progress maps
+    the audio onto lo..hi after each decoded segment; `report_position` (called with the position in seconds)
+    replaces that message when the caller reports the whole recording itself (`transcribe_long`).
+    """
     opts = transcribe_options(settings, device, vad)
     where = f"{'GPU' if device == 'cuda' else 'CPU'} ({device}, {compute})"
     t0, cpu0 = time.time(), time.process_time()
-    samples = audio.read_samples(Path(audio_path))  # not the path: faster-whisper's PyAV decode breaks on PyAV 19
+    if samples is None:
+        samples = audio.read_samples(Path(audio_path))  # not the path: faster-whisper's PyAV decode breaks on PyAV 19
     segments, info = model.transcribe(samples, **opts)  # type: ignore[attr-defined]
     del samples  # a 4-hour source is ~1 GB of samples: don't hold it here while the segments decode
     total = duration or float(getattr(info, "duration", 0) or 0) or 1.0
@@ -296,16 +549,19 @@ def run_model(model, loaded: dict, audio_path: Path, duration: float, settings: 
     for seg in segments:
         ctx.check()
         words = [
-            {"start": round(w.start, 3), "end": round(w.end, 3), "w": w.word.strip(),
+            {"start": round(w.start + offset_s, 3), "end": round(w.end + offset_s, 3), "w": w.word.strip(),
              "p": round(float(w.probability), 3)}
             for w in (seg.words or [])
             if w.word and w.word.strip()
         ]
-        out_segments.append({"start": round(seg.start, 3), "end": round(seg.end, 3),
+        out_segments.append({"start": round(seg.start + offset_s, 3), "end": round(seg.end + offset_s, 3),
                              "text": seg.text.strip(), "words": words})
-        ctx.progress(lo + (hi - lo) * min(1.0, seg.end / total),
-                     f"{label}  {int(seg.end // 60)}:{int(seg.end % 60):02d}"
-                     f" / {int(total // 60)}:{int(total % 60):02d}")
+        if report_position is not None:
+            report_position(offset_s + seg.end)
+        else:
+            ctx.progress(lo + (hi - lo) * min(1.0, seg.end / total),
+                         f"{label}  {int(seg.end // 60)}:{int(seg.end % 60):02d}"
+                         f" / {int(total // 60)}:{int(total % 60):02d}")
     t1 = time.time()
     secs = max(t1 - t0, 1e-6)
     return {
@@ -322,9 +578,12 @@ def run_model(model, loaded: dict, audio_path: Path, duration: float, settings: 
 
 
 def _run_whisper(audio_path: Path, duration: float, settings: dict, model_name: str, device: str,
-                 compute: str, ctx: JobContext, lo: float, hi: float, vad: bool = True) -> dict:
+                 compute: str, ctx: JobContext, lo: float, hi: float, vad: bool = True, *,
+                 samples: np.ndarray | None = None, offset_s: float = 0.0,
+                 report_position: Callable[[float], None] | None = None) -> dict:
     model, loaded = load_model(model_name, device, compute, ctx, lo)
-    return run_model(model, loaded, audio_path, duration, settings, model_name, device, compute, ctx, lo, hi, vad)
+    return run_model(model, loaded, audio_path, duration, settings, model_name, device, compute, ctx, lo, hi, vad,
+                     samples=samples, offset_s=offset_s, report_position=report_position)
 
 
 # ------------------------------------------------------------------ import
