@@ -1,5 +1,14 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-20: the moving sky (ClipForge 2026.11.20)
+
+The setup ZIP now installs source commit `72af02d2d04d0b6786d65f8f813f3801686f77c1`: the 2026.11.19.2 release plus PR
+#65 (the moving sky, the turning black hole, smooth page and tab changes, and pictures that come back after a
+graphics-chip reset), merged as `d3518f7`, and the Mac release notes for 2026.11.20 (PR #66). start.bat is unchanged, so
+its pin and upgrade fixtures are the same. 77 launcher tests passed. All 953 app files equal the Git tree except the six
+declared BAT CRLF exports. The Windows install check now installs the 2026.11.19.2 release (0597fef, raw/70f3450) first,
+then this one over it.
+
 ## 2026-11-20 (Nov 19 in Chicago): the space studio (ClipForge 2026.11.19.2)
 
 The setup ZIP now installs source commit `0597fefa2a026a5c5244114b74fbe0e28d4262b9`: the 2026.11.19 release plus PR #62

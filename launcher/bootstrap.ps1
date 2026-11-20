@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
-$Commit = '0597fefa2a026a5c5244114b74fbe0e28d4262b9'
-$ArchiveHash = 'edec780aa18ebba6510a3de4da6b7b03a6d9f5ea6f3d43570e3d069496331e97'
+$Commit = '72af02d2d04d0b6786d65f8f813f3801686f77c1'
+$ArchiveHash = 'f11387d0bb6915239f1478672ff1d4ddc5784f32e7f23a9ddb97aa1b1e1d2c20'
 $StartHash = 'bef75a1f2e64dc0c8a1f342f8cf7f79239c90d5e907117a016729714c18fdfe5'
 $ArchiveUrl = "https://github.com/landryschreiner33-coder/ClipForge-AI./archive/$Commit.zip"
 $ArchivePrefix = "ClipForge-AI.-$Commit/"
@@ -9,6 +9,7 @@ $ArchivePrefix = "ClipForge-AI.-$Commit/"
 # Known launcher revisions are the only older copies whose profile may be reused.
 # Each installer adds its exact commit/start hash here; ordinary ZIP copies remain separate.
 $KnownReleases = @{
+    '0597fefa2a026a5c5244114b74fbe0e28d4262b9' = 'bef75a1f2e64dc0c8a1f342f8cf7f79239c90d5e907117a016729714c18fdfe5'
     '06f459eb185b87ac344ad14e8dbd3f8e03be58d1' = '26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1'
     '0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
     '11bdb43523f9b01e82590d2dd9e67473d323c88d' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'

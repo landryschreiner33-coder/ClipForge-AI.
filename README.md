@@ -1,28 +1,32 @@
 # ClipForge downloads
 
-## Windows setup (ClipForge 2026.11.19.2: the space studio, November 19, 2026)
+## Windows setup (ClipForge 2026.11.20: the moving sky, November 20, 2026)
 
 Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
 **Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
 keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
 needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `0597fefa2a026a5c5244114b74fbe0e28d4262b9`: the 2026.11.19 release plus PR #62
-(the space studio: a cutaway ship with 25 robots beside what is being made, Talk to AI under Studio, Make clips in three
-steps, the Brain's knowledge map as a lightning galaxy, and new Projects, Publishing, Accounts and Appearance pages),
-with the Mac release notes for 2026.11.19.2, corrected after a fact-check (PR #63). The 77 setup tests passed, and all
-948 app files were compared with that commit (six `.bat` files differ only by the declared CRLF export). [Windows setup
-check run 44677612640](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677612640) installed the
-previous release (13e1fcb) with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over it: the
-new folder kept the same data folder and setting, served this commit's page and icon, all 948 installed files matched,
-and it closed and reopened without a second copy. See `verification-windows.json`. The app passed the Native Mac desktop
-app run 44677488448 on the same commit (fast suite 3,109 passed, slow suite 31 passed). FFmpeg is not installed on the
-Windows runner, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs, the new
-look on a Windows screen, the built-in model, ComfyUI and its models, a real live stream and face cam, a real rented
-cloud computer, the built-in voice, real AI keys on a PC and real uploads to one or more channels are not tested.
+It installs ClipForge from source commit `72af02d2d04d0b6786d65f8f813f3801686f77c1`: the 2026.11.19.2 release plus PR
+#65 (the moving sky: the stars stream past as if the ship were flying, the black hole's disk turns, pages and tabs fade
+in, and pictures come back after a graphics-chip reset), with the Mac release notes for 2026.11.20 (PR #66). The 77
+setup tests passed, and all 953 app files were compared with that commit (six `.bat` files differ only by the declared
+CRLF export). The Windows setup check installs the previous release (0597fef) with a synthetic setting on a GitHub
+Windows Server 2025 runner, then this ZIP over it; its result is recorded in `verification-windows.json` once it has
+passed. FFmpeg is not installed there, so no video is processed on Windows; Windows 10/11 desktops, Windows security
+acceptance, GPUs, the moving sky and the turning black hole on a Windows screen, a real graphics-chip reset, the
+built-in model, ComfyUI and its models, a real live stream and face cam, a real rented cloud computer, the built-in
+voice, real AI keys on a PC and real uploads to one or more channels are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+### Previous Windows setup (the space studio, November 19, 2026)
+
+Source commit `0597fefa2a026a5c5244114b74fbe0e28d4262b9`, kept at
+https://github.com/landryschreiner33-coder/ClipForge-AI./raw/70f345049e1a4486f54fd0aaa50f42a08a11d7f1/ClipForge-Windows-Setup.zip
+(50,449,556 bytes, SHA-256 `e1116e65ed4c162d7b90a43e662fe79d6901b977698548b359f3d3b9c960e878`), checked by
+[Windows setup check run 44677612640](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677612640).
 
 ### Previous Windows setup (live clips, channels and a smarter ClipForge AI, November 19, 2026)
 
