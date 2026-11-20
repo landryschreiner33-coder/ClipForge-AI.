@@ -2,82 +2,135 @@
   "schema": 2,
   "current": {
     "name": "ClipForge",
-    "version": "2026.11.19.2",
-    "date": "2026-11-19",
-    "source_commit": "0597fefa2a026a5c5244114b74fbe0e28d4262b9",
-    "summary": "ClipForge has a new look: a space studio where a crew of 25 robots works on a cutaway ship, with what is being made beside it, Talk to AI always in the menu, a Brain map that flickers like lightning and your first clip in three steps.",
+    "version": "2026.11.20",
+    "date": "2026-11-20",
+    "source_commit": "72af02d2d04d0b6786d65f8f813f3801686f77c1",
+    "summary": "The space studio moves: the sky streams past as if the ship were flying, the black hole’s disk turns, and pages and tabs change smoothly.",
     "changes": [
       {
-        "title": "A space studio",
-        "text": "Every page has the new look: Courier Prime type under one starry sky, with a black hole over the Studio. Your projects, clips, accounts and settings are kept. If your accent colour was the old default violet, it becomes **Glacier** blue once; you can pick violet again in **Settings › Appearance**."
+        "title": "A sky that moves",
+        "text": "Behind every page the sky streams past to the left, as if the ship were flying on: the small stars slide slowly, brighter stars twinkle and drift faster, specks of dust rush past and now and then a shooting star crosses. The faraway nebula holds still."
       },
       {
-        "title": "The ship and its crew",
-        "text": "**Studio** is a cutaway ship with 25 robots and CORE. Every room is named, and the badge above each robot shows its job state (pick a robot to see its **Current task**). A team goes to its consoles only while it has real work (running, queued, waiting, or stopped by an error in the last half hour), and the work is handed on as the job really moves; a team with no work rests in the lounge. Under the ship: **Whole ship**, **Activity** (what the crew did for Autopilot, live streams and the Brain) and **Reduce motion**. **Bigger view** opens the ship on its own page."
+        "title": "The black hole turns",
+        "text": "The black hole’s disk turns, its inner streaks faster than its outer ones: the large one over the **Studio** and the small one at the top of every other page. Where the browser cannot draw it on the graphics chip, it shows its picture with patches of light travelling round the disk instead. If frames come too slowly, every black hole holds still for a while, so a computer without a graphics chip stays quick, and tries again after 2 minutes, then 4, 8 and so on, up to about an hour."
       },
       {
-        "title": "Working on, beside the ship",
-        "text": "Beside the ship, **Working on** shows what is being made now on a screen, with its current step and a light (Making, Your turn, Paused, Waiting or Ready; a live stream or a video you gave Autopilot shows Waiting there even while it is being made). Below it come what’s going on (the crew’s last three steps for Autopilot, live streams and the Brain), the queue, how many things need you (**Show me what** goes to the **Needs you** list under the ship), **Talk to ClipForge AI** and, at the bottom, **Next to publish** with a little picture of the clip and when it goes. The **Make** tab holds Make clips, Make a YouTube video, Make an animated short and Clip a live stream, the same four as **+ Make** at the top of every page. The Studio’s layout is new: a panel order saved in **Customize studio** no longer applies to it, and **Now making** and **Next to publish** always show."
+        "title": "Smooth page and tab changes",
+        "text": "A new page fades in and rises a little. A new tab fades in only what is under the tab bar you chose it in, so the bars above it stay put, and what loads a moment later fades in too instead of popping in. **Settings** keeps its title and list of sections while a section loads. Nothing waits for the fade: the new page is there at once, and focus, reading order and clicks work as before."
       },
       {
-        "title": "Talk to AI, always in the menu",
-        "text": "**Talk to AI** sits in the menu right under Studio on every page, and it is also a tab in the Brain. On a narrow window or a phone, the menu opens with **Menu**, which also has Autopilot."
+        "title": "When it all holds still",
+        "text": "**Motion › Reduced** in **Settings › Appearance** holds the sky and the black hole still and makes page and tab changes instant; if your computer asks for less motion, ClipForge starts with Reduced. **Robot activity › Low power** and a hidden window hold the sky and the black hole still too."
       },
       {
-        "title": "Your first clip in three steps",
-        "text": "**Make clips** reads 1 **Choose a video**, 2 **Pick what to make** (**Pick the best moments**, **Keep each story from start to finish** or **Split each story into Part 1, Part 2…**) and 3 **Make clips**, with working defaults. Style, example video, captions and framing, and uploading wait under **More options**. The project then says what it is doing, for example **Finding the best moments**, then **Rendering** while each clip is made, until **Your clips are ready**, and **Review clips** opens the clips. **Export** is now called **Save to computer**."
-      },
-      {
-        "title": "The Brain as a galaxy",
-        "text": "**Brain › Memory** shows your **Knowledge map** as a galaxy with CORE in the middle. Each real link is a bolt of light in its collection’s colour that strikes again two to six times a second, at its own pace, and each note, style, skill and example video is a glowing ball. Picking one runs a light from CORE along its path and opens its details beside the map. **What ClipForge AI remembers** is Memory’s other view. The Brain’s tabs are Memory, Styles, Talk to AI, Agents and Decisions, with Example videos, Example notes, Skills and Performance history under **More**, and **Styles** has a caption preview you can play."
-      },
-      {
-        "title": "Projects, Publishing, Accounts and Appearance",
-        "text": "**Projects** shows big cards with each video’s real length once it is known, then **Live recordings**: the live streams being recorded right now. **Publishing** has counts on its tabs, your time zone and the next scheduled post. **Accounts** shows your YouTube channel in a large card, a TikTok row with the next step it needs, and how sign-in tokens are protected. **Settings › Appearance** applies each choice at once, with a live preview of the Studio at desktop, tablet and phone sizes."
-      },
-      {
-        "title": "As much motion as you like",
-        "text": "**Reduce motion** under the ship is the same switch as **Motion** in **Settings › Appearance**, and it follows your computer when it asks for less motion. With it on, the ship and the Brain’s lightning hold still; real work still shows. **Robot activity** there chooses **Full**, **Calm** (no breaks, games or snacks) or **Low power** (the robots stay still and the ship is redrawn once a second). Both also rest while the window is hidden."
+        "title": "Fixed: pictures that stayed blank after a graphics reset",
+        "text": "If the graphics chip resets (for example during a driver update on Windows), the ship, the Brain’s galaxy and lightning and still robot portraits are drawn again at once; before, they could stay blank. The new sky and the black hole are drawn again too."
       }
     ],
     "checked": [
       "3,109 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code. The 31 checks that render real video and audio ran on GitHub’s Linux machine.",
-      "Studio, Brain › Memory and Styles, Talk to AI, Projects, Publishing, Accounts and Settings › Appearance were checked in a browser at desktop, laptop and phone sizes: no sideways scrolling. Studio, Make clips, Brain › Memory, Talk to AI and Publishing were also checked with larger text at laptop and phone sizes: nothing cut off. The steps to a first clip, from + Make to Review clips, were walked through with the mouse only and with the keyboard only; the upload and the clip making were simulated, so no video was processed. The robots’ badges and room names were measured at 36 window sizes so that no badge covers another. The lightning was checked to hold still with Reduce motion, Low power and a hidden window, and the ship with Reduce motion and a hidden window.",
-      "This page’s notes and the Mac notes were checked claim by claim against this version’s code by four checkers and a skeptic for each, and what was wrong was corrected before release.",
+      "The sky, the black hole and the page and tab changes were checked in a browser in the cloud: the window’s sky and its copy behind the top bar line up with a scrollbar and after resizing; the disk turns smoothly after a week open, with no jump on the hour; the black hole holds still when frames come too slowly and turns again later; and after a crash of the browser’s graphics process, the black hole, the stars, the ship, the Brain’s galaxy and lightning and the robot portraits came back. Eleven tab changes on Missions, the Brain, Settings and Publishing were checked for what fades in and what stays put.",
+      "In the same browser, the sky and both black holes were checked to hold still with **Motion › Reduced** chosen in **Settings › Appearance**, with the computer asking for less motion, with **Robot activity › Low power** and with a hidden window, and to move again once the window was shown; with Reduced, a page change and a tab change started no fade.",
+      "This page’s notes and the Mac notes were checked claim by claim against this version’s code before release.",
       "The Mac app was built, opened and tested with its own video tools, Keychain and window on an Apple-silicon Mac with macOS 15 in GitHub’s test service. The DMG on this page is that exact build.",
       "The Windows setup was installed in GitHub’s test service over the previous version: it kept the same data folder and settings, opened the app, and closed and reopened cleanly. Every installed file was compared with the exact source."
     ],
     "not_checked": [
-      "How smoothly the ship and the Brain’s lightning run on your own computer and graphics card. They were measured in a browser in the cloud, where one frame of the lightning took about 3 milliseconds.",
-      "The new look inside the Mac app’s own window and on a Windows PC; the screens were checked in Chromium on Linux.",
-      "Your own videos going through ClipForge while the robots work, and your real connected accounts on the new Accounts page.",
+      "How smoothly the sky and the black hole run, and how much power they use, on your own computer and graphics card. The cloud has no graphics chip, so they were checked in a browser that draws without one.",
+      "The moving sky and the turning black hole inside the Mac app’s own window and on a Windows PC; they were checked in Chromium on Linux.",
+      "A reset of a real graphics chip; a crash of the cloud browser’s graphics process stood in for it.",
+      "Moving the window to a screen with a different pixel density.",
       "Whether Windows security accepts the setup without asking. If it reports a threat, stop and read what it found; do not turn protection off.",
       "Apple’s notarization. macOS will ask once before opening the app."
     ],
     "files": {
       "windows": {
         "file": "ClipForge-Windows-Setup.zip",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/70f345049e1a4486f54fd0aaa50f42a08a11d7f1/ClipForge-Windows-Setup.zip",
-        "bytes": 50449556,
-        "sha256": "e1116e65ed4c162d7b90a43e662fe79d6901b977698548b359f3d3b9c960e878",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/2322e29352d5879e3876f2d5423209e0853f35ea/ClipForge-Windows-Setup.zip",
+        "bytes": 50491596,
+        "sha256": "b5e32961fb976330c881f3222a2bba9014b073755731732fbcdac566dfc68de0",
         "kind": "ZIP",
         "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677612640",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44816196313",
         "tested_label": "Windows install check"
       },
       "mac": {
         "file": "ClipForge-Mac-Apple-Silicon.dmg",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-19-2-0597fef/ClipForge-Mac-Apple-Silicon.dmg",
-        "bytes": 232004809,
-        "sha256": "b4d8cec8ed054a52d98c82aff748af967dcb8271f862c21645d42e6d2883db86",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-20-72af02d/ClipForge-Mac-Apple-Silicon.dmg",
+        "bytes": 232042612,
+        "sha256": "b72b1faa04c3a533dad10d479d7d2ed81586c033acbe10266e2e87f3f7fdbdb8",
         "kind": "DMG",
         "requires": "Apple silicon, macOS 15 or newer",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677488448",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44815897634",
         "tested_label": "Mac build and test run"
       }
     }
   },
   "previous": [
+    {
+      "name": "ClipForge",
+      "version": "2026.11.19.2",
+      "date": "2026-11-19",
+      "source_commit": "0597fefa2a026a5c5244114b74fbe0e28d4262b9",
+      "summary": "ClipForge has a new look: a space studio where a crew of 25 robots works on a cutaway ship, with what is being made beside it, Talk to AI always in the menu, a Brain map that flickers like lightning and your first clip in three steps.",
+      "changes": [
+        {
+          "title": "A space studio",
+          "text": "Every page has the new look: Courier Prime type under one starry sky, with a black hole over the Studio. Your projects, clips, accounts and settings are kept. If your accent colour was the old default violet, it becomes **Glacier** blue once; you can pick violet again in **Settings › Appearance**."
+        },
+        {
+          "title": "The ship and its crew",
+          "text": "**Studio** is a cutaway ship with 25 robots and CORE. Every room is named, and the badge above each robot shows its job state (pick a robot to see its **Current task**). A team goes to its consoles only while it has real work (running, queued, waiting, or stopped by an error in the last half hour), and the work is handed on as the job really moves; a team with no work rests in the lounge. Under the ship: **Whole ship**, **Activity** (what the crew did for Autopilot, live streams and the Brain) and **Reduce motion**. **Bigger view** opens the ship on its own page."
+        },
+        {
+          "title": "Working on, beside the ship",
+          "text": "Beside the ship, **Working on** shows what is being made now on a screen, with its current step and a light (Making, Your turn, Paused, Waiting or Ready; a live stream or a video you gave Autopilot shows Waiting there even while it is being made). Below it come what’s going on (the crew’s last three steps for Autopilot, live streams and the Brain), the queue, how many things need you (**Show me what** goes to the **Needs you** list under the ship), **Talk to ClipForge AI** and, at the bottom, **Next to publish** with a little picture of the clip and when it goes. The **Make** tab holds Make clips, Make a YouTube video, Make an animated short and Clip a live stream, the same four as **+ Make** at the top of every page. The Studio’s layout is new: a panel order saved in **Customize studio** no longer applies to it, and **Now making** and **Next to publish** always show."
+        },
+        {
+          "title": "Talk to AI, always in the menu",
+          "text": "**Talk to AI** sits in the menu right under Studio on every page, and it is also a tab in the Brain. On a narrow window or a phone, the menu opens with **Menu**, which also has Autopilot."
+        },
+        {
+          "title": "Your first clip in three steps",
+          "text": "**Make clips** reads 1 **Choose a video**, 2 **Pick what to make** (**Pick the best moments**, **Keep each story from start to finish** or **Split each story into Part 1, Part 2…**) and 3 **Make clips**, with working defaults. Style, example video, captions and framing, and uploading wait under **More options**. The project then says what it is doing, for example **Finding the best moments**, then **Rendering** while each clip is made, until **Your clips are ready**, and **Review clips** opens the clips. **Export** is now called **Save to computer**."
+        },
+        {
+          "title": "The Brain as a galaxy",
+          "text": "**Brain › Memory** shows your **Knowledge map** as a galaxy with CORE in the middle. Each real link is a bolt of light in its collection’s colour that strikes again two to six times a second, at its own pace, and each note, style, skill and example video is a glowing ball. Picking one runs a light from CORE along its path and opens its details beside the map. **What ClipForge AI remembers** is Memory’s other view. The Brain’s tabs are Memory, Styles, Talk to AI, Agents and Decisions, with Example videos, Example notes, Skills and Performance history under **More**, and **Styles** has a caption preview you can play."
+        },
+        {
+          "title": "Projects, Publishing, Accounts and Appearance",
+          "text": "**Projects** shows big cards with each video’s real length once it is known, then **Live recordings**: the live streams being recorded right now. **Publishing** has counts on its tabs, your time zone and the next scheduled post. **Accounts** shows your YouTube channel in a large card, a TikTok row with the next step it needs, and how sign-in tokens are protected. **Settings › Appearance** applies each choice at once, with a live preview of the Studio at desktop, tablet and phone sizes."
+        },
+        {
+          "title": "As much motion as you like",
+          "text": "**Reduce motion** under the ship is the same switch as **Motion** in **Settings › Appearance**, and it follows your computer when it asks for less motion. With it on, the ship and the Brain’s lightning hold still; real work still shows. **Robot activity** there chooses **Full**, **Calm** (no breaks, games or snacks) or **Low power** (the robots stay still and the ship is redrawn once a second). Both also rest while the window is hidden."
+        }
+      ],
+      "files": {
+        "windows": {
+          "file": "ClipForge-Windows-Setup.zip",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/70f345049e1a4486f54fd0aaa50f42a08a11d7f1/ClipForge-Windows-Setup.zip",
+          "bytes": 50449556,
+          "sha256": "e1116e65ed4c162d7b90a43e662fe79d6901b977698548b359f3d3b9c960e878",
+          "kind": "ZIP",
+          "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677612640",
+          "tested_label": "Windows install check"
+        },
+        "mac": {
+          "file": "ClipForge-Mac-Apple-Silicon.dmg",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-19-2-0597fef/ClipForge-Mac-Apple-Silicon.dmg",
+          "bytes": 232004809,
+          "sha256": "b4d8cec8ed054a52d98c82aff748af967dcb8271f862c21645d42e6d2883db86",
+          "kind": "DMG",
+          "requires": "Apple silicon, macOS 15 or newer",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44677488448",
+          "tested_label": "Mac build and test run"
+        }
+      }
+    },
     {
       "name": "ClipForge",
       "version": "2026.11.19",
