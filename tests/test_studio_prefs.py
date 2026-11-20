@@ -140,8 +140,11 @@ def test_the_old_violet_default_moves_to_glacier_once_and_a_later_violet_choice_
     got = api.get("/api/preferences/appearance").json()
     assert (got["value"]["accent"], got["value"]["text_size"]) == ("blue", "large")
     # saving anything else keeps the glacier accent; choosing violet again is remembered from then on
-    assert api.put("/api/preferences/appearance", json={"value": {"density": "compact"}}).json()["value"]["accent"] == "blue"
-    assert api.put("/api/preferences/appearance", json={"value": {"accent": "violet"}}).json()["value"]["accent"] == "violet"
+    def save(value: dict) -> str:
+        return api.put("/api/preferences/appearance", json={"value": value}).json()["value"]["accent"]
+
+    assert save({"density": "compact"}) == "blue"
+    assert save({"accent": "violet"}) == "violet"
     assert api.get("/api/preferences/appearance").json()["value"]["accent"] == "violet"
     # another accent saved before the update was a real choice and stays
     db.execute("UPDATE preferences SET schema_version = 2, value = ? WHERE pref_key = 'appearance'",

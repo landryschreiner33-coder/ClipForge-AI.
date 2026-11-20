@@ -1,8 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, Page, test } from "@playwright/test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+/** Add knowledge is a menu since the space studio (2026-11-19): Add note, Teach preference, an example, a style… */
+async function addKnowledge(page: Page, item: RegExp) {
+  await page.getByRole("button", { name: "Add knowledge", exact: true }).click();
+  await page.getByRole("menu", { name: "Add knowledge", exact: true }).getByRole("menuitem", { name: item }).click();
+}
 
 // This suite runs only against the throwaway sandbox, never the owner's normal app/data/accounts.
 test("an uploaded guide persists and demonstrates automatic preference lookup", async ({ page, request }) => {
@@ -10,7 +16,8 @@ test("an uploaded guide persists and demonstrates automatic preference lookup", 
     path.join(process.cwd(), "..", "design", "robot-office", "screenshots"));
   await mkdir(shots, { recursive: true });
   await page.goto("/#/brain");
-  await page.getByRole("button", { name: "Add knowledge", exact: true }).click();
+  // the release's Add knowledge button opened the detailed form; in the menu that is this item
+  await addKnowledge(page, /^Add a document or detailed note/);
   await page.getByLabel("Title", { exact: true }).fill("Science caption guide — isolated test");
   await page.getByRole("combobox", { name: "Use as", exact: true }).selectOption("instruction");
   await page.getByLabel("Upload a document (optional)").setInputFiles({
@@ -48,7 +55,7 @@ test("an uploaded guide persists and demonstrates automatic preference lookup", 
 
 test("a plain saved note is interpreted locally and unsaved edits do not activate", async ({ page, request }) => {
   await page.goto("/#/brain");
-  await page.getByRole("button", { name: "Add note", exact: true }).click();
+  await addKnowledge(page, /^Add note/);
   await page.getByLabel("Title", { exact: true }).fill("Automatic note — isolated test");
   await page.getByRole("textbox", { name: "Notes / instructions", exact: true }).fill(
     "Captions should be minimal. Prioritize standalone context and a complete story with a payoff.",
@@ -65,6 +72,8 @@ test("a plain saved note is interpreted locally and unsaved edits do not activat
   await expect(page.locator(".brain-editor .brain-pill")).toHaveText("Unsaved changes");
   expect((await (await preview()).json()).after.caption_style).toBe("minimal");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  // the click only starts the save: ask for the effect once the saved lesson is shown again
+  await expect(page.locator(".brain-editor .brain-pill")).toHaveText("Used automatically");
   expect((await (await preview()).json()).after.caption_style).toBe("clean");
 });
 
@@ -83,7 +92,7 @@ test("Integrations shows supported connections without inactive platform placeho
 
 test("unsupported prose stays searchable and explains how to make it affect new clips", async ({ page, request }) => {
   await page.goto("/#/brain");
-  await page.getByRole("button", { name: "Add note", exact: true }).click();
+  await addKnowledge(page, /^Add note/);
   await page.getByLabel("Title", { exact: true }).fill("Amber palette — isolated reference");
   await page.getByRole("textbox", { name: "Notes / instructions", exact: true }).fill(
     "Use amber-colored furniture and an illustrated mountain background.",
@@ -142,7 +151,7 @@ test("a real example exposes its measured length hint and a bad example stops co
     "color=c=0x233744:s=128x224:r=5", "-t", "6", "-c:v", "libx264", "-pix_fmt", "yuv420p", file]);
   try {
     await page.goto("/#/brain/examples");
-    await page.getByRole("button", { name: "Add example note", exact: true }).click();
+    await addKnowledge(page, /^Add example note/);
     await page.getByLabel("Title", { exact: true }).fill("Lumen length — isolated real example");
     const details = page.locator(".brain-editor-details");
     if ((await details.getAttribute("open")) == null) await details.locator("summary").click();

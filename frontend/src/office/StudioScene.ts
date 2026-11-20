@@ -233,7 +233,8 @@ export class StudioScene {
     if (mode === "offline") return;
     // Orbiting rings around the brain, and rings the projector sends up while CORE works.
     const brainY = cy - 22 + bob + OY, x = cx + OX;
-    const turn = still ? .6 : t / (mode === "active" ? 2200 : 7000) * Math.PI * 2;
+    // a paused Brain holds its rings still, like its float, while the rest of the ship keeps moving
+    const turn = still || mode === "paused" ? .6 : t / (mode === "active" ? 2200 : 7000) * Math.PI * 2;
     ctx.globalCompositeOperation = "lighter";
     ctx.lineWidth = 1.5;
     for (const [rx, ry, tilt, offset] of [[46, 10, -.16, 0], [40, 13, .22, Math.PI * .8]]) {

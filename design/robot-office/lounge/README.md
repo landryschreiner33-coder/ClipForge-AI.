@@ -1,5 +1,9 @@
 # Social pixel office
 
+> Replaced on 2026-11-19 by the space studio ([design/space-studio/README.md](../../space-studio/README.md)): the
+> ship's lounge keeps the same rules (own places, Reduced and Pause freeze it, work comes first), but PixiJS, GSAP
+> and the dusk panorama were removed from the app, with their notices. The links to those files below are history.
+
 This follow-up starts at `5b1f7a9` on draft, unmerged PR #14. The owner requested better graphics tools and
 off-duty robots that play, eat and drink. The refined retro style now has five original arcade cabinets,
 two shared board-game tables, a café and reading sofas, with warm light pools and a custom dusk city panorama.

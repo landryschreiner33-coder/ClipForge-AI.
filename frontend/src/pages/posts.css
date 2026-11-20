@@ -94,7 +94,8 @@
 .pub-zone .icon { width: 18px; height: 18px; }
 .pub-account select { min-height: 40px; border-radius: 10px; font-size: 0.9375rem; }
 
-.pub-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 400px); gap: var(--s6); align-items: start; }
+.pub-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 400px); gap: var(--s6);
+  align-items: start; }
 .pub-layout.pub-wide { grid-template-columns: minmax(0, 1fr); }
 .pub-main { display: grid; gap: var(--s4); min-width: 0; align-content: start; }
 .pub-title, .pub-next h2 { margin: 0; font-size: clamp(1.375rem, 1.8vw, 1.875rem); }
@@ -106,7 +107,8 @@
 .pub-beacon {
   position: absolute; left: 64.7%; top: 9%; width: 15%; aspect-ratio: 1; transform: translate(-50%, -50%);
   border-radius: 50%; pointer-events: none; mix-blend-mode: screen; opacity: 0.7;
-  background: radial-gradient(circle, rgba(255, 196, 92, 0.75) 0, rgba(255, 150, 50, 0.3) 38%, rgba(255, 140, 40, 0) 70%);
+  background: radial-gradient(circle, rgba(255, 196, 92, 0.75) 0, rgba(255, 150, 50, 0.3) 38%,
+    rgba(255, 140, 40, 0) 70%);
   animation: pub-beacon 2.4s steps(1, end) infinite;
 }
 @keyframes pub-beacon { 0% { opacity: 0.35; } 25% { opacity: 0.7; } 50% { opacity: 1; } 75% { opacity: 0.7; } }
@@ -121,11 +123,15 @@
 .pub-next-card { display: grid; gap: var(--s3); min-width: 0; }
 .pub-next-thumb { display: block; border-radius: 14px; overflow: hidden; border: 1px solid var(--line-strong);
   box-shadow: 0 0 30px -12px rgba(120, 160, 255, 0.5); }
-.pub-poster { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; background: #0a0f1f; overflow: hidden; }
-.pub-poster-fill { position: absolute; inset: -16px; background: center / cover no-repeat; filter: blur(14px) brightness(0.55); }
+.pub-poster { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; background: #0a0f1f;
+  overflow: hidden; }
+.pub-poster-fill { position: absolute; inset: -16px; background: center / cover no-repeat;
+  filter: blur(14px) brightness(0.55); }
 .pub-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-.pub-poster.missing { display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; color: var(--text-3); }
-.pub-next-card h3 { margin: var(--s2) 0 0; font-size: clamp(1.375rem, 1.7vw, 1.75rem); line-height: 1.25; overflow-wrap: anywhere; }
+.pub-poster.missing { display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center;
+  color: var(--text-3); }
+.pub-next-card h3 { margin: var(--s2) 0 0; font-size: clamp(1.375rem, 1.7vw, 1.75rem); line-height: 1.25;
+  overflow-wrap: anywhere; }
 .pub-next-card h3 a { color: var(--text); text-decoration: none; }
 .pub-next-card h3 a:hover { text-decoration: underline; }
 .pub-next-time {
@@ -143,7 +149,8 @@
 .pub-next-facts .pmark { width: 28px; height: 20px; font-size: 11px; }
 .pub-next-facts .pill { font-size: 0.9375rem; padding: 6px 14px; }
 /* posts.css can load before styles.css, so these name their parent to win over .btn */
-.pub-next .pub-next-all { justify-content: center; width: 100%; min-height: 48px; border-radius: 12px; font-size: 1.0625rem; }
+.pub-next .pub-next-all { justify-content: center; width: 100%; min-height: 48px; border-radius: 12px;
+  font-size: 1.0625rem; }
 .pub-next .pub-next-all .icon { width: 18px; height: 18px; }
 .pub-next-empty { display: grid; gap: var(--s2); padding: var(--s4) 0; border-top: 1px solid var(--line-strong); }
 .pub-next-empty p { margin: 0; }
@@ -152,7 +159,8 @@
 
 @media (max-width: 1100px) {
   .pub-layout { grid-template-columns: minmax(0, 1fr); }
-  .pub-next { position: static; padding-left: 0; border-left: 0; padding-top: var(--s5); border-top: 1px solid var(--line-strong); }
+  .pub-next { position: static; padding-left: 0; border-left: 0; padding-top: var(--s5);
+    border-top: 1px solid var(--line-strong); }
   .pub-next-card { grid-template-columns: minmax(0, 240px) minmax(0, 1fr); column-gap: var(--s5); align-items: start; }
   .pub-next-thumb { grid-row: span 4; }
 }

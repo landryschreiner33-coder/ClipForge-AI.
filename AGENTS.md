@@ -416,10 +416,11 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     own stations, idle peers remain idle, and managers supervise without inventing jobs or reports. Quiet paused
     or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
     The owner's 2026-11-19 space studio adds decoration that shows no work: engine exhaust, CORE's idle rings, the
-    galaxy behind the Brain graph, the black hole's travelling light, the satellite's drift and the empty dock's
-    beacon. They hold still under Reduced motion, Low power or a hidden page. DOCK's beacon cues once only for a
-    post newly seen in review. Settings → Appearance's Studio preview is the real app in an inert frame that saves
-    nothing (design/space-studio/README.md).
+    black hole's travelling light, the satellite's drift and the empty dock's beacon. They hold still under Reduced
+    motion, Low power or a hidden page. The galaxy behind the Brain graph is painted once and holds still (the map
+    moves only when something was just used). DOCK's beacon cues once only for a post newly seen in review.
+    Settings → Appearance's Studio preview is the real app in an inert frame that saves nothing
+    (design/space-studio/README.md).
 
 ## Historical continuation scope (2026-10-08)
 

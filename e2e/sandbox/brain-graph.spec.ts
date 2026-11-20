@@ -1,6 +1,12 @@
 import { expect, Page, test } from "@playwright/test";
 import type { Knowledge, KnowledgeInput, Workspace } from "../../frontend/src/brain";
 
+/** Add knowledge is a menu since the space studio (2026-11-19): Add note, Teach preference, an example, a style… */
+async function addKnowledge(page: Page, item: RegExp) {
+  await page.getByRole("button", { name: "Add knowledge", exact: true }).click();
+  await page.getByRole("menu", { name: "Add knowledge", exact: true }).getByRole("menuitem", { name: item }).click();
+}
+
 // Saved memory is controlled data. All writes are intercepted; no owner data, account or platform is changed.
 const at = 1791766800;
 function note(id: string, title: string, kind: Knowledge["kind"] = "reference", tags = ["science"]): Knowledge {
@@ -181,7 +187,7 @@ test("a stale edit stays visible until the owner explicitly reloads the saved re
     .getByRole("group", { name: "Interactive Brain graph", exact: true })
     .getByRole("button", { name: "Preference: Reviewed lesson", exact: true })
     .click();
-  await page.getByRole("button", { name: "Open & edit", exact: true }).click();
+  await page.getByRole("button", { name: "Open in editor", exact: true }).click();
   await page
     .getByRole("textbox", { name: "Notes / instructions", exact: true })
     .fill("My unsaved changes must stay visible.");
@@ -211,7 +217,7 @@ test("simple notes derive a title; saved preferences activate without a separate
   await expect(page.locator("[data-brain-node]")).toHaveCount(1);
   await expect(page.getByText("A space for your ideas", { exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("brain-graph-empty.png"), fullPage: true, animations: "disabled" });
-  await page.getByRole("button", { name: "Add note", exact: true }).click();
+  await addKnowledge(page, /^Add note/);
   await expect(page.locator(".brain-editor-details")).not.toHaveAttribute("open");
   await page
     .getByRole("textbox", { name: "Notes / instructions", exact: true })
@@ -220,7 +226,7 @@ test("simple notes derive a title; saved preferences activate without a separate
   await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Keep the speaker's original facts.");
   expect(fixture.writes[0].body.kind).toBe("reference");
   expect(fixture.writes[0].body.preferences).toEqual({});
-  await page.getByRole("button", { name: "Teach preference", exact: true }).click();
+  await addKnowledge(page, /^Teach preference/);
   await page.getByLabel("Title", { exact: true }).fill("Calm captions");
   await page.getByRole("combobox", { name: "Caption style", exact: true }).selectOption("minimal");
   await page.getByRole("button", { name: "Save knowledge", exact: true }).click();

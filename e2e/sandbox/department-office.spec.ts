@@ -190,15 +190,16 @@ async ({ page, request }) => {
   expect(feed.writes).toEqual([]);
 });
 
-test("Canvas fallback preserves department supervision and freezes its pixels in Reduced",
+// The ship (office/StudioScene.ts, 2026-11-19) replaced the Pixi scene and its canvas fallback; it draws the same
+// department attendance and freezes its pixels in Reduced.
+test("the ship preserves department supervision and freezes its pixels in Reduced",
 async ({ page, request }) => {
   const feed = await fixture(page, request);
   Object.assign(feed.role("splice"), { state: "working", task: task() });
   feed.role("frame").state = "working";
-  await page.route("**/assets/StudioScene-*.js", route => route.abort());
   await page.goto("/#/office");
   await animations(page).selectOption("full");
-  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "canvas");
+  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "ship");
   for (const id of ["frame", "story", "splice"])
     await expect(robot(page, id)).toHaveAttribute("data-room", "editing");
   await expect(robot(page, "frame")).toHaveAttribute("data-duty", "supervising");
@@ -206,13 +207,13 @@ async ({ page, request }) => {
     const canvas = button.parentElement!.querySelector("canvas")!;
     const x = parseFloat((button as HTMLElement).style.left) * canvas.width / 100;
     const y = parseFloat((button as HTMLElement).style.top) * canvas.height / 100;
-    const crop = document.createElement("canvas"); crop.width = 48; crop.height = 72;
-    crop.getContext("2d")!.drawImage(canvas, x - 5, y - 3, 48, 72, 0, 0, 48, 72);
+    const crop = document.createElement("canvas"); crop.width = 96; crop.height = 128;
+    crop.getContext("2d")!.drawImage(canvas, x - 28, y - 36, 96, 128, 0, 0, 96, 128);
     return crop.toDataURL();
   });
   const active = await image();
   // Poll across the two idle frames: a fixed delay can sample the same 900 ms clipboard frame twice.
-  await expect.poll(image, { message: "supervision changes visible artwork", timeout: 3500,
+  await expect.poll(image, { message: "supervision changes visible artwork", timeout: 6000,
     intervals: [100, 150, 250] }).not.toBe(active);
   await animations(page).selectOption("reduced");
   await page.waitForTimeout(400); const still = await image(); await page.waitForTimeout(1250);

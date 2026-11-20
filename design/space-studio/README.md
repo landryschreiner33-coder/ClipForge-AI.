@@ -6,14 +6,15 @@ The owner asked on 2026-11-19 for ClipForge to become an animated space studio, 
 * the enlarged ship cutaway
 * three crew sheets: Command to Boost, Frame to CORE, and Switch to Dock
 
-The references are kept with the project in `/mnt/project-files/space-studio/references/`. They are not in the repository.
+The references are kept with the project in `/mnt/project-files/space-studio/references/`. They are not in the
+repository.
 
 ## What changed
 
 | Screen | What it is now |
 | --- | --- |
 | Studio | **The ship and its crew.** A cutaway ship with 25 robots and CORE. Three engines with their own exhaust timing, the lounge, the bridge, the CORE chamber, the main corridor and the production rooms below. Room names are always shown, and each robot's state badge sits above its head.<br>**The right column.** Make something (four big choices), then Now making, the queue and the next scheduled post.<br>**Under the ship.** Whole ship, Activity and Reduce motion.<br>**The bottom strip.** Real counts for today, and the computer's state. |
-| Brain · Memory | **The graph.** The Brain's real knowledge graph sits over a spiral galaxy (`pages/galaxy.ts`, painted once from a fixed seed) with CORE at its centre. Branches are coloured: amber for Example videos, teal for Skills, ice blue for Recorded evidence.<br>**Picking a dot.** A light runs from CORE along the dot's real path, a ring settles around it, and its details open on the right with Open in editor.<br>**Search.** Search finds and focuses a real dot. |
+| Brain · Memory | **The graph.** The Brain's real knowledge graph sits over a spiral galaxy (`pages/galaxy.ts`, painted once from a fixed seed) with CORE at its centre. The galaxy holds still: the map moves only when something was just used. Branches are coloured: amber for Example videos, teal for Skills, ice blue for Recorded evidence.<br>**Picking a dot.** A light runs from CORE along the dot's real path, a ring settles around it, and its details open on the right with Open in editor.<br>**Search.** Search finds and focuses a real dot. |
 | Brain · Styles | A form on the left and a caption preview you can play on the right (`components/StyleStudio.tsx`). The preview uses the fonts the renderer burns into clips. Words light up from the real playhead. |
 | Projects | Big cards with real lengths, statuses, pins and menus, then a Live recordings table. |
 | Publishing | Counts on the tabs and the time zone beside them. When nothing waits for review, an empty dock with DOCK's slowly turning amber beacon. On the right, the next scheduled post. |
@@ -21,8 +22,10 @@ The references are kept with the project in `/mnt/project-files/space-studio/ref
 | Settings · Appearance | Choices apply at once and save to the account. The live Studio preview is the real app in an inert frame, at desktop, tablet and phone sizes. Its Motion control and the Studio's Reduce motion switch set the same browser choice. |
 | Make clips | 1 Choose a video, 2 Pick what to make, 3 Make clips.<br>**Choices.** Highlights is "Pick the best moments". Full story is "Keep each story from start to finish". Story parts splits each story into Part 1, Part 2 and so on.<br>**More options.** Everything else waits under More options.<br>**When the clips are done.** A finished project says "Your clips are ready", and Review clips goes straight to the clips (`#/project/{id}/clips`). |
 
-The type is Courier Prime (`frontend/src/assets/fonts`, OFL). The sky is one fixed layer under every page: the nebula
-picture `sky.jpg` and two star tiles at screen size.
+The type is Courier Prime (`frontend/src/assets/fonts`, OFL). The font notices ship with the app in
+`frontend/public/third-party-fonts.txt` (built into `frontend/dist`, which the Mac app bundles; the font files' own
+folder is not bundled). The sky is one fixed layer under every page: the nebula picture `sky.jpg` and two star tiles
+at screen size.
 
 The black hole is painted in code (`components/blackHoleArt.ts`). It is large over Studio and a slim masthead on the
 other pages.
@@ -66,7 +69,6 @@ What moves and why (AGENTS.md rule 14):
   * engine flames, on three different cycles
   * CORE's idle rings
   * blinking, looking around and lounge breaks
-  * the galaxy turning
   * the black hole's travelling light
   * the satellite's drift
   * the dock beacon on an empty review queue
@@ -78,7 +80,8 @@ What moves and why (AGENTS.md rule 14):
   * the feed is paused or lost
   * Low power is chosen
 
-  Low power redraws once a second. When the ship is scrolled out of view, it is not drawn at all.
+  Low power redraws once a second. When the ship is scrolled out of view, it is not drawn at all. When only the
+  Brain is paused, CORE stops floating and its rings hold still while the rest of the ship carries on.
 
 Decorative motion never touches processing. It reads the same snapshot the page already polls.
 

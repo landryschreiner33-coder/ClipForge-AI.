@@ -54,8 +54,9 @@ test("robots stand where their real work is, and follow it when it changes", asy
   const shots = path.resolve(process.cwd(), "..", "design", "robot-office", "screenshots");
   await mkdir(shots, { recursive: true });
   await page.screenshot({ path: path.join(shots, "error-controlled.png") });
-  // Idle robots retain individual seats in the lounge. Nobody is replaced by a counter.
-  const resting = robot(page, "glyph");
+  // Idle robots retain individual seats in the lounge. Nobody is replaced by a counter. (On the ship, 2026-11-19,
+  // QUILL's own place is a sofa; GLYPH's is now at the snack bar, where a robot on its break stands.)
+  const resting = robot(page, "quill");
   await expect(resting).toBeVisible();
   await expect(resting).toHaveAttribute("data-room", "lounge");
   await expect(resting).toHaveAttribute("data-posture", "rest");

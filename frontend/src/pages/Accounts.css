@@ -25,7 +25,8 @@
 /* the picture's own sky fades into the card at its top (its left side already fades) */
 .acc-earth {
   position: absolute; right: 0; bottom: 0; width: min(62%, 820px); height: auto;
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 38%); mask-image: linear-gradient(180deg, transparent 0, #000 38%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 38%);
+    mask-image: linear-gradient(180deg, transparent 0, #000 38%);
 }
 .acc-sat {
   position: absolute; right: 10%; top: 16%; width: min(28%, 400px); height: auto;
@@ -40,18 +41,22 @@
 @keyframes acc-pulse { from { transform: scale(1); opacity: 1; } to { transform: scale(9); opacity: 0; } }
 :root[data-motion="reduced"] .acc-pulse { display: none; }
 /* a slow drift in small steps, like the ship's crew; it stays still when motion is reduced */
-@keyframes acc-drift { from { transform: translate(0, 0) rotate(-2deg); } to { transform: translate(-14px, 10px) rotate(1deg); } }
+@keyframes acc-drift { from { transform: translate(0, 0) rotate(-2deg);
+  } to { transform: translate(-14px, 10px) rotate(1deg); } }
 .acc-skel { width: min(100%, 520px); height: 140px; margin-top: 28px; border-radius: 14px; }
 .acc-main { display: flex; align-items: center; gap: 24px; margin-top: 28px; min-width: 0; }
 .acc-main-words { min-width: 0; }
-.acc-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex: none; border: 2px solid var(--line-strong); }
+.acc-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex: none;
+  border: 2px solid var(--line-strong); }
 .acc-avatar.big { width: 112px; height: 112px; border: 3px solid rgba(225, 230, 255, 0.75); }
 .acc-avatar.none { display: grid; place-items: center; background: #0d1226; color: var(--text-2); }
 .acc-avatar.none .icon { width: 50%; height: 50%; }
-.acc-name { margin: 0; font-size: clamp(1.75rem, 3.2vw, 3rem); font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
+.acc-name { margin: 0; font-size: clamp(1.75rem, 3.2vw, 3rem); font-weight: 700; line-height: 1.1;
+  overflow-wrap: anywhere; }
 .acc-real { margin: 4px 0 0; color: var(--text-2); }
 .acc-states { display: flex; flex-wrap: wrap; align-items: center; row-gap: 6px; margin: 12px 0 0; font-size: 1.25rem; }
-.acc-states > span { display: inline-flex; align-items: center; gap: 10px; padding: 0 18px; border-left: 1px solid var(--line-strong); }
+.acc-states > span { display: inline-flex; align-items: center; gap: 10px; padding: 0 18px;
+  border-left: 1px solid var(--line-strong); }
 .acc-states > span:first-child { padding-left: 0; border-left: 0; }
 .acc-states .icon { width: 24px; height: 24px; }
 .acc-ok .icon { color: var(--good); }
@@ -78,7 +83,8 @@
 .acc-id { overflow-wrap: anywhere; }
 
 /* other channels and TikTok accounts */
-.acc-rows { list-style: none; margin: var(--s5) 0 0; padding: 0; width: 100%; border-top: 1px solid var(--line-strong); }
+.acc-rows { list-style: none; margin: var(--s5) 0 0; padding: 0; width: 100%; border-top: 1px solid var(--line-strong);
+  }
 .acc-row { padding: var(--s3) 0; border-bottom: 1px solid var(--line-strong); }
 .acc-row-line { display: flex; align-items: center; gap: var(--s4); min-width: 0; }
 .acc-row-words { flex: 1; min-width: 0; display: grid; gap: 2px; }
@@ -87,13 +93,15 @@
 .acc-row .acc-states .icon { width: 18px; height: 18px; }
 .acc-space .acc-row .acc-manage-btn { min-height: 40px; padding: 0 16px; border-radius: 10px; }
 
-.acc-tiktok { padding: 16px 28px; border: 1px solid var(--line-strong); border-radius: 16px; background: rgba(6, 10, 26, 0.6); }
+.acc-tiktok { padding: 16px 28px; border: 1px solid var(--line-strong); border-radius: 16px;
+  background: rgba(6, 10, 26, 0.6); }
 .acc-tiktok-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s4) var(--s5); }
 .acc-tiktok-none {
   display: flex; align-items: center; min-height: 40px; margin: 0; padding-left: var(--s5);
   border-left: 1px solid var(--line-strong); font-size: 1.125rem;
 }
-.acc-space .acc-tiktok-head .btn { margin-left: auto; min-height: 46px; padding: 0 20px; border-radius: 12px; border-color: var(--primary);
+.acc-space .acc-tiktok-head .btn { margin-left: auto; min-height: 46px; padding: 0 20px; border-radius: 12px;
+  border-color: var(--primary);
   font-size: 1.0625rem; }
 .acc-tiktok .acc-rows { margin-top: var(--s3); }
 
@@ -112,7 +120,8 @@
   .acc-hero { padding: 0 20px 24px; min-height: 0; }
   .acc-hero > :not(.acc-art) { max-width: 100%; }
   .acc-art { position: relative; display: block; width: calc(100% + 40px); height: 150px; margin: 0 -20px 12px; }
-  .acc-earth { width: 100%; height: 100%; object-fit: cover; object-position: 70% 100%; -webkit-mask-image: none; mask-image: none; }
+  .acc-earth { width: 100%; height: 100%; object-fit: cover; object-position: 70% 100%; -webkit-mask-image: none;
+    mask-image: none; }
   .acc-sat { right: 50%; top: 14px; width: 190px; margin-right: -95px; }
   .acc-main { gap: 16px; }
   .acc-avatar.big { width: 72px; height: 72px; }

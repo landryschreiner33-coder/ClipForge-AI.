@@ -112,7 +112,7 @@ export default function BrainGraph({
   useEffect(() => {
     setView(home);
   }, [home]);
-  // the galaxy follows the map's pan and zoom; its own slow turn is decoration and stops whenever the map is still
+  // the galaxy follows the map's pan and zoom and otherwise holds still (decoration: the map moves only when used)
   const galaxy = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
@@ -125,7 +125,7 @@ export default function BrainGraph({
     return () => observer?.disconnect();
   }, []);
   useEffect(() => {
-    const host = galaxy.current?.querySelector(".brain-galaxy-spin");
+    const host = galaxy.current?.querySelector(".brain-galaxy-art");
     if (host && !host.firstChild) {
       try {
         const art = galaxyCanvas();
@@ -230,7 +230,7 @@ export default function BrainGraph({
       <div ref={galaxy} className="brain-galaxy" aria-hidden="true" style={fit ? {
         left: centre.x - GALAXY_REACH * fit, top: centre.y - GALAXY_REACH * fit,
         width: GALAXY_REACH * 2 * fit, height: GALAXY_REACH * 2 * fit } : { display: "none" }}>
-        <div className="brain-galaxy-tilt"><div className="brain-galaxy-spin" /></div>
+        <div className="brain-galaxy-tilt"><div className="brain-galaxy-art" /></div>
       </div>
       <svg
         ref={svg}
