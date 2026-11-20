@@ -41,12 +41,11 @@ export const CONSOLE: Record<string, Pt | null> = Object.fromEntries(CAST.map(c 
   const at = STATIONS[c.id].console;
   return [c.id, at ? { x: at[0], y: at[1] } : null];
 }));
-/** Managers oversee their teams from the room's walkway, behind the desks. */
-export const SUPERVISE: Record<string, Pt> = Object.fromEntries(CAST.filter(c => c.rank === "manager").map(c => {
-  const r = ROOM[c.room], mates = CAST.filter(m => m.room === c.room && m.id !== c.id).map(m => STATION[m.id].x);
-  const middle = mates.length ? mates.reduce((a, b) => a + b, 0) / mates.length : r.x + r.w / 2;
-  return [c.id, { x: Math.round(middle + (STATION[c.id].x > middle ? 22 : -22)), y: r.lane }];
-}));
+/** Managers oversee their teams standing at their own desks, facing the team (2026-11-20). The desks are spaced so
+ * the state badges of robots side by side stay apart, and low enough that a badge stays clear of the name of the room
+ * above. From the walkway behind the desks, a manager's badge covered a teammate's badge or that name. */
+export const SUPERVISE: Record<string, Pt> = Object.fromEntries(CAST.filter(c => c.rank === "manager")
+  .map(c => [c.id, { ...STATION[c.id] }]));
 /** Bottom centre of CORE, the holographic brain hovering in its chamber. */
 export const CORE_AT: Pt = { x: SHIP.core.x, y: SHIP.core.y + 42 };
 export const ENGINES: Pt[] = SHIP.engines.map(([x, y]) => ({ x, y }));

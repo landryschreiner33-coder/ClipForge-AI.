@@ -19,13 +19,15 @@ options for the rest, and a finished project says "Your clips are ready" with Re
   decision card in the thread recommends building it as its own follow-up.
 - **Verified here:** the build; Python fast suite (3,111 run, none failed) and slow suite (31 passed); read-only browser
   tests 62 passed, and the 5 failures (Autopilot ×3, Settings ×2) are the same on the release; sandbox browser specs 48
-  of 50, the 2 others failing the same way on the release; after the phone-size change the ship's 31 specs passed again;
-  GitHub run 44650380497 (native Mac build and bundled-app smoke passed, before the phone-size change; the final head's
-  run is in PR #62's merge commit); screenshots of the seven views at 1585×992, 1366×768 and 390×844, larger text, frame
+  of 50, the 2 others failing the same way on the release; after the last ship changes the ship's 31 specs passed again,
+  including a check that no state badge covers another badge or a room's name, and so did the 12 Python files that read
+  frontend files (339 passed) and the office and app-shell browser tests (22 passed); GitHub run 44653081606 on 2014f3c
+  (native Mac build, bundled-app smoke and both Python suites passed, before the last ship changes; the final head's run
+  is in PR #62's merge commit); screenshots of the seven views at 1585×992, 1366×768 and 390×844, larger text, frame
   sequences, and the first clip walked through with the mouse and with the keyboard only
   (`/mnt/project-files/space-studio/final/`).
-- **Not verified (needs Landry's computer):** the Mac and Windows windows, the frame rate on the RTX 3050 laptop, real
-  connected accounts (the satellite's pulse was checked with a stand-in account), and a real video going through
+- **Not verified (needs Landry's computer):** the app on the Mac and on Windows, the frame rate on the RTX 3050 laptop,
+  real connected accounts (the satellite's pulse was checked with a stand-in account), and a real video going through
   the pipeline while the ship animates.
 
 ## Release 2026.11.19 published — 2026-11-19 (Claude Code, cloud session)

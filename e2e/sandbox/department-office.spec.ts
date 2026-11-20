@@ -83,6 +83,24 @@ test("every department gathers its whole cast, with honest support and manager s
     }
   }
   await expect(robot(page, "command")).toHaveAttribute("data-room", "lounge");
+  // Managers watch their teams from their own desks, and a name too long for one line shows one word, so no robot's
+  // state badge covers another's or the words of a room's name (the owner, 2026-11-19: "lable the rooms" and "make
+  // sure you can see the activity thing above the robot").
+  const covered = () => page.locator(".office-map").evaluate(map => {
+    const cut = (a: DOMRect, b: DOMRect) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
+      && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+    const badges = [...map.querySelectorAll<HTMLElement>(".robot-hit")].map(hit => ({ id: hit.dataset.id,
+      box: hit.querySelector(".robot-state")!.getBoundingClientRect() }));
+    const names = [...map.querySelectorAll<HTMLElement>(".room-sign")].map(sign => {
+      const words = document.createRange(); words.selectNodeContents(sign);
+      return { name: sign.textContent, lines: [...words.getClientRects()] };
+    });
+    return [
+      ...badges.flatMap((a, i) => badges.slice(i + 1).filter(b => cut(a.box, b.box)).map(b => `${a.id} + ${b.id}`)),
+      ...names.flatMap(n => badges.filter(b => n.lines.some(l => cut(l, b.box))).map(b => `${b.id} on ${n.name}`)),
+    ];
+  });
+  await expect.poll(covered, { message: "badges that cover another badge or a room's name" }).toEqual([]);
   expect(feed.writes).toEqual([]);
 });
 

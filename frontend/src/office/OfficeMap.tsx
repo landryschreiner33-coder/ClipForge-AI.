@@ -239,6 +239,12 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   const effective = scale * zoom * ratio;
   // A ship drawn about phone size: its rooms are too small for their full names (see space.css)
   const narrow = scale * zoom < 0.36;
+  // On a bigger ship a name that can't fit its room on one line takes its one-word form too: a two-line sign reached
+  // up over the robots' desks and down under the badges of the room below. A sign is Courier Prime (0.6 em a letter)
+  // at max(11px, 14px × s), with 7px of padding and a 1px border on each side, in its room less 14 units (space.css).
+  const signFont = Math.max(11, 14 * scale * zoom);
+  const signText = (r: (typeof ROOMS)[number]) => narrow
+    || ROOM_NAMES[r.id].length * 0.6 * signFont + 16 > (r.w - 14) * scale * zoom ? ROOM_SHORT[r.id] : ROOM_NAMES[r.id];
   return <div className="office-map-frame">
     <div className={`office-map${stale ? " stale" : ""}`} ref={wrap} data-narrow={narrow ? "true" : undefined}
       data-renderer={renderer} data-camera={focus || "office"} data-tags={tagsAlways || focus ? "all" : "chosen"}>
@@ -252,7 +258,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
             height: pct(r.h, VIEW.h), ["--accent" as string]: ROOM_ACCENT[r.id] } as React.CSSProperties}
           aria-label={`${ROOM_NAMES[r.id]}${r.id === "lounge" ? `: ${resting} off duty` : ""}. Open details`}
           aria-pressed={room === r.id} onClick={() => onRoom(r.id)}>
-          <span className="room-sign" aria-hidden="true">{narrow ? ROOM_SHORT[r.id] : ROOM_NAMES[r.id]}</span>
+          <span className="room-sign" aria-hidden="true">{signText(r)}</span>
         </button>)}
         <a ref={brainLink} href="#/brain" className="brain-core-hit" data-mode="standby"
           aria-label={`${CORE.name}, Brain Core: Standby. Open Brain workspace`}

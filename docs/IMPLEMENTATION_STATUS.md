@@ -13,11 +13,16 @@ new look; a first clip is three steps with More options. Details: [AI_CHANGELOG.
 | 2026-11-20 | `npm run build` | passed; `frontend/dist` 3.9 MB |
 | 2026-11-20 | `pytest -m "not slow"` | 3,111 run, 0 failed, 2 skipped (two parts after a cloud restart) |
 | 2026-11-20 | `pytest -m slow` | 31 passed, 1 skipped |
-| 2026-11-20 | pytest, the 7 files that read frontend files, after the last frontend changes | 145 passed |
+| 2026-11-20 | pytest, the 12 files that read frontend files, after the last ship changes | 339 passed |
 | 2026-11-20 | `e2e/tests` against the demo app | 62 passed, 6 skipped, 5 failed (the same 5 fail on the release) |
+| 2026-11-20 | `e2e/tests` office and app-shell against the demo app, after the last ship changes | 22 passed |
 | 2026-11-20 | `e2e/sandbox` (50 specs) | 48 passed; beginner-flow and video-setup fail the same way on the release |
-| 2026-11-20 | `e2e/sandbox` ship specs after the phone-size change | 31 passed |
+| 2026-11-20 | `e2e/sandbox` ship specs after the last ship changes (badges and room names) | 31 passed |
+| 2026-11-20 | The new badge check's measurement on the layout before those changes, 1440 wide | 7 badges and 3 names covered: the check would have failed |
+| 2026-11-20 | Badges and room names with every department at work, 1024 to 1585 wide | none covers another badge or a name (before: up to 63%) |
+| 2026-11-20 | The same at 640 and 390 wide | no badge covers another; a badge can cover up to a fifth of the name above it |
 | 2026-11-20 | GitHub run 44650380497 on cccd6a0 | native Mac build and bundled-app smoke passed (before the phone-size change) |
+| 2026-11-20 | GitHub run 44653081606 on 2014f3c | native Mac build, bundled-app smoke, fast and slow Python suites passed (before the last ship changes) |
 
 Not verified: Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, a real video
 going through the pipeline while the ship animates.

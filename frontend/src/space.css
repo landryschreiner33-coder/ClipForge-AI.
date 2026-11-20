@@ -166,13 +166,15 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
   font-family: var(--font); font-weight: 700; font-size: max(11px, calc(var(--s) * 14px)); line-height: 1.15;
     color: var(--text);
   background: rgba(5, 8, 20, 0.86); border: 1px solid var(--accent); box-shadow: 0 0 10px -3px var(--accent);
-  /* a long name takes a second line rather than running into the next room (a laptop-sized ship) */
+  /* a name too long for one line in its room shows its one-word form (OfficeMap's signText); wrapping is a fallback */
   white-space: normal; width: max-content; max-width: calc(100% - var(--s) * 14px);
 }
 /* A phone-sized ship: one-word names, centred in their rooms, and resting robots marked by a dot, so the names and
-   the badges of robots at work can still be told apart (2026-11-20). */
+   the badges of robots at work can still be told apart (2026-11-20). A name covers the dots of resting and absent
+   robots, and every other robot's badge covers the name, so its state always shows. */
 .office-map[data-narrow="true"] .room-sign { left: 50%; transform: translate(-50%, 50%); padding: 1px 4px;
   font-size: 9px; white-space: nowrap; max-width: none; z-index: 3; }
+.office-map[data-narrow="true"] .robot-hit:not([data-state="idle"], [data-state="unavailable"]) { z-index: 4; }
 .office-map[data-narrow="true"] .robot-hit .robot-state { width: 13px; height: 13px; margin-bottom: 2px;
   border-radius: 4px; }
 .office-map[data-narrow="true"] .robot-hit .robot-state::after { border-width: 3px; border-bottom-width: 0; }

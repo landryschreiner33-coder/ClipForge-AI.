@@ -14,10 +14,12 @@ make animated short, clip live stream as it goes". Branch `claude/project-thread
   for real job states and handoffs from the office feed. Engines, CORE's rings, blinking and lounge breaks are
   decoration stepped at about 12 frames a second; Reduced motion, Low power, a hidden page or a paused feed hold the
   ship still. Room names always show (one word each on a phone-sized ship, where a resting robot's marker is a
-  dot), and each robot's state badge sits above its head. Right column: Make
-  something (Make clips, Make a YouTube video, Make an animated short, Clip a live stream), Now making, the queue
-  and the next scheduled post. Under the ship: Whole ship, Activity, Reduce motion. Bottom strip: today's real
-  counts and the computer's state. PixiJS and GSAP are removed (`frontend/dist` 4.5 → 3.9 MB).
+  dot), and each robot's state badge sits above its head. A name too long for one line shows one word (Media, Story,
+  Sound), and a manager watching its team stands at its own desk, so on laptop and desktop screens no badge covers
+  another badge or a room's name. Right column: Make something (Make clips, Make a YouTube video, Make an animated
+  short, Clip a live stream), Now making, the queue and the next scheduled post. Under the ship: Whole ship,
+  Activity, Reduce motion. Bottom strip: today's real counts and the computer's state. PixiJS and GSAP are removed
+  (`frontend/dist` 4.5 → 3.9 MB).
 - **Brain:** Memory shows the real graph over a spiral galaxy painted once from a fixed seed (`pages/galaxy.ts`),
   still unless something was just used. Branches are amber for Example videos, teal for Skills and ice blue for
   Recorded evidence. Picking a dot runs a light from CORE along its real path and settles a ring; search finds a
@@ -42,15 +44,20 @@ make animated short, clip live stream as it goes". Branch `claude/project-thread
   (three steps, Review clips, Choose file again), `app-shell`, `posts`; sandbox specs for the ship (renderer `ship`,
   the plain map when its code can't load), the Add knowledge menu, Open in editor and Ship view.
 - **Checks:** `npm run build` (dist 3.9 MB). Python fast suite: all 3,111 ran, none failed, 2 skipped (finished in two
-  parts after a cloud restart); after the later frontend changes, the 145 tests that read frontend files passed again.
-  Python slow suite: 31 passed, 1 skipped. Read-only browser tests (`e2e/tests`, against the demo app): 62 passed, 6
-  skipped, 5 failed, and those 5 (Autopilot ×3, Settings ×2) fail the same way on the release. Sandbox browser specs: 48
-  of 50 pass; beginner-flow (no Topics box) and video-setup (Change it by hand after coming back) fail the same way on
-  the release. After the phone-size change, the ship's 31 sandbox specs passed again. GitHub "Native Mac desktop app"
-  run 44650380497 on cccd6a0 (before the phone-size change): native macOS 15 build and bundled-app smoke (WebView,
-  Keychain, tools) passed; the run on the final head is named in PR #62's merge commit. Larger text at 1366×768 and
-  390×844: no sideways scroll and no cut-off text. Screenshots, frame sequences and both walkthroughs (mouse and
-  keyboard only) are in `/mnt/project-files/space-studio/final/`.
+  parts after a cloud restart); after the last ship changes, the 339 tests in the 12 Python files that read frontend
+  files passed again, and so did the 22 read-only browser tests of the office and the app shell. Python slow suite: 31
+  passed, 1 skipped. Read-only browser tests (`e2e/tests`, against the demo app): 62 passed, 6 skipped, 5 failed, and
+  those 5 (Autopilot ×3, Settings ×2) fail the same way on the release. Sandbox browser specs: 48 of 50 pass;
+  beginner-flow (no Topics box) and video-setup (Change it by hand after coming back) fail the same way on the release.
+  After the last ship changes, the ship's 31 sandbox specs passed again; department-office now also checks that no state
+  badge covers another badge or a room's name (on the layout before these changes, at the spec's 1440 width, 7 badges
+  and 3 names were covered). With every department at work, none does at window sizes from 1024 to 1585 wide (before, a
+  manager covered up to 63% of a teammate's badge, and the lower rooms' badges most of "Media research"); at 640 and 390
+  wide a badge can still cover up to a fifth of the name above it. GitHub "Native Mac desktop app" run 44653081606 on
+  2014f3c (before the last ship changes): native macOS 15 build and bundled-app smoke (WebView, Keychain, tools) and the
+  fast and slow Python suites passed; the run on the final head is named in PR #62's merge commit. Larger text at
+  1366×768 and 390×844: no sideways scroll and no cut-off text. Screenshots, frame sequences and both walkthroughs
+  (mouse and keyboard only) are in `/mnt/project-files/space-studio/final/`.
 - **Not verified:** Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, and a
   real video going through the pipeline while the ship animates. Schedule post for a clip you made yourself does
   not exist (only Autopilot plans times); a decision card asks Landry whether to add it.

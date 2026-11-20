@@ -169,7 +169,9 @@ The animation never delays the durable job or creates a report/approval.
   A real failed/blocked task gathers its team for attention; a bare health error keeps only its own robot at work.
 * A manager is `working` while its department has running work and `reviewing` after a real report. COMMAND reviews
   after a decision. A failed job shows `error` on its robot for 30 minutes unless newer work of that robot started.
-  Managers supervising their teams stand at a clear room position, face their workers and check a clipboard.
+  Managers supervising their teams stand at a clear room position, face their workers and check a clipboard. On the
+  ship that position is the manager's own desk: the desks keep the state badges apart, and a badge there stays clear
+  of the name of the room above.
   Their own jobs and actual reviews take priority and use their desks. Supervision never creates a report or progress.
 * When Autopilot is paused or stopped, robots that are not running a job show `paused`. A stopped office may still
   show explicitly decorative recreation; its icons and details continue to say paused, never working.
