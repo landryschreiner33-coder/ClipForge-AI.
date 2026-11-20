@@ -1,5 +1,38 @@
 # AI changelog
 
+## Release 2026.11.19.2: the space studio — 2026-11-20 (Claude Code)
+
+Landry wrote "once done release the changes" on November 19 at 9:56 PM Chicago time. The release line held PR #62 (the
+space studio, merged as `8c08f73` on top of the 2026.11.19 records `87a38c8`); no other finished pull request was
+waiting. PR #63 (the Mac release notes only, two commits) was merged as `54ec586`, whose tree equals that of its head
+`0597fef`; both downloads are built from 0597fef. Every URL, size, hash and run:
+[docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+
+- **Fact-check before release** (four checkers by area: studio, clips, Brain, look; a skeptic for each checker's
+  findings; 19 confirmed, 2 refuted, 174 claims confirmed as written; all 19 corrected): a whole team goes to its
+  consoles while it has real work (running, queued, waiting, or stopped by an error in the last half hour;
+  `office/DepartmentDuty.ts`), not one robot when its job starts; the badge above a robot is a job-state sign, and its
+  task shows under Current task when you pick it; Working on shows how many things need you, not the things; while a
+  clip renders, the status names the render's step instead of "Making clip N of M"; each Brain link strikes again two to
+  six times a second (it keeps its shape for 2 to 5 frames at 12 a second), not about 12; Accounts shows how sign-in
+  tokens are protected, not where they are kept; Live recordings lists only the streams being recorded now; a card shows
+  a video's length only once it is known; a panel order saved in Customize studio no longer applies to the new Studio;
+  Talk to AI is behind Menu on a narrow window; the walkthroughs simulated the upload and the clip making. The corrected
+  sentences were then checked again (two checkers, a skeptic for each; 100 claims confirmed, 1 finding refuted) and
+  three more download page wordings corrected: What's going on and Activity show the crew's steps for Autopilot, live
+  streams and the Brain (a project you make yourself adds none); the screen's light shows Waiting for a live stream or
+  an Autopilot video even while it is being made; larger text was checked on five screens, not all.
+- **Checks on 0597fef:** Native Mac desktop app run 44677488448 (macOS 15 native build and bundled-app smoke; fast
+  3,109 passed, 2 skipped; slow 31 passed, 1 skipped); Windows setup check 44677612640 (installed 2026.11.19
+  first). The first builds from 36efa8b (the notes before the fact-check; Mac run 44673939916 and Windows check
+  44674145380 passed, raw/7937c41) are not listed.
+- **Mac:** release `clipforge-mac-2026-11-19-2-0597fef`, the unchanged DMG from run 44677488448, published by run
+  44681038739. **Windows:** `raw/70f3450` on `claude/clipforge-downloads` (record commit `95aac79`). **Download page:**
+  `gh-pages` `e349d2d`, with new pictures of the Studio, the ship, Make clips, Make a YouTube video, the animated short
+  maker and the Brain, and new portraits of the 25 robots.
+- **Not verified:** the new look in the Mac window and on Windows, the frame rate on Landry's laptop, real connected
+  accounts, a real video going through ClipForge while the robots work.
+
 ## Space studio: the ship and its crew, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code)
 
 Landry asked on 2026-11-19, with eleven reference pictures, to "Build ClipForge's animated space studio", then for
@@ -9,8 +42,8 @@ make animated short, clip live stream as it goes". Later that evening (8:47 to 8
 AI chat and every feature simple to reach, for the Studio's side panel to show what is being worked on (a screen of
 the video, what's going on, the next video to publish at the bottom) with a tab for the create buttons, and to "make
 the brain lines and balls look like lighting and make sure its animated". Branch `claude/project-thread-t2bntx` from
-the release line at 87a38c8, PR #62. Not released. What each screen became, the art and how the ship is drawn:
-[design/space-studio/README.md](design/space-studio/README.md).
+the release line at 87a38c8, PR #62. Released as 2026.11.19.2. What each screen became, the art and how the ship is
+drawn: [design/space-studio/README.md](design/space-studio/README.md).
 
 - **Studio:** a cutaway ship with 25 robots and CORE, drawn with Canvas 2D (`office/StudioScene.ts`) from one crew atlas
   (`public/space/crew.png`, `src/space/sprites.json`, floor plan `src/space/ship-world.json`). Robots move only for real
