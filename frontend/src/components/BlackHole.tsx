@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePageCovered } from "../covered";
 import { useMotion } from "../motion";
 import { paintFrame, paintStill } from "./blackHoleArt";
 import { HoleRenderer, makeHoleRenderer } from "./blackHoleGl";
@@ -89,8 +90,9 @@ export function BlackHole({ size = "small", className = "" }: { size?: "small" |
 function OrbitingHole({ className }: { className: string }) {
   const box = useRef<HTMLDivElement>(null);
   const { reduceMotion, pageHidden, officeActivity } = useMotion();
+  const covered = usePageCovered();  // behind FilmCraft's editor (covered.ts)
   const [onScreen, setOnScreen] = useState(true);
-  const still = reduceMotion || pageHidden || officeActivity === "low_power";
+  const still = reduceMotion || pageHidden || officeActivity === "low_power" || covered;
   const moving = !still && onScreen;
   const run = useRef<{ start: () => void; stop: () => void } | null>(null);
 
@@ -200,11 +202,12 @@ function OrbitingHole({ className }: { className: string }) {
 function TurningHole({ size, className }: { size: "small" | "large"; className: string }) {
   const box = useRef<HTMLDivElement>(null);
   const { reduceMotion, pageHidden, officeActivity } = useMotion();
+  const covered = usePageCovered();  // behind FilmCraft's editor (covered.ts)
   const [onScreen, setOnScreen] = useState(true);
   const [slow, setSlow] = useState(tooSlow);
   // a new drawing after the graphics chip lost the old one
   const [drawing, setDrawing] = useState(0);
-  const still = reduceMotion || pageHidden || officeActivity === "low_power" || slow;
+  const still = reduceMotion || pageHidden || officeActivity === "low_power" || slow || covered;
   const moving = !still && onScreen;
   // the drawing set up once per hole; `moving` only starts and stops its clock
   const run = useRef<{ start: () => void; stop: () => void } | null>(null);

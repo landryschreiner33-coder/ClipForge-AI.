@@ -425,8 +425,9 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     motion, Low power or a hidden page. The owner's 2026-11-20 requests ("give the backround animation like the stars
     and black hole", "make the backround animated like we are moving") add the moving sky: star tiles sliding past,
     brighter stars that drift and twinkle, dust rushing by and the odd shooting star (components/starSky.ts), still
-    under Reduced motion, Low power or a hidden page; the black hole also holds still off screen and for a while once a
-    computer draws it too slowly. Pages and tabs fade up as they arrive (transitions.ts), never delaying or hiding
+    under Reduced motion, Low power or a hidden page, and (with the black holes) while FilmCraft's editor covers the
+    page (covered.ts: without a graphics card the moving sky takes about a fifth of the page's thread, which the
+    editor shares); the black hole also holds still off screen and for a while once a computer draws it too slowly. Pages and tabs fade up as they arrive (transitions.ts), never delaying or hiding
     content, and arrive at once under Reduced motion. The galaxy behind the Brain graph is painted once and holds still.
     Anything painted once onto a canvas (a picture, a sprite, a still frame) paints itself again on `contextrestored`:
     Chromium on Windows draws canvases on the graphics chip, and a reset of the chip gives them back empty.

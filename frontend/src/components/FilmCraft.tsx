@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText, responseError, sendBytes } from "../api";
+import { useCoverPage } from "../covered";
 import { craft, CraftStatus, EditorSession, FilmCraftOpen, FilmCraftStatus, MadeWith, studio, Video } from "../studio";
 import { Banner, Disclosure, Icon, Modal, Pill, ProgressBar, toast } from "./ui";
 
@@ -59,6 +60,7 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
   const poll = useRef<number>(0);
   const last = useRef<{ digest: string; at: number }>({ digest: "", at: 0 });
   const saveRef = useRef<(name: string, bytes: ArrayBuffer) => Promise<void>>(async () => undefined);
+  useCoverPage();  // the sky behind the editor holds still while it is open
 
   const load = useCallback(async (prepare: boolean) => {
     try {
