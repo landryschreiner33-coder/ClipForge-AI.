@@ -37,13 +37,27 @@ FRAMES_STEP = "Rendering"
 
 
 # ------------------------------------------------------------ timeline
+def heard(folder: str | Path, words: list[dict], start: float, end: float) -> list[tuple[float, float]]:
+    """Loud stretches without words in [start, end] (a laugh, a shout, a crowd; virality.wordless_loud), from the
+    loudness measured when the project's video was analyzed (`folder`: the project folder). Remove pauses keeps
+    them: they are not silence."""
+    env = read_json(Path(folder) / "loudness.json", None)
+    if not env or not env.get("db"):
+        return []
+    from .audio import Loudness
+    from .virality import wordless_loud
+
+    return wordless_loud(words, Loudness(env), start, end)
+
+
 def keep_segments(words: list[dict], start: float, end: float, mode: str, fps: float,
-                  drop_fillers: bool = False, within: list[tuple[float, float]] | None = None
-                  ) -> list[tuple[float, float]]:
+                  drop_fillers: bool = False, within: list[tuple[float, float]] | None = None,
+                  loud: list[tuple[float, float]] | None = None) -> list[tuple[float, float]]:
     """Source-time ranges to keep; long pauses between words are removed, except that a pause that builds tension
     keeps up to a second (trims.tension_pause). With `drop_fillers`, an "um" or "uh"
     counts as part of the pause around it, so it goes too when that pause is long enough to cut. `within` (a
-    blueprint's source intervals) keeps only what lies inside them, before everything is put on the frame grid."""
+    blueprint's source intervals) keeps only what lies inside them, before everything is put on the frame grid.
+    `loud` (`heard`) are reactions without words: kept like words, so a laugh after the punchline stays."""
     segs: list[tuple[float, float]]
     if mode not in SILENCE_PRESETS or not words:
         segs = [(start, end)]
@@ -52,11 +66,14 @@ def keep_segments(words: list[dict], start: float, end: float, mode: str, fps: f
         cuts = []
         ws = [w for w in words if w["end"] > start and w["start"] < end
               and not (drop_fillers and FILLER_WORD.match(w["w"].strip()))]
+        ws = sorted(ws + [{"w": "", "start": a, "end": b} for a, b in loud or [] if b > start and a < end],
+                    key=lambda w: w["start"])
         prev_end = start
         for k, w in enumerate(ws):
             if w["start"] - prev_end > min_gap:
                 # a pause that builds tension (after a question, "guess what") is shortened, never removed
-                keep = trims.TENSION_KEEP[mode] / 2 if k and trims.tension_pause(ws[:k]) else pad
+                said = [x for x in ws[:k] if x["w"]]
+                keep = trims.TENSION_KEEP[mode] / 2 if said and ws[k - 1]["w"] and trims.tension_pause(said) else pad
                 a = prev_end + keep if prev_end > start else start
                 b = w["start"] - keep
                 if b - a > 0.05:
@@ -442,7 +459,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
 
     words = opts.get("caption_words") or [w for w in words_all if w["end"] > start and w["start"] < end]
     within = [(i.start, i.end) for i in blueprint.intervals] if blueprint is not None else None
-    segs = keep_segments(words, start, end, opts.get("silence", "off"), fps, bool(opts.get("remove_fillers")), within)
+    silence = opts.get("silence", "off")
+    segs = keep_segments(words, start, end, silence, fps, bool(opts.get("remove_fillers")), within,
+                         heard(project["dir"], words_all, start, end) if silence in SILENCE_PRESETS else None)
     tl = Timeline(segs, float(opts.get("speed", 1.0) or 1.0))
     fillers_cut = sum(1 for w in words if FILLER_WORD.match(w["w"].strip()) and not tl.contains(w["start"] + 0.01))
     if blueprint is not None:  # only words that are heard get captions (whole sentences may be cut out)

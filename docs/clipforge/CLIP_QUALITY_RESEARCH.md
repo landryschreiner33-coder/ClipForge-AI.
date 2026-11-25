@@ -46,6 +46,19 @@ All read on 2026-11-25.
 | Shows the reasons for each clip under Opening, Context, Pacing, Payoff, Audio and Framing | — | `virality.reasons` | test_rank_reasons.py |
 | Suggests a tighter start and end (warm-up words, a line cut in half, an outro, chat talk, repeated lines) | Hypothesis | `pipeline/trims.py` | test_trims.py, test_clip_selection_rules.py |
 | Remove pauses takes out dead air but keeps up to a second after a question or "wait for it" | Hypothesis (a pause before an answer builds tension) | `trims.tension_pause`, `render.keep_segments` | test_trims.py, benchmark |
+| **New:** a "one thing" line at the very end, when the one thing comes right after the cut, is a misleading cut (rejected) | Hypothesis | `candidates.sentence_features` setup, flag `misleading_cut` | test_clip_selection_rules.py |
+| **New:** "our captain", "my teammate", "the host" introduce a person, so a "he" after them is not a cold start | Hypothesis | `text_utils.PERSON_NOUNS` | test_clip_selection_rules.py, test_live_pick.py (story told on stream) |
+
+## Live streams and long recordings
+
+| What ClipForge does | Kind | Where | Tested by |
+|---|---|---|---|
+| Scores moments by reactions in the sound (loud stretches without words), the words, and how the picture changes | Hypothesis | `deep.audio_features`, `eyes` (visual pass for the best candidates), `live_pick` | test_smarter_ai.py, test_live_pick.py |
+| **New:** a reaction often comes a second or two after the line that caused it. A laugh, a shout or a crowd that starts within 3 s after the last word (before anyone speaks again) stays in the clip, up to 3 s of it; the reason says "Ends on a reaction" | Hypothesis (playbook "Gaming and stream clips": "stop when the reaction has landed") | `virality.reaction_after`, `deep.optimize_bounds`, `candidates.refine_bounds` | test_clip_selection_rules.py, benchmark (game stream) |
+| **New:** Remove pauses keeps those reactions: a loud stretch without words is not silence | Hypothesis | `render.heard`, `render.keep_segments(loud=…)` | test_clip_selection_rules.py, benchmark |
+| **New:** a clip that opens right after a reaction gets a warning: what caused it happened before the clip, so a version that starts earlier wins | Hypothesis | `virality.reaction_before`, flag `starts_on_reaction` | test_clip_selection_rules.py |
+| Each clip looks for the face cam again; the place found earlier is only a hint, so a cam moved mid-stream is found in its new place, and the new place is what later clips remember | — | `reframe.find_cam(hint=…)`, `render._remember_cam` | test_split_view.py (cam moved from bottom left to top right) |
+| Chat messages are not read: a recording has no chat in it, and reading live chat needs each platform's chat connection, which ClipForge does not have yet. Chat talk the streamer reads out loud is in the transcript and counts (see "Talks to chat" above) | Blocker | — | — |
 
 Phrase lists are matched as whole words where a part of a word would mislead ("use code" is not "because code",
 "for the sub" is not "for the subway"): `text_utils.count_words`.
@@ -101,5 +114,8 @@ Result on 2026-11-25, release line before batch 2 against this batch: see
 
 - The benchmark footage was written by us, so the new rules were checked against patterns we chose. Run the benchmark
   on your own videos (it never uploads anything) to see them on real speech.
+- A reaction is found from loudness alone. Loud game sound with nobody talking looks the same as a shout, so a clip
+  can keep up to 3 s of an explosion after the last word. The 3 s limit keeps that small.
+- Live chat is not read (see the blocker above).
 - Framing is checked when a clip is rendered, not while moments are ranked.
 - Which layout, length or title kind works best for your channel is a question for Compare, not for this page.

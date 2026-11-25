@@ -119,7 +119,9 @@ PERSON_NOUNS = {"man", "woman", "guy", "girl", "boy", "kid", "dad", "mom", "fath
                 "grandmother", "grandpa", "grandma", "brother", "sister", "son", "daughter", "uncle", "aunt", "friend",
                 "boss", "teacher", "coach", "wife", "husband", "boyfriend", "girlfriend", "neighbor", "neighbour",
                 "player", "doctor", "customer", "client", "someone", "somebody", "nobody", "everyone", "everybody",
-                "streamer", "chef", "officer", "driver", "stranger", "partner", "manager", "owner", "person"}
+                "streamer", "chef", "officer", "driver", "stranger", "partner", "manager", "owner", "person",
+                "captain", "teammate", "leader", "opponent", "host", "guest", "landlord", "roommate", "cousin",
+                "nephew", "niece", "dude", "lady", "nurse", "cop", "judge", "referee", "grandson", "granddaughter"}
 
 # A sentence that starts as a reply to someone else.
 RESPONSE_STARTS = {"exactly", "yes", "yeah", "yep", "no", "nope", "right", "absolutely", "true", "correct",

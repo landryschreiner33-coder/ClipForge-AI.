@@ -32,6 +32,9 @@ COUNTED_PEOPLE = re.compile(r"\b(?:first|second|third|fourth|fifth|last|other|an
                             r"(?:one|ones|guy|guys|of them|of us)\b")
 
 
+EXCLAIMS = re.compile(r"(?:no|yes|yeah)[\s,.!]+(?:way|no|yes|yeah)\b")
+
+
 def proper_names(sentences: list[dict]) -> set[str]:
     """Words the transcript capitalizes in the middle of a sentence (names: "Sarah", "Northwind"), lowercased."""
     out = set()
@@ -94,14 +97,17 @@ def sentence_features(sentences: list[dict], words: list[dict]) -> list[dict]:
             "gap_before": s["start"] - sentences[k - 1]["end"] if k else s["start"],
             "gap_after": sentences[k + 1]["start"] - s["end"] if k + 1 < len(sentences) else 5.0,
             "transition": count_phrases(low, TRANSITION_PHRASES) > 0 or bool(TRANSITION_OPENERS.match(low)),
-            "setup": text.rstrip().endswith("?") or count_phrases(low, SETUP_PHRASES) > 0,
+            # a question, "here's why", or "says one thing": a line that promises what comes next
+            "setup": text.rstrip().endswith("?") or count_phrases(low, SETUP_PHRASES) > 0
+            or bool(ONE_THING.search(low)),
             "promo": count_phrases(low, PROMO_PHRASES) + count_words(low, AD_PHRASES),
             "ad": count_words(low, AD_PHRASES) > 0,        # "use code SHOW at checkout": an ad read
             "chores": count_words(low, CHAT_CHORES) > 0,   # "thanks for the follow", "let me read chat"
             "who": unnamed_person(text, proper),     # "he" before the line says who (virality: standalone)
             "names": names_someone(text, proper),
             "slow_open": count_phrases(low[:60], SLOW_OPEN_PHRASES) > 0,  # "so today I want to talk about..."
-            "response": first in RESPONSE_STARTS,  # "Exactly." / "No, ..." answers someone outside the clip
+            # "Exactly." / "No, ..." answers someone outside the clip; "No way!", "Yes, yes!" is a reaction
+            "response": first in RESPONSE_STARTS and not EXCLAIMS.match(low),
             "outro": count_phrases(low, OUTRO_PHRASES) > 0,  # "to recap", "thanks for watching": the video is ending
             # "stop doing this", "the mistake that costs you": a loss or a warning hooks better than a promise
             "loss": sum(1 for t in toks if t in LOSS_WORDS) + count_phrases(low, LOSS_PHRASES),
@@ -352,14 +358,19 @@ def find_candidates(words: list[dict], sentences: list[dict], loud: Loudness, op
     return picked
 
 
-def refine_bounds(cand: dict, sentences: list[dict], video_duration: float) -> tuple[float, float]:
-    """Pad cut points into the surrounding pauses so words are never clipped."""
+def refine_bounds(cand: dict, sentences: list[dict], video_duration: float,
+                  loud: Loudness | None = None) -> tuple[float, float]:
+    """Pad cut points into the surrounding pauses so words are never clipped. With `loud`, a laugh or a shout right
+    after the last word (virality.reaction_after) stays in the clip."""
     i, j = cand["s0"], cand["s1"]
     start, end = sentences[i]["start"], sentences[j]["end"]
     prev_end = sentences[i - 1]["end"] if i > 0 else 0.0
     next_start = sentences[j + 1]["start"] if j + 1 < len(sentences) else video_duration
     start -= min(0.3, max(0.0, (start - prev_end) * 0.5))
-    end += min(0.5, max(0.05, (next_start - end) * 0.6))
+    from .virality import reaction_after
+
+    late = reaction_after(sentences, j, loud) if loud is not None else None
+    end = min(next_start - 0.02, late[1] + 0.3) if late else end + min(0.5, max(0.05, (next_start - end) * 0.6))
     return max(0.0, round(start, 3)), min(video_duration, round(end, 3))
 
 

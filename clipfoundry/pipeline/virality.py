@@ -75,6 +75,57 @@ def _repetition(tok_lists: list[list[str]]) -> tuple[float, bool]:
     return rep, dup
 
 
+REACTION_Z = 1.0          # louder than the stream's speech by this many standard deviations ...
+REACTION_MIN = 0.4        # ... for at least this long, with nobody speaking: laughter, a shout, a crowd
+REACTION_AFTER = 3.0      # a reaction this soon after the cut belongs to the clip (reactions often come late)
+REACTION_KEEP = 3.0       # the cut keeps at most this much of it (a long stretch of music is not a reaction)
+
+
+def wordless_loud(words: list[dict], loud: Loudness, t0: float, t1: float) -> list[tuple[float, float]]:
+    """Loud stretches without words in [t0, t1): (start, end) in seconds. An estimate from loudness alone, the same
+    one deep.audio_features counts as reactions."""
+    a, b = loud._idx(t0), loud._idx(t1)  # noqa: SLF001
+    if b - a < 2:
+        return []
+    z = loud.z[a:b]
+    hot = z > REACTION_Z
+    for w in words:
+        if w["end"] > t0 and w["start"] < t1:
+            hot[max(0, int((w["start"] - t0) / loud.hop)):max(0, int((w["end"] - t0) / loud.hop) + 1)] = False
+    out, run = [], None
+    for k, h in enumerate(list(hot) + [False]):
+        if h and run is None:
+            run = k
+        elif not h and run is not None:
+            if (k - run) * loud.hop >= REACTION_MIN:
+                out.append((round(t0 + run * loud.hop, 2), round(t0 + k * loud.hop, 2)))
+            run = None
+    return out
+
+
+def reaction_after(sentences: list[dict], j: int, loud: Loudness) -> tuple[float, float] | None:
+    """The loud moment without words (laughter, a shout, a crowd) that starts within REACTION_AFTER seconds after
+    sentence j and before anyone speaks again: reactions often come a second or two late, and they belong to the
+    moment. Its end is capped at REACTION_KEEP seconds after it starts. None when there is none."""
+    last = sentences[j]["end"]
+    nxt = sentences[j + 1]["start"] if j + 1 < len(sentences) else last + REACTION_AFTER + REACTION_KEEP
+    runs = [r for r in wordless_loud([], loud, last, nxt) if r[0] - last <= REACTION_AFTER]
+    return (runs[0][0], min(runs[0][1], round(runs[0][0] + REACTION_KEEP, 2))) if runs else None
+
+
+REACTION_BEFORE = 0.6      # a reaction that ends this close before the first word: the clip opens on its tail
+
+
+def reaction_before(sentences: list[dict], i: int, loud: Loudness) -> tuple[float, float] | None:
+    """The loud moment without words that ends just before sentence i starts (within REACTION_BEFORE seconds): a
+    clip that starts there opens on a reaction whose cause came before the clip. None when there is none."""
+    first = sentences[i]["start"]
+    prev = sentences[i - 1]["end"] if i > 0 else 0.0
+    runs = [r for r in wordless_loud([], loud, max(prev, first - REACTION_AFTER - REACTION_KEEP), first)
+            if first - r[1] <= REACTION_BEFORE]
+    return runs[-1] if runs else None
+
+
 def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: list[dict], loud: Loudness,
             opts: dict) -> dict:
     """Measure one sentence range [s0, s1]. Returns factors (0-1), structure, flags and aggregate scores."""
@@ -167,6 +218,12 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     # "Thanks for the follow", "let me read chat" in the last lines: the clip runs on after its point
     chores_end = bool(fj.get("chores") or (ns > 1 and fs[-2].get("chores")))
     payoff -= 0.2 if chores_end else 0.0
+    # a laugh, a shout or a crowd right after the last word: the moment lands, and the cut keeps it
+    # (deep.optimize_bounds, candidates.refine_bounds end after it)
+    late = reaction_after(sentences, s1, loud)
+    payoff += 0.08 if late else 0.0
+    # ...and a clip that opens on one starts after whatever caused it
+    opens_on = reaction_before(sentences, s0, loud)
     # "Consistency matters. Be consistent. Consistency is key.": the clip ends by circling one point
     repeats_end = repeat_run([s["text"] for s in sents]) if ns >= 4 else 0
     payoff -= 0.25 if repeats_end else 0.0
@@ -311,9 +368,14 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     goodbyes = 0
     while goodbyes < ns and (fs[ns - 1 - goodbyes]["outro"] or fs[ns - 1 - goodbyes].get("chores")):
         goodbyes += 1
+    if opens_on:
+        flags.append(_flag("starts_on_reaction", "Starts on a reaction", "warn",
+                           "opens right after a loud moment without words (laughter, a shout, a crowd); what caused it "
+                           "happened before the clip, so start earlier"))
     if outro:
         flags.append(_flag("outro", "Ends with an outro", "block" if goodbyes >= 2 else "warn",
-                           "announces the end (\"to recap\", \"thanks for watching\") instead of stopping on the point"))
+                           "announces the end (\"to recap\", \"thanks for watching\") instead of stopping on the "
+                           "point"))
     ads = sum(1 for f in fs if f.get("ad"))
     if ads:
         # two ad lines, or one in a short clip, make it an ad read: nobody shares a sponsor message as a clip
@@ -350,6 +412,7 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
               "structure": structure, "flags": flags, "brain_priorities": priorities, "brain_steer": said,
               "short_by": round(max(0.0, 1.0 - dur / min_d), 4), "facts": facts,
               "signals": {"wps": round(wps, 2), "dead_air": round(dead_air, 3), "to_content_s": round(to_content, 2),
+                          "reaction_after": list(late) if late else None,
                           "outro": outro, "causal_pivots": pivots, "episodic": episodic,
                           "repetition": round(rep, 3), "mean_confidence": round(sum(probs) / len(probs), 3)
                           if probs else None, "internal_uniqueness": round(internal_unique, 3)},
@@ -560,6 +623,8 @@ def reasons(summary_: dict, render_info: dict | None = None) -> list[dict]:
         add("Context", False, f"Talks to chat: {flags['chat_chores'].get('detail', '')}.")
     elif "weak_context" in flags:
         add("Context", False, f"Needs outside context: {flags['weak_context'].get('detail', '')}.")
+    elif "starts_on_reaction" in flags:
+        add("Context", False, "Starts right after a reaction (a laugh or a shout); what caused it is before the clip.")
     elif "topic_change" in flags:
         add("Context", False, "Changes topic partway through.")
     else:
@@ -576,6 +641,8 @@ def reasons(summary_: dict, render_info: dict | None = None) -> list[dict]:
         add("Payoff", False, f"Cut too early: {flags['misleading_cut'].get('detail', '')}.")
     elif "weak_ending" in flags:
         add("Payoff", False, f"Weak ending: {flags['weak_ending'].get('detail', '')}.")
+    elif sig.get("reaction_after"):
+        add("Payoff", True, "Ends on a reaction (a laugh, a shout or a crowd without words), kept in the cut.")
     elif st.get("payoff"):
         add("Payoff", True, "Ends on its payoff line, so the viewer gets what the opening promised.")
     else:

@@ -150,6 +150,33 @@ def test_the_cam_found_earlier_stands_in_when_the_face_is_hidden(tmp_path, monke
                         cam_hint=hint).mode == "motion"
 
 
+@needs_ffmpeg
+def test_a_cam_moved_mid_stream_is_found_in_its_new_place(tmp_path, monkeypatch):
+    """A streamer moves the cam from the bottom-left to the top-right partway through: the later clips find it in
+    its new place (the earlier one is only a hint), and the new place is what the clips after that remember."""
+    from clipfoundry.pipeline import reframe, render
+    from clipfoundry.pipeline.common import read_json
+
+    remembered = tmp_path / "cam.json"
+    before, after = tmp_path / "before.mp4", tmp_path / "after.mp4"
+    _stream(before, (30, 440, 320, 240))
+    _stream(after, (930, 30, 320, 240))
+    first = reframe.plan(str(before), 0.0, float(SECONDS), W, H, "auto", float(FPS), layout="auto")
+    render._remember_cam(remembered, first)
+    assert max(abs(p - q) for p, q in zip(_pixels(read_json(remembered, None)["box"]), (30, 440, 350, 680))) <= 8
+    later = reframe.plan(str(after), 0.0, float(SECONDS), W, H, "auto", float(FPS), layout="auto",
+                         cam_hint=read_json(remembered, None))
+    assert later.mode == "split" and later.info["cam"].get("from") != "earlier"
+    assert max(abs(p - q) for p, q in zip(_pixels(later.info["split"]["cam"]), (930, 30, 1250, 270))) <= 8
+    render._remember_cam(remembered, later)
+    assert max(abs(p - q) for p, q in zip(_pixels(read_json(remembered, None)["box"]), (930, 30, 1250, 270))) <= 8
+    # a later clip in which the face is hidden is framed with the new place, not the old one
+    monkeypatch.setattr(reframe, "_detector", lambda *_: None)
+    hidden = reframe.plan(str(after), 0.0, float(SECONDS), W, H, "auto", float(FPS), layout="auto",
+                          cam_hint=read_json(remembered, None))
+    assert hidden.mode == "split" and hidden.info["split"]["cam"] == later.info["split"]["cam"]
+
+
 def test_split_picture_puts_the_cam_on_top_and_the_rest_below(monkeypatch):
     from clipfoundry.pipeline import reframe, render
 

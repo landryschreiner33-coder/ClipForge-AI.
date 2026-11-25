@@ -79,6 +79,25 @@ def test_a_he_nobody_introduced_and_a_cut_off_introduction():
     assert "weak_context" not in flags(r)
 
 
+def test_a_tease_at_the_end_and_a_he_a_team_role_introduced():
+    lines = ["First map they beat us thirteen to two.", "But then our captain calls a timeout and says one thing.",
+             "He says Marcus always pushes left when he is ahead.", "So we put three people on the left side.",
+             "We win that map thirteen to four."]
+    assert virality.finalize(_analyze(lines, "First map", "We win"))["flags"] == []  # "our captain" is the "he"
+    # ending on "says one thing" when the one thing comes right after the cut
+    r = virality.finalize(_analyze(lines, "First map", "But then"))
+    assert flags(r)["misleading_cut"]["severity"] == "block"
+
+
+def test_no_way_is_a_reaction_not_a_reply():
+    lines = ["I have forty health and only a pistol.", "The third one peeks, and he misses.", "Headshot.", "No way.",
+             "No way!", "We won the round with forty health.", "That is the cleanest clutch I have ever hit."]
+    r = virality.finalize(_analyze(lines, "I have forty", "That is the cleanest"))
+    assert "weak_ending" not in flags(r)
+    _, _, _, feats = _setup(["Do you think it works?", "No, it never did."])
+    assert feats[1]["response"]                    # a real answer to someone still counts
+
+
 def test_a_he_with_nobody_named_nearby_is_a_warning():
     lines = ["Let me tell you about the worst landlord ever.", "Rent is due on the first.", "Anyway.",
              "People said he was the worst landlord in the city.", "He once charged us for the rain.",
@@ -125,3 +144,102 @@ def test_the_benchmark_scripts_are_there():
     folder = Path(__file__).resolve().parents[1] / "scripts" / "clip_benchmark"
     assert {p.stem for p in folder.glob("*.txt")} == {"podcast_story", "gaming_stream", "tutorial"}
     assert dict(config.DEFAULT_SETTINGS)["silence"] == "light"
+
+
+def _stream(lines: list[str], loud_after: str | None = None, delay: float = 1.0, length: float = 1.5):
+    """A stream transcript with 3 s pauses between lines and, optionally, a loud stretch without words (a shout, the
+    crowd) `delay` seconds after the line that starts with `loud_after`."""
+    from test_core import _srt
+    from test_virality import _find
+    from clipfoundry.pipeline import transcribe
+    from clipfoundry.pipeline.audio import Loudness
+    from clipfoundry.pipeline.text_utils import build_sentences
+
+    words = transcribe.flatten_words({"segments": transcribe.parse_subtitles(_srt(lines, gap=3.0))})
+    sentences = build_sentences(words)
+    db = [-20.0] * int(words[-1]["end"] * 10 + 60)
+    if loud_after:
+        t = sentences[_find(sentences, loud_after)]["end"] + delay
+        db[int(t * 10):int((t + length) * 10)] = [-6.0] * (int((t + length) * 10) - int(t * 10))
+    return words, sentences, Loudness({"hop": 0.1, "db": db}), candidates.sentence_features(sentences, words)
+
+
+CLUTCH = ["I have forty health and only a pistol.", "He peeks, and he misses.", "Headshot, we won the round.",
+          "Okay, that was close.", "Anyway, the next round is on the other site."]
+
+
+def test_a_late_reaction_stays_in_the_clip():
+    from test_virality import _find
+    from clipfoundry.pipeline import deep
+
+    opts = dict(config.DEFAULT_SETTINGS)
+    for loud_after, kept in (("Headshot", True), (None, False)):
+        words, sentences, loud, feats = _stream(CLUTCH, loud_after, delay=1.2, length=1.5)
+        i, j = _find(sentences, "I have forty"), _find(sentences, "Headshot")
+        last = sentences[j]["end"]
+        b = deep.optimize_bounds({"s0": i, "s1": j}, sentences, loud, sentences[-1]["end"] + 1)
+        start, end = candidates.refine_bounds({"s0": i, "s1": j}, sentences, sentences[-1]["end"] + 1, loud)
+        r = virality.finalize(virality.analyze(i, j, sentences, feats, words, loud, opts))
+        reasons = virality.reasons(virality.summary(r))
+        if kept:
+            # the shout starts 1.2 s after "round." and lasts 1.5 s: both cuts end after it, before the next words
+            # (loudness comes in 0.1 s steps, so the times are within a step)
+            assert last + 2.6 <= b["end"] <= last + 3.1 and "keeps the reaction 1.1 s" in b["notes"][0]
+            assert last + 2.6 <= end < sentences[j + 1]["start"]
+            assert r["signals"]["reaction_after"]
+            assert any(x["area"] == "Payoff" and "reaction" in x["text"] for x in reasons)
+        else:
+            assert b["end"] <= last + 0.6 and end <= last + 0.5
+            assert not any("reaction" in x["text"] for x in reasons)
+    # a long stretch of loud sound (music) is not kept whole
+    words, sentences, loud, _ = _stream(CLUTCH, "Headshot", delay=0.5, length=2.8)
+    j = _find(sentences, "Headshot")
+    got = virality.reaction_after(sentences, j, loud)
+    assert got and got[1] - got[0] <= virality.REACTION_KEEP
+
+
+def test_a_clip_that_opens_right_after_a_reaction_starts_too_late():
+    from test_virality import _find
+
+    opts = dict(config.DEFAULT_SETTINGS)
+    words, sentences, loud, feats = _stream(CLUTCH, "He peeks", delay=1.4, length=1.4)
+    # the shout ends 0.2 s before "Headshot": a clip starting there missed what caused it
+    r = virality.finalize(virality.analyze(_find(sentences, "Headshot"), _find(sentences, "Okay, that"), sentences,
+                                           feats, words, loud, opts))
+    assert flags(r)["starts_on_reaction"]["severity"] == "warn"
+    assert any(x["area"] == "Context" and "reaction" in x["text"] for x in virality.reasons(virality.summary(r)))
+    r2 = virality.finalize(virality.analyze(_find(sentences, "I have forty"), _find(sentences, "Okay, that"),
+                                            sentences, feats, words, loud, opts))
+    assert "starts_on_reaction" not in flags(r2)
+
+
+def test_remove_pauses_keeps_a_reaction_without_words():
+    from clipfoundry.pipeline import render
+
+    ws = words_of("We won the round with forty health and a pistol.")
+    last = ws[-1]["end"]
+    ws += [{"w": "Okay.", "start": last + 4.0, "end": last + 4.4, "p": 0.9}]
+    shout = (last + 0.9, last + 2.7)
+    cut = render.keep_segments(ws, 0.0, last + 4.6, "light", 30.0)
+    kept = render.keep_segments(ws, 0.0, last + 4.6, "light", 30.0, loud=[shout])
+    heard = lambda segs: sum(max(0.0, min(b, shout[1]) - max(a, shout[0])) for a, b in segs)  # noqa: E731
+    assert heard(cut) < 0.5 and heard(kept) >= shout[1] - shout[0] - 0.05
+    # the dead air suggestion counts only the real silence
+    plain = trims.suggest(ws, 0.0, last + 4.6, silence="off")
+    aware = trims.suggest(ws, 0.0, last + 4.6, silence="off", loud=[shout])
+    secs = {name: next((x["seconds"] for x in t["suggestions"] if x["id"] == "dead_air"), 0.0)
+            for name, t in (("plain", plain), ("aware", aware))}
+    assert secs["aware"] < secs["plain"] - 1.5
+
+
+def test_reactions_are_read_from_the_loudness_measured_at_analysis(tmp_path):
+    import json
+
+    from clipfoundry.pipeline import render
+
+    db = [-20.0] * 100
+    db[40:60] = [-6.0] * 20                                  # 4.0 to 6.0 s: loud, and nobody speaks
+    (tmp_path / "loudness.json").write_text(json.dumps({"hop": 0.1, "db": db}))
+    words = [{"w": "Go.", "start": 1.0, "end": 1.4}, {"w": "Yes!", "start": 7.0, "end": 7.4}]
+    assert render.heard(tmp_path, words, 0.0, 10.0) == [(4.0, 6.0)]
+    assert render.heard(tmp_path / "none", words, 0.0, 10.0) == []

@@ -19,11 +19,11 @@ estimate and its flags, and for each promoted clip what "Remove pauses" takes ou
 suggested tighter start and end and the plain reasons (only in versions that have pipeline/trims.py and
 virality.reasons). Nothing is uploaded and no clip is rendered.
 
-The built-in footage is synthetic: a computer voice reads three scripts written to look like a podcast, a game stream
-and a tutorial, with the traps real footage has (warm-up words, a sponsor read, an outro, a part that leans on earlier
-parts, repeated lines, dead air, a pause after a question). Word times come from each sentence's spoken length, not
-from a transcriber, and every word gets the same confidence. It shows what the code does with those patterns; it is
-not a measure of how real viewers react.
+The built-in footage is synthetic: a computer voice reads three scripts written to look like a podcast, a game
+stream and a tutorial, with the traps real footage has (warm-up words, a sponsor read, an outro, a part that leans
+on earlier parts, repeated lines, dead air, a pause after a question, a shout without words). Word times come from
+each sentence's spoken length, not from a transcriber, and every word gets the same confidence. It shows what the
+code does with those patterns; it is not a measure of how real viewers react.
 """
 from __future__ import annotations
 
@@ -77,6 +77,17 @@ def _words(sentence: str, start: float, length: float) -> list[dict]:
     return out
 
 
+def _cheer(seconds: float, seed: int) -> list[float]:
+    """A loud stretch without words standing in for a shout, laughter or a crowd: noise louder than the voice, faded
+    in and out. Nothing in the transcript marks it; only the loudness shows it."""
+    import numpy as np
+
+    n = int(seconds * RATE)
+    noise = np.random.default_rng(seed).normal(0.0, 7000.0, n)
+    fade = np.minimum(1.0, np.minimum(np.arange(n), np.arange(n)[::-1]) / (0.08 * RATE))
+    return (noise * fade).tolist()
+
+
 def make(out: Path, speed: int = 160, voice: str = "en-us") -> None:
     import numpy as np
 
@@ -88,9 +99,12 @@ def make(out: Path, speed: int = 160, voice: str = "en-us") -> None:
             for para in script.read_text().split("\n\n"):
                 lines = [ln for ln in para.splitlines() if ln and not ln.startswith("#")]
                 text = " ".join(lines)
-                for piece in re.split(r"(\[(?:pause|dead) [\d.]+\])", text):
+                for piece in re.split(r"(\[(?:pause|dead|cheer) [\d.]+\])", text):
                     piece = piece.strip()
-                    mark = re.fullmatch(r"\[(pause|dead) ([\d.]+)\]", piece)
+                    mark = re.fullmatch(r"\[(pause|dead|cheer) ([\d.]+)\]", piece)
+                    if mark and mark.group(1) == "cheer":
+                        audio += _cheer(float(mark.group(2)), len(segments))
+                        continue
                     if mark:
                         audio += [0.0] * int(float(mark.group(2)) * RATE)
                         continue
@@ -169,16 +183,20 @@ def run(footage: Path, code: Path, out: Path, explain: Path | None = None) -> No
         words = prep.words
         clips = []
         df = scoring.document_frequencies(prep.sentences)
+        new_cuts = hasattr(render, "heard")
         for r in chosen:
             # the clip's real start and end, exactly as create_clips sets them
             if r.get("bounds"):
                 start, end = r["bounds"]["start"], r["bounds"]["end"]
             elif r["s0"] >= 0:
-                start, end = cand_mod.refine_bounds(r, prep.sentences, prep.meta["duration"])
+                start, end = cand_mod.refine_bounds(r, prep.sentences, prep.meta["duration"],
+                                                    *([prep.loud] if new_cuts else []))
             else:
                 start, end = r["start"], r["end"]
             a = r["analysis"]
-            keep = render.keep_segments(words, start, end, "light", 30.0)
+            # versions with render.heard keep reactions without words when Remove pauses cuts the dead air
+            loud = virality.wordless_loud(words, prep.loud, start, end) if new_cuts else None
+            keep = render.keep_segments(words, start, end, "light", 30.0, **({"loud": loud} if new_cuts else {}))
             sents = [prep.sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
             post = postpack.generate(sents, r["hook"], r["hooks_alt"], r["category"], prep.opts, df,
                                      max(1, len(prep.sentences)), use_ai=False)
@@ -194,7 +212,8 @@ def run(footage: Path, code: Path, out: Path, explain: Path | None = None) -> No
                 item["titles"] = [{"kind": o["label"], "text": o["text"]} for o in guide["options"]]
                 item["title_picks"] = {k: guide[k] for k in ("youtube", "tiktok") if guide.get(k)}
             if trims is not None:
-                t = trims.suggest(words, start, end, silence="light", all_words=words)
+                t = trims.suggest(words, start, end, silence="light", all_words=words,
+                                  **({"loud": loud} if new_cuts else {}))
                 item["trims"] = [{"label": s_["label"], "seconds": s_["seconds"], "why": s_["why"]}
                                  for s_ in t["suggestions"]]
                 item["kept_pauses"] = t["kept_pauses"]

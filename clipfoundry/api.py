@@ -903,7 +903,8 @@ def clip_trims(clip_id: str) -> dict:
     words = load_words(project)
     near = [w for w in words if start - 30 <= w["start"] <= end + 30]
     silence = edit.get("silence", (project.get("options") or {}).get("silence", "off"))
-    return trims.suggest(near, start, end, str(silence or "off"))
+    return trims.suggest(near, start, end, str(silence or "off"),
+                         loud=render.heard(project_dir(project), near, start - 30, end + 30))
 
 
 # ------------------------------------------------------------------ versions

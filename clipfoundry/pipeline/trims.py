@@ -70,11 +70,12 @@ def _sentence_text(s: dict) -> str:
 
 
 def suggest(words: list[dict], start: float, end: float, silence: str = "off", fps: float = 30.0,
-            all_words: list[dict] | None = None) -> dict:
+            all_words: list[dict] | None = None, loud: list[tuple[float, float]] | None = None) -> dict:
     """Suggestions for the clip [start, end] given the transcript's words (all of them, or those around the clip).
 
     Returns {"suggestions": [{"id", "label", "edit", "seconds", "why"}], "kept_pauses": [{"at", "seconds", "why"}],
-    "length": end - start}. "seconds" is how much shorter (negative: longer) the clip gets."""
+    "length": end - start}. "seconds" is how much shorter (negative: longer) the clip gets. `loud` (render.heard):
+    reactions without words, which Remove pauses keeps."""
     from .render import SILENCE_PRESETS, keep_segments
 
     everything = all_words if all_words is not None else words
@@ -178,7 +179,7 @@ def suggest(words: list[dict], start: float, end: float, silence: str = "off", f
             kept.append({"at": round(ws[k]["end"], 2), "seconds": round(min(gap, TENSION_KEEP["light"]), 2),
                          "why": f"Builds tension: a pause {why}"})
     if silence not in SILENCE_PRESETS:
-        segs = keep_segments(ws, new_start, new_end, "light", fps)
+        segs = keep_segments(ws, new_start, new_end, "light", fps, loud=loud)
         saved = (new_end - new_start) - sum(b - a for a, b in segs)
         if saved >= 0.8:
             n = max(0, len(segs) - 1)
