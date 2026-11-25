@@ -134,6 +134,17 @@ class Comfy:
         # proxy settings), while a ComfyUI on this computer is always asked directly
         self.headers = {**auth_headers(key or ""), "User-Agent": "ClipForge"} if self.remote else {}
         self.trust_env = self.remote and not local_address(self.base)
+        # Stop (makers._run sets it): checked before the picture is sent and between blocks of a download, so a
+        # stop reaches a transfer to or from a cloud computer, not only the waiting for the result
+        self.cancel: Cancel | None = None
+
+    def _stop_if_asked(self, part: Path | None = None) -> None:
+        if self.cancel and self.cancel():
+            from ..pipeline.common import Cancelled
+
+            if part is not None:
+                part.unlink(missing_ok=True)
+            raise Cancelled()
 
     def _unreachable(self, exc: Exception) -> EngineError:
         if self.remote:  # its address is not named: these words reach pages (a short's scene) that need not know it
@@ -256,6 +267,7 @@ class Comfy:
         mime = mimetypes.guess_type(path.name)[0] or "image/png"
         name = f"clipforge-{uuid.uuid4().hex[:12]}{path.suffix.lower() or '.png'}"
         for n in range(1, self._tries() + 1):
+            self._stop_if_asked()  # before each try, also between retries: nothing is sent after a stop
             try:
                 with open(path, "rb") as fh:
                     r = httpx.post(self.base + "/upload/image", files={"image": (name, fh, mime)},
@@ -462,6 +474,7 @@ class Comfy:
         params = {"filename": file["filename"], "subfolder": file.get("subfolder", ""), "type": file.get("type", "output")}
         part = dest.with_name(dest.name + ".part")
         for n in range(1, self._tries() + 1):
+            self._stop_if_asked(part)
             try:
                 self._fetch(params, part)
                 break
@@ -489,7 +502,10 @@ class Comfy:
                     raise EngineError(text)
                 with open(part, "wb") as fh:
                     for block in r.iter_bytes(1 << 20):
+                        if self.cancel and self.cancel():
+                            break  # closed below, then removed: a stopped download leaves no file behind
                         fh.write(block)
+                self._stop_if_asked(part)
         except httpx.HTTPError as exc:
             raise _Again(f"ComfyUI did not hand over the result ({exc.__class__.__name__}).") from exc
 

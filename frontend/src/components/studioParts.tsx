@@ -1,6 +1,7 @@
 import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ExampleVideo, FileGoneError, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset,
+  cancelUpload, ExampleVideo, FileGoneError, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress,
+  UploadStoppedError, Asset,
 } from "../studio";
 import { Icon } from "./ui";
 
@@ -13,6 +14,12 @@ export type Picked = { key: string; file: File; progress: UploadProgress | null;
   cancel?: () => void;
   /** Take this file out: its upload stops and its row goes (picking it again starts it over). */
   forget?: () => void;
+  /** Cancel upload: stop sending and delete what the server received (not a pause; choosing it again starts over). */
+  cancelUpload?: () => void;
+  /** Cancel upload was pressed and the server's answer is awaited. */
+  canceling?: boolean;
+  /** The upload was canceled for good: no Resume button. */
+  canceled?: boolean;
   /** The owner's own file used where it is on this computer (Add from this computer): nothing was uploaded. */
   linked?: boolean };
 
@@ -51,6 +58,8 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
   const files = useRef(new Map<string, File>());
   const waiting = useRef<string[]>([]);
   const running = useRef(new Map<string, AbortController>());
+  const ids = useRef(new Map<string, string>());  // the server's upload id of each file, once known
+  const canceled = useRef(new Set<string>());
 
   // The page hears of every change once it is drawn, never while React is still working out the rows (calling the
   // page's own setter from inside setRows warned "Cannot update a component while rendering a different component").
@@ -74,11 +83,16 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
       const ctl = new AbortController();
       running.current.set(key, ctl);
       update(key, { error: "", gone: false });
-      uploadFile(file, (p) => update(key, { progress: p }), ctl.signal)
+      canceled.current.delete(key);
+      uploadFile(file, (p) => { if (p.id) ids.current.set(key, p.id); update(key, { progress: p }); }, ctl.signal)
         .then((asset) => { onUploaded?.(asset); update(key, { asset }); })
-        .catch((e) => update(key, e instanceof FileGoneError ? { error: e.message, gone: true } : {
-          error: ctl.signal.aborted ? "Stopped. Resume upload to continue where it left off." : (e as Error).message,
-        }))
+        .catch((e) => {
+          if (canceled.current.has(key)) return;  // Cancel upload writes the row itself, with the server's answer
+          update(key, e instanceof FileGoneError ? { error: e.message, gone: true }
+            : e instanceof UploadStoppedError ? { error: e.message, canceled: true } : {
+              error: ctl.signal.aborted ? "Stopped. Resume upload to continue where it left off." : (e as Error).message,
+            });
+        })
         .finally(() => { running.current.delete(key); pump(); });
     }
   };
@@ -93,6 +107,29 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
     if (ctl) ctl.abort();
     else update(key, { error: "Not started. Resume upload when you want it." });
   };
+  /** Cancel upload: stop the transfer (the part being sent is dropped), then ask the server to delete what arrived.
+   * The other uploads keep going and the next waiting file takes this one's place. */
+  const cancelOne = async (key: string) => {
+    waiting.current = waiting.current.filter((k) => k !== key);
+    canceled.current.add(key);
+    update(key, { canceling: true });
+    running.current.get(key)?.abort();
+    const id = ids.current.get(key);
+    try {
+      const out = id ? await cancelUpload(id, files.current.get(key)) : { canceled: true, status: "", message: "" };
+      if (out.status === "complete" && out.asset) {
+        onUploaded?.(out.asset);
+        update(key, { canceling: false, asset: out.asset, error: "" });
+        canceled.current.delete(key);
+        return;
+      }
+      update(key, { canceling: false, canceled: out.canceled, progress: null,
+        error: out.canceled ? "Upload canceled. Nothing was kept. Choose the file again to upload it."
+          : out.message || "It could not be canceled." });
+    } catch (e) {
+      update(key, { canceling: false, error: `Could not cancel: ${(e as Error).message}` });
+    }
+  };
   const forget = (key: string) => {
     waiting.current = waiting.current.filter((k) => k !== key);
     running.current.get(key)?.abort();
@@ -104,7 +141,7 @@ export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, 
     const fresh: Picked[] = Array.from(multiple ? list : [list[0]]).map((file) => {
       const key = `${file.name}|${file.size}|${file.lastModified}`;
       return { key, file, progress: null, asset: null, error: "", retry: () => start(key), cancel: () => stop(key),
-        forget: () => forget(key) };
+        forget: () => forget(key), cancelUpload: () => void cancelOne(key) };
     });
     fresh.forEach((r) => files.current.set(r.key, r.file));
     onPicked?.(fresh.map((r) => r.key));  // picked on purpose, also a file picked before
@@ -164,10 +201,15 @@ export function UploadRow({ row, onRetry, onChooseAgain, extra }: { row: Picked;
       <div className="row-actions">
         {row.gone && onChooseAgain && <button type="button" className="btn btn-small btn-primary"
           onClick={onChooseAgain}>Choose file again</button>}
-        {row.error && !row.gone && retry && <button type="button" className="btn btn-small"
+        {row.error && !row.gone && !row.canceled && retry && <button type="button" className="btn btn-small"
           onClick={retry}>Resume upload</button>}
-        {!row.asset && !row.error && row.cancel && <button type="button" className="btn btn-small"
-          aria-label={`Stop uploading ${row.file.name}`} onClick={row.cancel}>{sending ? "Stop" : "Skip"}</button>}
+        {!row.asset && !row.error && row.cancel && !row.canceling && <button type="button" className="btn btn-small"
+          aria-label={`Pause uploading ${row.file.name}`} title="Pause: Resume upload continues where it stopped"
+          onClick={row.cancel}>{sending ? "Stop" : "Skip"}</button>}
+        {!row.asset && !row.canceled && row.cancelUpload && p && p.state !== "checking" && p.state !== "done" && (
+          <button type="button" className="btn btn-small btn-danger" disabled={row.canceling}
+            aria-label={`Cancel the upload of ${row.file.name}`} onClick={row.cancelUpload}>
+            {row.canceling ? "Canceling…" : "Cancel upload"}</button>)}
         {extra}
       </div>
     </div>

@@ -468,6 +468,7 @@ export function uploadVideo(
   options: Record<string, unknown>,
   transcript: File | null,
   onProgress: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<Project> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
@@ -488,6 +489,9 @@ export function uploadVideo(
       }
     };
     xhr.onerror = () => reject(new Error("Upload failed: server not reachable"));
+    xhr.onabort = () => reject(new Error("Upload canceled. Nothing was added; your file is still on this computer."));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    if (signal?.aborted) return reject(new Error("Upload canceled. Nothing was added."));
     xhr.send(form);
   });
 }

@@ -74,6 +74,12 @@ async def lifespan(_: FastAPI):
         edit_requests.recover()  # an AI request cut off by the restart is reported, never sent again silently
         brain_chat.recover()  # a chat answer cut off by the restart is reported the same way
         link_import.clean_abandoned()  # partial downloads of canceled or failed links
+        try:  # unfinished browser uploads older than the retention: their partial bytes go (privacy page)
+            from .studio import uploads as studio_uploads
+
+            studio_uploads.clean_stale()
+        except Exception:  # noqa: BLE001 - housekeeping never stops the app from starting
+            logging.getLogger(__name__).exception("Could not clean old unfinished uploads")
         project_delete.finish_later()  # files of deleted projects that were open in another program last time
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for

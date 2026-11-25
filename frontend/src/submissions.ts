@@ -120,7 +120,9 @@ export const submissions = {
   link: (url: string, options: SubmissionOptions, live = false) =>
     req<SubmissionResult>("POST", `${ROOT}/link`, { url, ...options, live }),
   live: () => req<LiveStream[]>("GET", `${ROOT}/live`),
-  file: (file: File, options: SubmissionOptions, onProgress: (fraction: number) => void) =>
+  /** Copy a video file in. `signal` cancels the transfer while bytes are still being sent; once every byte has
+   * arrived ClipForge is copying and checking it, and a cancel can no longer stop that (the answer still comes). */
+  file: (file: File, options: SubmissionOptions, onProgress: (fraction: number) => void, signal?: AbortSignal) =>
     new Promise<SubmissionResult>((resolve, reject) => {
       const form = new FormData();
       form.append("file", file);
@@ -142,6 +144,17 @@ export const submissions = {
         }
       };
       xhr.onerror = () => reject(new Error("Could not reach ClipForge. Keep the app open and try again."));
+      xhr.onabort = () => reject(new UploadCanceled());
+      signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+      if (signal?.aborted) return reject(new UploadCanceled());
       xhr.send(form);
     }),
 };
+
+/** Cancel upload was pressed while the file was still being sent: nothing was added, the file stays on this PC. */
+export class UploadCanceled extends Error {
+  constructor() {
+    super("Upload canceled. Nothing was added; your file is still on this computer.");
+    this.name = "UploadCanceled";
+  }
+}

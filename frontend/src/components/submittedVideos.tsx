@@ -3,7 +3,7 @@ import { errorText } from "../api";
 import { ap } from "../autopilot";
 import { plural, when } from "../format";
 import { useLeaveGuard } from "../router";
-import { channelNames, SubmittedVideo, submissions } from "../submissions";
+import { channelNames, SubmittedVideo, submissions, UploadCanceled } from "../submissions";
 import { nameList } from "./channelPicker";
 import { Banner, Icon, Pill, ProgressBar, Segmented, Skel, toast, Tone, usePoll } from "./ui";
 import { UploadChoice, useUploadChoice } from "./uploadChoice";
@@ -30,6 +30,7 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
   const [acting, setActing] = useState("");
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const transfer = useRef<AbortController | null>(null);  // the file being sent, for Cancel upload
   const id = useId();
   useLeaveGuard(busy ? { what: "a video still being copied into ClipForge" } : null);
 
@@ -59,7 +60,9 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
     const options = choice.options();
     try {
       if (inputMode === "file") setProgress(0);
-      const result = inputMode === "file" && file ? await submissions.file(file, options, setProgress)
+      const ctl = new AbortController();
+      transfer.current = ctl;
+      const result = inputMode === "file" && file ? await submissions.file(file, options, setProgress, ctl.signal)
         : await submissions.link(url.trim(), options);
       const item = { ...result.item, submission: result.item.submission || result.submission };
       setData([item, ...(data || []).filter(row => row.id !== item.id)]);
@@ -74,9 +77,13 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       refresh();
       refreshStatus();
     } catch (e) {
-      setProblem(errorText(e));
-      reloadSetup();
+      if (e instanceof UploadCanceled) setNotice(e.message);
+      else {
+        setProblem(errorText(e));
+        reloadSetup();
+      }
     } finally {
+      transfer.current = null;
       setBusy(false);
       setProgress(null);
     }
@@ -146,7 +153,9 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       {progress !== null && <div className="stack" role="status">
         <ProgressBar value={progress} label="Copying video into ClipForge" />
         <span className="small muted">{progress < 1 ? `Copying video: ${Math.round(progress * 100)}%`
-          : "Copied. Preparing the video…"}</span>
+          : "Copied. Preparing the video… (too late to cancel: ClipForge is checking it)"}</span>
+        {progress < 1 && <div><button type="button" className="btn btn-small btn-danger"
+          onClick={() => transfer.current?.abort()}>Cancel upload</button></div>}
       </div>}
       <div className="row wrap submitted-actions">
         <span className="hint grow">Adding a video starts processing. Keep ClipForge open and the PC awake while it works. Weak or failed clips stay

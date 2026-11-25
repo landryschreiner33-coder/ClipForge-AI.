@@ -334,11 +334,15 @@
   1280 pixels or longer than ten minutes, a smaller preview copy (unless preview copies are turned off). While a file
   is being sent, Stop, or removing the file from the page, only pauses the upload, and so does leaving or closing the
   page, a lost connection or an error while sending: the partly received file is kept so the upload can resume.
+  <b>Cancel upload</b> (added 2026-11-25) instead deletes the partly received file at once and marks its record as
+  canceled; your own file is untouched and choosing it again starts a new upload. If every byte had already arrived,
+  the cancel comes too late and the page says so: the file is checked and kept like any other finished upload.
   Stopping or removing it while the page still shows Preparing the file does not cancel it either: the upload still
   starts (or, when the file already has a paused upload, resumes that one) and is paused at once, with its record, its
   partly received file (empty for a new upload) and the browser entry kept like those of any paused upload; a paused
   upload whose every byte had already arrived finishes instead, like any other finished upload. Once it has had no
-  progress for 3 days, it is deleted the next time you start an upload, and its record stays, marked as expired. Once
+  progress for 3 days, it is deleted the next time you start ClipForge or an upload, and its record stays, marked as
+  expired. Once
   every byte has arrived and ClipForge is checking the file, none of these stops it: the upload finishes and ClipForge
   keeps the file like any other finished upload, even if you removed it from the page. If an upload fails once all of
   it has arrived (for example, it does not match the fingerprint your browser made, or it is not a readable video or

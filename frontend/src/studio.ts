@@ -504,7 +504,27 @@ async function sha256(file: File): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export type UploadProgress = { received: number; size: number; state: "hashing" | "sending" | "checking" | "done" | "interrupted" };
+export type UploadProgress = { received: number; size: number; state: "hashing" | "sending" | "checking" | "done" | "interrupted";
+  /** The server's upload, once it exists: what Cancel upload deletes. */
+  id?: string };
+
+/** The server stopped taking this upload (canceled, expired or failed): resuming it would only be refused again. */
+export class UploadStoppedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UploadStoppedError";
+  }
+}
+
+export type CancelOutcome = { canceled: boolean; status: string; message: string; asset?: Asset | null };
+
+/** Cancel upload: the server deletes what arrived and stops taking parts. If every byte had already arrived, the
+ * answer says so (the file is checked and kept) instead of claiming a cancel. Choosing the file again starts afresh. */
+export async function cancelUpload(id: string, file?: File): Promise<CancelOutcome> {
+  const out = await req<CancelOutcome>("DELETE", `/api/uploads/${id}`);
+  if (file && out.canceled) remember(`${file.name}|${file.size}|${file.lastModified}`, null);
+  return out;
+}
 
 /** Send a file in chunks, resuming the same upload after an interruption (also after reloading the page). */
 export async function uploadFile(file: File, onProgress: (p: UploadProgress) => void, signal?: AbortSignal): Promise<Asset> {
@@ -515,12 +535,13 @@ export async function uploadFile(file: File, onProgress: (p: UploadProgress) => 
     if (!(await readable(file))) throw new FileGoneError(file.name);
     throw e;
   });
+  if (signal?.aborted) throw new Error("Upload paused. Resume upload.");
   let up = await req<Upload>("POST", "/api/uploads", { filename: file.name, size: file.size, sha256: hash, fingerprint: fp });
   remember(fp, up.id);
   const chunk = up.chunk_size || 8 * 1024 * 1024;
   while (up.received < file.size) {
     if (signal?.aborted) throw new Error("Upload paused. Resume upload.");
-    onProgress({ received: up.received, size: file.size, state: "sending" });
+    onProgress({ received: up.received, size: file.size, state: "sending", id: up.id });
     const res = await fetch(`/api/uploads/${up.id}?offset=${up.received}`, {
       method: "PUT", body: file.slice(up.received, up.received + chunk), signal,
       headers: { "Content-Type": "application/octet-stream" },
@@ -531,6 +552,10 @@ export async function uploadFile(file: File, onProgress: (p: UploadProgress) => 
       throw new Error("Upload interrupted. Resume upload.");
     }
     const body = await res.json();
+    if (res.status === 409 && body.state && body.state !== "receiving") {
+      remember(fp, null);  // canceled, expired or failed on the server: never loop on it
+      throw new UploadStoppedError(body.detail || "This upload was stopped.");
+    }
     if (res.status === 409 && typeof body.received === "number") {
       up = { ...up, received: body.received };  // the server says where it really is: continue from there
       continue;
@@ -538,7 +563,7 @@ export async function uploadFile(file: File, onProgress: (p: UploadProgress) => 
     if (!res.ok) throw new Error(body.detail || "Upload failed.");
     up = body;
   }
-  onProgress({ received: file.size, size: file.size, state: "checking" });
+  onProgress({ received: file.size, size: file.size, state: "checking", id: up.id });
   const asset = await req<Asset>("POST", `/api/uploads/${up.id}/complete`);
   remember(fp, null);
   onProgress({ received: file.size, size: file.size, state: "done" });
