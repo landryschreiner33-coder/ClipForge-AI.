@@ -24,6 +24,19 @@ def _no_real_discovery_services(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_built_in_sign_in(monkeypatch, tmp_path_factory):
+    """Tests start with no built-in YouTube or TikTok registration (clipfoundry/publish/oauth_apps.py): a release
+    build's oauth_apps.json or a developer's CLIPFORGE_* variables never change what a test sees. A test that needs
+    one sets the variables itself."""
+    from clipfoundry.publish import oauth_apps
+
+    for name in ("CLIPFORGE_YOUTUBE_CLIENT_ID", "CLIPFORGE_YOUTUBE_CLIENT_SECRET", "CLIPFORGE_TIKTOK_CLIENT_KEY",
+                 "CLIPFORGE_TIKTOK_BROKER"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(oauth_apps, "BUNDLED", tmp_path_factory.getbasetemp() / "no-bundled-oauth-apps.json")
+
+
+@pytest.fixture(autouse=True)
 def _no_voice_model_download(monkeypatch):
     """Tests never download the sound cleanup model: its address points at a closed local port, so cleanup uses its
     built-in noise gate unless a test installs the model itself (tests/test_clean_sound.py)."""

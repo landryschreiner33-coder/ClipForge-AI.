@@ -106,7 +106,7 @@ def _publish(client, clip_id: str, **kw) -> dict:
 
 def test_connect_needs_setup_first(app_client):
     r = app_client.post("/api/publish/youtube/connect", headers=H)
-    assert r.status_code == 400 and "Desktop app" in r.json()["fix"]
+    assert r.status_code == 400 and "Desktop app" in r.json()["fix"] and "release build" in r.json()["fix"]
     assert app_client.get("/api/publish/accounts").json()["youtube"]["configured"] is False
 
 

@@ -275,6 +275,9 @@ def build(work: Path, *, compile_only: bool = False):
     tracked = subprocess.check_output(['git', 'archive', 'HEAD', 'clipfoundry', 'frontend/dist', 'macos/diagnose.py', 'macos/native_smoke.py', 'macos/desktop_media_smoke.py', 'macos/desktop/av1-smoke.ivf', 'docs/legal'], cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(tracked)) as tar:
         tar.extractall(app_source, filter='data')
+    built_in_sign_in = ROOT / 'clipfoundry/oauth_apps.json'  # written from the repository's secrets, never committed
+    if built_in_sign_in.is_file():
+        shutil.copy2(built_in_sign_in, app_source / 'clipfoundry/oauth_apps.json')
     shutil.copy2(ROOT / 'macos/desktop_runtime.py', contents / 'Resources/desktop_runtime.py')
     third_party = contents / 'Resources/ThirdParty'
     third_party.mkdir(exist_ok=True)

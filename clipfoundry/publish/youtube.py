@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
+from . import oauth_apps
 from .common import (SHORT_WAIT, Cancelled, ConnectionToken, PublishError, client, network_errors, retry_after,
                      save_tokens, sleep_exactly, with_retry_after)
 
@@ -45,9 +46,9 @@ UNVERIFIED_NOTE = (
     "Confirm Public audience and automatic publishing separately; ClipForge reports the visibility YouTube "
     "actually returns. A compliance audit may be needed to request additional quota."
 )
-SETUP_FIX = ("Settings → Publishing → YouTube: create a Google Cloud project, enable the YouTube Data API v3, set up "
-             "the OAuth consent screen, create an OAuth client of type 'Desktop app' and paste its client ID and "
-             "secret.")
+SETUP_FIX = ("Use a release build of ClipForge (it signs in with ClipForge's own Google app), or under Settings → "
+             "Publishing → YouTube → Advanced paste the client ID and secret of your own Google Cloud OAuth client of "
+             "type 'Desktop app' (YouTube Data API v3 enabled).")
 RECONNECT_FIX = "Click Connect YouTube again (Settings → Publishing or the publish screen)."
 TESTING_NOTE = ("If your OAuth consent screen is in 'Testing', Google ends the connection after 7 days; set it to "
                 "'In production' to stay connected (for your own use you can continue past the 'unverified app' "
@@ -55,10 +56,13 @@ TESTING_NOTE = ("If your OAuth consent screen is in 'Testing', Google ends the c
 
 
 def configured(settings: dict) -> bool:
-    return bool(settings.get("youtube_client_id") and settings.get("youtube_client_secret"))
+    """Connect can start: ClipForge's built-in app registration, or your own (oauth_apps.py)."""
+    s = oauth_apps.effective(settings)
+    return bool(s.get("youtube_client_id") and s.get("youtube_client_secret"))
 
 
 def auth_url(settings: dict, redirect_uri: str, state: str, challenge: str) -> str:
+    settings = oauth_apps.effective(settings)
     return AUTH_URL + "?" + urlencode({
         "client_id": settings["youtube_client_id"], "redirect_uri": redirect_uri, "response_type": "code",
         "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent", "include_granted_scopes": "true",
@@ -91,6 +95,7 @@ def exchange_code(settings: dict, code: str, verifier: str, redirect_uri: str, *
 
     `expected_connection`: Reconnect of one connection. Signing in to a different channel then is refused instead of
     silently changing where that connection uploads."""
+    settings = oauth_apps.effective(settings)
     tok = _token_request({"code": code, "client_id": settings["youtube_client_id"],
                           "client_secret": settings["youtube_client_secret"], "redirect_uri": redirect_uri,
                           "grant_type": "authorization_code", "code_verifier": verifier})
@@ -122,8 +127,8 @@ class Token(ConnectionToken):
     reconnect_fix = RECONNECT_FIX
 
     def _refresh(self, tokens: dict) -> dict:
-        return _token_request({"client_id": self.settings["youtube_client_id"],
-                               "client_secret": self.settings["youtube_client_secret"],
+        app = oauth_apps.effective(self.settings)
+        return _token_request({"client_id": app["youtube_client_id"], "client_secret": app["youtube_client_secret"],
                                "refresh_token": tokens["refresh_token"], "grant_type": "refresh_token"})
 
 

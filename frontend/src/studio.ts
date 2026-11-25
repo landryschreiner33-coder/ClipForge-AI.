@@ -48,7 +48,12 @@ export type Connection = { id: string; platform: "youtube" | "tiktok"; label: st
   /** Connected and signed in: it can take a new post now. */
   postable: boolean;
   /** TikTok only: the app may post directly to this account / send drafts to its inbox. */
-  can_direct_post: boolean; can_inbox: boolean };
+  can_direct_post: boolean; can_inbox: boolean;
+  /** What this account lets ClipForge do, from the permissions the platform granted, with its limits in words. */
+  capabilities?: { key: string; label: string; on: boolean; note: string }[] };
+
+/** How Connect signs in on this computer: ClipForge's own registration, your own developer app, or neither. */
+export type SignInApp = { ready: boolean; source: "built_in" | "own" | ""; text: string };
 
 export type Eligibility = { connection_id: string; platform: string; account: string; state: string; eligible: boolean;
   label: string; text: string; alternatives?: string[] };
@@ -440,7 +445,8 @@ export const studio = {
   },
   patchSkill: (id: string, body: Record<string, unknown>) => req<Skill>("PATCH", `/api/studio/skills/${id}`, body),
   deleteSkill: (id: string) => req("DELETE", `/api/studio/skills/${id}`),
-  connections: () => req<{ connections: Connection[]; protection: string }>("GET", "/api/connections"),
+  connections: () => req<{ connections: Connection[]; protection: string; apps?: Record<"youtube" | "tiktok", SignInApp> }>(
+    "GET", "/api/connections"),
   addConnection: (platform: string) => req<{ auth_url: string }>("POST", `/api/connections/${platform}/add`),
   reconnect: (id: string) => req<{ auth_url: string }>("POST", `/api/connections/${id}/reconnect`),
   disconnect: (id: string) => req<Connection>("POST", `/api/connections/${id}/disconnect`),

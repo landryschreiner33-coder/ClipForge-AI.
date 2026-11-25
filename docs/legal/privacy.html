@@ -483,7 +483,8 @@
   <tbody>
     <tr><td>Google and YouTube</td><td>You connect YouTube, publish or look at results. While Autopilot is on, it
       updates your posts' results and, for a video an older version found, checks which channel posted it</td><td>Your sign-in
-      (on Google's page) and your Google project's client ID and secret; the videos you approve, or that Autopilot
+      (on Google's page) and the client ID and secret of ClipForge's own Google app (or of your own Google project, if
+      you entered one under Advanced); the videos you approve, or that Autopilot
       posts under an input-scoped Make &amp; upload request or optional account/visibility-bound standing
       automatic-publishing permission, as explicitly chosen
       Public or Private videos, with their title, description, tags, category and made-for-kids answer
@@ -492,10 +493,18 @@
       video IDs, to read a video's details and check which channel posted it; and your YouTube API key, if you entered
       one. An expired connected sign-in may require one refresh and retry</td></tr>
     <tr><td>TikTok</td><td>You connect TikTok, approve or post a video, or look at results. While Autopilot is on, it
-      also updates your posts' results and checks TikTok links</td><td>Your sign-in (on TikTok's page) and your TikTok
-      app's client key and secret; the videos you approve with their caption and settings, using only a privacy
+      also updates your posts' results and checks TikTok links</td><td>Your sign-in (on TikTok's page) and the client key
+      of ClipForge's own TikTok app (or the key and secret of your own TikTok app, if you entered one under Advanced);
+      the videos you approve with their caption and settings, using only a privacy
       choice supported by TikTok and explicitly approved by you; requests for your posting
       options, your posts' status and results; public TikTok links, to check which account posted them</td></tr>
+    <tr><td>ClipForge's TikTok sign-in helper (added 2026-11-25)</td><td>You connect, reconnect or disconnect TikTok
+      with ClipForge's own TikTok app, and when a connected account's sign-in is renewed before it is used (TikTok's
+      sign-ins last a day)</td><td>What TikTok's sign-in needs besides the app's secret, which only this helper holds: the one-time
+      sign-in code with its check value and ClipForge's address on your computer, or your TikTok refresh token, or
+      the token to revoke. It adds the secret, passes TikTok's answer back to your computer and keeps nothing: no
+      tokens, no codes, no accounts, and no log of what was sent. It is not used when you entered your own TikTok
+      app under Advanced</td></tr>
     <tr><td>Find media: Openverse, Wikimedia Commons and Pexels</td><td>You search in Find media in the video
       editor, or ask for supporting media for one video. Pexels only if you entered your own Pexels key. Nothing
       searches in the background</td><td>Your search words and filters; requests to look up and download the items

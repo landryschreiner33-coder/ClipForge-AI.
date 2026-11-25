@@ -297,6 +297,8 @@ export type Platform = "youtube" | "tiktok";
 
 export interface PlatformAccount {
   configured: boolean;
+  /** How Connect signs in: ClipForge's own registration ("built_in"), your own developer app ("own"), or neither. */
+  app?: "built_in" | "own" | "";
   connected: boolean;
   needs_reconnect: boolean;
   name: string;
