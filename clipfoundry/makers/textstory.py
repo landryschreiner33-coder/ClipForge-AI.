@@ -474,7 +474,9 @@ def stop(story: dict) -> dict:
     if story["status"] not in WORKING:
         return story
     if not story.get("job_id") or not cancel_job(story["job_id"]):
-        _settle(story["id"], "canceled")  # its job had already ended (or is gone): nothing else would settle it
+        # its job had already ended (or is gone): nothing else would settle it. Only while the story is still on that
+        # job: a newer job started since (another tab, a quick second press) is not stopped by this older Stop
+        _settle(story["id"], "canceled", job_id=story.get("job_id") or None)
     return db.fetch("text_stories", story["id"]) or story
 
 

@@ -514,3 +514,49 @@ def test_deleting_a_library_entry_deletes_its_reference_pictures_nothing_else_us
     assert db.fetch("assets", shared["id"]) and files[shared["id"]].is_file()
     assert db.fetch("assets", used["id"]) and files[used["id"]].is_file()
     assert all(str(f).startswith(str(env["tmp"])) for f in files.values())  # only this test's own folder
+
+
+def test_a_library_delete_at_the_moment_a_short_takes_the_character_keeps_its_pictures(env, drawn, monkeypatch):  # noqa: F811,E501
+    """Third look at finding 23: From my library and Delete at the same moment; the short gets the pictures."""
+    from pathlib import Path as P
+
+    from clipfoundry import db
+    from clipfoundry.makers import cast, shorts
+
+    ref = _picture_file(env, "ortiz.png", "#ffcc00")
+    entry = cast.library_add("local", {"kind": "character", "name": "Ortiz", "appearance": "a sailor",
+                                       "refs": [ref["id"]]})
+    project = _make(env, SCRIPT)
+    real = shorts._set_cast
+
+    def deleted_meanwhile(project, new, waiting="Waiting to make the pictures again"):
+        cast.library_delete("local", entry["library_id"])  # lands after the short read the entry
+        real(project, new, waiting)
+
+    monkeypatch.setattr(shorts, "_set_cast", deleted_meanwhile)
+    shorts.cast_add(_fresh(project["id"]), {"library_id": entry["library_id"]})
+    member = _fresh(project["id"])["short"]["cast"][0]
+    assert member["refs"] == [ref["id"]] and db.fetch("assets", ref["id"])
+    assert P(db.fetch("assets", ref["id"])["path"]).is_file() and str(env["tmp"]) in db.fetch("assets", ref["id"])["path"]
+
+
+def test_cuts_the_owner_asks_for_stay_cuts_when_the_scene_grows(env, monkeypatch):  # noqa: F811
+    """Third look at finding 22: once the owner sets the transition in the editor, the fitted dissolve is not asked
+    for again."""
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import video_flow
+
+    _voice_lengths(monkeypatch, {"Rain.": 0.08})
+    project = _make(env, SCRIPT)
+    shorts.set_options(_fresh(project["id"]), {"transition": "dissolve"})
+    _run(env)
+    second = _scenes(project["id"])[1]
+    shorts.update_scene(_fresh(project["id"]), second["id"], {"narration": "Rain."})
+    _run(env)
+    assert _plan(project["id"])["short"]["fitted"]["to"] == {"type": "cut", "ms": 0}
+    video_flow.edit(project["id"], _fresh(project["id"])["plan_revision"],
+                    {"op": "set", "field": "transition", "value": "cut"})
+    assert "fitted" not in _plan(project["id"])["short"]
+    shorts.update_scene(_fresh(project["id"]), second["id"], {"narration": "The door was open, and a light was on."})
+    _run(env)
+    assert _plan(project["id"])["transition"] == {"type": "cut", "ms": 0}

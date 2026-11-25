@@ -277,9 +277,28 @@ def _member(short: dict, member_id: str) -> dict:
     return found
 
 
-def add(short: dict, workspace_id: str, body: dict) -> tuple[list[dict], dict]:
+def hold_refs(workspace_id: str, refs: list[str], project_id: str) -> list[str]:
+    """The reference pictures that are still there, each marked as handed out to this short in the same step, so a
+    library Delete at the same moment keeps them (project_delete.drop_unnamed reads the mark); one deleted just before
+    is left out."""
+    from ..studio import uploads
+
+    now, kept = time.time(), []
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        for r in dict.fromkeys(refs):
+            if conn.execute("UPDATE assets SET reused_at = ? WHERE id = ? AND workspace_id = ? AND kind = 'image'",
+                            (now, r, workspace_id)).rowcount:
+                uploads._mark(conn, r, now, project_id=project_id)  # noqa: SLF001
+                kept.append(r)
+        conn.commit()
+    return [r for r in kept if _image_ok(r, workspace_id)]
+
+
+def add(short: dict, workspace_id: str, body: dict, project_id: str = "") -> tuple[list[dict], dict]:
     """(the new cast, the member added): from the library (`library_id`) or new details (saved to the library too
-    unless `save` is false)."""
+    unless `save` is false). `project_id`: the short it goes to (a library entry's pictures are marked as handed out
+    to it)."""
     cast = members(short)
     if len(cast) >= MAX_CAST:
         raise CastError(f"A short has at most {MAX_CAST} characters and places.")
@@ -288,7 +307,7 @@ def add(short: dict, workspace_id: str, body: dict) -> tuple[list[dict], dict]:
         if any(m.get("library_id") == row["id"] for m in cast):
             raise CastError(f"{row['name']} is in this short already.", 409)
         m = clean({}, workspace_id, {k: row[k] for k in ("kind", "name", *ALL_FIELDS, "locked", "refs")})
-        m["refs"] = [r for r in m["refs"] if _image_ok(r, workspace_id)]
+        m["refs"] = hold_refs(workspace_id, m["refs"], project_id)
         m["library_id"] = row["id"]
     else:
         fields = {k: v for k, v in body.items() if k in ("kind", "name", *ALL_FIELDS, "locked", "refs")}

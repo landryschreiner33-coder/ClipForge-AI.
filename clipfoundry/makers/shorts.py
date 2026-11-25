@@ -1947,7 +1947,7 @@ def _cast_error(exc: cast.CastError) -> ShortError:
 
 def cast_add(project: dict, body: dict) -> str:
     try:
-        new, m = cast.add(project["short"], project["workspace_id"], body)
+        new, m = cast.add(project["short"], project["workspace_id"], body, project["id"])
     except cast.CastError as exc:
         raise _cast_error(exc) from exc
     _set_cast(project, new)

@@ -725,3 +725,23 @@ def test_a_page_that_looks_in_the_middle_of_a_stop_never_turns_it_into_a_failure
     db.update("text_stories", story["id"], status="ready", message="The preview is ready.")
     real(story["id"], "failed", textstory.STUCK)
     assert db.fetch("text_stories", story["id"])["status"] == "ready"
+
+
+def test_an_older_stop_never_stops_a_newer_job(env):
+    """Third look at finding 7: a Stop sent from a page that still showed the finished job leaves the new one alone."""
+    from clipfoundry import db
+    from clipfoundry.makers import textstory
+
+    c = env["client"]
+    story, url = _ready_story(env)
+    c.post(f"{url}/preview")
+    seen = db.fetch("text_stories", story["id"])  # what the other tab still shows: working on the first job
+    db.update("studio_jobs", seen["job_id"], status="done")
+    db.update("text_stories", story["id"], status="ready")
+    env["queued"].clear()
+    c.post(f"{url}/export")  # a second press starts a new job
+    newer = db.fetch("text_stories", story["id"])
+    assert newer["job_id"] != seen["job_id"] and newer["status"] in textstory.WORKING
+    textstory.stop(seen)
+    now = db.fetch("text_stories", story["id"])
+    assert now["status"] == newer["status"] and now["job_id"] == newer["job_id"]
