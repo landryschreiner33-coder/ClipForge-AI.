@@ -21,7 +21,14 @@ APPEARANCE_SCHEMA = 3  # 2: dark only (theme removed); palette, text size, offic
 LAYOUT_SCHEMA = 2      # 2: the Studio page's panels; the Create and Office entries, which no screen used, removed
 OLD_THEMES = ("system", "light", "dark")  # accepted from an older page and ignored: there is one (dark) theme
 PALETTES = ("studio", "midnight", "graphite", "plum")
-ACCENTS = ("violet", "teal", "blue", "coral", "green", "pink")
+ACCENTS = ("violet", "teal", "blue", "coral", "green", "pink", "custom")  # custom: accent_color, made readable
+_HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
+# Every palette's surfaces (frontend/src/theme.css; tests/test_theme_contrast.py checks this list against it) and
+# the dark text drawn on an accent button: a custom accent is made light enough to read on all of them.
+SURFACES = ("#060A18", "#0B1226", "#111B35", "#182444", "#070B18", "#0E1529", "#151D3B", "#1C2548", "#0D0E10",
+            "#151619", "#1C1D21", "#24262B", "#0F0A16", "#180F22", "#20162D", "#2A1F3A")
+ON_ACCENT = "#0B0D14"
+CANVAS = "#060A18"
 DENSITIES = ("comfortable", "compact")
 TEXT_SIZES = ("standard", "large", "larger")
 OFFICE_SIZES = ("compact", "expanded")
@@ -39,7 +46,7 @@ SIZED = ("review",)
 REVIEW_SIZE = {"preview": 0.6, "outputs": 0.4, "transcript": 0.6, "guidance": 0.4}
 DEFAULT_APPEARANCE = {"palette": "studio", "accent": "blue", "density": "comfortable", "text_size": "standard",
                       "motion": "system", "office_size": "expanded", "pinned": [], "clips_mode": "highlights",
-                      "remember_style": True, "video_setup_mode": "ask"}
+                      "remember_style": True, "video_setup_mode": "ask", "accent_color": "#6CCFF6"}
 NAME_MAX = 32
 
 
@@ -97,7 +104,55 @@ def get_appearance(workspace_id: str, user_id: str) -> dict:
     if row and (row.get("schema_version") or 0) < 3 and stored.get("accent") == "violet":
         stored["accent"] = "blue"
     value = {**DEFAULT_APPEARANCE, **{k: v for k, v in stored.items() if k in DEFAULT_APPEARANCE}}
+    # worked out on every read, never stored: the custom accent's shades that keep text readable
+    value["accent_shades"] = accent_shades(value["accent_color"])
     return {"value": value, "revision": (row or {}).get("revision", 0), "schema_version": APPEARANCE_SCHEMA}
+
+
+def _lum(hex_: str) -> float:
+    def ch(c: int) -> float:
+        c = c / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (int(hex_[i:i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG 2.1 contrast ratio of two #RRGGBB colours."""
+    hi, lo = sorted((_lum(a), _lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _hex(r: float, g: float, b: float) -> str:
+    return "#" + "".join(f"{max(0, min(255, round(c * 255))):02X}" for c in (r, g, b))
+
+
+def accent_shades(color: str) -> dict:
+    """A colour the owner picked as the accent, as the three shades the app draws with: `primary` (links, buttons,
+    focus), `primary_hover` and `primary_tint` (a dark wash behind selected things). The hue is kept; the colour is
+    made lighter, step by step, until it reads at 4.6:1 (WCAG asks 4.5) as text on every palette's surfaces and under
+    the dark text of a button. `adjusted` says whether it had to change."""
+    import colorsys
+
+    if not isinstance(color, str) or not _HEX.match(color):
+        color = DEFAULT_APPEARANCE["accent_color"]
+    r, g, b = (int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    h, light, sat = colorsys.rgb_to_hls(r, g, b)
+
+    def readable(c: str) -> bool:
+        return contrast(c, ON_ACCENT) >= 4.6 and all(contrast(c, s) >= 4.6 for s in SURFACES)
+
+    primary, steps = color.upper(), 0
+    while not readable(primary) and steps < 100:
+        steps += 1
+        light = min(1.0, light + 0.01)
+        primary = _hex(*colorsys.hls_to_rgb(h, light, sat))
+    hover = _hex(*colorsys.hls_to_rgb(h, min(0.97, light + 0.08), sat))
+    pr, pg, pb = (int(primary[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    cr, cg, cb = (int(CANVAS[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    tint = _hex(*(0.18 * p + 0.82 * c for p, c in ((pr, cr), (pg, cg), (pb, cb))))
+    return {"primary": primary, "primary_hover": hover, "primary_tint": tint, "adjusted": steps > 0}
 
 
 def _pins(v: object) -> list[str]:
@@ -120,6 +175,12 @@ def set_appearance(workspace_id: str, user_id: str, value: dict, expected: int |
                 raise PrefError(f"theme: choose one of {', '.join(OLD_THEMES)}")
         elif key == "pinned":
             out[key] = _pins(v)
+        elif key == "accent_shades":  # worked out from accent_color on every read: a page may send it back
+            continue
+        elif key == "accent_color":
+            if not isinstance(v, str) or not _HEX.match(v):
+                raise PrefError("accent_color is a colour like #6CCFF6")
+            out[key] = v.upper()
         elif key == "remember_style":
             if type(v) is not bool:
                 raise PrefError("remember_style must be true or false")
@@ -130,7 +191,10 @@ def set_appearance(workspace_id: str, user_id: str, value: dict, expected: int |
             out[key] = v
         else:
             raise PrefError(f"Unknown appearance setting “{key}”")
-    return _save(workspace_id, user_id, "appearance", APPEARANCE_SCHEMA, out, expected)
+    out.pop("accent_shades", None)
+    saved = _save(workspace_id, user_id, "appearance", APPEARANCE_SCHEMA, out, expected)
+    saved["value"] = {**saved["value"], "accent_shades": accent_shades(out["accent_color"])}
+    return saved
 
 
 # ------------------------------------------------------------------ layouts

@@ -180,8 +180,9 @@ def _used_elsewhere(ws: str, kind: str, project_id: str) -> str:
     """Everything that names media outside this project, as one text to search: other clips projects and their link
     imports, examples, and every other video (its media, brief and setup, every saved revision, so an older revision
     can still be restored, its media imports, and an animated short's scenes and the list of files its builds stored:
-    files are stored once, so another short's build may have stored the same bytes). An asset id found anywhere in it
-    counts as a use: when in doubt the file stays."""
+    files are stored once, so another short's build may have stored the same bytes), the reusable characters'
+    reference pictures and the text stories' backgrounds. An asset id found anywhere in it counts as a use: when in
+    doubt the file stays."""
     other_clips = project_id if kind == "clips" else ""
     other_video = project_id if kind == "full_video" else ""
     with db.connect() as conn:
@@ -200,6 +201,11 @@ def _used_elsewhere(ws: str, kind: str, project_id: str) -> str:
             f"SELECT {', '.join(SCENE_FILES)} FROM short_scenes WHERE project_id != ?", (other_video,))]
         texts += [r[0] or "" for r in conn.execute("SELECT asset_id FROM short_files WHERE project_id != ?",
                                                    (other_video,))]
+        # reusable characters' reference pictures and the text stories' background videos (makers/cast.py,
+        # makers/textstory.py) are uses too
+        texts += [r[0] or "" for r in conn.execute("SELECT refs FROM cast_library WHERE workspace_id = ?", (ws,))]
+        texts += [r[0] or "" for r in conn.execute("SELECT backgrounds FROM text_stories WHERE workspace_id = ?",
+                                                   (ws,))]
     return "\n".join(texts)
 
 

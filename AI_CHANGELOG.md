@@ -1,5 +1,39 @@
 # AI changelog
 
+## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code)
+
+Last of the four batches in Landry's "ClipForge Final Release" prompt (sections 1, 6, 7 and 8). Branch
+`claude/project-thread-hqwolr`, on top of batch 3.
+
+- **Space look** (section 1): the big black hole is traced per pixel round a Schwarzschild hole with the ship and
+  camera orbiting it (`blackHoleOrbit.ts`, `shipArt.ts`), falling back to the lighter turning disk when frames are
+  slow or WebGL is missing; Settings → Appearance has Space view, your own accent colour (made readable on every
+  palette, `prefs.accent_shades`), Reset colours, Sound effects (off by default) and the office Taser (show/hide).
+- **Text Stories** (section 8, `makers/textstory.py`, `makers/voice_styles.py`, `TextStories.tsx`): a story read
+  over background video. The script is pasted or written and revised by ClipForge AI; four voice styles with tone
+  done by FFmpeg; pronunciations that keep the written words in the captions; favourite voices; backgrounds
+  uploaded (trimmed, looped, moved, replaced) or picked by ClipForge from usable videos, or a moving colour
+  background; title card and highlighted captions; preview and 1080×1920 export as studio jobs with Stop.
+- **Animated shorts: characters and places** (section 7, `makers/cast.py`, `ShortCast.tsx`): a library of
+  characters and places with their details and up to 4 reference pictures each, used in every shot they are in
+  (FLUX.2 klein's reference graph when the picture model can, the words otherwise); "Describe a change" proposals
+  that show what would change before anything is applied; a colour drift check per scene against the character's
+  pictures; per-scene hold time and transitions. **Look examples** (`makers/look_examples.py`, `lookArt.tsx`):
+  every look card shows an example picture (a drawn one until your picture maker makes real ones with "Make
+  examples with my picture maker"), with a larger preview of the chosen look.
+- **Full Cloud** (section 6, `fullcloud/`, [docs/clipforge/FULL_CLOUD.md](docs/clipforge/FULL_CLOUD.md),
+  [deploy/WORKER.md](deploy/WORKER.md)): Settings → Processing chooses Local, Hybrid (pictures and video on the
+  cloud computer) or Full Cloud: Make clips runs on your own ClipForge worker (ClipForge started with
+  `CLIPFOUNDRY_WORKER_KEY`, answering only worker requests with that key). The desktop uploads the video or sends
+  the link with the transcript and clip choices (style choices without their names), follows the job's stages, brings
+  the clips back into the project (rows and files, this computer's paths) and deletes the job there. Estimates from
+  the worker's own past jobs, the owner's hourly price, a monthly limit that stops a job before anything is sent,
+  Stop, picking a job up again after a restart without a second upload, and a private test job that proves each
+  stage ran on the worker. The project page shows what was sent, the stages, the cost and the log, and what stays
+  on this computer.
+- **Privacy page**: characters and reference pictures, Text Stories, Full Cloud (what goes to the worker, what it
+  keeps and for how long).
+
 ## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code)
 
 Third of the four batches in Landry's "ClipForge Final Release" prompt (sections 4 and 5). Branch

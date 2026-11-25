@@ -582,3 +582,22 @@ h1, h2, h3, h4, .display, .brand-name, .cf-top .page-title, .lead-sentence { let
 html[data-preview], html[data-preview] body { overflow: hidden; }
 html[data-preview] * { scrollbar-width: none; }
 html[data-preview] *::-webkit-scrollbar { display: none; }
+
+/* ------------------------------------------------------------------ the robot office's Taser (office/taser.ts): an
+   easter egg; the spark and the robot's words, gone after a moment. Under Reduced motion it is a still spark. */
+.taser-btn { min-height: 30px; padding: 0 10px; gap: 6px; font-size: var(--fs-small, 0.8125rem); }
+.taser-btn.on { color: var(--warn); border-color: var(--warn); box-shadow: 0 0 10px -2px var(--warn); }
+.office-map:has(.taser-btn.on) .robot-hit { cursor: crosshair; }
+.taser-zap { position: absolute; z-index: 5; width: 0; height: 0; pointer-events: none; }
+.taser-zap svg { position: absolute; left: -32px; top: -40px; overflow: visible;
+  filter: drop-shadow(0 0 6px #8fe3ff) drop-shadow(0 0 2px #fff); animation: taser-flicker 0.5s steps(2) 2; }
+.taser-zap polyline { fill: none; stroke: #fff6b0; stroke-width: 3.5; stroke-linejoin: miter; }
+.taser-zap polyline.arc { stroke: #8fe3ff; stroke-width: 2.5; animation: taser-arc 0.18s steps(2) infinite; }
+.taser-words { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); white-space: nowrap;
+  padding: 4px 9px; border-radius: 10px; background: var(--raised); border: 1px solid var(--warn); color: var(--text);
+  font: 700 0.8125rem/1.25 "Courier Prime", ui-monospace, monospace; box-shadow: 0 4px 16px -6px #000;
+  animation: taser-pop 0.25s ease-out; }
+@keyframes taser-flicker { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
+@keyframes taser-arc { 0% { transform: translateY(0); } 100% { transform: translateY(-3px) scaleX(-1); } }
+@keyframes taser-pop { 0% { transform: translateX(-50%) scale(0.6); opacity: 0; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; } }

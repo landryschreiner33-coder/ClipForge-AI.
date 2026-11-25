@@ -1711,3 +1711,19 @@ html[data-page-hidden="true"] .pulse, html[data-page-hidden="true"] .inline-spin
 /* Title options: which of the three kinds each is (Searchable, Curiosity, The moment) */
 .kind-tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: var(--fs-tiny); font-weight: 700;
   background: var(--primary-tint); color: var(--primary); vertical-align: 1px; }
+
+/* Settings → Processing (components/ProcessingSettings.tsx) */
+.mode-pick.pr-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mode-pick.pr-modes label { align-content: start; }
+.pr-modes label.off { cursor: default; opacity: 0.72; }
+.pr-form { align-items: flex-end; }
+.pr-form > .field { flex: 1 1 220px; min-width: 0; }
+.pr-modes .pr-why { color: var(--warn); }
+@media (max-width: 860px) { .mode-pick.pr-modes { grid-template-columns: minmax(0, 1fr); } }
+.pr-stages { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 6px var(--s3); font-size: var(--fs-small); }
+.pr-stages li { display: flex; align-items: baseline; gap: 6px; color: var(--text-3); min-width: 0; }
+.pr-stages li.on { color: var(--text); }
+.pr-stages li.on .icon { color: var(--good); }
+.pc-cloud .pc-log { max-height: 220px; overflow: auto; margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.pc-cloud .pc-log li { font-size: var(--fs-small); }

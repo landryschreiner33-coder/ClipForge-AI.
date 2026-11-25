@@ -1,9 +1,11 @@
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { errorText } from "../api";
 import {
-  SceneStatus, ScenePatch, ShortLook, ShortOptions, ShortOptionsPatch, ShortScene, ShortView, shorts,
+  SceneStatus, ScenePatch, ShortLook, ShortOptions, ShortOptionsPatch, ShortScene, ShortTransition, ShortView, shorts,
 } from "../shorts";
 import { PlanClip, studio, Video } from "../studio";
+import { LookExample } from "./lookArt";
+import { CastPanel, SceneCast, UseAsReference } from "./ShortCast";
 import { FileDrop, Picked, useUploadsByFile } from "./studioParts";
 import { announce, Banner, ConfirmDialog, Disclosure, Icon, IconName, Pill, ProgressBar, Tone, toast } from "./ui";
 import "../pages/shorts.css";
@@ -21,6 +23,7 @@ type Run = (call: () => Promise<Video>, said?: string) => Promise<Video | null>;
 export const MOVES: [string, string][] = [["auto", "Automatic"], ["zoom_in", "Push in"], ["zoom_out", "Pull out"],
   ["pan_left", "Pan left"], ["pan_right", "Pan right"], ["pan_up", "Pan up"], ["pan_down", "Pan down"], ["still", "Still"]];
 const WORKING = new Set<SceneStatus>(["voice", "picture", "motion"]);
+const HOLDS = [0, 500, 1000, 2000, 3000];
 const SCENE_WORDS: Record<SceneStatus, string> = { waiting: "Waiting its turn", voice: "Making the voice",
   picture: "Making the picture", motion: "Adding the motion", ready: "Ready", failed: "This scene could not be made." };
 const THUMB_WORDS: Record<SceneStatus, string> = { waiting: "Waiting", voice: "Voice", picture: "Picture",
@@ -321,6 +324,7 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
               <Icon name="refresh" />Try again</button>
           </p>
         )}
+        {!writing && <SceneCast scene={scene} v={v} s={s} off={off} run={run} />}
         {scene.in_plan && !scene.included && (
           <p className="small muted">Switched off in the sequence, so it is not in the video.{" "}
             <button type="button" className="link-btn" disabled={off}
@@ -333,6 +337,13 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
               <p className="small muted">A designed card with the scene's key words{scene.picture.why
                 ? `, because ${lowerFirst(scene.picture.why).replace(/\.$/, "")}.` : "."}</p>
             )}
+            {scene.picture.source === "engine" && (scene.picture.asked_references ?? 0) > 0 && (
+              <p className="small muted">{scene.picture.references
+                ? `Drawn with ${plural(scene.picture.references, "reference picture")} of the characters in it.`
+                : "Drawn from the characters' written details: this picture maker does not take reference pictures."}
+              </p>
+            )}
+            {!writing && <UseAsReference scene={scene} v={v} s={s} off={off} run={run} />}
             <div className="field">
               <label htmlFor={`${id}-idea`}>Picture idea</label>
               <input id={`${id}-idea`} type="text" value={idea} maxLength={400} readOnly={writing}
@@ -387,6 +398,16 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
                 {MOVES.map(([m, t]) => <option key={m} value={m}>{t}</option>)}
               </select>
               {s.motion === "animate" && <span className="hint">With Animate the pictures, the video maker moves the picture instead.</span>}
+            </label>
+            <label className="field">
+              <span>Stays after the words</span>
+              <select value={String(scene.hold_ms ?? 0)} disabled={off || writing}
+                onChange={(e) => void patch({ hold_ms: Number(e.target.value) },
+                  `Scene ${scene.n} now stays ${Number(e.target.value) / 1000} s after its words.`)}>
+                {HOLDS.map((ms) => <option key={ms} value={String(ms)}>{ms ? `${ms / 1000} s longer` : "Cut right after"}
+                </option>)}
+              </select>
+              <span className="hint">Time to look at the picture before the next scene.</span>
             </label>
           </div>
         </Disclosure>
@@ -456,6 +477,11 @@ function ShortChoices({ v, s, opts, problem, onRetry, off, run, send }: {
           {!opts.captions.some((c) => c.id === s.captions) && <option value={s.captions}>{s.captions || "The look's own style"}</option>}
           {opts.captions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select></label>
+      <label className="field"><span>Between scenes</span>
+        <select value={s.transition ?? "cut"} disabled={off}
+          onChange={(e) => void put({ transition: e.target.value as ShortTransition })}>
+          {(opts.transitions ?? []).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select></label>
       <label className="field"><span>Motion</span>
         <select value={s.motion} disabled={off} onChange={(e) => void put({ motion: e.target.value === "animate" ? "animate" : "camera" })}>
           <option value="camera">Gentle camera moves (quick)</option>
@@ -465,7 +491,13 @@ function ShortChoices({ v, s, opts, problem, onRetry, off, run, send }: {
       {look && (
         <ConfirmDialog title={`Use the ${look.name} look?`} confirmLabel="Change the look" onClose={() => setLook(null)}
           onConfirm={() => send(() => shorts.setOptions(v.id, { look: look.id }), `The look is now ${look.name}. ClipForge is making new pictures.`)}>
-          <p className="muted">New pictures for every scene; your own pictures stay.</p>
+          <div className="look-confirm">
+            <span className="look-thumb"><LookExample look={look.id} name={look.name} /></span>
+            <div className="stack-1">
+              <p className="small">{look.about}</p>
+              <p className="muted">New pictures for every scene; your own pictures stay.</p>
+            </div>
+          </div>
         </ConfirmDialog>
       )}
     </div>
@@ -600,6 +632,8 @@ export function ShortScenes({ v, busy, onVideo }: { v: Video; busy: boolean; onV
   const makeIt = () => void run(() => shorts.make(v.id), "ClipForge is making the short.");
 
   return (
+    <>
+    {s.stage !== "writing" && <CastPanel v={v} s={s} opts={opts} off={off} run={run} />}
     <section className="panel short-scenes" aria-labelledby={headId}>
       <div className="panel-head">
         <h2 id={headId} ref={head} tabIndex={-1}>Scenes ({scenes.length})</h2>
@@ -684,5 +718,6 @@ export function ShortScenes({ v, busy, onVideo }: { v: Video; busy: boolean; onV
         </ConfirmDialog>
       )}
     </section>
+    </>
   );
 }

@@ -3,6 +3,7 @@ import AppearanceSettings from "../components/AppearanceSettings";
 import EditingAppsSettings from "../components/EditingApps";
 import LocalMakersSettings from "../components/LocalMakers";
 import MediaSourcesSettings from "../components/MediaSources";
+import ProcessingSettings from "../components/ProcessingSettings";
 import { MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
 import { navigate, useLeaveGuard } from "../router";
@@ -77,6 +78,13 @@ export default function SettingsPage({ tab }: { tab?: string }) {
       </SettingsFrame>
     );
   }
+  if (tab === "processing") {
+    return (
+      <SettingsFrame current="processing" sub="Make clips on this computer, or on your own ClipForge worker in the cloud (Full Cloud).">
+        <ProcessingSettings />
+      </SettingsFrame>
+    );
+  }
   if (tab === "cloud") {
     return (
       <SettingsFrame current="cloud" sub="Make pictures and video clips on a computer with a fast graphics card that you rent by the hour, instead of on this one.">
@@ -100,6 +108,7 @@ const SETTINGS_TABS = [
   { id: "ai", href: "#/settings/ai", label: "ClipForge AI" },
   { id: "apps", href: "#/settings/apps", label: "Editing apps" },
   { id: "makers", href: "#/settings/makers", label: "Pictures, video, voice" },
+  { id: "processing", href: "#/settings/processing", label: "Processing" },
   { id: "cloud", href: "#/settings/cloud", label: "Cloud computer" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },

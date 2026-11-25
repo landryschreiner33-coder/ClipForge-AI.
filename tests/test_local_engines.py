@@ -728,6 +728,61 @@ def test_picture_graphs_follow_the_official_examples():
         graphs.picture(catalog.WAN22_TI2V_5B, "x", "", 64, 64, 1)
 
 
+def test_flux2_keeps_a_characters_look_from_reference_pictures_and_z_image_from_words():
+    """As ComfyUI's FLUX.2 [klein] image-edit template: each reference picture is encoded and chained into both
+    sides of the guider with ReferenceLatent; the new picture keeps its own size."""
+    f, steps = graphs.picture(catalog.FLUX2_KLEIN_4B, "Mia in the rain", "", 1088, 1920, 3,
+                              references=["mia-a.png", "mia-b.png"])
+    _links_ok(f)
+    assert steps == "11" and f["r0l"]["inputs"] == {"image": "mia-a.png"} and f["r1l"]["inputs"]["image"] == "mia-b.png"
+    assert f["r0e"] == {"class_type": "VAEEncode", "inputs": {"pixels": ["r0l", 0], "vae": ["3", 0]}}
+    assert f["r0p"]["inputs"] == {"conditioning": ["4", 0], "latent": ["r0e", 0]}
+    assert f["r0n"]["inputs"] == {"conditioning": ["10", 0], "latent": ["r0e", 0]}
+    assert f["r1p"]["inputs"]["conditioning"] == ["r0p", 0] and f["r1n"]["inputs"]["conditioning"] == ["r0n", 0]
+    assert (f["9"]["inputs"]["positive"], f["9"]["inputs"]["negative"]) == (["r1p", 0], ["r1n", 0])
+    assert (f["5"]["inputs"]["width"], f["5"]["inputs"]["height"]) == (1088, 1920)
+    assert graphs.labels(f)["r0p"] == "Reading the reference pictures"
+    many, _ = graphs.picture(catalog.FLUX2_KLEIN_4B, "x", "", 64, 64, 1, references=[f"{k}.png" for k in range(9)])
+    assert sum(n["class_type"] == "LoadImage" for n in many.values()) == graphs.MAX_REFERENCES
+    z, _ = graphs.picture(catalog.Z_IMAGE_TURBO, "Mia in the rain", "", 768, 1344, 3, references=["mia-a.png"])
+    assert not any(n["class_type"] in ("LoadImage", "ReferenceLatent") for n in z.values())
+    assert graphs.takes_references(catalog.FLUX2_KLEIN_4B) and not graphs.takes_references(catalog.Z_IMAGE_TURBO)
+
+
+def test_a_picture_with_reference_pictures_sends_them_at_about_a_megapixel(app_settings, fake_comfy, monkeypatch,
+                                                                           tmp_path):
+    from PIL import Image
+
+    from clipfoundry import engines
+
+    monkeypatch.setattr(makers, "machine", lambda: mac(16))
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    fake_comfy.nodes |= {"VAEEncode", "ReferenceLatent"}
+    ref = tmp_path / "mia.jpg"
+    Image.new("RGB", (2000, 1000), "orange").save(ref)
+    copy = makers.reference_copy(ref, tmp_path / "copy.png")
+    with Image.open(copy) as im:
+        assert im.size == (1440, 720)  # about one megapixel, sides a multiple of 16
+    path = engines.make_image("Mia at the lighthouse", width=1080, height=1920, seed=2,
+                              references=[ref, tmp_path / "gone.png"])
+    sent = fake_comfy.prompts[-1]
+    assert sent["r0l"]["inputs"]["image"] == fake_comfy.uploads[-1] and "r1l" not in sent
+    note = json.loads(path.with_suffix(".json").read_text())
+    assert (note["references"], note["reference_mode"]) == (1, "pictures")
+    # a ComfyUI without the reference nodes still makes the picture, from the words alone
+    fake_comfy.nodes -= {"ReferenceLatent"}
+    uploads = len(fake_comfy.uploads)
+    path = engines.make_image("Mia at the lighthouse", width=1080, height=1920, seed=3, references=[ref])
+    note = json.loads(path.with_suffix(".json").read_text())
+    assert (note["references"], note["reference_mode"]) == (0, "words") and len(fake_comfy.uploads) == uploads
+    assert "r0l" not in fake_comfy.prompts[-1]
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"not a picture")
+    fake_comfy.nodes |= {"ReferenceLatent"}
+    with pytest.raises(EngineError, match="reference picture could not be read"):
+        engines.make_image("Mia", width=512, height=512, seed=4, references=[bad])
+
+
 def test_the_video_graph_follows_the_official_example():
     m = catalog.WAN22_TI2V_5B
     g, steps = graphs.video(m, "waves on a beach", "", 480, 832, 49, 24, 3)

@@ -50,14 +50,16 @@ def status(role: str) -> dict:
 
 
 def make_image(prompt: str, *, negative: str = "", style: str = "", width: int = 1080, height: int = 1920,
-               seed: int | None = None, progress: Progress | None = None, cancel: Cancel | None = None) -> Path:
+               seed: int | None = None, progress: Progress | None = None, cancel: Cancel | None = None,
+               references: list[Path] | tuple = ()) -> Path:
     """A still picture (PNG) made from `prompt` by the picture model. The size is rounded to what the model draws
     (a multiple of 16, at most about 2 megapixels, same shape); a note with the model, licence, words and seed is
-    saved next to it (same name, .json)."""
+    saved next to it (same name, .json). `references`: pictures whose look it keeps (a character's reference
+    pictures), used by a model that takes them; the note says how many it used."""
     from . import makers
 
     return makers.make_image(prompt, negative=negative, style=style, width=width, height=height, seed=seed,
-                             progress=progress, cancel=cancel)
+                             progress=progress, cancel=cancel, references=references)
 
 
 def make_video(prompt: str, *, image: Path | str | None = None, seconds: float = 4.0, width: int = 720,

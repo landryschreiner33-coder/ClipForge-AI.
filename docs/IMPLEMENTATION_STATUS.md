@@ -1,5 +1,30 @@
 # Implementation status
 
+## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code)
+
+Branch `claude/project-thread-hqwolr` on top of batch 3. Landry's final-release prompt, sections 1, 6, 7 and 8: the
+ship and camera orbiting the black hole, your own accent colour and the office Taser; Text Stories; characters and
+places for animated shorts with an example picture for every look; and Full Cloud processing on the owner's own
+ClipForge worker. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md), [FULL_CLOUD.md](clipforge/FULL_CLOUD.md),
+[deploy/WORKER.md](../deploy/WORKER.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_theme_contrast` (accent colour readable on every palette), `test_studio_prefs` | passed |
+| 2026-11-25 | pytest `test_text_stories` (13): script, AI write and revise, voice styles and tone, pronunciations kept out of the captions, favourite voices, uploaded / picked / colour backgrounds, preview, export, Stop | passed (real local voice, FFmpeg render) |
+| 2026-11-25 | pytest `test_studio_shorts_cast` (7), `test_look_examples` (4), `test_local_engines` (80, reference pictures in the picture graph) | passed |
+| 2026-11-25 | pytest `test_full_cloud` (9): a real worker started as a second process with its own data folder and key; worker-only answers, the same footage made here and on the worker gives the same clips (start, end, title) whose files are here and play, an edit renders again here, a job picked up again without a second upload, Stop deletes the job there, the private test job, the monthly limit, a job over the limit never reaches the worker, the Processing routes, style choices sent without their names | passed |
+| 2026-11-25 | Exports: a Text Story with an uploaded background, one with a background ClipForge picked from the library, one with its own moving colour | 1080×1920 MP4s with voice, title card and highlighted captions, in `/mnt/project-files/final-release/batch4/` |
+| 2026-11-25 | Screenshots and videos (black hole orbit video, Studio orbit, own colour, Taser, Text Stories editor / preview / phone, characters panel, references, change proposal, drift warning, scene timing, look examples on a computer and a phone, Settings → Processing, a Full Cloud project running and done, the test job on a phone) | in `/mnt/project-files/final-release/batch4/` |
+| 2026-11-25 | Mac FilmCraft check (PR #69): the moving sky took about 2.6 s of every 12 s of the page's thread on Projects and 8.9 s on the Studio in headless Chromium without a graphics card, and FilmCraft's editor loads on that thread | `covered.ts` holds the sky and black holes still while the editor is open (from batch 2, `a684076`) |
+
+Not verified: Full Cloud on a rented server (the tests and screenshots use a real worker on the same machine), real
+speech transcription on the worker (no voice in the cloud: the test job sent its words as a transcript), a character's
+reference pictures on a real FLUX.2 klein (the graph is built and checked, the model is not in the cloud), the drift
+warning's colours on real pictures (stored by hand for the screenshot), a ClipForge AI change proposal from a real
+model (the screenshot's answer was placed as the model would answer), the orbit's frame rate on Landry's Mac.
+
 ## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code)
 
 Branch `claude/project-thread-hqwolr` on top of batch 2. Landry's final-release prompt, sections 4 and 5: ClipForge AI

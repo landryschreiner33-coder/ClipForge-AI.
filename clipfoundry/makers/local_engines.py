@@ -55,8 +55,9 @@ def discard_made(path: Path | str | None) -> None:
 
 
 def status(role: str) -> dict:
-    """{"ready": bool, "engine": str, "why": str, "available": bool, "remote": bool} for one role ("remote": it is
-    made on the person's cloud computer, so the pages say so instead of "on this computer"). Never raises."""
+    """{"ready": bool, "engine": str, "why": str, "available": bool, "remote": bool, "references": bool} for one role
+    ("remote": it is made on the person's cloud computer, so the pages say so instead of "on this computer";
+    "references": the picture model keeps a character's look from reference pictures). Never raises."""
     mod = module()
     if mod is None:
         return {"ready": False, "engine": "", "why": "This version of ClipForge does not have the local makers yet.",
@@ -68,7 +69,19 @@ def status(role: str) -> dict:
         return {"ready": False, "engine": "", "why": f"The {role} engine could not be checked ({exc}).",
                 "available": True, "remote": False}
     return {"ready": bool(got.get("ready")), "engine": str(got.get("engine") or ""), "why": str(got.get("why") or ""),
-            "available": True, "remote": bool(got.get("remote"))}
+            "available": True, "remote": bool(got.get("remote")),
+            "references": bool(got.get("ready")) and role == "image" and _takes_references(str(got.get("model") or ""))}
+
+
+def _takes_references(model_id: str) -> bool:
+    """Whether the picture model in use keeps a character's look from reference pictures (engines/graphs.py)."""
+    try:
+        from ..engines import catalog, graphs
+
+        model = catalog.by_id(model_id)
+        return bool(model and graphs.takes_references(model))
+    except Exception:  # noqa: BLE001 - a version without the makers: words only
+        return False
 
 
 def errors() -> tuple[type[BaseException], ...]:

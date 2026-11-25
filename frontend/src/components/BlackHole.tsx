@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { usePageCovered } from "../covered";
 import { useMotion } from "../motion";
 import { paintFrame, paintStill } from "./blackHoleArt";
 import { HoleRenderer, makeHoleRenderer } from "./blackHoleGl";
+import { makeOrbitRenderer, orbitPose } from "./blackHoleOrbit";
 import { onPixelRatioChange } from "./pixelRatio";
+import { paintShip } from "./shipArt";
 
 /**
  * One clock for every black hole: how far the disk has turned, in seconds of turning. It moves on only while a hole
@@ -51,20 +52,159 @@ let losses = 0;
 const MAX_LOSSES = 3;
 
 /**
- * The black hole in the studio's sky. Where the browser has WebGL its disk turns (blackHoleGl.ts), the inner streaks
- * faster; otherwise the canvas painter shows the same picture with a few patches of light travelling round the disk
+ * The orbiting view (blackHoleOrbit.ts) traces every pixel's light and costs the graphics chip far more than the
+ * lighter hole. When this computer cannot draw it smoothly (frames SLOW_GAP apart through two STRETCHes), or has no
+ * WebGL for it, the big hole is the lighter one for the rest of the visit.
+ */
+let orbitTooSlow = false;
+const orbitWatchers = new Set<(slow: boolean) => void>();
+function giveUpOrbit() {
+  orbitTooSlow = true;
+  for (const tell of orbitWatchers) tell(true);
+}
+
+/**
+ * The black hole in the studio's sky. The big one is seen from the ship as it orbits the hole (blackHoleOrbit.ts),
+ * unless Settings → Appearance asks for the lighter look or the computer cannot draw it smoothly; then, and for the
+ * slim one in the masthead, it is the lighter hole: where the browser has WebGL its disk turns (blackHoleGl.ts),
+ * otherwise the canvas painter shows the same picture with a few patches of light travelling round the disk
  * (blackHoleArt.ts). It moves only while motion is allowed, Low power is off, the window is shown, the hole is on
  * screen and the computer keeps up; otherwise it is one still picture. It is decoration and says nothing about work.
  */
 export function BlackHole({ size = "small", className = "" }: { size?: "small" | "large"; className?: string }) {
+  const { spaceLook } = useMotion();
+  const [gaveUp, setGaveUp] = useState(orbitTooSlow);
+  useEffect(() => {
+    orbitWatchers.add(setGaveUp);
+    setGaveUp(orbitTooSlow);
+    return () => {
+      orbitWatchers.delete(setGaveUp);
+    };
+  }, []);
+  if (size === "large" && spaceLook === "orbit" && !gaveUp) return <OrbitingHole className={className} />;
+  return <TurningHole size={size} className={className} />;
+}
+
+/** The big hole seen from the orbiting ship: the hole traced on the chip, the ship and dust painted over it. */
+function OrbitingHole({ className }: { className: string }) {
   const box = useRef<HTMLDivElement>(null);
   const { reduceMotion, pageHidden, officeActivity } = useMotion();
-  const covered = usePageCovered();  // behind FilmCraft's editor (covered.ts)
+  const [onScreen, setOnScreen] = useState(true);
+  const still = reduceMotion || pageHidden || officeActivity === "low_power";
+  const moving = !still && onScreen;
+  const run = useRef<{ start: () => void; stop: () => void } | null>(null);
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const cv = el.appendChild(document.createElement("canvas"));
+    const gl = makeOrbitRenderer(cv);
+    if (!gl) {
+      cv.remove();
+      giveUpOrbit();
+      return;
+    }
+    const front = el.appendChild(document.createElement("canvas"));
+    const g2 = front.getContext("2d");
+    const lost = () => giveUpOrbit();
+    cv.addEventListener("webglcontextlost", lost);
+    let w = 0, h = 0, raf = 0, last = 0, going = false;
+    let prev = 0, since = 0, slowStretches = 0, gaps: number[] = [];
+    const draw = (now: number) => {
+      if (!w || !h) return;
+      const t = diskTime(now);
+      gl.draw(t, t);
+      if (g2) paintShip(g2, w, h, orbitPose(t), going ? t : null);
+    };
+    const fit = () => {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const nw = Math.round(el.clientWidth * dpr), nh = Math.round(el.clientHeight * dpr);
+      if (!nw || !nh || (nw === w && nh === h)) return;
+      w = nw;
+      h = nh;
+      gl.resize(w, h);
+      front.width = w;
+      front.height = h;
+      draw(performance.now());
+    };
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      if (prev && now - prev < STALL) gaps.push(now - prev);
+      prev = now;
+      since ||= now;
+      if (now - since >= STRETCH) {
+        gaps.sort((a, b) => a - b);
+        slowStretches = gaps.length >= 3 && gaps[gaps.length >> 1] > SLOW_GAP ? slowStretches + 1 : 0;
+        gaps = [];
+        since = now;
+        if (slowStretches >= 2) {
+          giveUpOrbit();
+          return;
+        }
+      }
+      if (now - last < FRAME - 2) return;
+      last = now;
+      draw(now);
+    };
+    const halt = () => {
+      if (going) stopTurning(performance.now());
+      going = false;
+      cancelAnimationFrame(raf);
+    };
+    run.current = {
+      start: () => {
+        if (going) return;
+        going = true;
+        startTurning(performance.now());
+        prev = since = slowStretches = 0;
+        gaps = [];
+        raf = requestAnimationFrame(tick);
+      },
+      stop: () => {
+        halt();
+        draw(performance.now());
+      },
+    };
+    const resize = new ResizeObserver(fit);
+    resize.observe(el);
+    const unwatchRatio = onPixelRatioChange(fit);
+    const seen = typeof IntersectionObserver === "function"
+      ? new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting)) : null;
+    seen?.observe(el);
+    fit();
+    return () => {
+      run.current = null;
+      halt();
+      resize.disconnect();
+      unwatchRatio();
+      seen?.disconnect();
+      cv.removeEventListener("webglcontextlost", lost);
+      gl.dispose();
+      cv.remove();
+      front.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (moving) run.current?.start();
+    else run.current?.stop();
+  }, [moving]);
+
+  return (
+    <div ref={box} className={`black-hole large orbit${className ? ` ${className}` : ""}`} aria-hidden="true"
+      data-still={moving ? "false" : "true"} data-look="orbit" />
+  );
+}
+
+/** The lighter hole: the disk seen from one place, turning (blackHoleGl.ts), or painted (blackHoleArt.ts). */
+function TurningHole({ size, className }: { size: "small" | "large"; className: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const { reduceMotion, pageHidden, officeActivity } = useMotion();
   const [onScreen, setOnScreen] = useState(true);
   const [slow, setSlow] = useState(tooSlow);
   // a new drawing after the graphics chip lost the old one
   const [drawing, setDrawing] = useState(0);
-  const still = reduceMotion || pageHidden || officeActivity === "low_power" || slow || covered;
+  const still = reduceMotion || pageHidden || officeActivity === "low_power" || slow;
   const moving = !still && onScreen;
   // the drawing set up once per hole; `moving` only starts and stops its clock
   const run = useRef<{ start: () => void; stop: () => void } | null>(null);
@@ -199,6 +339,6 @@ export function BlackHole({ size = "small", className = "" }: { size?: "small" |
 
   return (
     <div ref={box} className={`black-hole ${size}${className ? ` ${className}` : ""}`} aria-hidden="true"
-      data-still={moving ? "false" : "true"} />
+      data-still={moving ? "false" : "true"} data-look="lighter" />
   );
 }

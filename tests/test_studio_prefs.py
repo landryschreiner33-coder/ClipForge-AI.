@@ -77,7 +77,14 @@ def test_appearance_and_layouts_persist_per_device_with_conflicts_and_reset(api)
     assert saved["revision"] == 1 and saved["value"]["accent"] == "teal" and saved["value"]["text_size"] == "large"
     stale = api.put("/api/preferences/appearance", json={"value": {"accent": "pink"}, "revision": 0})
     assert stale.status_code == 409  # another device saved first: no silent overwrite
-    for bad in ({"palette": "light"}, {"theme": "neon"}, {"text_size": "huge"}, {"office_size": 3}):
+    # your own accent colour: kept, and its readable shades come back with it (never stored: worked out each read)
+    own = api.put("/api/preferences/appearance", json={"value": {"accent": "custom", "accent_color": "#7f1fbf",
+                                                                 "accent_shades": {"primary": "#000000"}}}).json()
+    assert own["value"]["accent_color"] == "#7F1FBF" and own["value"]["accent_shades"]["primary"] != "#000000"
+    assert api.get("/api/preferences/appearance").json()["value"]["accent_shades"] == own["value"]["accent_shades"]
+    assert api.put("/api/preferences/appearance", json={"value": {"accent": "teal"}}).json()["value"]["accent"] == "teal"
+    for bad in ({"palette": "light"}, {"theme": "neon"}, {"text_size": "huge"}, {"office_size": 3},
+                {"accent_color": "red"}, {"accent_color": "#12345"}, {"accent": "gold"}):
         assert api.put("/api/preferences/appearance", json={"value": bad}).status_code == 422, bad
     desk = api.get("/api/preferences/layout/desktop").json()
     assert [p["id"] for p in desk["value"]["screens"]["studio"]] == ["needs_you", "pinned", "current", "office",

@@ -7,7 +7,9 @@ import { req, responseError } from "./api";
 import type { Video } from "./studio";
 
 /** What one local maker can do right now ("why" says what is missing when it is not ready). */
-export type EngineStatus = { ready: boolean; engine: string; why: string; available: boolean; remote?: boolean };
+export type EngineStatus = { ready: boolean; engine: string; why: string; available: boolean; remote?: boolean;
+  /** The picture model keeps a character's look from reference pictures (FLUX.2 klein); else from the words only. */
+  references?: boolean };
 export type ShortEngines = { available: boolean; image: EngineStatus; video: EngineStatus; voice: EngineStatus };
 /** A look: how every picture is drawn. top, bottom and accent are hex colours for a swatch. */
 export type ShortLook = { id: string; name: string; about: string; top: string; bottom: string; accent: string };
@@ -38,8 +40,33 @@ export type ShortOptions = {
   limits: { max_words: number; max_scenes: number; wpm: number };
   /** "#/settings/makers" and "#/settings/ai". */
   links: { makers: string; ai: string };
+  transitions: { id: ShortTransition; label: string }[];
+  /** How long a scene may stay after its words, in ms (the owner's timing). */
+  holds_ms: number[];
+  cast: CastOptions;
 };
 
+export type ShortTransition = "cut" | "dissolve" | "fade";
+export type CastKind = "character" | "place";
+export type CastField = "appearance" | "clothing" | "colors" | "props";
+export type CastOptions = {
+  kinds: { id: CastKind; label: string }[]; fields: Record<CastKind, CastField[]>;
+  labels: Record<CastKind, Partial<Record<CastField, string>>>; lockable: (CastField | "references")[];
+  max_cast: number; max_refs: number; max_field: number; max_name: number; max_change: number;
+};
+/** A character or place: in the library (id = library_id) or a short's own copy (id "cm-…"). */
+export type CastMember = {
+  id: string; library_id: string; kind: CastKind; name: string; appearance: string; clothing: string; colors: string;
+  props: string; locked: (CastField | "references")[]; refs: { asset_id: string; ok: boolean }[];
+  /** The words the picture maker reads. */
+  described: string;
+  /** A short's copy only: "same" as its library entry, "differs", or "none" (not in the library). */
+  library?: "same" | "differs" | "none";
+};
+export type CastFields = Partial<Pick<CastMember, "kind" | "name" | CastField | "locked">> & { refs?: string[] };
+export type CastProposal = { changes: Partial<Record<CastField, string>>; kept: CastField[]; note: string;
+  model: string };
+export type DriftFlag = { member: string; name: string; detail: string; why: string };
 export type SceneStatus = "waiting" | "voice" | "picture" | "motion" | "ready" | "failed";
 export type ShortScene = {
   id: string; n: number; narration: string; picture_prompt: string; picture_source: "auto" | "upload";
@@ -51,7 +78,17 @@ export type ShortScene = {
   status: SceneStatus; message: string; error: string;
   /** Seconds. */
   duration: number;
-  picture: { source: "engine" | "card" | "upload" | ""; engine: string; why: string };
+  picture: { source: "engine" | "card" | "upload" | ""; engine: string; why: string;
+    /** Reference pictures the maker drew with, and how many it was given (a words-only model uses none). */
+    references?: number; asked_references?: number };
+  /** The cast members in this shot (all of the short's unless the owner picked: cast_chosen). */
+  cast?: string[]; cast_chosen?: boolean;
+  /** Changes for this shot only, by member id. */
+  overrides?: Record<string, Partial<Record<CastField, string>>>;
+  /** How long it stays after its words, in ms. */
+  hold_ms?: number;
+  /** What the look check found in the current picture (null: not checked, or the owner's own picture). */
+  drift?: { flags: DriftFlag[]; how: "colours" | "looked" | ""; ok: boolean } | null;
   /** fallback: why another voice read this scene ("" when the chosen voice did); Try again asks the chosen one. */
   voice: { engine: string; voice: string; timing: "engine" | "listened" | "estimated" | ""; fallback?: string };
   /** Earlier pictures of this scene, newest first. */
@@ -70,6 +107,7 @@ export type ShortStage = "writing" | "review" | "making" | "ready" | "failed" | 
 export type ShortView = {
   stage: ShortStage; message: string; mode: ShortMode; topic: string; tone: string; length: string; audience: string;
   look: string; voice: string; speed: number; music: string; captions: string; motion: ShortMotion; review: boolean;
+  transition?: ShortTransition; cast?: CastMember[];
   title: string; character: string; scenes: ShortScene[]; progress: { done: number; total: number }; seconds: number;
   engines: ShortEngines;
   /** Designed cards the picture maker (ready now) would swap for real pictures: Draw real pictures does it. */
@@ -92,11 +130,23 @@ export type ScenePatch = {
    * chosen again). */
   upload_ids?: string[];
   new_picture?: boolean; again?: boolean;
+  hold_ms?: number;
+  /** Who is in the shot; all_cast puts everyone back. */
+  cast?: string[]; all_cast?: boolean;
+  /** The owner looked at a flagged picture and it is right. */
+  drift_ok?: boolean;
+};
+/** The picture maker's own examples of the looks (makers/look_examples.py), and the job that draws them. */
+export type LookExamples = {
+  examples: Record<string, { url: string; engine: string; at: number }>;
+  job: { status: string; progress: number; message: string; error: string } | null;
+  can_make: boolean; why: string;
 };
 export type ShortOptionsPatch = Partial<{ voice: string; speed: number; look: string; music: string; captions: string;
-  motion: ShortMotion }>;
+  motion: ShortMotion; transition: ShortTransition }>;
 
 const scenes = (videoId: string) => `/api/studio/shorts/${encodeURIComponent(videoId)}/scenes`;
+const cast = (videoId: string) => `/api/studio/shorts/${encodeURIComponent(videoId)}/cast`;
 let optionsCall: Promise<ShortOptions> | null = null;
 
 export const shorts = {
@@ -138,6 +188,34 @@ export const shorts = {
   make: (videoId: string) => req<Video>("POST", `/api/studio/shorts/${encodeURIComponent(videoId)}/make`),
   setOptions: (videoId: string, body: ShortOptionsPatch) =>
     req<Video>("PUT", `/api/studio/shorts/${encodeURIComponent(videoId)}/options`, body),
+  // ---- the picture maker's examples of the looks
+  lookExamples: () => req<LookExamples>("GET", "/api/studio/shorts/look-examples"),
+  makeLookExamples: () => req<LookExamples>("POST", "/api/studio/shorts/look-examples"),
+  stopLookExamples: () => req<LookExamples>("POST", "/api/studio/shorts/look-examples/stop"),
+  // ---- characters and places (makers/cast.py)
+  library: () => req<{ library: CastMember[] }>("GET", "/api/studio/cast"),
+  libraryAdd: (body: CastFields) => req<CastMember>("POST", "/api/studio/cast", body),
+  libraryChange: (id: string, body: CastFields) => req<CastMember>("PATCH", `/api/studio/cast/${encodeURIComponent(id)}`, body),
+  libraryDelete: (id: string) => req<{ deleted: boolean }>("DELETE", `/api/studio/cast/${encodeURIComponent(id)}`),
+  castAdd: (videoId: string, body: CastFields & { library_id?: string; save?: boolean }) =>
+    req<Video>("POST", cast(videoId), body),
+  castChange: (videoId: string, memberId: string, body: CastFields) =>
+    req<Video>("PATCH", `${cast(videoId)}/${encodeURIComponent(memberId)}`, body),
+  castRemove: (videoId: string, memberId: string) => req<Video>("DELETE", `${cast(videoId)}/${encodeURIComponent(memberId)}`),
+  castToLibrary: (videoId: string, memberId: string) =>
+    req<Video>("POST", `${cast(videoId)}/${encodeURIComponent(memberId)}/library`),
+  /** A reference picture: an upload of the owner's (asset_id with the page's upload_ids) or a scene's picture. */
+  castReference: (videoId: string, memberId: string, body: { asset_id?: string; upload_ids?: string[]; scene_id?: string }) =>
+    req<Video>("POST", `${cast(videoId)}/${encodeURIComponent(memberId)}/reference`, body),
+  /** What ClipForge AI would change for the owner's words; nothing is saved. */
+  castPropose: (videoId: string, memberId: string, words: string, sceneId?: string) =>
+    req<CastProposal>("POST", `${cast(videoId)}/${encodeURIComponent(memberId)}/propose`, { words, scene_id: sceneId }),
+  /** Changes for every shot (no sceneId) or for one shot. */
+  castApply: (videoId: string, memberId: string, changes: Partial<Record<CastField, string>>, sceneId?: string) =>
+    req<Video & { applied: { changed: CastField[]; kept: CastField[] } }>("POST",
+      `${cast(videoId)}/${encodeURIComponent(memberId)}/apply`, { changes, scene_id: sceneId }),
+  clearOverride: (videoId: string, sceneId: string, memberId: string) =>
+    req<Video>("DELETE", `${scenes(videoId)}/${encodeURIComponent(sceneId)}/overrides/${encodeURIComponent(memberId)}`),
 };
 
 // Lines that say what a picture shows, not what the voice says: [Visual: ...], (b-roll ...), "Show: ...", "Scene 3".

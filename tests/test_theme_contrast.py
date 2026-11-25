@@ -48,7 +48,7 @@ def ratio(a: str, b: str) -> float:
 def test_there_is_no_light_theme_left():
     assert "data-theme" not in CSS and "light" not in re.sub(r"/\*.*?\*/", "", CSS, flags=re.DOTALL).lower()
     assert set(PALETTES) == {"studio", "midnight", "graphite", "plum"}
-    assert set(ACCENTS) == {"violet", "teal", "blue", "coral", "green", "pink"}
+    assert set(ACCENTS) == {"violet", "teal", "blue", "coral", "green", "pink"}  # and Custom, made readable below
     for p in PALETTES.values():  # every palette is dark: the canvas is darker than the text by far
         assert _lum(p["canvas"]) < 0.02 and _lum(p["surface"]) < 0.03
 
@@ -74,3 +74,33 @@ def test_every_accent_is_readable_on_every_palette_and_under_button_text(accent)
         assert ratio(a["primary"], a["primary-tint"]) >= 4.5, (accent, "on its own tint")
         for fill in ("primary", "primary-hover"):
             assert ratio(p["on-primary"], a[fill]) >= 4.5, (accent, name, fill)
+
+
+def test_the_custom_accent_knows_every_palette_surface():
+    from clipfoundry.studio import prefs
+
+    css = {p[bg] for p in PALETTES.values() for bg in ("canvas", "surface", "raised", "hover")}
+    assert set(prefs.SURFACES) == css and prefs.ON_ACCENT == BASE["on-primary"] and prefs.CANVAS == BASE["canvas"]
+
+
+@pytest.mark.parametrize("picked", ["#0000FF", "#400000", "#FFFF00", "#000000", "#FFFFFF", "#6CCFF6", "#7F3FBF",
+                                    "#00FF00", "#808080", "#FF0000"])
+def test_a_custom_accent_keeps_its_hue_and_is_made_readable_everywhere(picked):
+    """Settings → Appearance → Custom: any colour can be picked; it is lightened only as far as it must be for
+    links, buttons and selected things to stay readable on every palette (the same checks as the six presets)."""
+    import colorsys
+
+    from clipfoundry.studio import prefs
+
+    a = {k.replace("_", "-"): v for k, v in prefs.accent_shades(picked).items() if k != "adjusted"}
+    for name, p in PALETTES.items():
+        for bg in ("canvas", "surface", "raised", "hover"):
+            assert ratio(a["primary"], p[bg]) >= 4.5, (picked, name, bg)
+        for fill in ("primary", "primary-hover"):
+            assert ratio(p["on-primary"], a[fill]) >= 4.5, (picked, name, fill)
+    assert ratio(a["primary"], a["primary-tint"]) >= 4.5
+    if prefs.accent_shades(picked)["adjusted"] is False:
+        assert a["primary"] == picked  # already readable: kept as picked
+    hue = colorsys.rgb_to_hls(*(int(picked[i:i + 2], 16) / 255 for i in (1, 3, 5)))[0]
+    got = colorsys.rgb_to_hls(*(int(a["primary"][i:i + 2], 16) / 255 for i in (1, 3, 5)))
+    assert got[2] < 0.02 or abs(got[0] - hue) < 0.02 or abs(abs(got[0] - hue) - 1) < 0.02  # the same hue (greys stay grey)

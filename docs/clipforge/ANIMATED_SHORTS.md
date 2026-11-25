@@ -26,6 +26,28 @@ This document is the design and the contract between the parts. The user-facing 
    of them. When a picture maker is set up after the short was made with designed cards, **Draw real pictures**
    swaps them.
 
+7. **Look** (Make page): every look card shows an example of the look. ClipForge draws these itself
+   (`frontend/src/components/lookArt.tsx`: the same fox on a hill at dusk, drawn with each look's technique), so
+   every card has one even with no picture maker. The chosen look shows larger under the cards. With a picture
+   maker set up, **Make examples with my picture maker** asks it for the same scene in every look
+   (`makers/look_examples.py`) and the cards then show its own pictures, labelled with the maker that drew them.
+   The editor's look-change dialog shows the example too.
+8. **Characters and places** (editor page, above Scenes; `makers/cast.py`, `components/ShortCast.tsx`): up to 6.
+   Each has a name, appearance, clothes, colours and props, any of which can be **locked**, and up to 3 reference
+   pictures (dropped, or **Use as reference** on a shot's picture). Every shot shows everyone unless the owner picks
+   who is in it (the chips under the scene's words). **Describe a change** asks ClipForge AI for changes in the
+   owner's words and shows them (old → new) with **Apply to every shot** or **Shot N only**; locked details are never
+   changed (they are refused on the server too). **From my library** reuses a character or place from another short;
+   each short keeps its own copy.
+9. **Consistency**: each picture of a shot a member is in is made with the member's details in its words and, with a
+   model that takes reference pictures (FLUX.2 [klein], ComfyUI's `ReferenceLatent`), with up to 4 reference
+   pictures; Z-Image keeps the look by the words only, and the panel says which. After a picture is made, the **look
+   check** compares it with the members' colours (and, with the built-in model's Eyes on, asks it to look). A shot
+   that may have lost a detail says so, with **Make again** (only that shot) and **Looks right** (kept for that
+   picture). A change to a member makes again only the pictures it is in.
+10. **Timing and transitions**: each scene's **Stays after the words** (0 to 3 s) and the short's **Between scenes**
+   (cut, dissolve, fade) change the plan only; pictures and voices are not made again.
+
 With **Let me check the script first**, ClipForge stops after writing the script so the owner can change lines;
 **Make the short** then makes the voice and the pictures.
 
@@ -307,7 +329,14 @@ crash or a full disk) becomes a designed card with the reason.
 | `POST /api/studio/shorts/{video_id}/scenes` | add a scene after another |
 | `DELETE /api/studio/shorts/{video_id}/scenes/{scene_id}` | delete a scene |
 | `POST /api/studio/shorts/{video_id}/make` | go on after checking the script, or make every scene that needs it |
-| `PUT /api/studio/shorts/{video_id}/options` | voice, speed, look, music, captions, motion for the whole short |
+| `PUT /api/studio/shorts/{video_id}/options` | voice, speed, look, music, captions, motion, transition for the whole short |
+| `GET`/`POST /api/studio/shorts/look-examples`, `POST …/look-examples/stop`, `GET …/look-examples/{look}` | the picture maker's examples of the looks, the job that draws them, and each picture |
+| `GET`/`POST /api/studio/cast`, `PATCH`/`DELETE /api/studio/cast/{id}` | the library of characters and places |
+| `POST /api/studio/shorts/{video_id}/cast`, `PATCH`/`DELETE …/cast/{member}` | add (from the library or new), change, remove a member |
+| `POST …/cast/{member}/library`, `…/reference`, `…/propose`, `…/apply` | keep in the library, add a reference picture, ask for changes in words (nothing saved), apply changes to every shot or one |
+| `DELETE …/scenes/{scene_id}/overrides/{member}` | drop one shot's own change to a member |
+
+A scene's `PATCH` also takes `hold_ms`, `cast` (who is in the shot; `all_cast` puts everyone back) and `drift_ok`.
 
 Every change answers with the whole video (as `GET /api/studio/videos/<id>`), so the page updates at once.
 
@@ -332,6 +361,11 @@ Every change answers with the whole video (as `GET /api/studio/videos/<id>`), so
   and two more, checks that the speeds are even, then makes a short from a pasted script with designed cards and
   camera moves, renders it and checks the size, frame rate, sound, length and burnt-in captions. The Mac's own
   voices (Samantha, Daniel, Eddy), the Windows voices (Zira, David) and espeak-ng were checked this way.
+* The reference-picture graph is ComfyUI's official FLUX.2 [klein] editing template (LoadImage → VAEEncode →
+  ReferenceLatent on the positive and the zeroed negative, chained per picture); the tests check the graph and the
+  pictures sent, but a real FLUX.2 model drawing a character from them could only be tried on the owner's Mac.
+* The look check by colour is approximate: it says a detail's colour is missing, not that the face changed. With the
+  built-in model's Eyes on it also asks the model; that answer is a second opinion, and **Looks right** wins.
 * What could not be tried anywhere but the owner's Mac: the local picture, video and voice engines (they need the
   models), the Premium and Enhanced macOS voices the owner downloaded, ClipForge AI writing a real script (no model
   in the cloud) and word times from the speech model.

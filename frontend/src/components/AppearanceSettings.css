@@ -81,3 +81,10 @@
   .ap-space .ap-control select { width: 100%; }
   .ap-foot-note { padding-left: 0; border-left: 0; }
 }
+/* the Custom accent: a striped swatch until a colour is picked, and the browser's own colour picker beside it */
+.ap-swatch.ap-custom i { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--canvas) 55%, transparent); }
+.ap-pick { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-small, 0.875rem); color: var(--text-2);
+  cursor: pointer; }
+.ap-pick input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--control-border);
+  border-radius: 7px; background: var(--surface); cursor: pointer; }
+.ap-pick input[type="color"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

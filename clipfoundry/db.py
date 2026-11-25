@@ -563,6 +563,73 @@ CREATE TABLE IF NOT EXISTS learned_versions (   -- every change to what is in us
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_learned_versions_ws ON learned_versions (workspace_id, number);
+CREATE TABLE IF NOT EXISTS text_stories (       -- Text Stories: a script read over background video
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    name TEXT DEFAULT '',
+    title TEXT DEFAULT '',                     -- read first, shown as a card at the start
+    script TEXT DEFAULT '',
+    voice TEXT DEFAULT '{}',                   -- {voice, style, speed, tone}
+    pronunciations TEXT DEFAULT '[]',          -- [{word, say}]
+    captions TEXT DEFAULT '{}',                -- {style, position, size}
+    backgrounds TEXT DEFAULT '[]',             -- [{id, asset_id | builtin, in_s, out_s, loop, focus_x, focus_y, why}]
+    narration TEXT DEFAULT '{}',               -- the made voice: {key, file, duration, words, title_words, ...}
+    preview TEXT DEFAULT '{}',                 -- {key, file, at}
+    export TEXT DEFAULT '{}',
+    writer TEXT DEFAULT '{}',                  -- what ClipForge AI was last asked to write, and its notes
+    status TEXT DEFAULT 'draft',               -- draft | writing | voicing | rendering | ready | failed
+    stage TEXT DEFAULT '',                     -- the step working: write | preview | export
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    job_id TEXT DEFAULT '',
+    revision INTEGER DEFAULT 0,                -- every request for work counts up (studio job keys)
+    project_id TEXT DEFAULT '',                -- the editor project made from the export, if any
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_text_stories_ws ON text_stories (workspace_id, updated_at);
+CREATE TABLE IF NOT EXISTS voice_favorites (    -- a favourite voice for a style ("style:<id>") or a project
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    scope TEXT NOT NULL,
+    voice TEXT NOT NULL,
+    speed REAL DEFAULT 1.0,
+    tone REAL DEFAULT 0.0,
+    style TEXT DEFAULT '',
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (workspace_id, scope)
+);
+CREATE TABLE IF NOT EXISTS cloud_runs (         -- Full Cloud: each job on the owner's ClipForge worker (fullcloud/)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    kind TEXT NOT NULL DEFAULT 'project',      -- project | test
+    project_id TEXT DEFAULT '',
+    worker TEXT DEFAULT '',                     -- the worker's host name
+    remote_id TEXT DEFAULT '',                  -- the job's id on the worker
+    status TEXT DEFAULT 'starting',             -- starting | uploading | running | fetching | done | failed | canceled
+    started_at REAL NOT NULL,
+    ended_at REAL DEFAULT 0,
+    seconds REAL DEFAULT 0,                     -- worker time: from the job's start there to its end
+    uploaded_bytes INTEGER DEFAULT 0,
+    estimate TEXT DEFAULT '{}',                 -- {seconds, cost, price} before it started
+    info TEXT DEFAULT '{}',                     -- uploaded files, stages that ran there, log, result
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_runs_started ON cloud_runs (workspace_id, started_at);
+CREATE TABLE IF NOT EXISTS cast_library (       -- reusable characters and places of animated shorts (makers/cast.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    kind TEXT NOT NULL DEFAULT 'character',      -- character | place
+    name TEXT NOT NULL,
+    appearance TEXT DEFAULT '',
+    clothing TEXT DEFAULT '',
+    colors TEXT DEFAULT '',
+    props TEXT DEFAULT '',
+    locked TEXT DEFAULT '[]',                    -- details a change in words never touches
+    refs TEXT DEFAULT '[]',                      -- reference pictures (image asset ids), at most 3
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cast_library_ws ON cast_library (workspace_id, name);
 CREATE TABLE IF NOT EXISTS quota_usage (
     day TEXT NOT NULL,
     bucket TEXT NOT NULL,
@@ -1269,6 +1336,11 @@ JSON_FIELDS = {
     "learned_events": {"data"},
     "learned_items": {"value", "evaluation"},
     "learned_versions": {"items", "evaluation"},
+    "text_stories": {"voice", "pronunciations", "captions", "backgrounds", "narration", "preview", "export",
+                     "writer"},
+    "voice_favorites": set(),
+    "cast_library": {"locked", "refs"},
+    "cloud_runs": {"estimate", "info"},
     "taste_models": set(),
     "projects": {"options", "info", "guidance", "destinations"},
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},

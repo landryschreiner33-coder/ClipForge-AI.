@@ -28,7 +28,8 @@ sign-in: the sign-in page returns to the address that was requested.
 | Office (expanded) | `#/office` | `#/studio/office`, `#/office/*` | The Studio's office at full size: rooms that follow the workflow, real robot states, details panel, controls. |
 | Team | `#/office/team` | `#/studio/team` | Robot list with Rename / Reset name. |
 | Autopilot | `#/missions/*` | `#/autopilot/*` | Existing Missions pages, reached from the Studio and the top-bar Autopilot status. |
-| Settings | `#/settings`, `#/settings/{appearance,defaults,integrations,storage,advanced}` | existing Settings tabs | Appearance and layouts, default style, storage/retention, advanced. |
+| Text Stories | `#/stories`, `#/stories/:id` | — | The list of Text Stories (New story), and one story: script (paste, or ClipForge AI writes and revises it), voice style, tone, pronunciations, favourite voices, background (upload, ClipForge picks, or a moving colour), title card and captions, Make the preview, Export with Stop (AI_CHANGELOG.md, batch 4). |
+| Settings | `#/settings`, `#/settings/{appearance,media,ai,apps,makers,processing,cloud,defaults,integrations,advanced}` | existing Settings tabs | Appearance and layouts, media, ClipForge AI, editing apps, makers, Processing (Local, Hybrid or Full Cloud with your own worker: docs/clipforge/FULL_CLOUD.md), cloud computer, default style, integrations, advanced. |
 | Setup | `#/setup/*` | (unchanged) | Existing first-run steps. |
 | Robot gallery | `#/dev/robots` | (unchanged) | Development view. |
 
