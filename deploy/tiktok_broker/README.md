@@ -1,6 +1,6 @@
 # ClipForge's TikTok token broker
 
-Status (2026-11-25): written and tested against a stand-in TikTok (`tests/test_tiktok_broker.py`). **Not deployed
+Status (2026-11-25): written and tested against a stand-in TikTok (`tests/test_one_sign_in.py`, served for real by uvicorn). **Not deployed
 yet**: it needs a host and ClipForge's TikTok app's client secret, which only the owner has.
 
 ## Why it exists

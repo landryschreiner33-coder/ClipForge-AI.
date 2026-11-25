@@ -1,5 +1,38 @@
 # AI handoff
 
+## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry's "ClipForge Final Release" prompt (November 24, 8:58 PM Chicago time) asks for
+four batches; this is the first. The app shows the name ClipForge with the gold command robot icon (the Mac app keeps
+its old folder and id so updates and data stay); Cancel upload works on imports, cloud computer transfers, Publish
+Center and scheduled posts, and says so when the platform already has the video; Connect YouTube and Connect TikTok
+are one sign-in with ClipForge's own app registrations (live once Landry adds the credentials); Missions is in the main
+menu with each mission's next upload, the robots working on it, and Pause uploads; typed times follow the Autopilot
+time zone, and a clash with another post offers the nearest free time.
+
+- **Where things are:** branch `claude/project-thread-hqwolr` from the release line at `54f953b`; details in
+  [AI_CHANGELOG.md](AI_CHANGELOG.md). Icons: `scripts/make_icons.py` (+ `tests/test_icons.py`). Cancel upload:
+  `studio/uploads.cancel`, `publish/jobs.py` (`_cancel_publication`, `TOO_LATE`), `autopilot/publisher.py`
+  (`cancel_upload`, `settle_cancel`), `youtube.session_state`. One sign-in: `publish/oauth_apps.py`,
+  `deploy/tiktok_broker/`, `scripts/write_oauth_apps.py`, the "Built-in YouTube and TikTok sign-in" step of
+  `macos-desktop.yml`. Missions: `submissions.set_paused`/`paused_for`/`_next_post`/`_agents`,
+  `scheduler.from_wall_time`/`nearest_free`/`Conflict`.
+- **Worth knowing:** Cancel upload is not the same as cancelling a job (which only postpones a post): its marker is
+  `info.cancel_requested_at` on the upload record plus the audit event `upload_cancel_requested`, checked by the
+  publisher, the orphan check and app start. Tests never see a built-in sign-in (`tests/conftest.py` removes it);
+  a test that needs one sets the `CLIPFORGE_*` variables itself. The AI assistant has no reschedule tool yet; batch 3
+  must call `scheduler.reschedule` so its rules match the post page.
+- **Needs Landry (blocks one sign-in in release builds):** a Google Cloud OAuth client of type Desktop app with the
+  YouTube Data API v3 on, its consent screen in production (Google's verification for the upload scope), and the
+  GitHub secrets `CLIPFORGE_YOUTUBE_CLIENT_ID` and `CLIPFORGE_YOUTUBE_CLIENT_SECRET`; the TikTok broker deployed with
+  TikTok's client secret (`deploy/tiktok_broker/README.md`), the secrets `CLIPFORGE_TIKTOK_CLIENT_KEY` and
+  `CLIPFORGE_TIKTOK_BROKER`, and the redirect `http://127.0.0.1:8765/api/oauth/tiktok/callback` registered; TikTok's
+  audit before Direct Post can be public. Until then Advanced → your own developer app keeps working as before.
+- **Not verified (needs Landry's computers):** the name and icon in Finder, the Dock, Launchpad and Spotlight after a
+  fresh install and after updating from ClipFoundry; the Windows Start menu, taskbar and shortcut names (the Windows
+  installer lives on `claude/clipforge-downloads` and was not changed); a real YouTube or TikTok upload cancelled
+  mid-way (the cloud tests use stand-in platforms).
+
 ## Release 2026.11.20 published: the moving sky — 2026-11-20 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry picked "Release it now" on November 20 (2:49 PM Chicago time). ClipForge 2026.11.20
