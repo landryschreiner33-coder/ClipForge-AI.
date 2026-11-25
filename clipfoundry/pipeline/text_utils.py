@@ -129,7 +129,8 @@ RESPONSE_STARTS = {"exactly", "yes", "yeah", "yep", "no", "nope", "right", "abso
 
 # Lines that announce the end of a video ("to recap", "follow for part two"): the retention cliff at the end. A
 # short stops on its payoff instead.
-OUTRO_PHRASES = ["to recap", "in conclusion", "to sum up", "to summarize", "to summarise", "in summary",
+RECAP_PHRASES = ["to recap", "in conclusion", "to sum up", "to summarize", "to summarise", "in summary"]
+OUTRO_PHRASES = [*RECAP_PHRASES,
                  "let me know in the comments", "comment below", "in the comments below", "follow for part",
                  "follow for more", "thanks for watching", "thank you for watching", "see you next time",
                  "see you in the next", "see you guys", "that's it for today", "that's all for today",

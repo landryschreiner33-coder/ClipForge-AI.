@@ -18,8 +18,8 @@ from collections import Counter
 from ..brain import steer
 from .audio import Loudness
 from .text_utils import (BACKREF_PHRASES, CAUSAL_PHRASES, CAUSAL_WORDS, CONTRAST_WORDS, EPISODIC_PHRASES,
-                         INTENSIFIERS, ONE_THING, OPEN_LOOP_PHRASES, SETUP_PHRASES, SLOW_OPEN_PHRASES, content_tokens,
-                         cosine, count_phrases, repeat_run, tf_vector, tokens)
+                         INTENSIFIERS, ONE_THING, OPEN_LOOP_PHRASES, OUTRO_PHRASES, RECAP_PHRASES, SETUP_PHRASES,
+                         SLOW_OPEN_PHRASES, content_tokens, cosine, count_phrases, repeat_run, tf_vector, tokens)
 
 FACTORS = ["hook", "opening", "curiosity", "emotion", "density", "payoff", "standalone", "pacing", "uniqueness",
            "clarity", "retention"]
@@ -124,6 +124,12 @@ def reaction_before(sentences: list[dict], i: int, loud: Loudness) -> tuple[floa
     runs = [r for r in wordless_loud([], loud, max(prev, first - REACTION_AFTER - REACTION_KEEP), first)
             if first - r[1] <= REACTION_BEFORE]
     return runs[-1] if runs else None
+
+
+def _goodbye(text: str) -> bool:
+    """An outro line that says goodbye ("thanks for watching", "see you tomorrow"), not only a recap."""
+    low = text.lower()
+    return count_phrases(low, OUTRO_PHRASES) > count_phrases(low, RECAP_PHRASES)
 
 
 def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: list[dict], loud: Loudness,
@@ -365,8 +371,8 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
                "drifts into a back-and-forth after the point" if late_reply else
                "ends on a transition to another topic" if fj["transition"] else "ends without a clear payoff")
         flags.append(_flag("weak_ending", "Weak ending", "warn", why))
-    goodbyes = 0
-    while goodbyes < ns and (fs[ns - 1 - goodbyes]["outro"] or fs[ns - 1 - goodbyes].get("chores")):
+    goodbyes = 0  # lines at the end that say goodbye or talk to chat (a recap sums the point up: not a goodbye)
+    while goodbyes < ns and (fs[ns - 1 - goodbyes].get("chores") or _goodbye(sents[ns - 1 - goodbyes]["text"])):
         goodbyes += 1
     if opens_on:
         flags.append(_flag("starts_on_reaction", "Starts on a reaction", "warn",
