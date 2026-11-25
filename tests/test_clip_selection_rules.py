@@ -253,4 +253,6 @@ def test_reactions_are_read_from_the_loudness_measured_at_analysis(tmp_path):
     (tmp_path / "loudness.json").write_text(json.dumps({"hop": 0.1, "db": db}))
     words = [{"w": "Go.", "start": 1.0, "end": 1.4}, {"w": "Yes!", "start": 7.0, "end": 7.4}]
     assert render.heard(tmp_path, words, 0.0, 10.0) == [(4.0, 6.0)]
+    assert render.heard(tmp_path, words, -30.0, 40.0) == [(4.0, 6.0)]   # a window that starts before the video
+    assert render.heard(tmp_path, words, 3.05, 9.0) == [(4.0, 6.0)]
     assert render.heard(tmp_path / "none", words, 0.0, 10.0) == []

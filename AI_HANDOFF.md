@@ -1,5 +1,38 @@
 # AI handoff
 
+## Final release, batch 2: clip quality, stream layouts, titles, Compare — 2026-11-25 (Claude Code, cloud session)
+
+**Plain-English summary:** the second batch of Landry's final-release prompt. ClipForge now turns down more bad
+moments (ad reads, talking to chat, goodbyes, a "he" nobody introduced, endings that repeat one point or tease what
+comes after the cut), says why each clip ranks where it does, suggests a tighter start and end, keeps pauses that
+build tension and a laugh or shout right after the punchline, and offers Picture-in-picture and Gameplay only next to
+Gameplay + Facecam (with a face cam box you can draw or lock, or a separate camera recording lined up by sound).
+Every clip gets three title kinds with a pick per destination. Posts → Results → Compare shows what worked by
+format, channel, niche and clip length without guessing. A before/after benchmark shows the difference on three test
+videos.
+
+- **Where things are:** details in [AI_CHANGELOG.md](AI_CHANGELOG.md); rules vs hypotheses vs tested in
+  [docs/clipforge/CLIP_QUALITY_RESEARCH.md](docs/clipforge/CLIP_QUALITY_RESEARCH.md). Picking: `text_utils`
+  (`AD_PHRASES`, `CHAT_CHORES`, `count_words`, `repeat_run`, `ONE_THING`, `PERSON_NOUNS`), `candidates`
+  (`unnamed_person`, `proper_names`, `EXCLAIMS`), `virality` (flags `ad_read`, `chat_chores`, `starts_on_reaction`;
+  `reaction_after`/`reaction_before`; `reasons`). Trims: `pipeline/trims.py`. Layouts: `reframe` (`pip_panels`,
+  `find_cam(hint=…)`), `pipeline/facecam.py`, `frontend/src/components/faceCam.tsx`. Titles: `postpack`
+  (`KINDS`, `title_guide`, `stands_alone`, `topics`). Compare: `autopilot/compare.py`,
+  `frontend/src/components/resultsCompare.tsx`. Benchmark: `scripts/clip_quality_benchmark.py`
+  (`make`, `run --explain`, `compare`), footage scripts in `scripts/clip_benchmark/`.
+- **Worth knowing:** phrase lists that could match inside other words use `count_words` (whole words), not
+  `count_phrases`. A reaction is found from loudness alone (`wordless_loud`: louder than the speech by one standard
+  deviation for 0.4 s with no words), so loud game sound counts too; the cut keeps at most 3 s of it. The face cam
+  found in an earlier clip is only a hint: each clip looks again, and `_remember_cam` replaces it when the cam moved.
+  Compare reads every post at the reading closest to 48 hours after it could first be watched (the same rule as
+  `learner._snapshot`). Run the benchmark before and after any change to picking:
+  `make --out F`, then `run F --out new.json --explain old.json` with an empty `CLIPFOUNDRY_DATA` each time.
+- **Blockers:** live chat is not read (no chat in a recording, no chat connection to Twitch, YouTube or Kick yet).
+  YouTube and TikTok pages cannot be loaded from the cloud, so nothing was tested on real posts or real streams.
+- **Not verified (needs Landry's videos):** the new rules on real speech (the benchmark footage is a computer voice
+  with estimated word times); the layouts and the camera recording on Landry's own stream recordings; Compare on
+  real posted numbers.
+
 ## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry's "ClipForge Final Release" prompt (November 24, 8:58 PM Chicago time) asks for

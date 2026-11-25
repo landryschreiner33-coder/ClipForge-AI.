@@ -84,21 +84,21 @@ REACTION_KEEP = 3.0       # the cut keeps at most this much of it (a long stretc
 def wordless_loud(words: list[dict], loud: Loudness, t0: float, t1: float) -> list[tuple[float, float]]:
     """Loud stretches without words in [t0, t1): (start, end) in seconds. An estimate from loudness alone, the same
     one deep.audio_features counts as reactions."""
-    a, b = loud._idx(t0), loud._idx(t1)  # noqa: SLF001
+    a, b = loud._idx(max(0.0, t0)), loud._idx(t1)  # noqa: SLF001
     if b - a < 2:
         return []
-    z = loud.z[a:b]
-    hot = z > REACTION_Z
+    base = a * loud.hop   # the time of frame a: every index below counts from it
+    hot = loud.z[a:b] > REACTION_Z
     for w in words:
-        if w["end"] > t0 and w["start"] < t1:
-            hot[max(0, int((w["start"] - t0) / loud.hop)):max(0, int((w["end"] - t0) / loud.hop) + 1)] = False
+        if w["end"] > base and w["start"] < t1:
+            hot[max(0, int((w["start"] - base) / loud.hop)):max(0, int((w["end"] - base) / loud.hop) + 1)] = False
     out, run = [], None
     for k, h in enumerate(list(hot) + [False]):
         if h and run is None:
             run = k
         elif not h and run is not None:
             if (k - run) * loud.hop >= REACTION_MIN:
-                out.append((round(t0 + run * loud.hop, 2), round(t0 + k * loud.hop, 2)))
+                out.append((round(base + run * loud.hop, 2), round(base + k * loud.hop, 2)))
             run = None
     return out
 
