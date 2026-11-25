@@ -1,5 +1,5 @@
 import { ReactNode, useId, useState } from "react";
-import { req } from "../api";
+import { ApiError, req } from "../api";
 import { ap, ScheduledItem } from "../autopilot";
 import { at, when } from "../format";
 import { ConfirmDialog, Icon, IconName, PLATFORM_LABEL, TextPromptDialog, Tone, toast } from "./ui";
@@ -419,30 +419,72 @@ function RetryDialog({ p, name, onClose, done }: {
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
-const localValue = (ts: number) => {
-  const d = new Date(ts * 1000);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+/** The wall-clock parts of `ts` in time zone `tz` (this computer's when none is given). */
+function zoneParts(ts: number, tz?: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz || undefined, hourCycle: "h23", year: "numeric",
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    .formatToParts(new Date(ts * 1000));
+  const m = Object.fromEntries(parts.map((x) => [x.type, x.value]));
+  return { y: +m.year, mo: +m.month, d: +m.day, h: +m.hour % 24, mi: +m.minute, s: +m.second };
+}
+
+/** A datetime-local value showing `ts` as the clock reads in the Autopilot time zone (Settings). */
+export const zonedValue = (ts: number, tz?: string) => {
+  const p = zoneParts(ts, tz);
+  return `${p.y}-${pad(p.mo)}-${pad(p.d)}T${pad(p.h)}:${pad(p.mi)}`;
 };
+
+/** About when a typed clock time in `tz` happens (for the hint only; the server converts it exactly). */
+export function zonedToEpoch(value: string, tz?: string): number {
+  const asUtc = Date.parse(`${value}:00Z`) / 1000;
+  if (!Number.isFinite(asUtc)) return 0;
+  const offset = (t: number) => {
+    const p = zoneParts(t, tz);
+    return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) / 1000 - t;
+  };
+  const first = asUtc - offset(asUtc);
+  return asUtc - offset(first);
+}
 
 function RescheduleDialog({ p, tz, onClose, done }: {
   p: Post; tz?: string; onClose: () => void; done: (msg: string) => (out: ScheduledItem) => void;
 }) {
   const id = useId();
-  const [value, setValue] = useState(p.planned_at ? localValue(p.planned_at) : "");
-  const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const ts = value ? new Date(value).getTime() / 1000 : 0;
+  const [value, setValue] = useState(p.planned_at ? zonedValue(p.planned_at, tz) : "");
+  const [conflict, setConflict] = useState<{ text: string; local: string } | null>(null);
+  const ts = value ? zonedToEpoch(value, tz) : 0;
   const tooSoon = !!ts && ts < nowS() + 120;
+  const save = () => ap.rescheduleLocal(p.id, value).then(done(`Moved to ${timeLabel(ts, tz)}`)).catch((e) => {
+    if (e instanceof ApiError && e.code === "conflict") {
+      setConflict({ text: e.message, local: String(e.data.suggestion_local || "") });
+      throw new Error("Choose another time, or use the nearest free one below.");
+    }
+    throw e;
+  });
   return (
     <ConfirmDialog title="Change the time" confirmLabel="Save the new time" disabled={!ts || tooSoon} onClose={onClose}
-      onConfirm={() => ap.reschedule(p.id, ts).then(done(`Moved to ${timeLabel(ts, tz)}`))}>
+      onConfirm={save}>
       <div className="field">
-        <label htmlFor={id}>New time</label>
-        <input id={id} type="datetime-local" value={value} data-autofocus onChange={(e) => setValue(e.target.value)}
-          aria-invalid={tooSoon || undefined} aria-describedby={`${id}-hint`} />
+        <label htmlFor={id}>New time{tz ? ` (${tz})` : ""}</label>
+        <input id={id} type="datetime-local" value={value} data-autofocus
+          onChange={(e) => { setValue(e.target.value); setConflict(null); }}
+          aria-invalid={tooSoon || !!conflict || undefined} aria-describedby={`${id}-hint`} />
         <span className="hint" id={`${id}-hint`}>
-          {here && tz && here !== tz ? `You pick the time in this computer's time zone (${here}). ` : ""}
-          {ts ? `That is ${timeLabel(ts, tz)}.` : ""}
+          {tz ? `Clock time in ${tz}, the Autopilot time zone in Settings. ` : ""}
+          {ts && !tooSoon ? `That is ${timeLabel(ts, tz)}.` : ""}
         </span>
+        {conflict && (
+          <span className="error-text" role="alert">
+            <Icon name="alert" className="sm" />{conflict.text}
+            {conflict.local && (
+              <button type="button" className="textlink"
+                onClick={() => { setValue(conflict.local); setConflict(null); }}>
+                Use the nearest free time
+              </button>
+            )}
+          </span>
+        )}
         {tooSoon && (
           <span className="error-text">
             <Icon name="alert" className="sm" />Choose a time at least two minutes from now.

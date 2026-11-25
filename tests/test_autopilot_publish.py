@@ -755,3 +755,38 @@ def test_cancel_upload_is_only_for_a_post_uploading_now(env):
     item = make_item(tmp, approve={"options": {"made_for_kids": False}})
     with pytest.raises(ValueError, match="uploading now"):
         publisher.cancel_upload(item["id"])
+
+
+def test_pausing_one_mission_holds_its_uploads_and_resume_lets_them_go(env):
+    """Missions → Pause uploads: this mission's posts wait (nothing is uploaded); Resume wakes their upload jobs."""
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+    from clipfoundry.autopilot import queue, submissions
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}}, planned_in=-60)
+    source = db.insert("sources", {"platform": "local", "external_id": "mission-1", "title": "My talk"})
+    mission = db.insert("source_submissions", {"source_id": source["id"], "settings": {"auto_upload": True}})
+    db.update("scheduled_publications", item["id"], source_id=source["id"])
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        url = f"/api/autopilot/submissions/{mission['id']}/pause"
+        assert c.post(url, json={"paused": "yes"}, headers=H).status_code == 422  # true or false only
+        assert c.post("/api/autopilot/submissions/nope/pause", json={"paused": True}, headers=H).status_code == 404
+        assert c.post(url, json={"paused": True}, headers=H).json() == {"paused": True}
+        with pytest.raises(queue.Wait, match="mission is paused"):
+            run_publish(item["id"])
+        row = db.fetch("scheduled_publications", item["id"])
+        assert not g.videos and row["status"] == "approved" and "mission is paused" in row["status_note"]
+        job = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
+        db.execute("UPDATE worker_jobs SET status = 'waiting', run_after = ? WHERE id = ?", (time.time() + 300,
+                                                                                             job["id"]))
+        assert c.post(url, json={"paused": False}, headers=H).json() == {"paused": False}
+    assert not submissions.paused_for(db.fetch("scheduled_publications", item["id"]))
+    assert db.fetch("worker_jobs", job["id"])["run_after"] <= time.time()  # woken: it goes out now
+    from clipfoundry.autopilot import state
+
+    events = [e["kind"] for e in state.events(ref_id=source["id"])]
+    assert "mission_paused" in events and "mission_resumed" in events

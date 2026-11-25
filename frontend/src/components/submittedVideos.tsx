@@ -88,12 +88,20 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       setProgress(null);
     }
   };
-  const act = async (item: SubmittedVideo, action: "cancel" | "retry") => {
+  const act = async (item: SubmittedVideo, action: "cancel" | "retry" | "pause" | "resume") => {
     if (acting || busy) return;
     setActing(item.id);
     try {
-      await ap.linkAction(item.id, action);
-      toast(action === "cancel" ? "Video processing canceled" : "Video queued for another try");
+      if (action === "pause" || action === "resume") {
+        await ap.pauseMission(item.submission.id, action === "pause");
+        toast(action === "pause" ? "Uploads paused for this mission. Its clips are still made."
+          : "Uploads resumed for this mission");
+      } else {
+        await ap.linkAction(item.id, action);
+      }
+      if (action === "cancel" || action === "retry") {
+        toast(action === "cancel" ? "Video processing canceled" : "Video queued for another try");
+      }
       refresh();
       refreshStatus();
     } catch (e) {
@@ -181,7 +189,8 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
 }
 
 function SubmittedRow({ item, timezone, disabled, act }: {
-  item: SubmittedVideo; timezone: string; disabled: boolean; act: (action: "cancel" | "retry") => void;
+  item: SubmittedVideo; timezone: string; disabled: boolean;
+  act: (action: "cancel" | "retry" | "pause" | "resume") => void;
 }) {
   const source = item.submission;
   const p = source.progress;
@@ -209,13 +218,31 @@ function SubmittedRow({ item, timezone, disabled, act }: {
             : " · Stays on this PC"}
           {source.auto_upload && channelNames(source).length > 0 && ` to ${nameList(channelNames(source))}`}
           {source.auto_upload && source.split === "turns" && ", taking turns"}</p>
+        {source.next_post && <p className="small">
+          <Icon name="calendar" className="sm" /> Next upload: <b>{source.next_post.label}</b>
+          {" "}({source.next_post.timezone})
+          {" "}to {source.next_post.platform === "youtube" ? "YouTube" : "TikTok"}
+          {source.next_post.account && <> · {source.next_post.account}</>}
+          {source.next_post.needs_ok && <> · <a className="textlink"
+            href={`#/post/${source.next_post.id}`}>needs your OK</a></>}
+          {source.paused && " · paused"}
+        </p>}
+        {!!source.agents?.length && <p className="small muted">
+          Working on it: {source.agents
+            .map((a) => `${a.name} (${a.title})${a.state === "running" ? "" : `, ${a.state}`}`).join(" · ")}
+        </p>}
       </div>
-      <Pill tone={tone}>{label}</Pill>
+      <Pill tone={source.paused ? "warn" : tone}>{source.paused ? "Uploads paused" : label}</Pill>
     </div>
     <div className="row wrap">
       {item.project_id && <a className="btn btn-small" href={`#/project/${item.project_id}`}>View clips</a>}
       {source.auto_upload && p?.posts_failed > 0 && <a className="btn btn-small" href="#/publishing/problems">Review upload issue</a>}
       {item.can_retry && <button type="button" className="btn btn-small" disabled={disabled} onClick={() => act("retry")}>Retry video</button>}
+      {source.auto_upload && !["uploaded", "local_ready"].includes(source.status) && (
+        <button type="button" className="btn btn-small" disabled={disabled}
+          onClick={() => act(source.paused ? "resume" : "pause")}>
+          <Icon name={source.paused ? "play" : "pause"} />{source.paused ? "Resume uploads" : "Pause uploads"}</button>
+      )}
       {item.can_cancel && <button type="button" className="btn btn-small btn-quiet" disabled={disabled}
         onClick={() => act("cancel")}>Cancel video</button>}
     </div>

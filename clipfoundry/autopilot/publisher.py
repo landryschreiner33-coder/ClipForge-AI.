@@ -412,6 +412,11 @@ def publish(job: Job) -> dict:
     if settings.get("autopilot_publishing_paused") and not started:  # an upload under way finishes
         db.update("scheduled_publications", item["id"], status_note="Publishing is paused: it waits for Resume")
         raise queue.Wait("publishing_paused", 300, "Publishing is paused")
+    from . import submissions
+
+    if not started and submissions.paused_for(item):  # this one mission is paused (Missions → Pause uploads)
+        db.update("scheduled_publications", item["id"], status_note="Its mission is paused: it waits for Resume")
+        raise queue.Wait("mission_paused", 300, "Its mission is paused")
     clip = db.get_clip(item["clip_id"])
     if not clip or clip["status"] != "ready":
         _set(item, "failed", "The clip is missing or not rendered.", "failed")

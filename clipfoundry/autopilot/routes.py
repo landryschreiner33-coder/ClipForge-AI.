@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
 from .. import config, db, gpu
@@ -65,6 +66,22 @@ def submit_link(body: SubmissionIn) -> dict:
         return submissions.add_link(body.url, body.model_dump(exclude={"live"}), live=body.live)
     except (ValueError, httpx.HTTPError) as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+class PauseBody(BaseModel):
+    paused: StrictBool
+
+
+@router.post("/submissions/{submission_id}/pause", dependencies=WRITE)
+def pause_submission(submission_id: str, body: PauseBody) -> dict:
+    """Pause or resume one mission's uploads (Missions); Pause Autopilot and Stop all still cover everything."""
+    from . import submissions
+
+    try:
+        submissions.set_paused(submission_id, body.paused)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"paused": body.paused}
 
 
 @router.get("/submissions/live", dependencies=READ)
@@ -964,18 +981,31 @@ def edit_item(item_id: str, body: EditBody) -> dict:
 
 
 class RescheduleBody(BaseModel):
-    planned_at: float
+    planned_at: float | None = None
+    local: str = Field("", max_length=40)  # a clock time in the Autopilot time zone (Settings), e.g. 2026-11-26T18:30
 
 
 @router.post("/scheduled/{item_id}/reschedule", dependencies=WRITE)
-def reschedule_item(item_id: str, body: RescheduleBody) -> dict:
+def reschedule_item(item_id: str, body: RescheduleBody):
+    """Move a post. Every way of moving one (this page, Publish Center's list, Missions and ClipForge AI) comes here
+    or to scheduler.reschedule, so the same gap, time zone and approval rules apply everywhere."""
     from . import scheduler
 
     _item_or_404(item_id)
-    if body.planned_at < time.time() + 60:
+    settings = db.get_settings()
+    try:
+        planned_at = scheduler.from_wall_time(body.local, settings) if body.local else body.planned_at
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if planned_at is None or planned_at < time.time() + 60:
         raise HTTPException(400, "Choose a time in the future")
     try:
-        return _public_item(scheduler.reschedule(item_id, body.planned_at), db.get_settings())
+        return _public_item(scheduler.reschedule(item_id, planned_at), settings)
+    except scheduler.Conflict as exc:
+        free = exc.suggestion
+        return JSONResponse({"detail": str(exc), "code": "conflict", "suggestion": free,
+                             "suggestion_local": scheduler._local(free, settings).strftime("%Y-%m-%dT%H:%M")
+                             if free else ""}, status_code=409)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 

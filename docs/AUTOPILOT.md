@@ -60,6 +60,21 @@ finished video is recorded as posted ("Too late to cancel"), and anything unclea
 outcome-unknown hold (rule 6). A TikTok upload whose chunks all arrived is processing on TikTok and can't be stopped
 from ClipForge; the page says so. Publish Center's own **Cancel upload** follows the same rules.
 
+**Missions in the main menu** (added 2026-11-25): Missions sits right after Projects. Each mission there shows its
+next planned upload (time in the Autopilot time zone, named; YouTube or TikTok; which account; whether it still needs
+your OK), the office robots working on it now and what each is doing, and **Pause uploads** / **Resume uploads** for
+that mission alone (`POST /api/autopilot/submissions/{id}/pause`). Paused, none of its posts starts uploading (one
+already under way finishes) and its clips are still made; Resume lets them go at their times, right away when the time
+passed. Pause publishing and Stop all still cover every mission.
+
+**Times you type are in the Autopilot time zone** (Settings → Advanced → Autopilot details), not the computer's: the
+reschedule box sends the wall time (`{"local": "YYYY-MM-DDTHH:MM"}`) and the app converts it with that zone. A time
+skipped when the clocks jump forward is refused with a plain reason; a time that happens twice when they fall back is
+the first one. When a new time is closer than the minimum gap to another post on the same platform and account, the
+answer is a 409 with `code: "conflict"` and the nearest free time (`suggestion_local`), and the box offers **Use the
+nearest free time**. Every way to move a post (the post page, the Posts list, Missions) goes through one route and
+`scheduler.reschedule`, so the same rules apply everywhere; the AI assistant's reschedule tool must use it too.
+
 **Make clips only** requires no upload consent and creates no automatic posting plan. Use Clips to edit/export the
 results. Existing Queue backlog keeps the default manual review behavior. Inline previews and **Approve selected**
 can approve up to 50 selected YouTube posts with one explicit batch review; this is not permission for future work.

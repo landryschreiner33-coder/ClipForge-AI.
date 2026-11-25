@@ -1001,6 +1001,57 @@ def edit(item_id: str, fields: dict) -> dict:
     return db.fetch("scheduled_publications", item_id) or item
 
 
+class Conflict(ValueError):
+    """A time too close to another post on the same account; `suggestion` is the nearest time that keeps the gap."""
+
+    def __init__(self, message: str, suggestion: float | None) -> None:
+        super().__init__(message)
+        self.suggestion = suggestion
+
+
+def from_wall_time(text: str, settings: dict | None = None) -> float:
+    """A time you typed ("2026-11-26T18:30") read in the Autopilot time zone from Settings, never this computer's or
+    the browser's, so a post goes out at the clock time you meant, also across a daylight-saving change. A time the
+    clocks skip (spring forward) is refused; one that happens twice (fall back) is the first of the two."""
+    settings = settings if settings is not None else db.get_settings()
+    try:
+        naive = dt.datetime.fromisoformat(str(text).strip())
+    except ValueError as exc:
+        raise ValueError("Write the time as a date and a clock time.") from exc
+    if naive.tzinfo is not None:
+        raise ValueError("Give the clock time only; the time zone comes from Settings.")
+    zone = tz(settings)
+    aware = naive.replace(tzinfo=zone, fold=0)
+    back = dt.datetime.fromtimestamp(aware.timestamp(), zone).replace(tzinfo=None)
+    if back != naive:
+        raise ValueError(f"{naive:%H:%M} doesn't exist on {naive:%b %d} in {zone.key}: the clocks jump forward "
+                         "then. Choose another time.")
+    return aware.timestamp()
+
+
+def _taken(item: dict, settings: dict) -> list[float]:
+    """The planned times of this account's other posts on the same platform (each account keeps its own gap)."""
+    account = effective_connection_id(item)
+    return [o["planned_at"] for o in db.select(
+        "scheduled_publications", "platform = ? AND id != ? AND status IN ('awaiting_approval', 'approved', "
+        "'publishing', 'reconciling', 'published')", (item["platform"], item["id"]))
+        if o["planned_at"] and effective_connection_id(o) == account]
+
+
+def nearest_free(item: dict, wanted: float, settings: dict | None = None, *, not_before: float = 0.0) -> float | None:
+    """The time closest to `wanted` that keeps the minimum gap from this account's other posts (looking up to a day
+    either way, in 5-minute steps; on a tie the later time, so a post is never moved earlier than you asked)."""
+    settings = settings if settings is not None else db.get_settings()
+    gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 0))
+    taken = _taken(item, settings)
+    floor = max(not_before, time.time() + 120)
+    for step in range(0, 24 * 12 + 1):
+        for t in (wanted + step * 300, wanted - step * 300):
+            if t >= floor and all(abs(o - t) >= gap for o in taken):
+                return t
+    return None
+
+
 def reschedule(item_id: str, planned_at: float) -> dict:
     item = db.fetch("scheduled_publications", item_id)
     if not item or item["status"] not in ("awaiting_approval", "approved", "failed"):
@@ -1013,8 +1064,10 @@ def reschedule(item_id: str, planned_at: float) -> dict:
                            (item["platform"], item_id)):
         if other["planned_at"] and abs(other["planned_at"] - planned_at) < gap and \
                 effective_connection_id(other) == account:  # each account keeps its own gap
-            raise ValueError(f"Less than {gap / 60:.0f} minutes from another {item['platform']} post "
-                             f"(“{other['title'][:40]}”)")
+            free = nearest_free(item, planned_at, settings)
+            hint = f" The nearest free time is {_label(free, settings)}." if free else ""
+            raise Conflict(f"Less than {gap / 60:.0f} minutes from another {item['platform']} post on this account "
+                           f"(“{other['title'][:40]}”).{hint}", free)
     local = _local(planned_at, settings)
     slot = {**(item.get("slot") or {}), "local": local.isoformat(timespec="minutes"), "note": "chosen by you"}
     status = item["status"]

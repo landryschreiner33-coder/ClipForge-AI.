@@ -235,10 +235,13 @@ export interface Health {
 export class ApiError extends Error {
   fix: string;
   code: string;
-  constructor(message: string, fix = "", code = "") {
+  /** The whole error answer (for example a schedule conflict's suggested free time). */
+  data: Record<string, unknown>;
+  constructor(message: string, fix = "", code = "", data: Record<string, unknown> = {}) {
     super(message);
     this.fix = fix;
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -255,15 +258,17 @@ export async function req<T>(method: string, url: string, body?: unknown): Promi
     let detail = res.statusText;
     let fix = "";
     let code = "";
+    let data: Record<string, unknown> = {};
     try {
       const j = await res.json();
       detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
       fix = j.fix || "";
       code = j.code || "";
+      data = j && typeof j === "object" ? j : {};
     } catch {
       /* ignore */
     }
-    throw new ApiError(detail || `Request failed (${res.status})`, fix, code);
+    throw new ApiError(detail || `Request failed (${res.status})`, fix, code, data);
   }
   return res.json() as Promise<T>;
 }

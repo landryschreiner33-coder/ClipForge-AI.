@@ -84,6 +84,13 @@ export interface Submission {
   hold_reason?: string;
   progress: { clips_ready: number; posts_waiting: number; posts_uploading: number;
     posts_uploaded: number; posts_failed: number };
+  /** Its uploads are paused (Missions → Pause uploads); its clips are still made. */
+  paused?: boolean;
+  /** The next planned upload: when (in the Autopilot time zone, named), where and to which account. */
+  next_post?: { id: string; at: number; label: string; timezone: string; platform: string; account: string;
+    needs_ok: boolean; title: string } | null;
+  /** The office robots working on it now, by their role. */
+  agents?: { role: string; name: string; title: string; state: string; doing: string }[];
 }
 
 export interface SubmittedVideo extends AutopilotLink { submission: Submission }

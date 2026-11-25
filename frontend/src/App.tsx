@@ -36,16 +36,16 @@ import SettingsPage from "./pages/Settings";
 export { navigate };
 
 // Studio combines Home and the Office (studio upgrade handoff, section 2); #/office is the Studio's expanded office.
-type NavKey = "studio" | "talk" | "projects" | "brain" | "publishing" | "accounts" | "settings";
+type NavKey = "studio" | "talk" | "projects" | "missions" | "brain" | "publishing" | "accounts" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
   "": "studio", create: "studio", projects: "projects", project: "projects", clip: "projects", publish: "projects",
   video: "projects", brain: "brain", publishing: "publishing", post: "publishing", accounts: "accounts",
-  office: "studio", missions: "studio", setup: "studio", dev: "studio", settings: "settings",
+  office: "studio", missions: "missions", setup: "studio", dev: "studio", settings: "settings",
 };
 const SECTION_TITLE: Record<string, string> = {
   "": "Studio", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
   video: "Video", brain: "Brain", publishing: "Publishing", post: "Post review", accounts: "Accounts",
-  office: "Studio · Office", missions: "Autopilot", setup: "Set up", dev: "Robot gallery", settings: "Settings",
+  office: "Studio · Office", missions: "Missions", setup: "Set up", dev: "Robot gallery", settings: "Settings",
 };
 
 function page(route: Route) {
@@ -178,6 +178,7 @@ function Shell({ me }: { me: Me }) {
       <NavLink href="#/" icon="clapper" label="Studio" on={active === "studio"} />
       <NavLink href="#/brain/talk" icon="chat" label="Talk to AI" on={active === "talk"} />
       <NavLink href="#/projects" icon="folder" label="Projects" on={active === "projects"} />
+      <NavLink href="#/missions" icon="satellite" label="Missions" on={active === "missions"} />
       <NavLink href="#/brain/styles" icon="brain" label="Brain" on={active === "brain"} />
       <NavLink href="#/publishing/review" icon="layers" label="Publishing" on={active === "publishing"}
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>

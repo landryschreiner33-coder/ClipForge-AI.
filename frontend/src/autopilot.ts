@@ -578,6 +578,12 @@ export const ap = {
   approve: (id: string, body: Record<string, unknown>) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/approve`, { ...body, confirm: true }),
   edit: (id: string, body: Record<string, unknown>) => req<ScheduledItem>("PATCH", `${A}/scheduled/${id}`, body),
   reschedule: (id: string, planned_at: number) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/reschedule`, { planned_at }),
+  /** Move a post to a clock time in the Autopilot time zone (Settings); the server converts it, daylight saving too. */
+  rescheduleLocal: (id: string, local: string) =>
+    req<ScheduledItem>("POST", `${A}/scheduled/${id}/reschedule`, { local }),
+  /** Pause or resume one mission's uploads (its clips are still made). */
+  pauseMission: (submissionId: string, paused: boolean) =>
+    req<{ paused: boolean }>("POST", `${A}/submissions/${submissionId}/pause`, { paused }),
   cancel: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/cancel`),
   /** Cancel upload on a post that is uploading now (not the job queue's cancel, which only postpones it). */
   cancelUpload: (id: string) =>
