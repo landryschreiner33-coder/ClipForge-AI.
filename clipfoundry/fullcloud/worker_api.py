@@ -247,12 +247,25 @@ def start_tidying() -> None:
     threading.Thread(target=loop, name="worker-tidy", daemon=True).start()
 
 
+def own_folder(pdir: Path) -> bool:
+    """Whether `pdir` is one project's own folder directly inside ClipForge's projects folder. A folder is deleted
+    only then: a project row naming a file anywhere else (a broken row, an old version's) never takes that file's
+    folder with it."""
+    try:
+        return pdir.resolve().parent == config.projects_dir().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def _delete(p: dict) -> None:
     from ..jobs import worker
 
     worker.cancel(p["id"])
     if p.get("source_path"):
-        shutil.rmtree(_pdir(p), ignore_errors=True)
+        if own_folder(_pdir(p)):
+            shutil.rmtree(_pdir(p), ignore_errors=True)
+        else:
+            log.warning("Worker job %s names a file outside the projects folder; only its row was deleted", p["id"])
     db.delete_project(p["id"])
 
 

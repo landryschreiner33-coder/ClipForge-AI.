@@ -704,3 +704,23 @@ def test_unfetched_jobs_are_deleted_after_three_days_without_a_new_job(desk, mon
             break
         time.sleep(0.1)
     assert db.get_project(p["id"]) is None and not pdir.exists()
+
+
+def test_tidying_a_worker_job_never_deletes_a_folder_outside_the_projects_folder(desk, monkeypatch):
+    """Safety (the Nov 25 incident): a row naming a file elsewhere loses only its row. Only tmp paths are used."""
+    from clipfoundry import config, db
+    from clipfoundry.fullcloud import worker_api
+
+    monkeypatch.setenv(worker_api.KEY_ENV, KEY)
+    outside = desk / "not-a-project"
+    outside.mkdir()
+    (outside / "keep.mp4").write_bytes(b"precious")
+    p = db.create_project("job", info={"worker_job": {"settings": {}}}, status="error", source_path=str(
+        outside / "keep.mp4"))
+    with db.connect() as conn:
+        conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (time.time() - 80 * 3600, p["id"]))
+    assert worker_api.tidy() == 1
+    assert db.get_project(p["id"]) is None and (outside / "keep.mp4").read_bytes() == b"precious"
+    assert worker_api.own_folder(config.projects_dir() / "abc") and not worker_api.own_folder(outside)
+    assert not worker_api.own_folder(config.projects_dir())
+    assert not worker_api.own_folder(config.projects_dir() / "a" / "b")

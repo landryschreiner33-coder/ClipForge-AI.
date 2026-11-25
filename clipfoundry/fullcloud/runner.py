@@ -294,8 +294,13 @@ def _sleep(seconds: float, ctx: JobContext) -> None:
 def _fetch(pid: str, c: client.Client, job_id: str, ctx: JobContext) -> int:
     """Bring the finished job back: files first (into a folder of their own), then the rows, then the files go in
     place. Nothing of the project changes until everything has arrived."""
+    from .worker_api import own_folder
+
     p = db.get_project(pid) or {}
     pdir = Path(p["source_path"]).parent
+    if not own_folder(pdir):  # files come back only into the project's own folder (and only that is tidied)
+        raise RemoteError("This project's video is not in its own ClipForge folder, so its clips cannot be brought "
+                          "back here. Press Process again to make them on this computer.")
     res = checked(c.result(job_id), job_id)
     remote_dir, remote_id = str(res["dir"]), str(res["job"]["id"])
     staging = pdir / ".from-worker"
