@@ -614,7 +614,7 @@ index 0000000..2570b9b
 +3. Start the worker bound to this computer only, with the key in its environment:
 +
 +   ```sh
-+   CLIPFOUNDRY_WORKER_KEY='<the key>' CLIPFOUNDRY_DATA=/var/lib/clipforge-worker \\
++   CLIPFOUNDRY_WORKER_KEY='<the key>' CLIPFOUNDRY_DATA=/var/lib/clipforge-worker \
 +   CLIPFOUNDRY_WORKERS=off .venv/bin/python -m clipfoundry --host 127.0.0.1 --port 8765
 +   ```
 +
