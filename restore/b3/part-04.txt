@@ -1,0 +1,559 @@
++    """What the crew found and decided for clips: the final check's result, the Director's decisions and the
++    repairs it asked for, with the command that fixes what is left."""
++    from ..autopilot import gate, queue
++    from ..office import feed
++
++    p, picked = _crew_clips(ctx, args)
++    lines = []
++    for n, c in picked:
++        rep = gate.report_for(c)
++        line = f"Clip {n} {U+201C}{one_line(c.get('title') or 'untitled', 50)}{U+201D}: "
++        if rep:
++            line += "final check " + ("passed" if rep["status"] == "passed" else "failed")
++            if rep.get("blockers"):
++                line += "; problems: " + "; ".join(one_line(b, 90) for b in rep["blockers"][:3])
++            if rep.get("warnings"):
++                line += "; warnings: " + "; ".join(one_line(w, 80) for w in rep["warnings"][:2])
++        else:
++            line += "not checked yet (crew_check)" if c.get("status") == "ready" else "not rendered yet"
++        decided = feed.decisions_for("clip", c["id"])[:2]
++        if decided:
++            line += ". Decisions: " + "; ".join(f"{ACTION_WORDS.get(d['action'], d['action'])} "
++                                                f"({one_line(d['reason'], 90)})" for d in decided)
++        busy = [j for j in queue.jobs(ref=("clip", c["id"]), limit=6) if j["status"] in queue.ACTIVE]
++        if busy:
++            line += ". Working now: " + ", ".join(
++                f"{j['kind'].replace('_', ' ')} ({j['status']}, try {int(j.get('attempts') or 0) + 1} of "
++                f"{j.get('max_attempts') or 1})" for j in busy[:3])
++        lines.append(line + ".")
++    lines.append("To fix what is left: post text {U+2192} regenerate_post_text; framing {U+2192} adjust_framing; a damaged or old "
++                 "file {U+2192} render_clip; then crew_check again.")
++    return Result("\n".join(lines), "Read the crew's reviews", {"links": [{"label": "Office", "href": "#/office"}]})
++
++
++# ------------------------------------------------------------------ missions and settings
++def _mission_name(row: dict) -> str:
++    source = db.fetch("sources", row["source_id"]) or {}
++    return one_line(source.get("title") or source.get("url") or "a mission", 70)
++
++
++def _find_mission(args: dict) -> dict:
++    rows = db.select("source_submissions", "revoked_at IS NULL", (), "created_at DESC", 200)
++    want = {w for w in _said_words(args.get("mission") or "") if len(w) > 2} - {"mission", "the", "my"}
++    hits = [r for r in rows if r["id"] == args.get("mission")] or [
++        r for r in rows if not want or want & set(_said_words(_mission_name(r)))]
++    if not hits:
++        raise ToolError("No mission fits that. They are: " + "; ".join(f"{U+201C}{_mission_name(r)}{U+201D}" for r in rows[:8])
++                        + "." if rows else "There are no missions yet.")
++    if len(hits) > 1:
++        raise ToolError("More than one mission fits: " + "; ".join(f"{U+201C}{_mission_name(r)}{U+201D}" for r in hits[:8])
++                        + ". Ask the owner which one.")
++    return hits[0]
++
++
++def _missions(ctx: Ctx, args: dict) -> Result:
++    rows = db.select("source_submissions", "revoked_at IS NULL", (), "created_at DESC", 200)
++    lines = [f"- {U+201C}{_mission_name(r)}{U+201D}: uploads {'paused' if (r.get('settings') or {}).get('paused') else 'on'}"
++             for r in rows[:LIST_MAX]] or ["- No missions yet."]
++    return Result("Missions (the videos and streams ClipForge clips and posts for you):\n" + "\n".join(lines),
++                  "Looked at your missions", {"links": [{"label": "Missions", "href": "#/missions"}]})
++
++
++def _pause_preview(ctx: Ctx, args: dict) -> dict:
++    row = _find_mission(args)
++    paused = bool(args.get("paused", True))
++    return {"label": f"{'Pause' if paused else 'Resume'} the uploads of {U+201C}{_mission_name(row)}{U+201D}",
++            "detail": ["Paused, none of its posts starts uploading (one already uploading finishes); its clips are "
++                       "still made." if paused else
++                       "Its posts go at their planned times, or now when that has passed, keeping the gap."],
++            "blocked": "", "args": {"mission": row["id"], "paused": paused}}
++
++
++def _pause(ctx: Ctx, args: dict) -> Result:
++    from ..autopilot import routes
++
++    try:
++        routes.pause_submission(str(args.get("mission") or ""), routes.PauseBody(paused=bool(args.get("paused"))))
++    except HTTPException as exc:
++        raise _http(exc) from exc
++    row = db.fetch("source_submissions", str(args.get("mission") or "")) or {}
++    on = bool((row.get("settings") or {}).get("paused"))
++    return Result(f"{U+201C}{_mission_name(row)}{U+201D}: uploads {'paused' if on else 'on'}.",
++                  "Paused the mission" if on else "Resumed the mission",
++                  {"links": [{"label": "Missions", "href": "#/missions"}]})
++
++
++# Settings ClipForge AI may change, with the owner's OK: editing choices only. Publishing rules, accounts, spending
++# limits and daily targets stay on their own pages, changed by the owner there.
++SETTING_NAMES = dict(_SETTINGS_WORDS)
++
++
++def _which_setting(text: str) -> str:
++    key = str(text or "").strip()
++    if key in SETTING_NAMES:
++        return key
++    words = set(_said_words(key))
++    scored = sorted(((len(words & set(_said_words(label))), k) for k, label in SETTING_NAMES.items()), reverse=True)
++    if not scored or scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
++        raise ToolError("Say which setting: " + ", ".join(SETTING_NAMES.values()) + ". Publishing, accounts, "
++                        "spending limits and daily targets are changed by the owner on their own pages.")
++    return scored[0][1]
++
++
++def _setting_preview(ctx: Ctx, args: dict) -> dict:
++    from .. import config
++
++    key = _which_setting(args.get("setting", ""))
++    try:
++        clean = config.validate_settings({key: args.get("value")})
++    except (TypeError, ValueError):
++        clean = {}
++    if key not in clean:
++        raise ToolError(f"{U+201C}{args.get('value')}{U+201D} is not a choice for {SETTING_NAMES[key]}.")
++    now = db.get_settings().get(key)
++    if now == clean[key]:
++        raise ToolError(f"{SETTING_NAMES[key]} is already {clean[key]}.")
++    return {"label": f"Change {SETTING_NAMES[key]} from {now} to {clean[key]}",
++            "detail": ["New projects use it; a project or clip you changed by hand keeps its own."],
++            "blocked": "", "args": {"setting": key, "value": clean[key]}}
++
++
++def _setting(ctx: Ctx, args: dict) -> Result:
++    out = _api().put_settings({args["setting"]: args["value"]})
++    return Result(f"{SETTING_NAMES.get(args['setting'], args['setting'])} is now {out.get(args['setting'])}.",
++                  "Changed a setting", {"links": [{"label": "Settings {U+2192} Defaults", "href": "#/settings/defaults"}]})
++
++
++# ------------------------------------------------------------------ work the chat follows
++def _work(kind: str, ref: str, label: str) -> dict:
++    return {"kind": kind, "id": ref, "label": one_line(label, 80), "started": round(time.time(), 3)}
++
++
++def work_owner(kind: str, ref: str) -> str | None:
++    """The workspace a piece of work belongs to (None when it is not there): another workspace's work answers like
++    work that is gone."""
++    from ..cloud import ownership
++
++    if kind == "project":
++        return ownership.project_workspace(ref)
++    if kind == "clip":
++        return ownership.clip_workspace(ref)
++    if kind == "post":
++        clip = db.scalar("SELECT clip_id FROM scheduled_publications WHERE id = ?", (ref,))
++        return ownership.clip_workspace(str(clip)) if clip else None
++    j = db.fetch("worker_jobs", ref)
++    if not j:
++        return None
++    if j.get("ref_type") == "clip":
++        return ownership.clip_workspace(str(j.get("ref_id") or ""))
++    if j.get("ref_type") == "project":
++        return ownership.project_workspace(str(j.get("ref_id") or ""))
++    return None
++
++
++def work_state(kind: str, ref: str, ws: str | None = None) -> dict:
++    """What a piece of work the chat started is doing now: {state: queued | running | completed | failed |
++    canceled, progress 0-1, message, href}. The chat asks again every few seconds until the state is final. With
++    `ws`, work of another workspace (or a job not tied to a clip or project) answers like work that is gone."""
++    if ws is not None and work_owner(kind, ref) != ws:
++        return {"state": "canceled", "progress": 0, "message": "It is not there any more.", "href": ""}
++    if kind == "project":
++        p = db.get_project(ref)
++        if not p:
++            return {"state": "canceled", "progress": 0, "message": "It is not there any more.", "href": ""}
++        d = diagnose_project(p)
++        state = {"done": "completed", "stalled": "failed"}.get(d["state"], d["state"])
++        return {"state": state, "progress": float(p.get("progress") or 0), "message": d["why"],
++                "href": f"#/project/{ref}"}
++    if kind == "clip":
++        c = db.get_clip(ref)
++        if not c:
++            return {"state": "canceled", "progress": 0, "message": "It is not there any more.", "href": ""}
++        d = diagnose_clip(c)
++        state = "completed" if c.get("status") == "ready" else (
++            "canceled" if (c.get("error") or "") == "Cancelled" else
++            "failed" if d["state"] in ("failed", "stalled") else d["state"])
++        return {"state": state, "progress": float(c.get("progress") or 0), "message": d["why"],
++                "href": f"#/clip/{ref}"}
++    if kind == "post":
++        item = db.fetch("scheduled_publications", ref)
++        if not item:
++            return {"state": "canceled", "progress": 0, "message": "It is not there any more.", "href": ""}
++        status = item["status"]
++        state = {"publishing": "running", "reconciling": "running", "published": "completed", "failed": "failed",
++                 "blocked": "failed", "action_needed": "failed", "canceled": "canceled",
++                 "replaced": "canceled"}.get(status, "queued")
++        pub = db.get_publication(item["publication_id"]) if item.get("publication_id") else None
++        return {"state": state, "progress": float((pub or {}).get("progress") or 0),
++                "message": STATUS_WORDS.get(status, status) + (f" ({_label(item['planned_at'], _settings())})"
++                                                               if status in ("approved", "awaiting_approval") and
++                                                               item.get("planned_at") else ""),
++                "href": f"#/post/{ref}"}
++    if kind == "job":  # a job of the crew's queue (autopilot/queue.py), like the final check
++        j = db.fetch("worker_jobs", ref)
++        if not j:
++            return {"state": "canceled", "progress": 0, "message": "It is not there any more.", "href": ""}
++        result = j.get("result") if isinstance(j.get("result"), dict) else {}
++        state = {"queued": "queued", "waiting": "queued", "retrying": "queued", "running": "running",
++                 "completed": "completed", "failed": "failed", "canceled": "canceled"}.get(j["status"], "queued")
++        said = result.get("message") or j.get("error") or j.get("wait_reason") or j.get("message") or ""
++        target = f"#/clip/{j['ref_id']}" if j.get("ref_type") == "clip" else "#/office"
++        return {"state": state, "progress": float(j.get("progress") or 0), "message": one_line(said, 200),
++                "href": target}
++    raise ToolError("Unknown kind of work.")
++
++
++# ------------------------------------------------------------------ when the commands are offered
++# Words that mean the owner may want one of these commands. A small model reads every tool's description on every
++# turn, so the commands (about 3,400 characters) are offered only when the owner's recent words are about posts,
++# work, clips' framing or text, missions or settings; any other turn reads the tool list as it was before them.
++CUES = re.compile(r"\b(?:posts?|posting|posted|schedul\w*|upload\w*|publish\w*|times?|o'?clock|\d{1,2}(?::\d{2})?\s*"
++                  r"(?:am|pm)|\d{1,2}:\d{2}|tonight|tomorrow|today|later|earlier|move|moving|reschedul\w*|cancel\w*|"
++                  r"retry|again|clash\w*|conflict\w*|too close|overlap\w*|render\w*|crop\w*|fram\w*|zoom\w*|layout|"
++                  r"face ?cam|centre|center|left|right|stuck|stall\w*|frozen|hang\w*|job|jobs|queue\w*|working|running|"
++                  r"progress|restart\w*|stop\w*|fail\w*|error\w*|mission\w*|pause\w*|resume|setting\w*|titles?|"
++                  r"hashtags?|caption\w*|post text|metadata|description|clips per|youtube|tiktok|crew|robots?|check\w*|"
++                  r"review\w*|quality)\b", re.I)
++
++
++def offered(tool_list: list[Tool], words: str) -> list[Tool]:
++    """The tools for one answer: the commands only when `words` (the owner's message and the ones just before it)
++    are about something they do."""
++    if CUES.search(words or ""):
++        return tool_list
++    return [t for t in tool_list if t.name not in COMMANDS]
++
++
++# ------------------------------------------------------------------ registering
++TEXT = {"type": "string", "maxLength": 300}
++POST = {"post": {"type": "string", "maxLength": 200}, "platform": {"type": "string", "enum": ["youtube", "tiktok"]},
++        "account": {"type": "string", "maxLength": 120}}
++POST_HELP = ("post: words from its title or video, or its time (\"18:30\", \"Nov 26\"); platform and account narrow "
++             "it")
++CLIP = {"project": TEXT, "clip": TEXT}
++NOT_AGENTS = {"for_agents": False}
++
++register(Tool("posts", "the owner's planned, uploading, failed and posted posts with their times (in the Autopilot "
++              "time zone), accounts, problems and posts too close together; view: upcoming, problems or published",
++              {"type": "object", "properties": {"words": TEXT, "view": {"type": "string", "enum": sorted(VIEWS)}}},
++              _posts, "look", "Looked at your posts"))
++register(Tool("work", "what ClipForge is working on: running, waiting, stalled and failed jobs (making clips, "
++              "renders, uploads) with why and what to do next; words narrow it to one project or post",
++              {"type": "object", "properties": {"words": TEXT}}, _work_list, "look", "Checked the work"))
++register(Tool("missions", "the owner's missions and whether their uploads are paused",
++              {"type": "object", "properties": {}}, _missions, "look", "Looked at your missions"))
++register(Tool("reschedule_post", "move a planned post to another time. when: the clock time in the Autopilot time "
++              "zone as 2026-11-26T18:30 (posts shows the zone and today's date), or nearest_free. " + POST_HELP,
++              {"type": "object", "properties": {**POST, "when": {"type": "string", "maxLength": 40}},
++               "required": ["when"]}, _reschedule, "change", "Move {post} to {when}", preview=_reschedule_preview,
++              **NOT_AGENTS))
++register(Tool("fix_post_conflicts", "move every post that is too close to another post on the same account to the "
++              "nearest free time (one OK for all)",
++              {"type": "object", "properties": {"platform": POST["platform"],
++                                                "moves": {"type": "array", "items": {"type": "object"},
++                                                          "maxItems": 40, "internal": True}}},
++              _fix, "change", "Fix posts that are too close", preview=_fix_preview, **NOT_AGENTS))
++register(Tool("cancel_upload", "cancel a post that is uploading now (nothing is posted). " + POST_HELP,
++              {"type": "object", "properties": POST}, _cancel_upload, "change", "Cancel the upload of {post}",
++              preview=_cancel_upload_preview, **NOT_AGENTS))
++register(Tool("cancel_post", "take a planned post off the schedule so it is not posted. " + POST_HELP,
++              {"type": "object", "properties": POST}, _cancel_post, "change", "Don't post {post}",
++              preview=_cancel_post_preview, **NOT_AGENTS))
++register(Tool("retry_post", "try a failed, held or canceled post again (it still needs a valid approval). "
++              + POST_HELP, {"type": "object", "properties": POST}, _retry, "change", "Try {post} again",
++              preview=_retry_preview, **NOT_AGENTS))
++register(Tool("restart_work", "start a stalled, failed or stopped project (or one clip's render) again. project: its "
++              "name; clip: its number or title words (for one render)",
++              {"type": "object", "properties": {**CLIP, "kind": {"type": "string", "internal": True},
++                                                "id": {"type": "string", "internal": True}}},
++              _restart, "change", "Start {project} again", preview=_restart_preview, **NOT_AGENTS))
++register(Tool("stop_work", "stop a project that is being made (or one clip's render)",
++              {"type": "object", "properties": {**CLIP, "kind": {"type": "string", "internal": True},
++                                                "id": {"type": "string", "internal": True}}},
++              _stop, "change", "Stop {project}", preview=_stop_preview, **NOT_AGENTS))
++register(Tool("regenerate_post_text", "write a new title, post text and hashtags for a clip from what is said in it "
++              "(replaces the current ones)",
++              {"type": "object", "properties": {**CLIP, "clip_id": {"type": "string", "internal": True}}},
++              _regen, "change", "New post text for {clip}", preview=_regen_preview, **NOT_AGENTS))
++register(Tool("adjust_framing", "change how a clip is framed (crop) and render it again. position: 0-100 (% from "
++              "the left, a fixed crop); follow: auto, center, face, speaker or screen; layout: fill, fit, split "
++              "(gameplay + face cam), pip, game or auto; zoom: 1 to 2.5; corner: left or right (pip face cam box)",
++              {"type": "object", "properties": {
++                  **CLIP, "position": {"type": "number", "minimum": 0, "maximum": 100},
++                  "follow": {"type": "string", "enum": sorted(FOLLOW)},
++                  "layout": {"type": "string", "enum": sorted(LAYOUT_WORDS)},
++                  "zoom": {"type": "number", "minimum": 1, "maximum": 2.5},
++                  "corner": {"type": "string", "enum": ["left", "right"]},
++                  "clip_id": {"type": "string", "internal": True}, "edit": {"type": "object", "internal": True}}},
++              _crop, "change", "Change the framing of {clip}", preview=_crop_preview, **NOT_AGENTS))
++register(Tool("render_clip", "render a clip again (queued; the chat shows when it is done)",
++              {"type": "object", "properties": CLIP}, _render, "make", "Queued a render", **NOT_AGENTS))
++register(Tool("crew_check", "hand clips to the robot crew's final check (file, picture, sound, captions, cuts, text; "
++              "fixable problems go back to the robot responsible). clip: one clip, or leave it out for the project's "
++              "best clips", {"type": "object", "properties": CLIP}, _crew_check, "make", "Handed clips to the crew",
++              **NOT_AGENTS))
++register(Tool("crew_report", "what the robot crew found and decided for a project's clips (or one clip)",
++              {"type": "object", "properties": CLIP}, _crew_report, "look", "Read the crew's reviews"))
++register(Tool("pause_mission", "pause (paused true) or resume (paused false) one mission's uploads",
++              {"type": "object", "properties": {"mission": TEXT, "paused": {"type": "boolean"}},
++               "required": ["paused"]}, _pause, "change", "Pause {mission}", preview=_pause_preview, **NOT_AGENTS))
++register(Tool("change_setting", "change one editing choice in Settings (clips per video, clip lengths, captions, "
++              "framing, pauses, sound); setting: its name, value: the new value as text (5, on, off, bold)",
++              {"type": "object", "properties": {"setting": TEXT, "value": {"type": "string", "maxLength": 40}},
++               "required": ["setting", "value"]}, _setting, "change", "Change {setting} to {value}",
++              preview=_setting_preview, **NOT_AGENTS))
++
++COMMANDS = frozenset(("posts", "work", "missions", "crew_check", "crew_report", "reschedule_post", "fix_post_conflicts",
++                      "cancel_upload", "cancel_post", "retry_post", "restart_work", "stop_work", "regenerate_post_text",
++                      "adjust_framing", "render_clip", "pause_mission", "change_setting"))
+diff --git a/clipfoundry/brain/routes.py b/clipfoundry/brain/routes.py
+index 8369994..ac13a96 100644
+--- a/clipfoundry/brain/routes.py
++++ b/clipfoundry/brain/routes.py
+@@ -13,0 +14 @@ from . import knowhow, memories, tools
++from . import learned as learned_module
+@@ -203,0 +205,5 @@ class OpenChat(Input):
++    chat_id: str = ""        # one of the saved general chats ('' = the one used last)
++
++
++class ChatName(Input):
++    title: str = Field(max_length=200)
+@@ -225 +231 @@ def open_chat(body: OpenChat) -> dict:
+-        chat = chat_module.open_chat(ws, body.project_id)
++        chat = chat_module.open_chat(ws, body.project_id, chat_id=body.chat_id)
+@@ -231,0 +238,42 @@ def open_chat(body: OpenChat) -> dict:
++@chats.get("", dependencies=READ)
++def saved_chats() -> list[dict]:
++    """The saved general chats, the one used last first."""
++    return chat_module.list_chats(principal.workspace_id())
++
++
++@chats.post("/new", dependencies=WRITE)
++def new_chat() -> dict:
++    """Start a new general chat; the others stay saved."""
++    return chat_module.new_chat(principal.workspace_id())
++
++
++@chats.patch("/{chat_id}", dependencies=WRITE)
++def rename_chat(chat_id: str, body: ChatName) -> dict:
++    try:
++        return chat_module.rename(principal.workspace_id(), chat_id, body.title)
++    except chat_module.ChatError as exc:
++        raise _chat_err(exc) from exc
++
++
++@chats.delete("/{chat_id}", dependencies=WRITE)
++def delete_chat(chat_id: str) -> dict:
++    try:
++        return chat_module.delete_chat(principal.workspace_id(), chat_id)
++    except chat_module.ChatError as exc:
++        raise _chat_err(exc) from exc
++
++
++@chats.get("/work/{kind}/{ref}", dependencies=READ)
++def work_state(kind: str, ref: str) -> dict:
++    """What work a chat answer started is doing now (queued, running, completed, failed or canceled): the chat asks
++    every few seconds until it is final (brain/operations.py)."""
++    from . import operations
++
++    if kind not in operations.WORK_KINDS:
++        raise HTTPException(404, "Unknown kind of work.")
++    from ..cloud import settings as cloud_settings
++
++    # in the online studio, another workspace's work answers like work that is gone (cloud/ownership.py)
++    return operations.work_state(kind, ref[:80], principal.workspace_id() if cloud_settings.enabled() else None)
++
++
+@@ -358,0 +407,96 @@ def remove_agent(agent_id: str) -> dict:
++
++
++# ------------------------------------------------------------------ Brain {U+2192} Learned (brain/learned.py)
++learned_routes = APIRouter(prefix="/api/brain/learned")
++
++
++def _learned_err(exc: learned_module.LearnedError) -> HTTPException:
++    return HTTPException(exc.status, str(exc))
++
++
++class LearnedPatch(Input):
++    status: str | None = None          # in_use | off
++    value: Any = None                  # a changed value (the preference becomes yours)
++
++
++class LearnedSwitch(Input):
++    on: bool
++
++
++class LearnedFeedback(Input):
++    good: bool
++    why: str = Field(default="", max_length=300)
++
++
++@learned_routes.get("", dependencies=READ)
++def learned_view() -> dict:
++    return learned_module.view(principal.workspace_id())
++
++
++@learned_routes.post("/switch", dependencies=WRITE)
++def learned_switch(body: LearnedSwitch) -> dict:
++    learned_module.set_on(body.on)
++    return learned_module.view(principal.workspace_id())
++
++
++@learned_routes.post("/taste", dependencies=WRITE)
++def learned_taste(body: LearnedSwitch) -> dict:
++    learned_module.set_taste(principal.workspace_id(), body.on)
++    return learned_module.view(principal.workspace_id())
++
++
++@learned_routes.post("/check", dependencies=WRITE)
++def learned_check() -> dict:
++    """Read your edits again now and check every preference on the clip set (it also happens after each edit)."""
++    ws = principal.workspace_id()
++    learned_module.infer(ws)
++    learned_module.recheck(ws)
++    return learned_module.view(ws)
++
++
++@learned_routes.delete("/edits", dependencies=WRITE)
++def learned_forget_edits() -> dict:
++    learned_module.forget_edits(principal.workspace_id())
++    return learned_module.view(principal.workspace_id())
++
++
++@learned_routes.patch("/{item_id}", dependencies=WRITE)
++def learned_edit(item_id: str, body: LearnedPatch) -> dict:
++    ws = principal.workspace_id()
++    try:
++        if body.value is not None:
++            learned_module.change(ws, item_id, body.value)
++        if body.status is not None:
++            learned_module.set_status(ws, item_id, body.status)
++    except learned_module.LearnedError as exc:
++        raise _learned_err(exc) from exc
++    return learned_module.view(ws)
++
++
++@learned_routes.delete("/{item_id}", dependencies=WRITE)
++def learned_delete(item_id: str) -> dict:
++    ws = principal.workspace_id()
++    try:
++        learned_module.remove(ws, item_id)
++    except learned_module.LearnedError as exc:
++        raise _learned_err(exc) from exc
++    return learned_module.view(ws)
++
++
++@learned_routes.post("/versions/{number}/rollback", dependencies=WRITE)
++def learned_rollback(number: int) -> dict:
++    ws = principal.workspace_id()
++    try:
++        learned_module.rollback(ws, number)
++    except learned_module.LearnedError as exc:
++        raise _learned_err(exc) from exc
++    return learned_module.view(ws)
++
++
++@learned_routes.post("/clips/{clip_id}/feedback", dependencies=WRITE)
++def learned_feedback(clip_id: str, body: LearnedFeedback) -> dict:
++    try:
++        row = learned_module.feedback(clip_id, body.good, body.why)
++    except learned_module.LearnedError as exc:
++        raise _learned_err(exc) from exc
++    return {"saved": True, "id": row["id"]}
+diff --git a/clipfoundry/brain/tools.py b/clipfoundry/brain/tools.py
+index f1a6200..1c43b27 100644
+--- a/clipfoundry/brain/tools.py
++++ b/clipfoundry/brain/tools.py
+@@ -125 +125 @@ def _builtins() -> None:
+-        from . import toolbox  # noqa: F401 - registers ClipForge's own tools
++        from . import operations, toolbox  # noqa: F401 - registers ClipForge's own tools and commands
+diff --git a/clipfoundry/config.py b/clipfoundry/config.py
+index da379ac..118c12b 100644
+--- a/clipfoundry/config.py
++++ b/clipfoundry/config.py
+@@ -195,0 +196 @@ DEFAULT_SETTINGS: dict[str, Any] = {
++    "learn_from_edits": True,           # Brain {U+2192} Learned: read your edits for habits, check them, use the proven ones
+diff --git a/clipfoundry/db.py b/clipfoundry/db.py
+index 69e2af1..fa6475c 100644
+--- a/clipfoundry/db.py
++++ b/clipfoundry/db.py
+@@ -527,0 +528,38 @@ CREATE TABLE IF NOT EXISTS taste_models (
++-- ------------------------------------------------ what ClipForge learns from your edits (brain/learned.py)
++CREATE TABLE IF NOT EXISTS learned_events (     -- one edit you made: a trim, a crop, a title pick, a caption change
++    id TEXT PRIMARY KEY,
++    workspace_id TEXT NOT NULL DEFAULT 'local',
++    clip_id TEXT DEFAULT '',
++    project_id TEXT DEFAULT '',
++    kind TEXT NOT NULL,                        -- trim | framing | title | captions | pacing | feedback
++    fmt TEXT DEFAULT '',                       -- the clip's format: highlights | story | live | ...
++    data TEXT DEFAULT '{}',
++    created_at REAL NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_learned_events_ws ON learned_events (workspace_id, kind, created_at);
++CREATE TABLE IF NOT EXISTS learned_items (      -- a preference: one you said (explicit) or a trend in your edits
++    id TEXT PRIMARY KEY,
++    workspace_id TEXT NOT NULL DEFAULT 'local',
++    key TEXT NOT NULL,                         -- what it sets: start_shift, end_shift, title_kind, caption_style ...
++    kind TEXT NOT NULL,                        -- trim | framing | title | captions | pacing
++    source TEXT NOT NULL,                      -- explicit | inferred
++    text TEXT NOT NULL,
++    value TEXT DEFAULT 'null',
++    evidence INTEGER DEFAULT 0,
++    status TEXT DEFAULT 'trying',              -- trying (not used yet) | in_use | off
++    version INTEGER DEFAULT 1,
++    evaluation TEXT DEFAULT '{}',
++    created_at REAL NOT NULL,
++    updated_at REAL NOT NULL,
++    UNIQUE (workspace_id, key, source)
++);
++CREATE TABLE IF NOT EXISTS learned_versions (   -- every change to what is in use, so any one can be rolled back
++    id TEXT PRIMARY KEY,
++    workspace_id TEXT NOT NULL DEFAULT 'local',
++    number INTEGER NOT NULL,
++    what TEXT NOT NULL,                        -- the change in words
++    items TEXT DEFAULT '[]',                   -- the preferences in use after it
++    evaluation TEXT DEFAULT '{}',
++    created_at REAL NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_learned_versions_ws ON learned_versions (workspace_id, number);
+@@ -1230,0 +1269,3 @@ JSON_FIELDS = {
++    "learned_events": {"data"},
++    "learned_items": {"value", "evaluation"},
++    "learned_versions": {"items", "evaluation"},
+@@ -1336,0 +1378,2 @@ ADDED_COLUMNS = {
++    # ClipForge AI's saved chats (brain/chat.py): a name the owner gave (1) instead of the first message's words
++    "brain_chats": {"named": "INTEGER DEFAULT 0"},
+diff --git a/clipfoundry/pipeline/postpack.py b/clipfoundry/pipeline/postpack.py
+index f164aa9..8e05216 100644
+--- a/clipfoundry/pipeline/postpack.py
++++ b/clipfoundry/pipeline/postpack.py
+@@ -566,0 +567,6 @@ def generate(sents: list[str], hook: str, hooks_alt: list[str], category: str, s
++    want = (settings.get("learned") or {}).get("title_kind")
++    if want and pkg["titles"]:  # the kind of title you usually pick (Brain {U+2192} Learned), when one is offered
++        kinds = [title_kind(t, kws) for t in pkg["titles"]]
++        if want in kinds and kinds[pkg["recommended_title"]] != want:
++            pkg["recommended_title"] = kinds.index(want)
++            pkg["learned"] = {"title_kind": want}
+@@ -607,0 +614,5 @@ def for_clip(clip: dict, words: list[dict], settings: dict, use_ai: bool = True)
++    if "learned" not in settings:  # what your edits taught (Brain {U+2192} Learned): the kind of title you usually pick
++        from ..brain import learned
++
++        project = db.get_project(str(clip.get("project_id") or "")) or {}
++        settings = {**settings, "learned": learned.defaults(str(project.get("workspace_id") or "local"), settings)}
+diff --git a/clipfoundry/pipeline/process.py b/clipfoundry/pipeline/process.py
+index 27d8e3d..e0d1a65 100644
+--- a/clipfoundry/pipeline/process.py
++++ b/clipfoundry/pipeline/process.py
+@@ -60,0 +61,5 @@ def _options(project: dict, settings: dict, *, words: list[dict] | None = None)
++    from ..brain import learned
++
++    # what your edits taught, checked before use (Brain {U+2192} Learned): how new clips start; the video's own options win
++    opts["learned"] = {k: v for k, v in learned.defaults(opts["workspace_id"], settings).items()
++                       if (project.get("options") or {}).get(k) is None}
+@@ -334 +339 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
+-            post=post, edit={}, status="queued",
++            post=post, edit=learned_edit(p, start, end), status="queued",
+@@ -340,0 +346,23 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
++def learned_edit(p: Prepared, start: float, end: float) -> dict:
++    """How a new clip starts in the editor from what your edits taught (Brain {U+2192} Learned): your usual framing,
