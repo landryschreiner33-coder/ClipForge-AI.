@@ -1,5 +1,51 @@
 # AI changelog
 
+## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code)
+
+Landry's "ClipForge Final Release" prompt (November 24, 8:58 PM Chicago time) asks for four batches. This is the first.
+Branch `claude/project-thread-hqwolr` from the release line at `54f953b`, pull request #68 into
+`claude/project-thread-x72wkd`.
+
+- **Name and icon:** `scripts/make_icons.py` makes every icon from the attached gold command robot
+  (`design/brand/clipforge-icon-gold-source.png`, checked by SHA-256): the 1024 px PNG (app, website, tab, TikTok
+  form), the 128 px sidebar logo, a 16 to 256 px Windows `.ico` and the Mac iconset on Apple's grid; up to 32 px a
+  closer crop keeps the visor and eyes readable. The art has a black background (the prompt says blue space); it is
+  used as attached. The Mac app keeps its `ClipFoundry.app` folder, executable and bundle id
+  (`com.clipfoundry.studio`), so an update replaces it in place and Keychain, WebKit storage and data stay; Finder,
+  the Dock, Launchpad and Spotlight show "ClipForge" through a localized display name (`InfoPlist.strings`). About
+  shows the release version, Help opens the website, the DMG artwork and the smoke test say ClipForge.
+  `macos/find_duplicates.sh` lists every copy and the Dock's entries (read-only) with safe steps to remove a stale
+  duplicate. Windows `.bat` titles, the phone page and the legal pages say ClipForge. Not done here: the Windows
+  installer's Start menu and desktop shortcut names live on `claude/clipforge-downloads` (release time).
+- **Cancel upload, imports:** the chunked browser import deletes its partial file (`uploads.cancel`) and says what
+  happened when it came too late (finished: the asset stays; still writing: "checking"); a stopped upload's next part
+  gets a 409 with its real state; the two whole-file uploads stop at once; a stop also reaches a picture on its way
+  to the cloud computer and a result being fetched (no part file left). Unfinished uploads past their retention are
+  cleaned when ClipForge starts.
+- **Cancel upload, posts:** Publish Center and scheduled posts (post page, Posts menu) have **Cancel upload**, apart
+  from cancelling a job (which only postpones) and Stop all. It stops after the part being sent; nothing is posted;
+  the clip stays; Retry makes exactly one new upload. The request is written into the upload record
+  (`info.cancel_requested_at`) and the post's history, so a waiting job, a restart or the orphan check never revives
+  it. When the platform already has the whole video, the real state is shown: YouTube's upload session is asked
+  (`youtube.session_state`: complete, partial, expired, unknown); a finished video is recorded as posted ("Too late
+  to cancel"); anything unclear after the last part keeps the outcome-unknown hold (rule 6). A TikTok upload whose
+  chunks all arrived is processing on TikTok and cannot be stopped; the page says so. A post queued behind another
+  is cancelled at once and frees its place.
+- **One sign-in:** Connect YouTube and Connect TikTok use ClipForge's own app registrations
+  (`publish/oauth_apps.py`), so nobody pastes codes. Google's desktop client may ship inside the app (Google says
+  such a client cannot keep secrets); release builds write it from repository secrets
+  (`scripts/write_oauth_apps.py`, never committed). TikTok's client secret must stay on a server, so the app talks
+  to a small stateless token broker (`deploy/tiktok_broker`, written and tested, not deployed) that adds the secret
+  to the code exchange, refresh and revoke and keeps nothing. Your own developer app under Settings → Publishing →
+  Advanced still wins. Accounts shows how each platform signs in and what each connected account can do (YouTube:
+  upload, schedule, read, analytics; TikTok: Direct Post ("Only me" until TikTok's audit), Inbox, no scheduling
+  API, phone handoff, stats). The privacy page names the broker.
+- **Missions:** Missions sits in the main menu after Projects. Each mission shows its next upload (time in the
+  Autopilot time zone, named; platform; account; needs-your-OK link), the office robots working on it now, and
+  Pause uploads / Resume uploads for that mission alone. Times typed in the reschedule box are read in the Autopilot
+  time zone (before: the computer's), with daylight-saving gaps refused; a time too close to another post answers
+  with the nearest free time and a **Use the nearest free time** button.
+
 ## Release 2026.11.20: the moving sky — 2026-11-20 (Claude Code)
 
 Landry picked "Release it now" on the release card (November 20, 2:49 PM Chicago time). Published from `72af02d`

@@ -253,8 +253,9 @@ def put_chunk(upload_id: str, offset: int, data: bytes) -> dict:
     browser continues from what the server really has. A failed write is cut back to the last whole chunk."""
     with _lock(upload_id):
         row = get(upload_id)
-        if row["status"] != "receiving":
-            raise UploadError("This upload is not accepting data any more.", 409, received=row["received"])
+        if row["status"] != "receiving":  # canceled, expired or finished: the page must stop, not continue
+            raise UploadError(row["error"] or "This upload is not accepting data any more.", 409,
+                              received=row["received"], state=row["status"])
         if offset != row["received"]:
             raise UploadError("The upload continues at another position.", 409, received=row["received"])
         if not data or len(data) > CHUNK_MAX:
@@ -546,12 +547,37 @@ def store_file(workspace_id: str, path: Path, filename: str, *, project_id: str 
     return _store(workspace_id, path, name, kind, _sha256(path), size, project_id=project_id)
 
 
-def cancel(upload_id: str) -> None:
-    with _lock(upload_id):
+CANCELED = "Canceled by you. Nothing was kept."
+
+
+def cancel(upload_id: str) -> dict:
+    """Cancel upload: the partial bytes are deleted and the upload stops taking data, so the page's next part is
+    refused and its loop ends. The file on the person's computer is untouched; choosing it again starts afresh.
+
+    The answer says what really happened: {"canceled": True} or, when the cancel came too late, the upload's real
+    state: every byte already arrived and ClipForge is checking it ("checking"; complete() holds the lock while it
+    hashes a big file, so this does not wait for it), or the file is already stored ("complete", with the asset,
+    which is kept: nothing a project may use is deleted by a cancel)."""
+    lock = _lock(upload_id)
+    if not lock.acquire(timeout=2):
         row = get(upload_id)
-        if row["status"] == "receiving":
-            _part(upload_id).unlink(missing_ok=True)
-            db.update("uploads", upload_id, status="failed", error="Cancelled.")
+        if row["status"] == "receiving" and row["received"] >= row["size"]:
+            return {"canceled": False, "status": "checking",
+                    "message": "Every byte had already arrived; ClipForge is checking the file, so it is kept."}
+        lock.acquire()  # a part is being written: that takes at most one chunk
+    try:
+        row = get(upload_id)
+        if row["status"] == "complete":
+            a = db.fetch("assets", row["asset_id"] or "")
+            return {"canceled": False, "status": "complete", "asset": asset_view(a) if a else None,
+                    "message": "It had already finished uploading, so it is kept."}
+        if row["status"] != "receiving":
+            return {"canceled": row["error"] == CANCELED, "status": row["status"], "message": row["error"] or ""}
+        _part(upload_id).unlink(missing_ok=True)
+        db.update("uploads", upload_id, status="failed", error=CANCELED)
+        return {"canceled": True, "status": "failed", "message": CANCELED}
+    finally:
+        lock.release()
 
 
 def asset_view(a: dict) -> dict:

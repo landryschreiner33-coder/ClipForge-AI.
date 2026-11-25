@@ -811,6 +811,70 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     return True
 
 
+def _next_post(posts: list[dict]) -> dict | None:
+    """This mission's next planned upload: when (in the Autopilot time zone, named), where and to which account."""
+    from .scheduler import _label, tz
+    from .targets import account_view
+
+    upcoming = sorted((p for p in posts if p["status"] in ("approved", "awaiting_approval") and p.get("planned_at")),
+                      key=lambda p: p["planned_at"])
+    if not upcoming:
+        return None
+    p, settings = upcoming[0], db.get_settings()
+    return {"id": p["id"], "at": p["planned_at"], "label": _label(p["planned_at"], settings),
+            "timezone": tz(settings).key, "platform": p["platform"], "account": account_view(p).get("name") or "",
+            "needs_ok": p["status"] == "awaiting_approval", "title": p.get("title") or ""}
+
+
+def _agents(source: dict, posts: list[dict]) -> list[dict]:
+    """The office robots working on this mission now (from its running and waiting jobs), by their role."""
+    from ..office import roles
+
+    refs = {("source", source["id"]), ("project", source.get("project_id") or "")}
+    refs |= {("scheduled", p["id"]) for p in posts}
+    out, seen = [], set()
+    for job in queue.jobs(("running", "queued", "waiting", "retrying"), limit=500):
+        if (job.get("ref_type"), job.get("ref_id")) not in refs:
+            continue
+        rid = roles.role_for(job["kind"], job.get("stage") or "")
+        if rid in seen:
+            continue
+        seen.add(rid)
+        r = roles.BY_ID.get(rid) or {}
+        out.append({"role": rid, "name": r.get("name") or rid, "title": r.get("title") or "",
+                    "state": job["status"], "doing": job.get("message") or job["kind"]})
+    return out
+
+
+def set_paused(submission_id: str, paused: bool) -> dict:
+    """Pause or resume one mission's uploads. Paused, none of its posts starts uploading (an upload already under way
+    finishes); its clips are still made. Resume lets them go at their planned times (or right away when it passed,
+    keeping the gap between posts)."""
+    row = db.fetch("source_submissions", submission_id)
+    if not row:
+        raise LookupError("This mission no longer exists")
+    cfg = {**(row["settings"] or {}), "paused": bool(paused)}
+    db.update("source_submissions", submission_id, settings=cfg)
+    state.event("mission_paused" if paused else "mission_resumed",
+                "Mission uploads paused by you" if paused else "Mission uploads resumed by you",
+                ref_type="source", ref_id=row["source_id"])
+    if not paused:
+        for p in db.select("scheduled_publications", "source_id = ? AND status IN ('approved', 'publishing')",
+                           (row["source_id"],)):
+            job = db.fetch("worker_jobs", f"publish:{p['id']}", "idem_key")
+            if job:
+                queue.wake(job["id"])
+    return row | {"settings": cfg}
+
+
+def paused_for(item: dict) -> bool:
+    """Whether the mission this post comes from is paused (its uploads wait)."""
+    if not item.get("source_id"):
+        return False
+    row = for_source(db.fetch("sources", item["source_id"]))
+    return bool(((row or {}).get("settings") or {}).get("paused"))
+
+
 def item(source: dict) -> dict:
     view = intake.item(source)
     row = for_source(source)
@@ -833,7 +897,9 @@ def item(source: dict) -> dict:
     view["submission"] = {"id": row["id"], "auto_upload": cfg.get("auto_upload", False), "account_id": cfg.get("account_id", ""),
                           "privacy": cfg.get("privacy", ""), "made_for_kids": cfg.get("made_for_kids"), "created_at": row["created_at"],
                           "status": status, "progress": counts, "hold_reason": hold, "channels": _channel_list(cfg),
-                          "split": "turns" if cfg.get("auto_upload") and takes_turns(cfg) else "each"}
+                          "split": "turns" if cfg.get("auto_upload") and takes_turns(cfg) else "each",
+                          "paused": bool(cfg.get("paused")), "next_post": _next_post(posts),
+                          "agents": _agents(source, posts)}
     if cfg.get("auto_upload") and counts["posts_waiting"] and view["status"] not in ("canceled", "removed"):
         view["can_cancel"] = True
     return view

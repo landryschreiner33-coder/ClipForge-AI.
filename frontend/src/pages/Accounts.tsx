@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../api";
 import { Banner, ConfirmDialog, Icon, PageHead, Skel, TextPromptDialog, toast } from "../components/ui";
 import { accountName, isPostable } from "../components/channelPicker";
-import { Connection, studio } from "../studio";
+import { Connection, SignInApp, studio } from "../studio";
 import "./Accounts.css";
 
 /** A short word for an account's sign-in state; the full sentence from the server shows under it when it is not ok. */
@@ -19,6 +19,7 @@ const STATE_WORD: Record<string, string> = { ok: "Connected", disconnected: "Dis
 export default function Accounts() {
   const [rows, setRows] = useState<Connection[] | null>(null);
   const [protection, setProtection] = useState("");
+  const [apps, setApps] = useState<Record<"youtube" | "tiktok", SignInApp> | null>(null);
   const [problem, setProblem] = useState("");
   const [confirm, setConfirm] = useState<Connection | null>(null);
   const [renaming, setRenaming] = useState<Connection | null>(null);
@@ -38,6 +39,7 @@ export default function Accounts() {
     }
     setRows(r.connections);
     setProtection(r.protection);
+    setApps(r.apps || null);
   }).catch((e) => setProblem(errorText(e))), []);
   useEffect(() => {
     void load();
@@ -136,6 +138,7 @@ export default function Accounts() {
             </div>
           </div>
         )}
+        <SignInNote app={apps?.youtube} name="YouTube" />
         {others.length > 0 && (
           <ul className="acc-rows" aria-label="Your other YouTube channels">
             {others.map((r) => <AccountRow key={r.id} r={r} {...tools(r)} />)}
@@ -150,6 +153,7 @@ export default function Accounts() {
           <button type="button" className="btn btn-outline" onClick={addTikTok}>
             <Icon name="plus" />{tiktok.length ? "Add TikTok account" : "Connect TikTok"}</button>
         </div>
+        <SignInNote app={apps?.tiktok} name="TikTok" />
         {tiktok.length > 0 && (
           <ul className="acc-rows" aria-label="Your TikTok accounts">
             {tiktok.map((r) => <AccountRow key={r.id} r={r} {...tools(r)} />)}
@@ -205,6 +209,34 @@ function States({ r }: { r: Connection }) {
   );
 }
 
+/** Connect can't start on this computer: say why and where to fix it (only then; a working sign-in needs no words). */
+function SignInNote({ app, name }: { app?: SignInApp; name: string }) {
+  if (!app || app.ready) return null;
+  return (
+    <p className="small acc-signin-note"><Icon name="alert" />{app.text}{" "}
+      <a className="textlink" href="#/settings/integrations">Use your own {name} developer app</a></p>
+  );
+}
+
+/** What this account lets ClipForge do, from the permissions the platform granted, with each limit in words. */
+function Capabilities({ r }: { r: Connection }) {
+  if (!r.capabilities?.length) return null;
+  return (
+    <div className="acc-caps">
+      <span className="small strong">What ClipForge can do with this account</span>
+      <ul>
+        {r.capabilities.map((c) => (
+          <li key={c.key} className={c.on ? "on" : "off"}>
+            <Icon name={c.on ? "check" : "x"} />
+            <span><span className="sr-only">{c.on ? "Yes: " : "No: "}</span>{c.label}
+              {c.note && <span className="muted"> · {c.note}</span>}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ManageButton({ r, open, onToggle, word = "Manage" }: Tools & { r: Connection; word?: string }) {
   return (
     <button type="button" className="btn btn-outline acc-manage-btn" aria-expanded={open}
@@ -226,6 +258,7 @@ function Manage({ r, ticking, onTick, onReconnect, onDefault, onRename, onDiscon
       </label>
       <p className="small muted">Ticked accounts start ticked on Prepare post, Make clips and Missions. You can change it
         each time, or pick All.</p>
+      <Capabilities r={r} />
       <p className="small muted acc-id">{r.label} · {r.account_id}</p>
       <div className="row-actions">
         <button type="button" className="btn btn-small" onClick={onReconnect}><Icon name="refresh" />Reconnect</button>

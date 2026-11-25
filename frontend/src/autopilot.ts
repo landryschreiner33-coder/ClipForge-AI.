@@ -515,7 +515,7 @@ export interface ScheduledItem extends ScheduledItemRow {
   clip_scores: Record<string, any> | null;
   metadata_options: MetadataOption[];
   quality: QualitySummary | null;
-  publication: { id: string; status: string; url: string; privacy: string; requested_privacy: string; message: string; error: string; fix: string; info: Record<string, any> } | null;
+  publication: { id: string; status: string; url: string; privacy: string; requested_privacy: string; message: string; error: string; fix: string; info: Record<string, any>; progress?: number } | null;
   warnings?: string[];
 }
 
@@ -578,7 +578,16 @@ export const ap = {
   approve: (id: string, body: Record<string, unknown>) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/approve`, { ...body, confirm: true }),
   edit: (id: string, body: Record<string, unknown>) => req<ScheduledItem>("PATCH", `${A}/scheduled/${id}`, body),
   reschedule: (id: string, planned_at: number) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/reschedule`, { planned_at }),
+  /** Move a post to a clock time in the Autopilot time zone (Settings); the server converts it, daylight saving too. */
+  rescheduleLocal: (id: string, local: string) =>
+    req<ScheduledItem>("POST", `${A}/scheduled/${id}/reschedule`, { local }),
+  /** Pause or resume one mission's uploads (its clips are still made). */
+  pauseMission: (submissionId: string, paused: boolean) =>
+    req<{ paused: boolean }>("POST", `${A}/submissions/${submissionId}/pause`, { paused }),
   cancel: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/cancel`),
+  /** Cancel upload on a post that is uploading now (not the job queue's cancel, which only postpones it). */
+  cancelUpload: (id: string) =>
+    req<ScheduledItem & { cancel: { status: string; message: string } }>("POST", `${A}/scheduled/${id}/cancel-upload`),
   retry: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/retry`),
   publishNow: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/publish-now`),
   link: (id: string, url: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/link`, { url }),

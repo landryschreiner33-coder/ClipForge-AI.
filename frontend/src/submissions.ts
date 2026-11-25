@@ -84,6 +84,13 @@ export interface Submission {
   hold_reason?: string;
   progress: { clips_ready: number; posts_waiting: number; posts_uploading: number;
     posts_uploaded: number; posts_failed: number };
+  /** Its uploads are paused (Missions → Pause uploads); its clips are still made. */
+  paused?: boolean;
+  /** The next planned upload: when (in the Autopilot time zone, named), where and to which account. */
+  next_post?: { id: string; at: number; label: string; timezone: string; platform: string; account: string;
+    needs_ok: boolean; title: string } | null;
+  /** The office robots working on it now, by their role. */
+  agents?: { role: string; name: string; title: string; state: string; doing: string }[];
 }
 
 export interface SubmittedVideo extends AutopilotLink { submission: Submission }
@@ -120,7 +127,9 @@ export const submissions = {
   link: (url: string, options: SubmissionOptions, live = false) =>
     req<SubmissionResult>("POST", `${ROOT}/link`, { url, ...options, live }),
   live: () => req<LiveStream[]>("GET", `${ROOT}/live`),
-  file: (file: File, options: SubmissionOptions, onProgress: (fraction: number) => void) =>
+  /** Copy a video file in. `signal` cancels the transfer while bytes are still being sent; once every byte has
+   * arrived ClipForge is copying and checking it, and a cancel can no longer stop that (the answer still comes). */
+  file: (file: File, options: SubmissionOptions, onProgress: (fraction: number) => void, signal?: AbortSignal) =>
     new Promise<SubmissionResult>((resolve, reject) => {
       const form = new FormData();
       form.append("file", file);
@@ -142,6 +151,17 @@ export const submissions = {
         }
       };
       xhr.onerror = () => reject(new Error("Could not reach ClipForge. Keep the app open and try again."));
+      xhr.onabort = () => reject(new UploadCanceled());
+      signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+      if (signal?.aborted) return reject(new UploadCanceled());
       xhr.send(form);
     }),
 };
+
+/** Cancel upload was pressed while the file was still being sent: nothing was added, the file stays on this PC. */
+export class UploadCanceled extends Error {
+  constructor() {
+    super("Upload canceled. Nothing was added; your file is still on this computer.");
+    this.name = "UploadCanceled";
+  }
+}

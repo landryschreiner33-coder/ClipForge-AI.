@@ -80,8 +80,7 @@ def complete_upload(upload_id: str):
 def cancel_upload(upload_id: str):
     try:
         _mine(upload_id)
-        uploads.cancel(upload_id)
-        return {"canceled": True}
+        return uploads.cancel(upload_id)
     except uploads.UploadError as exc:
         return _err(exc)
 

@@ -25,3 +25,6 @@ Thumbs.db
 frontend/*.tsbuildinfo
 .playwright-mcp/
 e2e/test-results-phone/
+
+# written by scripts/write_oauth_apps.py in release builds; never committed
+clipfoundry/oauth_apps.json

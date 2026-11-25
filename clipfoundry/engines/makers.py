@@ -280,6 +280,9 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
             if model is None:
                 raise EngineError(status(role, settings).get("why") or "No model is set up for this.")
             client = Comfy(base, timeout=60)
+            client.cancel = cancel  # a stop also reaches the picture sent to it and the result fetched from it
+            if cancel():
+                raise Cancelled()
             # the names that ComfyUI takes the files by, and a new place to save to (an identical graph would be
             # answered from ComfyUI's cache, with a file ClipForge's own ComfyUI no longer has)
             names = models.names(model, mode(settings), base)

@@ -28,6 +28,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
+from . import oauth_apps
 from .common import (SHORT_WAIT, Cancelled, ConnectionToken, PublishError, client, network_errors, retry_after,
                      save_tokens, sleep_exactly, with_retry_after)
 
@@ -51,14 +52,18 @@ UNAUDITED_NOTE = (
     "approved your app for it): the video arrives as a draft in the TikTok app and you post it from there for your "
     "Followers, keeping your account private. Or download the clip and post it yourself."
 )
-SETUP_FIX = ("Settings → Publishing → TikTok: create an app on developers.tiktok.com with Login Kit (Desktop) and the "
-             "Content Posting API, register the redirect URI shown in Settings, and paste the client key and secret.")
+SETUP_FIX = ("Use a release build of ClipForge (it signs in with ClipForge's own TikTok app), or under Settings → "
+             "Publishing → TikTok → Advanced paste the client key and secret of your own app on "
+             "developers.tiktok.com (Login Kit for Desktop and the Content Posting API, with the redirect address "
+             "shown there).")
 RECONNECT_FIX = "Click Connect TikTok again (Settings → Publishing or the publish screen)."
 PROCESSING_NOTE = "It may take a few minutes for the video to be processed and appear on your profile."
 
 
 def configured(settings: dict) -> bool:
-    return bool(settings.get("tiktok_client_key") and settings.get("tiktok_client_secret"))
+    """Connect can start: ClipForge's built-in registration (through its token broker) or your own app."""
+    s = oauth_apps.effective(settings)
+    return bool(s.get("tiktok_client_key") and (s.get("tiktok_client_secret") or s.get("tiktok_broker")))
 
 
 def scopes(settings: dict) -> list[str]:
@@ -73,6 +78,7 @@ def scopes(settings: dict) -> list[str]:
 
 
 def auth_url(settings: dict, redirect_uri: str, state: str, challenge: str) -> str:
+    settings = {**settings, "tiktok_client_key": oauth_apps.effective(settings)["tiktok_client_key"]}
     return AUTH_URL + "?" + urlencode({
         "client_key": settings["tiktok_client_key"], "scope": ",".join(scopes(settings)), "response_type": "code",
         "redirect_uri": redirect_uri, "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
@@ -89,10 +95,16 @@ def _json(r: httpx.Response) -> dict:
 
 @network_errors("TikTok")
 def _token_request(settings: dict, data: dict) -> dict:
+    """TikTok's token endpoint: directly with your own app's secret, or through ClipForge's token broker, which adds
+    the secret of ClipForge's registration (the app never has it) and passes TikTok's answer back unchanged."""
+    app = oauth_apps.effective(settings)
     with client(30) as c:
-        r = c.post(f"{API_URL}/oauth/token/", data={"client_key": settings["tiktok_client_key"],
-                                                   "client_secret": settings["tiktok_client_secret"], **data},
-                   headers={"Content-Type": "application/x-www-form-urlencoded"})
+        if app.get("tiktok_client_secret"):
+            r = c.post(f"{API_URL}/oauth/token/", data={"client_key": app["tiktok_client_key"],
+                                                       "client_secret": app["tiktok_client_secret"], **data},
+                       headers={"Content-Type": "application/x-www-form-urlencoded"})
+        else:
+            r = c.post(f"{app['tiktok_broker']}/token", json={"client_key": app["tiktok_client_key"], **data})
     body = _json(r)
     if r.status_code != 200 or not body.get("access_token"):
         err = body.get("error") or ""
@@ -156,11 +168,16 @@ def disconnect(settings: dict, connection_id: str | None = None) -> None:
     cid = connection_id or db.default_connection_id("tiktok")
     tokens = (db.connection_tokens(cid) or {}) if cid else {}
     if tokens.get("access_token") and configured(settings):
+        app = oauth_apps.effective(settings)
         try:
             with client(15) as c:
-                c.post(f"{API_URL}/oauth/revoke/", data={"client_key": settings["tiktok_client_key"],
-                                                        "client_secret": settings["tiktok_client_secret"],
-                                                        "token": tokens["access_token"]})
+                if app.get("tiktok_client_secret"):
+                    c.post(f"{API_URL}/oauth/revoke/", data={"client_key": app["tiktok_client_key"],
+                                                            "client_secret": app["tiktok_client_secret"],
+                                                            "token": tokens["access_token"]})
+                else:
+                    c.post(f"{app['tiktok_broker']}/revoke", json={"client_key": app["tiktok_client_key"],
+                                                                  "token": tokens["access_token"]})
         except httpx.HTTPError:
             pass
     if cid:

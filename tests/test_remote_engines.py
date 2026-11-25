@@ -711,6 +711,59 @@ def test_cloud_jobs_take_turns(monkeypatch):
         pass
 
 
+def test_cancel_upload_stops_a_picture_on_its_way_to_the_cloud_computer(cloud_settings, cloud, fake_comfy, tmp_path,
+                                                                         no_local_graphics):
+    """Cancel while the start picture is being sent (the proxy is answering 502, so it is sent again): nothing more is
+    sent, no job starts on the cloud computer, and the person's picture stays where it was."""
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.WAN22_TI2V_5B)
+    start = tmp_path / "start.png"
+    start.write_bytes(png_bytes(64, 64))
+    cloud.gateway["/upload/image"] = 1  # the first try fails; the stop comes before the second
+    sent = []
+    real_post = comfy.httpx.post
+
+    def counting_post(url, **kw):
+        if url.endswith("/upload/image"):
+            sent.append(url)
+        return real_post(url, **kw)
+
+    comfy.httpx.post, saved = counting_post, real_post
+    try:
+        with pytest.raises(EngineError, match="Stopped"):  # how every stopped picture or clip ends
+            engines.make_video("The waves roll in", image=start, seconds=2.0, width=480, height=832, seed=1,
+                               cancel=lambda: len(sent) >= 1)
+    finally:
+        comfy.httpx.post = saved
+    assert len(sent) == 1 and not fake_comfy.uploads and not fake_comfy.prompts
+    assert start.read_bytes() == png_bytes(64, 64)  # kept for a retry
+
+
+def test_cancel_during_a_download_from_the_cloud_computer_leaves_no_file(cloud_settings, cloud, fake_comfy,
+                                                                         no_local_graphics):
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    asked = []
+    real_fetch = comfy.Comfy._fetch  # noqa: SLF001
+
+    def fetch(self, params, part):
+        asked.append(part)
+        real_fetch(self, params, part)
+
+    comfy.Comfy._fetch = fetch  # noqa: SLF001
+    try:
+        with pytest.raises(EngineError, match="Stopped"):
+            engines.make_image("a cat", cancel=lambda: bool(asked))
+    finally:
+        comfy.Comfy._fetch = real_fetch  # noqa: SLF001
+    assert len(fake_comfy.prompts) == 1 and asked
+    made = config.data_dir() / "engines" / "made"
+    left = [p for p in made.rglob("*") if p.is_file()] if made.exists() else []
+    assert not left, left  # neither the picture nor its .part is left behind
+
+
 # ------------------------------------------------------------------ Settings
 @pytest.fixture
 def client():

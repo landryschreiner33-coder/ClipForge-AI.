@@ -52,6 +52,7 @@ export default function Create() {
   const [problem, setProblem] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const tInput = useRef<HTMLInputElement>(null);
+  const transfer = useRef<AbortController | null>(null);  // the file being sent, for Cancel upload
   const ids = useId();
 
   useEffect(() => {
@@ -118,13 +119,18 @@ export default function Create() {
     setProblem("");
     try {
       setProgress(0);
-      const project = await uploadVideo(file!, options(), transcript, setProgress);
+      const ctl = new AbortController();
+      transfer.current = ctl;
+      const project = await uploadVideo(file!, options(), transcript, setProgress, ctl.signal);
       toast("Video copied. ClipForge is making clips.");
       navigate(`project/${project.id}`);
     } catch (e) {
-      setProblem(errorText(e));
+      if (transfer.current?.signal.aborted) toast("Upload canceled. Nothing was added.");
+      else setProblem(errorText(e));
       setProgress(null);
       setBusy(false);
+    } finally {
+      transfer.current = null;
     }
   };
 
@@ -153,6 +159,8 @@ export default function Create() {
                 <span className="small">
                   {pct < 100 ? `Copying into ClipForge: ${pct}%` : "Copied. ClipForge is finishing up…"}
                 </span>
+                {pct < 100 && <button type="button" className="btn btn-small btn-danger"
+                  onClick={() => transfer.current?.abort()}>Cancel upload</button>}
               </>
             )}
           </div>

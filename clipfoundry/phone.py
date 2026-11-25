@@ -33,7 +33,8 @@ GLOBAL_RATE = 10
 PEER_RATE = 5
 _WIFI_RANGES = tuple(ipaddress.ip_network(r) for r in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
 _TAILSCALE_RANGE = ipaddress.ip_network("100.64.0.0/10")
-_PHONE_FILES = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
+_PHONE_FILES = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css",
+                "/icon.png": "../app-icon-128.png"}  # the app icon, made by scripts/make_icons.py
 
 
 def private_address(address: str, mode: str) -> str:
@@ -433,6 +434,7 @@ def create_companion_app(manager: PhoneManager) -> FastAPI:
     @companion.get("/")
     @companion.get("/app.js")
     @companion.get("/style.css")
+    @companion.get("/icon.png")
     def phone_file(request: Request):
         path = config.FRONTEND_DIST / "phone" / _PHONE_FILES[request.url.path]
         if not path.is_file():

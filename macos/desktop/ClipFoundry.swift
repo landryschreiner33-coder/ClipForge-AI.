@@ -347,7 +347,7 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
         NSWorkspace.shared.open(logs)
     }
     @objc func openBrowser() { if ready { NSWorkspace.shared.open(local) } }
-    @objc func help() { NSWorkspace.shared.open(URL(string: "https://clipfoundry-studio.landryschreiner33.chatgpt.site")!) }
+    @objc func help() { NSWorkspace.shared.open(URL(string: "https://landryschreiner33-coder.github.io/ClipForge-AI./")!) }
     @objc func about() { NSApp.orderFrontStandardAboutPanel(options: [.credits: NSAttributedString(string: "Your local video studio.\nBrain, clipping, captions and publishing on your Mac.\nThird-party licenses are included inside the app.")]) }
     func menus() {
         let menu = NSMenu()

@@ -235,10 +235,13 @@ export interface Health {
 export class ApiError extends Error {
   fix: string;
   code: string;
-  constructor(message: string, fix = "", code = "") {
+  /** The whole error answer (for example a schedule conflict's suggested free time). */
+  data: Record<string, unknown>;
+  constructor(message: string, fix = "", code = "", data: Record<string, unknown> = {}) {
     super(message);
     this.fix = fix;
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -255,15 +258,17 @@ export async function req<T>(method: string, url: string, body?: unknown): Promi
     let detail = res.statusText;
     let fix = "";
     let code = "";
+    let data: Record<string, unknown> = {};
     try {
       const j = await res.json();
       detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
       fix = j.fix || "";
       code = j.code || "";
+      data = j && typeof j === "object" ? j : {};
     } catch {
       /* ignore */
     }
-    throw new ApiError(detail || `Request failed (${res.status})`, fix, code);
+    throw new ApiError(detail || `Request failed (${res.status})`, fix, code, data);
   }
   return res.json() as Promise<T>;
 }
@@ -297,6 +302,8 @@ export type Platform = "youtube" | "tiktok";
 
 export interface PlatformAccount {
   configured: boolean;
+  /** How Connect signs in: ClipForge's own registration ("built_in"), your own developer app ("own"), or neither. */
+  app?: "built_in" | "own" | "";
   connected: boolean;
   needs_reconnect: boolean;
   name: string;
@@ -468,6 +475,7 @@ export function uploadVideo(
   options: Record<string, unknown>,
   transcript: File | null,
   onProgress: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<Project> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
@@ -488,6 +496,9 @@ export function uploadVideo(
       }
     };
     xhr.onerror = () => reject(new Error("Upload failed: server not reachable"));
+    xhr.onabort = () => reject(new Error("Upload canceled. Nothing was added; your file is still on this computer."));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    if (signal?.aborted) return reject(new Error("Upload canceled. Nothing was added."));
     xhr.send(form);
   });
 }

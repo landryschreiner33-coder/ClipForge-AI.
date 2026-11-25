@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import subprocess
+import time
 
 import pytest
 
@@ -333,3 +334,77 @@ def test_a_copy_that_cannot_be_read_is_removed_also_when_it_is_read_only(api, wi
     send(api, up, junk)
     assert api.post(f"/api/uploads/{up['id']}/complete").status_code == 422
     assert not list(uploads.assets_dir("local").iterdir())
+
+
+# ------------------------------------------------------------------ Cancel upload
+def _part_files(tmp_path) -> list:
+    return [p for p in (tmp_path / "data").rglob("*.part")]
+
+
+def test_cancel_upload_deletes_the_partial_bytes_and_the_page_stops(api, tmp_path):
+    data = video(tmp_path)
+    fp = f"talk.mp4|{len(data)}|1700000001"
+    up = api.post("/api/uploads", json={"filename": "talk.mp4", "size": len(data), "fingerprint": fp}).json()
+    up = send(api, up, data, chunk=16 * 1024, stop_after=2)
+    assert _part_files(tmp_path)
+    r = api.delete(f"/api/uploads/{up['id']}")
+    assert r.status_code == 200 and r.json() == {"canceled": True, "status": "failed",
+                                                 "message": "Canceled by you. Nothing was kept."}
+    assert not _part_files(tmp_path)  # the partial bytes are gone at once, not at the next start
+    late = api.put(f"/api/uploads/{up['id']}?offset={up['received']}", content=data[up["received"]:][:16 * 1024])
+    assert late.status_code == 409 and late.json()["state"] == "failed"  # the page's next part ends its loop
+    assert "Canceled by you" in late.json()["detail"]
+    assert api.delete(f"/api/uploads/{up['id']}").json()["canceled"] is True  # pressing it twice says the same
+    again = api.post("/api/uploads", json={"filename": "talk.mp4", "size": len(data), "fingerprint": fp}).json()
+    assert again["id"] != up["id"] and again["received"] == 0  # choosing the file again starts afresh
+    from clipfoundry import db
+
+    assert not db.select("assets")
+
+
+def test_cancel_after_the_upload_finished_keeps_the_file_and_says_so(api, tmp_path):
+    data = video(tmp_path)
+    up = api.post("/api/uploads", json={"filename": "talk.mp4", "size": len(data)}).json()
+    up = send(api, up, data)
+    asset = api.post(f"/api/uploads/{up['id']}/complete").json()
+    r = api.delete(f"/api/uploads/{up['id']}").json()
+    assert r["canceled"] is False and r["status"] == "complete" and r["asset"]["id"] == asset["id"]
+    assert "already finished" in r["message"]
+    from clipfoundry import db
+
+    assert [a["id"] for a in db.select("assets")] == [asset["id"]]
+
+
+def test_cancel_while_the_last_bytes_are_being_checked_does_not_wait_and_keeps_the_file(api, tmp_path):
+    from clipfoundry.studio import uploads
+
+    data = video(tmp_path)
+    up = api.post("/api/uploads", json={"filename": "talk.mp4", "size": len(data)}).json()
+    up = send(api, up, data)
+    lock = uploads._lock(up["id"])  # noqa: SLF001 - complete() holds it while it checks a big file
+    lock.acquire()
+    try:
+        r = api.delete(f"/api/uploads/{up['id']}").json()
+    finally:
+        lock.release()
+    assert r["canceled"] is False and r["status"] == "checking"
+    assert api.post(f"/api/uploads/{up['id']}/complete").status_code == 200
+
+
+def test_unfinished_uploads_left_by_a_closed_app_are_cleaned_when_it_starts(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+    from clipfoundry.studio import uploads
+
+    data = video(tmp_path)
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        up = c.post("/api/uploads", json={"filename": "talk.mp4", "size": len(data)}).json()
+        up = send(c, up, data, chunk=16 * 1024, stop_after=1)
+    db.execute("UPDATE uploads SET updated_at = ? WHERE id = ?", (time.time() - uploads.STALE_SECONDS - 60, up["id"]))
+    assert _part_files(tmp_path)
+    with TestClient(app, base_url="http://127.0.0.1:8765"):
+        pass  # the app starts again
+    assert not _part_files(tmp_path) and db.fetch("uploads", up["id"])["status"] == "failed"

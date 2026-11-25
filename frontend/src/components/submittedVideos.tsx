@@ -3,7 +3,7 @@ import { errorText } from "../api";
 import { ap } from "../autopilot";
 import { plural, when } from "../format";
 import { useLeaveGuard } from "../router";
-import { channelNames, SubmittedVideo, submissions } from "../submissions";
+import { channelNames, SubmittedVideo, submissions, UploadCanceled } from "../submissions";
 import { nameList } from "./channelPicker";
 import { Banner, Icon, Pill, ProgressBar, Segmented, Skel, toast, Tone, usePoll } from "./ui";
 import { UploadChoice, useUploadChoice } from "./uploadChoice";
@@ -30,6 +30,7 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
   const [acting, setActing] = useState("");
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const transfer = useRef<AbortController | null>(null);  // the file being sent, for Cancel upload
   const id = useId();
   useLeaveGuard(busy ? { what: "a video still being copied into ClipForge" } : null);
 
@@ -59,7 +60,9 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
     const options = choice.options();
     try {
       if (inputMode === "file") setProgress(0);
-      const result = inputMode === "file" && file ? await submissions.file(file, options, setProgress)
+      const ctl = new AbortController();
+      transfer.current = ctl;
+      const result = inputMode === "file" && file ? await submissions.file(file, options, setProgress, ctl.signal)
         : await submissions.link(url.trim(), options);
       const item = { ...result.item, submission: result.item.submission || result.submission };
       setData([item, ...(data || []).filter(row => row.id !== item.id)]);
@@ -74,19 +77,31 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       refresh();
       refreshStatus();
     } catch (e) {
-      setProblem(errorText(e));
-      reloadSetup();
+      if (e instanceof UploadCanceled) setNotice(e.message);
+      else {
+        setProblem(errorText(e));
+        reloadSetup();
+      }
     } finally {
+      transfer.current = null;
       setBusy(false);
       setProgress(null);
     }
   };
-  const act = async (item: SubmittedVideo, action: "cancel" | "retry") => {
+  const act = async (item: SubmittedVideo, action: "cancel" | "retry" | "pause" | "resume") => {
     if (acting || busy) return;
     setActing(item.id);
     try {
-      await ap.linkAction(item.id, action);
-      toast(action === "cancel" ? "Video processing canceled" : "Video queued for another try");
+      if (action === "pause" || action === "resume") {
+        await ap.pauseMission(item.submission.id, action === "pause");
+        toast(action === "pause" ? "Uploads paused for this mission. Its clips are still made."
+          : "Uploads resumed for this mission");
+      } else {
+        await ap.linkAction(item.id, action);
+      }
+      if (action === "cancel" || action === "retry") {
+        toast(action === "cancel" ? "Video processing canceled" : "Video queued for another try");
+      }
       refresh();
       refreshStatus();
     } catch (e) {
@@ -146,7 +161,9 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       {progress !== null && <div className="stack" role="status">
         <ProgressBar value={progress} label="Copying video into ClipForge" />
         <span className="small muted">{progress < 1 ? `Copying video: ${Math.round(progress * 100)}%`
-          : "Copied. Preparing the video…"}</span>
+          : "Copied. Preparing the video… (too late to cancel: ClipForge is checking it)"}</span>
+        {progress < 1 && <div><button type="button" className="btn btn-small btn-danger"
+          onClick={() => transfer.current?.abort()}>Cancel upload</button></div>}
       </div>}
       <div className="row wrap submitted-actions">
         <span className="hint grow">Adding a video starts processing. Keep ClipForge open and the PC awake while it works. Weak or failed clips stay
@@ -172,7 +189,8 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
 }
 
 function SubmittedRow({ item, timezone, disabled, act }: {
-  item: SubmittedVideo; timezone: string; disabled: boolean; act: (action: "cancel" | "retry") => void;
+  item: SubmittedVideo; timezone: string; disabled: boolean;
+  act: (action: "cancel" | "retry" | "pause" | "resume") => void;
 }) {
   const source = item.submission;
   const p = source.progress;
@@ -200,13 +218,31 @@ function SubmittedRow({ item, timezone, disabled, act }: {
             : " · Stays on this PC"}
           {source.auto_upload && channelNames(source).length > 0 && ` to ${nameList(channelNames(source))}`}
           {source.auto_upload && source.split === "turns" && ", taking turns"}</p>
+        {source.next_post && <p className="small">
+          <Icon name="calendar" className="sm" /> Next upload: <b>{source.next_post.label}</b>
+          {" "}({source.next_post.timezone})
+          {" "}to {source.next_post.platform === "youtube" ? "YouTube" : "TikTok"}
+          {source.next_post.account && <> · {source.next_post.account}</>}
+          {source.next_post.needs_ok && <> · <a className="textlink"
+            href={`#/post/${source.next_post.id}`}>needs your OK</a></>}
+          {source.paused && " · paused"}
+        </p>}
+        {!!source.agents?.length && <p className="small muted">
+          Working on it: {source.agents
+            .map((a) => `${a.name} (${a.title})${a.state === "running" ? "" : `, ${a.state}`}`).join(" · ")}
+        </p>}
       </div>
-      <Pill tone={tone}>{label}</Pill>
+      <Pill tone={source.paused ? "warn" : tone}>{source.paused ? "Uploads paused" : label}</Pill>
     </div>
     <div className="row wrap">
       {item.project_id && <a className="btn btn-small" href={`#/project/${item.project_id}`}>View clips</a>}
       {source.auto_upload && p?.posts_failed > 0 && <a className="btn btn-small" href="#/publishing/problems">Review upload issue</a>}
       {item.can_retry && <button type="button" className="btn btn-small" disabled={disabled} onClick={() => act("retry")}>Retry video</button>}
+      {source.auto_upload && !["uploaded", "local_ready"].includes(source.status) && (
+        <button type="button" className="btn btn-small" disabled={disabled}
+          onClick={() => act(source.paused ? "resume" : "pause")}>
+          <Icon name={source.paused ? "play" : "pause"} />{source.paused ? "Resume uploads" : "Pause uploads"}</button>
+      )}
       {item.can_cancel && <button type="button" className="btn btn-small btn-quiet" disabled={disabled}
         onClick={() => act("cancel")}>Cancel video</button>}
     </div>

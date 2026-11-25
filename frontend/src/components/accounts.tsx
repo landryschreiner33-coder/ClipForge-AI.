@@ -190,8 +190,9 @@ export function SetupAndConnect({ platform, account, onChange }: {
   return (
     <div className="stack-3">
       <p className="small">
-        {name} only lets apps like ClipForge post through <b>your own free developer app</b>. Create it once (steps
-        below), paste its two codes here, then sign in. ClipForge never sees your password.
+        This copy of ClipForge has no built-in {name} sign-in (release builds have one: just Connect). Until then,
+        use <b>your own free developer app</b>: create it once (steps below), paste its two codes here, then sign in.
+        ClipForge never sees your password.
       </p>
       <div className="field">
         <label htmlFor={`${uid}-id`}>{yt ? "OAuth client ID" : "Client key"}</label>

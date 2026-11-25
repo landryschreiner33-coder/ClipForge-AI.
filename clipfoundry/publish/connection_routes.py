@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from .. import db, secure
 from ..cloud import principal
-from . import jobs, tiktok, youtube
+from . import jobs, oauth_apps, tiktok, youtube
 from .common import PublishError, app_request, challenge_hex, challenge_s256, local_only, redirect_uri, start_login
 
 router = APIRouter()
@@ -36,6 +36,40 @@ def post_by_default(acc: dict) -> bool:
     return bool(info["post_by_default"]) if "post_by_default" in info else bool(acc.get("is_default"))
 
 
+def capabilities(acc: dict, settings: dict | None = None) -> list[dict]:
+    """What this account lets ClipForge do, from the permissions the platform really granted (never assumed), with
+    the platform's limits in words. Shown on Accounts; posts never offer what is not listed as on."""
+    settings = settings if settings is not None else db.get_settings()
+    scopes = acc.get("scopes") or []
+    if acc["platform"] == "youtube":
+        upload = youtube.SCOPES[0] in scopes
+        return [
+            {"key": "upload", "label": "Upload videos", "on": upload,
+             "note": "" if upload else "Reconnect and allow 'Manage your YouTube videos'."},
+            {"key": "schedule", "label": "Post at a planned time", "on": upload,
+             "note": "ClipForge uploads at the time you plan (YouTube's own scheduling is not used); ClipForge has "
+                     "to be running then."},
+            {"key": "read", "label": "Read the channel and your videos' status", "on": youtube.SCOPES[1] in scopes,
+             "note": ""},
+            {"key": "analytics", "label": "Read watch time and retention", "on": youtube.SCOPES[2] in scopes,
+             "note": "" if youtube.SCOPES[2] in scopes else "Optional: reconnect and allow YouTube Analytics."},
+        ]
+    audited = bool(settings.get("tiktok_app_audited"))
+    direct, inbox = "video.publish" in scopes, "video.upload" in scopes
+    return [
+        {"key": "direct_post", "label": "Post directly to your profile", "on": direct,
+         "note": ("" if audited else "Until TikTok approves ClipForge, a direct post is 'Only me' and your account "
+                  "must be private.") if direct else "Not granted: posts go to your inbox or you post them yourself."},
+        {"key": "inbox", "label": "Send to your TikTok inbox as a draft", "on": inbox,
+         "note": "You finish the post in the TikTok app (who can watch, then Post)." if inbox else ""},
+        {"key": "schedule", "label": "Post at a planned time", "on": direct or inbox,
+         "note": "TikTok's API has no scheduling: ClipForge sends it at the planned time and has to be running then."},
+        {"key": "handoff", "label": "Post it yourself", "on": True,
+         "note": "Always possible: ClipForge prepares the video and caption to download and post in TikTok."},
+        {"key": "stats", "label": "Read your posted videos' numbers", "on": "video.list" in scopes, "note": ""},
+    ]
+
+
 def view(acc: dict) -> dict:
     pubs = [p for p in db.select("publications", "connection_id = ?", (acc["id"],)) if p["status"] in jobs.ACTIVE]
     state = health(acc)
@@ -48,7 +82,8 @@ def view(acc: dict) -> dict:
             "health": state, "connected_at": acc.get("connected_at"), "active_uploads": len(pubs),
             "post_by_default": post_by_default(acc), "postable": state["state"] == "ok",
             "can_direct_post": tiktok_account and "video.publish" in scopes,
-            "can_inbox": tiktok_account and "video.upload" in scopes}
+            "can_inbox": tiktok_account and "video.upload" in scopes,
+            "capabilities": capabilities(acc)}
 
 
 def _mine(connection_id: str) -> dict:
@@ -61,20 +96,21 @@ def _mine(connection_id: str) -> dict:
 @router.get("/api/connections", dependencies=[Depends(local_only)])
 def list_connections(platform: str = "") -> dict:
     rows = db.list_connections(principal.workspace_id(), platform or None)
-    return {"connections": [view(a) for a in rows], "protection": secure.protection()}
+    return {"connections": [view(a) for a in rows], "protection": secure.protection(),
+            "apps": oauth_apps.describe(db.get_settings())}
 
 
 def _start(request: Request, platform: str, operation: str, connection_id: str = "") -> dict:
     settings = db.get_settings()
     if platform == "youtube":
         if not youtube.configured(settings):
-            raise PublishError("YouTube is not set up yet.", youtube.SETUP_FIX, "setup")
+            raise PublishError("This copy of ClipForge has no built-in YouTube sign-in.", youtube.SETUP_FIX, "setup")
         uri = redirect_uri(request, "youtube")
         state, verifier = start_login("youtube", uri, operation, connection_id)
         return {"auth_url": youtube.auth_url(settings, uri, state, challenge_s256(verifier))}
     if platform == "tiktok":
         if not tiktok.configured(settings):
-            raise PublishError("TikTok is not set up yet.", tiktok.SETUP_FIX, "setup")
+            raise PublishError("This copy of ClipForge has no built-in TikTok sign-in.", tiktok.SETUP_FIX, "setup")
         uri = redirect_uri(request, "tiktok")
         state, verifier = start_login("tiktok", uri, operation, connection_id)
         return {"auth_url": tiktok.auth_url(settings, uri, state, challenge_hex(verifier))}

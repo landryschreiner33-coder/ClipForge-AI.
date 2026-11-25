@@ -451,10 +451,15 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
       )}
       {!yt && <TikTokSetup account={account} preferences={s} onPreferences={c.set} />}
       <Disclosure plain open={!!account && !account.configured}
-        summary={`Your ${name} app codes${account?.configured ? "" : " (needed once)"}`}>
+        summary={account?.app === "built_in" ? `Advanced: use your own ${name} developer app instead`
+          : `Your own ${name} developer app${account?.configured ? "" : " (this copy has no built-in sign-in)"}`}>
         <div className="stack-3">
           <p className="small muted">
-            {name} only lets apps like ClipForge post through your own free developer app. Paste its two codes once.
+            {account?.app === "built_in"
+              ? <>Connect {name} uses ClipForge's own app registration: one sign-in, nothing to paste. Only if you
+                prefer your own free developer app, paste its two codes here; they then replace the built-in one.</>
+              : <>Release builds of ClipForge sign in with ClipForge's own app. This copy has none for {name}, so paste
+                the two codes of your own free developer app once.</>}
           </p>
           <div className="field">
             <label htmlFor={fieldId(idKey)}>{yt ? "OAuth client ID" : "Client key"}</label>

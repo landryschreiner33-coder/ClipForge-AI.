@@ -81,6 +81,14 @@
 .acc-manage p { margin: 0; }
 .acc-manage .row-actions { justify-content: flex-start; flex-wrap: wrap; }
 .acc-id { overflow-wrap: anywhere; }
+.acc-caps { display: grid; gap: var(--s2); }
+.acc-caps ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.acc-caps li { display: flex; gap: var(--s2); align-items: flex-start; font-size: 0.9375rem; line-height: 1.4; }
+.acc-caps li .icon { flex: none; width: 18px; height: 18px; margin-top: 2px; }
+.acc-caps li.on .icon { color: var(--good); }
+.acc-caps li.off { color: var(--text-3); }
+.acc-signin-note { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: var(--s3) 0 0; }
+.acc-signin-note .icon { width: 18px; height: 18px; color: var(--warn); }
 
 /* other channels and TikTok accounts */
 .acc-rows { list-style: none; margin: var(--s5) 0 0; padding: 0; width: 100%; border-top: 1px solid var(--line-strong);

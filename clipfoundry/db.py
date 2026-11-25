@@ -2297,6 +2297,25 @@ def interrupted_work() -> dict[str, list]:
                           "avoid a duplicate.",
                           "Open YouTube Studio → Content and use Refresh status to find the existing upload.",
                           time.time(), pub["id"]))
+        for row in conn.execute("SELECT * FROM publications WHERE status IN ('queued', 'uploading') "
+                                "AND COALESCE(scheduled_id, '') = ''").fetchall():
+            pub = _decode("publications", row) or {}
+            info = pub.get("info") or {}
+            if info.get("final_chunk_at"):
+                continue  # held above
+            if info.get("cancel_requested_at"):  # Cancel upload was pressed before the app closed
+                msg, err = "Upload canceled. Nothing was published.", ""
+            elif pub["platform"] == "youtube":  # YouTube makes no video from a session that never got its last part
+                msg = ""
+                err = ("Interrupted (the app was closed) before the last part was sent, so YouTube did not post it. "
+                       "Publish it again when you are ready.")
+            else:
+                continue
+            if info.get("retry_at") and not info.get("cancel_requested_at"):
+                continue  # still waiting for the time the platform asked for
+            conn.execute("UPDATE publications SET status = ?, message = ?, error = ?, updated_at = ? WHERE id = ?",
+                         ("cancelled" if info.get("cancel_requested_at") else "failed", msg, err, time.time(),
+                          pub["id"]))
         waiting = [r["id"] for r in conn.execute(
             "SELECT id, info FROM publications WHERE status = 'queued' AND COALESCE(scheduled_id, '') = ''")
             if ((_decode("publications", r) or {}).get("info") or {}).get("retry_at")]

@@ -33,6 +33,21 @@ preferences/cache are stored locally by macOS, separately from Safari/Chrome. No
 OAuth opens in your default browser and returns to the existing local callback. The WebView has no native
 JavaScript bridge, and only the owned loopback origin can navigate the studio window.
 
+### The name ClipForge, and a stale ClipFoundry in the Dock
+
+The app's file stays `ClipFoundry.app` (bundle id `com.clipfoundry.studio`), so dragging a new version into
+Applications and choosing Replace updates the installed app in place: the Dock pin, Launchpad slot, window position,
+WebKit storage and Keychain item all carry over. Finder, the Dock, Launchpad, Spotlight, the menu bar and About show
+**ClipForge** through a localized display name (`en.lproj/InfoPlist.strings`; `build_desktop.info_plist`). Terminal
+and `ls /Applications` still show `ClipFoundry.app`. Renaming the folder to `ClipForge.app` was rejected: the
+DMG drag would leave both apps side by side with the same id, and the Dock would keep opening the old one.
+
+If the Dock or Launchpad still shows "ClipFoundry" after an update, a second copy is usually the cause (Finder's
+"Keep Both", a copy in Downloads, the old `Open-ClipFoundry.command` Terminal setup, or a browser web app made while
+the tab said ClipFoundry). `bash macos/find_duplicates.sh` lists every copy and Dock entry without changing anything,
+and ends with the safe steps: quit ClipForge, keep `/Applications/ClipFoundry.app`, move only the other copies to the
+Trash (never `~/Library/Application Support/ClipFoundry`), re-pin the app, and `killall Dock` if a label is stale.
+
 ## Build and verify
 
 On an Apple-silicon Mac with Xcode command-line tools:

@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
+from . import oauth_apps
 from .common import (SHORT_WAIT, Cancelled, ConnectionToken, PublishError, client, network_errors, retry_after,
                      save_tokens, sleep_exactly, with_retry_after)
 
@@ -45,9 +46,9 @@ UNVERIFIED_NOTE = (
     "Confirm Public audience and automatic publishing separately; ClipForge reports the visibility YouTube "
     "actually returns. A compliance audit may be needed to request additional quota."
 )
-SETUP_FIX = ("Settings → Publishing → YouTube: create a Google Cloud project, enable the YouTube Data API v3, set up "
-             "the OAuth consent screen, create an OAuth client of type 'Desktop app' and paste its client ID and "
-             "secret.")
+SETUP_FIX = ("Use a release build of ClipForge (it signs in with ClipForge's own Google app), or under Settings → "
+             "Publishing → YouTube → Advanced paste the client ID and secret of your own Google Cloud OAuth client "
+             "of type 'Desktop app' (YouTube Data API v3 enabled).")
 RECONNECT_FIX = "Click Connect YouTube again (Settings → Publishing or the publish screen)."
 TESTING_NOTE = ("If your OAuth consent screen is in 'Testing', Google ends the connection after 7 days; set it to "
                 "'In production' to stay connected (for your own use you can continue past the 'unverified app' "
@@ -55,10 +56,13 @@ TESTING_NOTE = ("If your OAuth consent screen is in 'Testing', Google ends the c
 
 
 def configured(settings: dict) -> bool:
-    return bool(settings.get("youtube_client_id") and settings.get("youtube_client_secret"))
+    """Connect can start: ClipForge's built-in app registration, or your own (oauth_apps.py)."""
+    s = oauth_apps.effective(settings)
+    return bool(s.get("youtube_client_id") and s.get("youtube_client_secret"))
 
 
 def auth_url(settings: dict, redirect_uri: str, state: str, challenge: str) -> str:
+    settings = oauth_apps.effective(settings)
     return AUTH_URL + "?" + urlencode({
         "client_id": settings["youtube_client_id"], "redirect_uri": redirect_uri, "response_type": "code",
         "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent", "include_granted_scopes": "true",
@@ -91,6 +95,7 @@ def exchange_code(settings: dict, code: str, verifier: str, redirect_uri: str, *
 
     `expected_connection`: Reconnect of one connection. Signing in to a different channel then is refused instead of
     silently changing where that connection uploads."""
+    settings = oauth_apps.effective(settings)
     tok = _token_request({"code": code, "client_id": settings["youtube_client_id"],
                           "client_secret": settings["youtube_client_secret"], "redirect_uri": redirect_uri,
                           "grant_type": "authorization_code", "code_verifier": verifier})
@@ -122,8 +127,8 @@ class Token(ConnectionToken):
     reconnect_fix = RECONNECT_FIX
 
     def _refresh(self, tokens: dict) -> dict:
-        return _token_request({"client_id": self.settings["youtube_client_id"],
-                               "client_secret": self.settings["youtube_client_secret"],
+        app = oauth_apps.effective(self.settings)
+        return _token_request({"client_id": app["youtube_client_id"], "client_secret": app["youtube_client_secret"],
                                "refresh_token": tokens["refresh_token"], "grant_type": "refresh_token"})
 
 
@@ -429,6 +434,34 @@ def _resume_offset(c: httpx.Client, session: str, size: int, token: Token, sleep
         _pause(asked, 0.0, sleep, cancelled)
     return 0, None
 
+
+def session_state(session: str, size: int, token: Token) -> tuple[str, dict | int | None]:
+    """Where an upload session stands, for Cancel upload, so the person is told what really happened. Sends no
+    video bytes. ("complete", video): YouTube has the whole file and made the video. ("partial", offset): YouTube
+    has `offset` bytes; a session that never gets the rest makes no video. ("expired", None): YouTube no longer knows
+    the session. ("unknown", None): no clear answer (offline, signed out, a wait was asked for)."""
+    try:
+        with client(30) as c:
+            r = c.put(session, headers={"Authorization": f"Bearer {token.get()}", "Content-Range": f"bytes */{size}",
+                                        "Content-Length": "0"})
+    except (httpx.HTTPError, PublishError):
+        return "unknown", None
+    if r.status_code in (200, 201):
+        return "complete", _json(r)
+    if r.status_code == 308:
+        return "partial", _next_offset(r)
+    if r.status_code in (404, 410):
+        return "expired", None
+    return "unknown", None
+
+
+def cancel_is_safe(state: str, offset: dict | int | None, size: int, final_chunk_sent: bool) -> bool:
+    """A cancel may end as "nothing was posted" only when YouTube cannot make the video any more: it has less than
+    the whole file. Right after the last part was sent YouTube may still be putting it together, so then only a
+    session missing more than one whole part counts; anything less certain keeps the outcome-unknown hold."""
+    if state != "partial" or not isinstance(offset, int):
+        return False
+    return offset < size - (CHUNK if final_chunk_sent else 0)
 
 def video_url(video_id: str) -> str:
     return f"https://www.youtube.com/shorts/{video_id}"

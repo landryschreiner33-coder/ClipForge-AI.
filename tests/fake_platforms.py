@@ -262,6 +262,11 @@ class FakeGoogle(_Server):
         if len(s["data"]) < s["size"]:
             headers = {"Range": f"bytes=0-{len(s['data']) - 1}"} if s["data"] else {}
             return h._send(308, None, headers)
+        made = self.videos.get(s.get("video_id", ""))
+        if made is not None:  # like YouTube: asking a finished session again answers with the same video
+            if h is None:
+                return None
+            return h._send(200, {k: v for k, v in made.items() if k not in ("bytes", "uploaded_at")})
         vid = "vid" + secrets.token_hex(4)
         wanted = s["meta"]["status"]["privacyStatus"]
         status = {"uploadStatus": "uploaded",
@@ -275,6 +280,7 @@ class FakeGoogle(_Server):
         if self.default_statistics:
             video["statistics"] = dict(self.default_statistics)
         self.videos[vid] = video
+        s["video_id"] = vid
         if h is None:
             return None
         return h._send(200, {k: v for k, v in video.items() if k not in ("bytes", "uploaded_at")})
