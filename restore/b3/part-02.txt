@@ -1,0 +1,608 @@
++                         version=int(row[0]["version"] or 1) + 1)
++                    record_version(ws, f"Updated: {fields['text']} (checked on {ev['n']} clips: {ev['summary']})", ev)
++                changed.append(db.fetch("learned_items", row[0]["id"]) or row[0])
++                continue
++            if row:
++                _set(row[0]["id"], **fields, version=int(row[0]["version"] or 1) + 1)
++                item = db.fetch("learned_items", row[0]["id"]) or {}
++            else:
++                item = db.insert("learned_items", fields)
++            changed.append(_check_and_use(ws, item, settings))
++    return changed
++
++
++def _check_and_use(ws: str, item: dict, settings: dict) -> dict:
++    ev = evaluate(ws, item, settings)
++    _set(item["id"], evaluation=ev)
++    item = db.fetch("learned_items", item["id"]) or item
++    if ev["passed"] and item["status"] != "in_use":
++        explicit = db.select("learned_items", "workspace_id = ? AND key = ? AND source = 'explicit' AND status = "
++                             "'in_use'", (ws, item["key"]), limit=1)
++        if not explicit:  # what you set yourself wins over a trend
++            _set(item["id"], status="in_use")
++            record_version(ws, f"Started using: {item['text']} (checked on {ev['n']} clips: {ev['summary']})", ev)
++            item = db.fetch("learned_items", item["id"]) or item
++    return item
++
++
++def recheck(ws: str, settings: dict | None = None) -> list[dict]:
++    """Check every preference again on the clip set as it is now (more edits make a better check); a trend the
++    check now supports is used. One in use is never stopped by a check: you turn it off or roll back."""
++    settings = settings if settings is not None else db.get_settings()
++    out = []
++    for item in db.select("learned_items", "workspace_id = ?", (ws,)):
++        if item["source"] == "inferred" and item["status"] == "trying":
++            out.append(_check_and_use(ws, item, settings))
++        else:
++            _set(item["id"], evaluation=evaluate(ws, item, settings))
++            out.append(db.fetch("learned_items", item["id"]) or item)
++    return out
++
++
++# ------------------------------------------------------------------ the check
++def evaluate(ws: str, item: dict, settings: dict | None = None) -> dict:
++    """Check a preference on the reusable set (your edited clips of its kind, across formats), one clip left out at
++    a time: how far ClipForge's own choice was from your final edit (before) and how far the trend, read from the
++    other clips, would have been (after). {n, before, after, unit, by_format, passed, summary, at}."""
++    settings = settings if settings is not None else db.get_settings()
++    key = item["key"]
++    events = [e for e in _latest(ws, KEY_KIND[key]) if (e.get("data") or {}).get(key) is not None]
++    values = [_hashable(e["data"][key]) for e in events]
++    numeric = key in NUMERIC
++    rows = []
++    for i, e in enumerate(events):
++        actual = values[i]
++        base = _hashable(((e.get("data") or {}).get("base") or {}).get(key, _baseline(key, settings)))
++        others = values[:i] + values[i + 1:]
++        guess = trend(key, list(others), settings) if item["source"] == "inferred" else _hashable(item["value"])
++        guess = base if guess is None else guess  # no trend: ClipForge does what it did
++        if numeric:
++            a, b, g = _num(actual), _num(base), _num(guess)
++            if a is None:
++                continue
++            err_before, err_after = abs(a - (b or 0.0)), abs(a - (g if g is not None else b or 0.0))
++        else:
++            err_before, err_after = float(actual != _hashable(base)), float(actual != guess)
++        rows.append((e.get("fmt") or "highlights", err_before, err_after))
++    n = len(rows)
++    before = round(sum(r[1] for r in rows) / n, 3) if n else None
++    after = round(sum(r[2] for r in rows) / n, 3) if n else None
++    by_format = {}
++    for fmt in sorted({r[0] for r in rows}):
++        part = [r for r in rows if r[0] == fmt]
++        by_format[fmt] = {"n": len(part), "before": round(sum(r[1] for r in part) / len(part), 3),
++                          "after": round(sum(r[2] for r in part) / len(part), 3)}
++    passed = bool(n >= EVAL_MIN and before is not None and after is not None and before > 0
++                  and before - after >= PROMOTE * before)
++    unit = "s" if key in ("start_shift", "end_shift") else "" if numeric else "share"
++    if n == 0:
++        summary = "no clips to check yet"
++    elif numeric:
++        summary = f"off by {before:.2f}{unit} before, {after:.2f}{unit} with it"
++    else:
++        summary = (f"matched your choice in {round((1 - before) * 100)}% of clips before, "
++                   f"{round((1 - after) * 100)}% with it")
++    if n and n < EVAL_MIN:
++        summary += f"; needs {EVAL_MIN - n} more clip(s) to decide"
++    return {"n": n, "before": before, "after": after, "unit": unit, "by_format": by_format, "passed": passed,
++            "summary": summary, "at": round(time.time(), 3)}
++
++
++def taste_check(ws: str, folds: int = 5) -> dict:
++    """The clip-choice model (taste.py) checked on your own keep/leave-out choices: fitted on four fifths, tested on
++    the fifth left out, five times. Before: guessing the more common choice every time; after: the model's guess.
++    {n, before, after, passed, summary}: shares of choices it got right."""
++    import json as _json
++
++    from .. import taste
++
++    rows = [r for r in taste.events(ws) if r.get("features")]
++    n = len(rows)
++    if n < taste.MIN_EVENTS + 3:
++        return {"n": n, "before": None, "after": None, "passed": False,
++                "summary": f"needs {taste.MIN_EVENTS + 3 - n} more clip choice(s) to check"}
++    right_before = right_after = tested = 0
++    for k in range(folds):
++        test = rows[k::folds]
++        train_rows = [r for i, r in enumerate(rows) if i % folds != k]
++        m = taste.fit(train_rows, min_events=taste.MIN_EVENTS - 3, min_each=max(2, taste.MIN_EACH - 1))
++        if not m:
++            continue
++        common = sum(1 for r in train_rows if float(r["value"]) > 0) * 2 >= len(train_rows)
++        for r in test:
++            try:
++                x = _json.loads(r["features"])
++            except (TypeError, ValueError):
++                continue
++            kept = float(r["value"]) > 0
++            right_before += int(kept == common)
++            right_after += int((taste.predict(m, x)["p"] >= 0.5) == kept)
++            tested += 1
++    if not tested:
++        return {"n": n, "before": None, "after": None, "passed": False,
++                "summary": "not enough of both choices (kept and left out) to check yet"}
++    before, after = round(right_before / tested, 3), round(right_after / tested, 3)
++    return {"n": tested, "before": before, "after": after, "passed": after > before,
++            "summary": f"guessed {round(before * 100)}% of your choices right without it, {round(after * 100)}% with "
++                       f"it (each choice tested while left out)"}
++
++
++# ------------------------------------------------------------------ what new clips use
++def defaults(ws: str, settings: dict | None = None) -> dict:
++    """The preferences in use, for new clips: editing choices (a video's own options and your edits of a clip still
++    win) plus start_shift, end_shift and title_kind. What you set yourself wins over a trend."""
++    if not on(settings):
++        return {}
++    out: dict = {}
++    rows = db.select("learned_items", "workspace_id = ? AND status = 'in_use'", (ws,))
++    for row in sorted(rows, key=lambda r: r["source"] == "explicit"):  # explicit last: it wins
++        out[row["key"]] = row["value"]
++    return out
++
++
++def shift_bounds(start: float, end: float, words: list[dict], opts: dict) -> tuple[float, float]:
++    """A new clip's start and end moved the way you usually move them (at most 3 s, onto a word's edge, never
++    shorter than the shortest clip allowed)."""
++    a, b = float(opts.get("start_shift") or 0), float(opts.get("end_shift") or 0)
++    if not a and not b:
++        return start, end
++    ns, ne = start + a, end + b
++    if a:
++        edges = [w["start"] for w in words if abs(w["start"] - ns) <= 0.6]
++        ns = min(edges, key=lambda t: abs(t - ns)) if edges else ns
++    if b:
++        edges = [w["end"] for w in words if abs(w["end"] - ne) <= 0.6]
++        ne = min(edges, key=lambda t: abs(t - ne)) if edges else ne
++    ns = max(0.0, ns)
++    if ne - ns < float(opts.get("min_duration") or 5) or ne <= ns:
++        return start, end
++    return round(ns, 3), round(ne, 3)
++
++
++# ------------------------------------------------------------------ seeing, changing and undoing
++def view(ws: str) -> dict:
++    from .. import taste
++
++    items = db.select("learned_items", "workspace_id = ?", (ws,), "updated_at DESC")
++    counts = Counter(e["kind"] for e in db.select("learned_events", "workspace_id = ?", (ws,), limit=5000))
++    rules = db.select("brain_memories", "workspace_id = ? AND enabled = 1 AND kind = 'rule'", (ws,))
++    return {"on": on(), "explicit": [i for i in items if i["source"] == "explicit"],
++            "inferred": [i for i in items if i["source"] == "inferred"], "observed": dict(counts),
++            "rules": len(rules), "taste": {**taste.status(ws), "used": use_taste(ws), "check": taste_check(ws)},
++            "versions": versions(ws)[:20], "keys": {k: LABELS.get(k, k) for k in KEY_KIND},
++            "rules_text": {"min_evidence": MIN_EVIDENCE, "agree": AGREE, "eval_min": EVAL_MIN, "promote": PROMOTE}}
++
++
++def _item(ws: str, item_id: str) -> dict:
++    row = db.fetch("learned_items", item_id)
++    if not row or row["workspace_id"] != ws:
++        raise LearnedError("That preference is not there any more.", 404)
++    return row
++
++
++def set_status(ws: str, item_id: str, status: str) -> dict:
++    """Turn a preference on (in use) or off. Turning one on is your choice: it is used even if its check did not
++    decide yet; an explicit one of the same setting is turned off, so only one is in use."""
++    if status not in ("in_use", "off"):
++        raise LearnedError("Choose on or off.")
++    row = _item(ws, item_id)
++    if row["status"] == status:
++        return row
++    if status == "in_use":
++        for other in db.select("learned_items", "workspace_id = ? AND key = ? AND id != ? AND status = 'in_use'",
++                               (ws, row["key"], item_id)):
++            _set(other["id"], status="off")
++    _set(item_id, status=status)
++    record_version(ws, f"{'Turned on' if status == 'in_use' else 'Turned off'} by you: {row['text']}")
++    return db.fetch("learned_items", item_id) or row
++
++
++def change(ws: str, item_id: str, value: object) -> dict:
++    """Change a preference's value. The changed one is yours (explicit) and in use; the trend it came from stays
++    listed, turned off, so a later trend never overwrites what you set."""
++    from .. import config
++
++    row = _item(ws, item_id)
++    key = row["key"]
++    value = _clean(key, value, config)
++    text = _words(key, value, mine=True)
++    if row["source"] == "explicit":
++        _set(item_id, value=value, text=text, status="in_use", version=int(row["version"] or 1) + 1)
++        saved = db.fetch("learned_items", item_id) or row
++    else:
++        _set(item_id, status="off")
++        mine = db.select("learned_items", "workspace_id = ? AND key = ? AND source = 'explicit'", (ws, key), limit=1)
++        fields = {"value": value, "text": text, "status": "in_use", "kind": row["kind"], "evidence": 0}
++        if mine:
++            _set(mine[0]["id"], **fields, version=int(mine[0]["version"] or 1) + 1)
++            saved = db.fetch("learned_items", mine[0]["id"]) or mine[0]
++        else:
++            saved = db.insert("learned_items", {"workspace_id": ws, "key": key, "source": "explicit", **fields})
++    record_version(ws, f"Set by you: {saved['text']}")
++    return saved
++
++
++def _clean(key: str, value: object, config) -> object:
++    if key in ("start_shift", "end_shift"):
++        try:
++            v = float(value)  # type: ignore[arg-type]
++        except (TypeError, ValueError) as exc:
++            raise LearnedError("Give the seconds as a number, like 1.5 or -0.5.") from exc
++        return round(max(-MAX_SHIFT, min(MAX_SHIFT, v)), 1)
++    if key == "title_kind":
++        if value not in TITLE_WORDS:
++            raise LearnedError("Choose Searchable, Curiosity or The moment.")
++        return value
++    choices = {"caption_style": config.CAPTION_STYLES, "caption_position": ("bottom", "middle", "top"),
++               "tracking": config.TRACKING_MODES, "layout": config.CLIP_LAYOUTS, "silence": config.SILENCE_MODES}
++    if key in choices:
++        if value not in choices[key]:
++            raise LearnedError(f"That is not a choice for {LABELS.get(key, key)}.")
++        return value
++    if key in ("highlight_words", "captions_enabled", "remove_fillers"):
++        if not isinstance(value, bool):
++            raise LearnedError("Choose on or off.")
++        return value
++    if key in ("caption_size", "speed"):
++        v = _num(value)
++        if v is None:
++            raise LearnedError("Give a number.")
++        return round(max(0.5, min(2.0, v)), 2)
++    if key in ("crop_x", "zoom"):
++        try:
++            v = float(value)  # type: ignore[arg-type]
++        except (TypeError, ValueError) as exc:
++            raise LearnedError("Give a number.") from exc
++        return round(max(0.0, min(1.0, v)), 2) if key == "crop_x" else round(max(1.0, min(2.5, v)), 2)
++    if key == "layout" and value in config.CLIP_LAYOUTS:
++        return value
++    raise LearnedError(f"That is not a choice for {LABELS.get(key, key)}.")
++
++
++def remove(ws: str, item_id: str) -> dict:
++    row = _item(ws, item_id)
++    db.execute("DELETE FROM learned_items WHERE id = ?", (item_id,))
++    record_version(ws, f"Deleted: {row['text']}")
++    return row
++
++
++def forget_edits(ws: str) -> dict:
++    """Forget the edits ClipForge read (and the trends written from them). What you set yourself stays; the version
++    list keeps what was in use, so going back still works."""
++    n = db.execute("DELETE FROM learned_events WHERE workspace_id = ?", (ws,))
++    m = db.execute("DELETE FROM learned_items WHERE workspace_id = ? AND source = 'inferred'", (ws,))
++    record_version(ws, f"Forgot {n} edit(s) and {m} trend(s) (by you)")
++    return {"edits": int(n or 0), "trends": int(m or 0)}
++
++
++def set_on(on_: bool) -> dict:
++    """Learning from edits on or off (off: nothing is recorded and nothing learned is used)."""
++    db.save_settings({"learn_from_edits": bool(on_)})
++    return {"on": on()}
++
++
++# ------------------------------------------------------------------ versions and rollback
++def use_taste(ws: str) -> bool:
++    """Whether the clip-choice model (taste.py) moves Clip Scores (a rollback can turn it off and on)."""
++    row = db.select("learned_versions", "workspace_id = ?", (ws,), "number DESC", 1)
++    items = (row[0].get("items") if row else None) or {}
++    return bool(items.get("taste", True)) if isinstance(items, dict) else True
++
++
++def _snapshot(ws: str, taste: bool | None = None) -> dict:
++    """What is in use at a version: the preferences, whether clip choices move Clip Scores, and the rules you told
++    ClipForge AI (Brain {U+2192} Memory), which are the instructions its prompts carry, word for word."""
++    rows = db.select("learned_items", "workspace_id = ?", (ws,), "created_at ASC")
++    rules = db.select("brain_memories", "workspace_id = ? AND kind = 'rule'", (ws,), "created_at ASC", 500)
++    return {"items": [{k: r[k] for k in ("id", "key", "kind", "source", "text", "value", "status", "evidence",
++                                         "version")} for r in rows],
++            "taste": use_taste(ws) if taste is None else bool(taste),
++            "rules": [{"id": r["id"], "text": r["text"], "enabled": bool(r["enabled"]),
++                       "revision": int(r["revision"] or 1)} for r in rules]}
++
++
++def record_version(ws: str, what: str, evaluation: dict | None = None, *, taste: bool | None = None) -> dict:
++    number = int(db.scalar("SELECT COALESCE(MAX(number), 0) FROM learned_versions WHERE workspace_id = ?",
++                           (ws,)) or 0) + 1
++    return db.insert("learned_versions", {"workspace_id": ws, "number": number, "what": what[:300],
++                                          "items": _snapshot(ws, taste), "evaluation": evaluation or {}})
++
++
++def versions(ws: str) -> list[dict]:
++    return [{k: v["items"].get(k) if k in ("taste",) else v[k] for k in ("id", "number", "what", "created_at",
++                                                                          "evaluation", "taste")}
++            | {"in_use": [i["text"] for i in (v.get("items") or {}).get("items", []) if i.get("status") == "in_use"]}
++            for v in db.select("learned_versions", "workspace_id = ?", (ws,), "number DESC", 100)]
++
++
++def set_taste(ws: str, used: bool) -> dict:
++    record_version(ws, "Clip choices " + ("used again for Clip Scores" if used else "no longer move Clip Scores")
++                   + " (by you)", taste=used)
++    return {"used": use_taste(ws)}
++
++
++def rollback(ws: str, number: int) -> dict:
++    """Put the preferences back as they were in version `number` (their values and whether each was in use, the
++    clip-choice model on or off); preferences added since are turned off, not deleted. A new version records it."""
++    row = db.select("learned_versions", "workspace_id = ? AND number = ?", (ws, int(number)), limit=1)
++    if not row:
++        raise LearnedError("That version is not there.", 404)
++    snap = row[0].get("items") or {}
++    kept = {i["id"]: i for i in snap.get("items", [])}
++    for item in db.select("learned_items", "workspace_id = ?", (ws,)):
++        was = kept.pop(item["id"], None)
++        if was is None:
++            _set(item["id"], status="off")
++        else:
++            _set(item["id"], status=was["status"], value=was["value"], text=was["text"])
++    for gone in kept.values():  # deleted since: back as it was
++        db.insert("learned_items", {"workspace_id": ws, **{k: gone[k] for k in ("id", "key", "kind", "source", "text",
++                                                                              "value", "status", "evidence")}})
++    changed_rules = _rules_back(ws, snap.get("rules"))
++    what = f"Rolled back to version {number}" + (f" ({changed_rules} rule(s) put back)" if changed_rules else "")
++    return record_version(ws, what, taste=bool(snap.get("taste", True)))
++
++
++def _rules_back(ws: str, then: list | None) -> int:
++    """Rules (ClipForge AI's prompt instructions) as they were: their words and whether each was on; a rule told
++    since is turned off, not forgotten. A version made before rules were kept with versions leaves them alone."""
++    if then is None:
++        return 0
++    from . import memories
++
++    was = {r["id"]: r for r in then}
++    n = 0
++    for rule in db.select("brain_memories", "workspace_id = ? AND kind = 'rule'", (ws,), limit=500):
++        old = was.get(rule["id"])
++        text = old["text"] if old and old["text"] != rule["text"] else None
++        enabled = bool(old["enabled"]) if old else False
++        if text is None and enabled == bool(rule["enabled"]):
++            continue
++        try:
++            memories.edit(ws, rule["id"], text=text, enabled=enabled)
++            n += 1
++        except memories.Invalid:
++            continue
++    return n
+diff --git a/clipfoundry/brain/operations.py b/clipfoundry/brain/operations.py
+new file mode 100644
+index 0000000..f8de8b5
+--- /dev/null
++++ b/clipfoundry/brain/operations.py
+@@ -0,0 +1,1114 @@
++"""ClipForge AI's commands: what the owner can ask it to do with posts, work, clips, missions and settings.
++
++Every command runs the very function the app's own button runs (the route functions in api.py and
++autopilot/routes.py), so the same checks, time zone, gap between posts and approval rules apply, and an action the
++app refuses is refused here in the app's own words. Changes wait for the owner's OK on a card that says exactly what
++will happen (tools.WAITS); a card for several posts lists each one (a batch change is approved once, as a whole).
++ClipForge AI never publishes and never approves a post: a post goes out only through its approval page.
++
++Before acting, a command finds exactly one post, project, clip or mission. When more than one fits, it names them and
++the model asks the owner which one; times are clock times in the Autopilot time zone (Settings), which `posts` shows.
++After acting, it reads the thing back and reports what the app shows now, with a link. Work it queues (a render, a
++project made again) is returned as `work` and the chat shows it as queued, running, completed or failed (work_state).
++"""
++from __future__ import annotations
++
++import re
++import time
++
++from fastapi import HTTPException
++
++from .. import db
++from .toolbox import _SETTINGS_WORDS, _find_clip, _said_words, find
++from .tools import Ctx, Result, Tool, ToolError, TryAgain, one_line, register
++
++PLATFORM_NAMES = {"youtube": "YouTube", "tiktok": "TikTok"}
++STATUS_WORDS = {"awaiting_approval": "waiting for your approval", "approved": "approved, waiting for its time",
++                "publishing": "uploading now", "reconciling": "being checked with the platform",
++                "action_needed": "needs you", "failed": "failed", "blocked": "held", "published": "posted",
++                "canceled": "canceled", "replaced": "replaced by a stronger clip"}
++MOVABLE = ("awaiting_approval", "approved", "failed")          # scheduler.reschedule moves only these
++RETRYABLE = ("failed", "blocked", "action_needed", "canceled")  # autopilot/routes.retry_item
++CANCELABLE = ("awaiting_approval", "approved", "failed", "action_needed", "blocked")
++VIEWS = {"upcoming": ("awaiting_approval", "approved", "publishing", "reconciling", "action_needed"),
++         "problems": ("failed", "blocked", "action_needed", "reconciling"),
++         "published": ("published",)}
++STALL_S = 10 * 60       # a running job without progress this long is reported as stalled
++RECENT_S = 2 * 86400    # failed work this recent is listed
++LIST_MAX = 12           # lines one list gives the model
++WORK_KINDS = ("project", "clip", "post", "job")
++FINAL = ("completed", "failed", "canceled")
++
++
++def _http(exc: HTTPException) -> ToolError:
++    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
++    return ToolError(detail.rstrip(".") + ".")
++
++
++def _settings() -> dict:
++    return db.get_settings()
++
++
++def _zone(settings: dict) -> str:
++    from ..autopilot import scheduler
++
++    return scheduler.tz(settings).key
++
++
++def _label(ts: float | None, settings: dict) -> str:
++    from ..autopilot import scheduler
++
++    return scheduler._label(ts, settings) if ts else "no time yet"
++
++
++def _local(ts: float, settings: dict) -> str:
++    from ..autopilot import scheduler
++
++    return scheduler._local(ts, settings).strftime("%Y-%m-%dT%H:%M")
++
++
++def _api():
++    from .. import api
++
++    return api
++
++
++# ------------------------------------------------------------------ posts
++def _account(item: dict) -> tuple[str, str]:
++    """(the account's id, its name) as every check reads it (autopilot/targets.py)."""
++    from ..autopilot import targets
++
++    view = targets.account_view(item)
++    return str(view.get("connection_id") or ""), str(view.get("name") or "default account")
++
++
++def _post_name(item: dict) -> str:
++    clip = db.get_clip(item.get("clip_id") or "") or {}
++    return one_line(item.get("title") or clip.get("title") or "untitled post", 70)
++
++
++def _post_words(item: dict, settings: dict) -> str:
++    clip = db.get_clip(item.get("clip_id") or "") or {}
++    project = db.get_project(clip.get("project_id") or "") or {}
++    when = _local(item["planned_at"], settings).replace("T", " ") if item.get("planned_at") else ""
++    return " ".join(str(x or "") for x in (item.get("title"), clip.get("title"), project.get("name"),
++                                           PLATFORM_NAMES.get(item["platform"], item["platform"]), _account(item)[1],
++                                           when, _label(item.get("planned_at"), settings)))
++
++
++def _gap(settings: dict) -> float:
++    return 60.0 * float(settings.get("autopilot_min_gap_minutes", 0) or 0)
++
++
++def conflicts(settings: dict | None = None) -> dict[str, dict]:
++    """Posts not yet out that are closer than the minimum gap to another post on the same account: {post id: the
++    other post}. scheduler.reschedule refuses such a time; one can still arise when the gap or an account changes."""
++    settings = settings if settings is not None else _settings()
++    gap = _gap(settings)
++    if gap <= 0:
++        return {}
++    rows = [r for r in db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved', "
++                                 "'publishing', 'reconciling', 'published') AND planned_at IS NOT NULL", (),
++                                 "planned_at ASC", 600)]
++    out: dict[str, dict] = {}
++    for i, a in enumerate(rows):
++        for b in rows[i + 1:]:
++            if b["planned_at"] - a["planned_at"] >= gap:
++                break
++            if a["platform"] != b["platform"] or _account(a)[0] != _account(b)[0]:
++                continue
++            for mine, other in ((b, a), (a, b)):  # the one that can still move is the one to fix
++                if mine["status"] in ("awaiting_approval", "approved") and mine["id"] not in out:
++                    out[mine["id"]] = other
++                    break
++    return out
++
++
++def _post_line(n: int, item: dict, settings: dict, clash: dict[str, dict]) -> str:
++    from ..autopilot import submissions
++
++    text = (f"{n}. {U+201C}{_post_name(item)}{U+201D} on {PLATFORM_NAMES.get(item['platform'], item['platform'])} "
++            f"({_account(item)[1]}): {_label(item.get('planned_at'), settings)}, "
++            f"{STATUS_WORDS.get(item['status'], item['status'])}")
++    if item.get("status_note"):
++        text += f" ({one_line(item['status_note'], 90)})"
++    if item["status"] in ("failed", "blocked", "action_needed") and (item.get("last_error") or item.get("fix")):
++        text += f". Why: {one_line(item.get('last_error') or '', 140)}"
++        if item.get("fix"):
++            text += f" What to do: {one_line(item['fix'], 140)}"
++    if item["id"] in clash:
++        other = clash[item["id"]]
++        text += (f". Too close to {U+201C}{_post_name(other)}{U+201D} at {_label(other['planned_at'], settings)} on the same "
++                 "account")
++    if item["status"] in ("approved", "awaiting_approval") and submissions.paused_for(item):
++        text += ". Its mission's uploads are paused"
++    return text + "."
++
++
++def find_post(args: dict, statuses: tuple[str, ...], doing: str) -> dict:
++    """The one post `args` names (post: words from its title, its video, its time like "18:30" or "Nov 26", or its
++    id; platform; account: words from the account's name), among posts in `statuses`. Raises ToolError naming the
++    candidates when none or several fit, so the model asks the owner which one."""
++    settings = _settings()
++    marks = ",".join("?" * len(statuses))
++    rows = db.select("scheduled_publications", f"status IN ({marks})", tuple(statuses),
++                     "planned_at IS NULL, planned_at ASC", 400)
++    want = str(args.get("post") or "").strip()
++    exact = [r for r in rows if r["id"] == want]
++    if exact:
++        return exact[0]
++    if args.get("platform"):
++        rows = [r for r in rows if r["platform"] == args["platform"]]
++    if args.get("account"):
++        who = set(_said_words(str(args["account"])))
++        rows = [r for r in rows if who & set(_said_words(_account(r)[1]))]
++    if not rows:
++        raise ToolError(f"There is no post that {doing}" + (" on that account or platform." if (
++            args.get("platform") or args.get("account")) else ". Use posts to see them all."))
++    if want:
++        words = {w for w in _said_words(want) if len(w) > 2} | set(re.findall(r"\d{1,2}:\d{2}", want))
++        scored = []
++        for r in rows:
++            have = _post_words(r, settings).lower()
++            hit = sum(1 for w in words if w in set(_said_words(have)) or (":" in w and w in have))
++            scored.append((hit, r))
++        best = max(h for h, _ in scored)
++        rows = [r for h, r in scored if h == best and h > 0]
++        if not rows:
++            raise ToolError(f"No post that {doing} matches {U+201C}{one_line(want, 60)}{U+201D}. They are: " + _names(
++                [r for _, r in scored], settings) + ".")
++    if len(rows) > 1:
++        raise ToolError(f"More than one post that {doing} fits: " + _names(rows, settings)
++                        + ". Ask the owner which one (its title, channel or time).")
++    return rows[0]
++
++
++def _names(rows: list[dict], settings: dict) -> str:
++    return "; ".join(f"{U+201C}{_post_name(r)}{U+201D} on {PLATFORM_NAMES.get(r['platform'], r['platform'])} ({_account(r)[1]}), "
++                     f"{_label(r.get('planned_at'), settings)}" for r in rows[:6]) + ("; {U+2026}" if len(rows) > 6 else "")
++
++
++def _post_links(item: dict) -> list[dict]:
++    return [{"label": f"Open {U+201C}{_post_name(item)}{U+201D}", "href": f"#/post/{item['id']}"},
++            {"label": "Missions {U+2192} Schedule", "href": "#/missions"}]
++
++
++def _posts(ctx: Ctx, args: dict) -> Result:
++    settings = _settings()
++    view = args.get("view") or "upcoming"
++    statuses = VIEWS.get(view) or VIEWS["upcoming"]
++    marks = ",".join("?" * len(statuses))
++    order = "planned_at IS NULL, planned_at ASC" if view != "published" else "planned_at DESC"
++    rows = db.select("scheduled_publications", f"status IN ({marks})", statuses, order, 400)
++    if args.get("words"):
++        words = {w for w in _said_words(args["words"]) if len(w) > 2}
++        rows = [r for r in rows if words & set(_said_words(_post_words(r, settings)))] or rows
++    clash = conflicts(settings)
++    lines = [f"Times are in {_zone(settings)} (Settings {U+2192} Autopilot time zone); it is now "
++             f"{_label(time.time(), settings)} there. Posts on one account keep at least "
++             f"{_gap(settings) / 60:.0f} minutes apart."]
++    if not rows:
++        lines.append(f"No {view} posts.")
++    lines += [_post_line(i + 1, r, settings, clash) for i, r in enumerate(rows[:LIST_MAX])]
++    if len(rows) > LIST_MAX:
++        lines.append(f"{U+2026}and {len(rows) - LIST_MAX} more.")
++    if clash and view != "published":
++        lines.append(f"{len(clash)} post(s) are too close to another on the same account: fix_post_conflicts moves "
++                     "them to the nearest free times.")
++    return Result("\n".join(lines), f"Looked at your posts ({len(rows)})",
++                  {"links": [{"label": "Missions {U+2192} Schedule", "href": "#/missions"}]})
++
++
++def _when_preview(item: dict, when: str, settings: dict) -> tuple[float, list[str]]:
++    """The time a post would move to and why: the owner's clock time, or the nearest free one when it is too close
++    to another post on the same account (scheduler.nearest_free, the time Change the time offers)."""
++    from ..autopilot import scheduler
++
++    notes: list[str] = []
++    if str(when).strip().lower() in ("nearest", "nearest_free", "nearest free", "next free"):
++        wanted = float(item.get("planned_at") or time.time() + 600)
++        notes.append("You asked for the nearest free time.")
++    else:
++        try:
++            wanted = scheduler.from_wall_time(when, settings)
++        except ValueError as exc:
++            raise ToolError(f"{exc} Use the form 2026-11-26T18:30, in {_zone(settings)}.") from exc
++    if wanted < time.time() + 60:
