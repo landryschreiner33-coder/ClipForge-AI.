@@ -94,7 +94,9 @@ def _unstick(story: dict) -> dict:
     job = db.fetch("studio_jobs", story.get("job_id") or "") if story.get("job_id") else None
     if job and job["status"] in ("queued", "running"):
         return story
-    _settle(story["id"], "failed", STUCK)
+    # a Stop marks its job canceled a moment before it settles the story: settled here as that Stop would
+    stopped = bool(job and job["status"] == "canceled")
+    _settle(story["id"], "canceled" if stopped else "failed", "" if stopped else STUCK, job_id=story.get("job_id"))
     return db.fetch("text_stories", story["id"]) or story
 
 
@@ -309,11 +311,18 @@ def delete(story: dict) -> None:
     with db.connect() as conn:
         conn.execute("DELETE FROM text_stories WHERE id = ?", (story["id"],))
         conn.execute("DELETE FROM voice_favorites WHERE workspace_id = ? AND scope = ?", (ws, scope))
-        # the scope says whom a memory is for (as when a video is deleted: studio/project_delete.py)
-        conn.execute("DELETE FROM brain_memory_uses WHERE memory_id IN (SELECT id FROM brain_memories WHERE "
-                     "workspace_id = ? AND scope = ?)", (ws, scope))
-        conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND scope = ?", (ws, scope))
+    _forget(ws, story["id"])
     shutil.rmtree(config.data_dir() / "text_stories" / story["id"], ignore_errors=True)
+
+
+def _forget(workspace_id: str, story_id: str) -> None:
+    """What ClipForge AI remembered about this story: its Brain memories and the uses recorded for it. The scope says
+    whom a memory is for (as when a video is deleted: studio/project_delete.py)."""
+    scope = f"project:{story_id}"
+    with db.connect() as conn:
+        conn.execute("DELETE FROM brain_memory_uses WHERE memory_id IN (SELECT id FROM brain_memories WHERE "
+                     "workspace_id = ? AND scope = ?)", (workspace_id, scope))
+        conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND scope = ?", (workspace_id, scope))
 
 
 # ------------------------------------------------------------------ backgrounds ClipForge picks
@@ -469,24 +478,30 @@ def stop(story: dict) -> dict:
     return db.fetch("text_stories", story["id"]) or story
 
 
-def _settle(story_id: str, how: str, error: str = "") -> None:
-    s = db.fetch("text_stories", story_id)
-    if not s or s["status"] not in WORKING:
-        return
-    _patch(story_id, status="failed" if how == "failed" else "draft", stage="",
-           message="Stopped. Nothing new was kept." if how == "canceled" else "", error=error[:600] if error else
-           ("Stopped after repeated interruptions. Press the button again to try once more." if how == "failed"
-            else ""))
+def _settle(story_id: str, how: str, error: str = "", *, job_id: str | None = None) -> None:
+    """A story whose work ended without a result (stopped, failed) goes back to editing, in one write that changes it
+    only while it is still working (on `job_id`, when given): a result or a newer job that got there first stays."""
+    fields = {"status": "failed" if how == "failed" else "draft", "stage": "",
+              "message": "Stopped. Nothing new was kept." if how == "canceled" else "",
+              "error": error[:600] if error else
+              ("Stopped after repeated interruptions. Press the button again to try once more." if how == "failed"
+               else ""), "updated_at": time.time()}
+    enc = db._encode("text_stories", fields)  # noqa: SLF001
+    cols = ", ".join(f"{k} = ?" for k in enc)
+    marks = ", ".join("?" for _ in WORKING)
+    mine = " AND job_id = ?" if job_id else ""
+    db.execute(f"UPDATE text_stories SET {cols} WHERE id = ? AND status IN ({marks}){mine}",
+               [*enc.values(), story_id, *WORKING, *([job_id] if job_id else [])])
 
 
 @on_stop("text_story_write")
 def _write_stopped(job: dict, how: str) -> None:
-    _settle(job["target_id"], how)
+    _settle(job["target_id"], how, job_id=job["id"])
 
 
 @on_stop("text_story_render")
 def _render_stopped(job: dict, how: str) -> None:
-    _settle(job["target_id"], how)
+    _settle(job["target_id"], how, job_id=job["id"])
 
 
 def _own_job(job: dict) -> dict | None:
@@ -532,7 +547,7 @@ def write_job(job: dict, lease: Lease) -> dict:
                                  workspace_id=story["workspace_id"], project_id=story["id"],
                                  current={"title": story.get("title"), "script": story.get("script")}
                                  if ask.get("change") else None, change=ask.get("change") or "",
-                                 cancel=lease.canceled, beat=lambda m: lease.progress(0.5, m))
+                                 cancel=lease.canceled, beat=lambda m: lease.progress(0.5, m), remember=False)
         script = _clean_script(got["script"])
         title = _clean_title(got["title"][:MAX_TITLE])
     except (Canceled, Cancelled):
@@ -547,6 +562,10 @@ def write_job(job: dict, lease: Lease) -> dict:
             writer={"ask": ask, "notes": got["notes"], "model": got["model"], "local": got["local"],
                     "at": time.time()}) is None:
         raise Canceled()
+    # only now that the story kept the writing: a story stopped or deleted meanwhile gets no Brain note
+    writer.remember_story(story["workspace_id"], story["id"], got)
+    if db.fetch("text_stories", story["id"]) is None:
+        _forget(story["workspace_id"], story["id"])  # deleted while the note was written: delete() may have run first
     return {"words": len(script.split())}
 
 

@@ -400,3 +400,117 @@ def test_the_library_list_can_delete_a_character(env):  # noqa: F811
     """Finding 23: the page's library list offers Delete (the privacy page promises it)."""
     page = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "components" / "ShortCast.tsx").read_text()
     assert "shorts.libraryDelete(" in page and "from your library" in page
+
+
+def _voice_lengths(monkeypatch, lengths: dict[str, float]) -> None:
+    """The stand-in voice reads these narrations (by their first words) for exactly these many seconds."""
+    import sys
+
+    from test_studio_shorts_flow import _tone
+
+    voice = sys.modules["clipfoundry.makers.voice"]
+    real = voice.speak
+
+    def speak(text, out, **kw):
+        got = real(text, out, **kw)
+        seconds = next((s for start, s in lengths.items() if text.startswith(start)), None)
+        if seconds is not None:
+            _tone(Path(out), seconds)
+            got["duration_s"] = seconds
+        return got
+
+    monkeypatch.setattr(voice, "speak", speak)
+
+
+def test_a_dissolve_is_fitted_on_the_whole_frames_the_editor_counts(env, monkeypatch):  # noqa: F811
+    """Second review of finding 22: a scene a little over twice the dissolve in milliseconds can still be a frame
+    short of it on whole frames; the editor refuses that, so the short is fitted with the editor's own check."""
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import engine, video_flow
+
+    # the first scene ends at 2650 ms (frame 79.5) and the second runs 645 ms: 19 frames for 10 + 10 of dissolve
+    _voice_lengths(monkeypatch, {"Mia walked": 2.4, "Rain falls": 0.395})
+    project = _make(env, SCRIPT)
+    shorts.set_options(_fresh(project["id"]), {"transition": "dissolve"})
+    _run(env)
+    assert _plan(project["id"])["transition"] == {"type": "dissolve", "ms": shorts.TRANSITION_MS}
+    second = _scenes(project["id"])[1]
+    shorts.update_scene(_fresh(project["id"]), second["id"], {"narration": "Rain falls."})
+    jobs = _run(env)
+    assert jobs and all(j["status"] == "done" for j in jobs), [j["error"] for j in jobs]
+    project = _fresh(project["id"])
+    plan = _plan(project["id"])
+    assert [c["out_ms"] - c["in_ms"] for c in plan["clips"]][:2] == [2650, 645]
+    assert plan["transition"]["type"] == "dissolve" and plan["transition"]["ms"] < shorts.TRANSITION_MS
+    assert not engine.transition_too_long(plan)
+    assert engine.validate(plan, video_flow._assets(project, plan)) == []  # noqa: SLF001
+
+
+def test_a_dissolve_turned_into_a_cut_for_a_very_short_scene_comes_back_when_the_scene_grows(env, monkeypatch):  # noqa: F811,E501
+    """Second review of finding 22: the cut ClipForge made to fit a very short scene is not kept for good."""
+    from clipfoundry.makers import shorts
+
+    _voice_lengths(monkeypatch, {"Rain.": 0.08})
+    project = _make(env, SCRIPT)
+    shorts.set_options(_fresh(project["id"]), {"transition": "dissolve"})
+    _run(env)
+    second = _scenes(project["id"])[1]
+    shorts.update_scene(_fresh(project["id"]), second["id"], {"narration": "Rain."})
+    _run(env)
+    assert _plan(project["id"])["transition"] == {"type": "cut", "ms": 0}
+    assert _fresh(project["id"])["short"]["transition"] == "dissolve"  # still the owner's choice
+    shorts.update_scene(_fresh(project["id"]), second["id"], {"narration": "The door was open, and a light was on."})
+    jobs = _run(env)
+    assert jobs and all(j["status"] == "done" for j in jobs), [j["error"] for j in jobs]
+    assert _plan(project["id"])["transition"] == {"type": "dissolve", "ms": shorts.TRANSITION_MS}
+
+
+def test_apply_to_every_shot_reaches_a_shot_with_its_own_words(env, drawn):  # noqa: F811
+    """Second review of finding 21: a proposal made from one shot that brings the usual look back, applied to every
+    shot, changes that shot too (it no longer keeps its own words for that detail), and says so."""
+    from clipfoundry.makers import shorts
+
+    project = _make(env, SCRIPT)
+    shorts.cast_add(_fresh(project["id"]), dict(MIA))
+    _run(env)
+    member_id = _fresh(project["id"])["short"]["cast"][0]["id"]
+    third = _scenes(project["id"])[2]
+    shorts.cast_apply(_fresh(project["id"]), member_id, {"clothing": "a red raincoat"}, third["id"])
+    _run(env)
+    n = len(drawn.asked)
+    done = shorts.cast_apply(_fresh(project["id"]), member_id, {"clothing": MIA["clothing"]})
+    assert done == {"changed": ["clothing"], "kept": []}
+    _run(env)
+    view = shorts.view(_fresh(project["id"]))
+    assert view["scenes"][2]["overrides"] == {} and view["cast"][0]["clothing"] == MIA["clothing"]
+    assert len(drawn.asked) == n + 1 and "wearing a yellow raincoat" in drawn.asked[-1]["prompt"]
+    # now every shot shows it: the same again changes nothing, and says so
+    assert shorts.cast_apply(_fresh(project["id"]), member_id, {"clothing": MIA["clothing"]}) == \
+        {"changed": [], "kept": []}
+
+
+def test_deleting_a_library_entry_deletes_its_reference_pictures_nothing_else_uses(env, drawn):  # noqa: F811
+    """Second review of finding 23: a reference picture kept only by the library goes with the library entry; one a
+    short or another entry still uses stays."""
+    from pathlib import Path as P
+
+    from clipfoundry import db
+    from clipfoundry.makers import cast
+
+    only = _picture_file(env, "only-library.png", "#ff0000")
+    shared = _picture_file(env, "shared.png", "#00ff00")
+    used = _picture_file(env, "in-a-short.png", "#0000ff")
+    gone = cast.library_add("local", {"kind": "character", "name": "Ortiz", "appearance": "a sailor",
+                                      "refs": [only["id"], shared["id"], used["id"]]})
+    cast.library_add("local", {"kind": "character", "name": "Ana", "appearance": "a pilot", "refs": [shared["id"]]})
+    from clipfoundry.makers import shorts
+
+    project = _make(env, SCRIPT)
+    shorts.cast_add(_fresh(project["id"]), {**MIA, "refs": [used["id"]]})
+    files = {a["id"]: P(db.fetch("assets", a["id"])["path"]) for a in (only, shared, used)}
+    assert all(f.is_file() for f in files.values())
+    assert cast.library_delete("local", gone["library_id"]) == [only["id"]]
+    assert db.fetch("assets", only["id"]) is None and not files[only["id"]].exists()
+    assert db.fetch("assets", shared["id"]) and files[shared["id"]].is_file()
+    assert db.fetch("assets", used["id"]) and files[used["id"]].is_file()
+    assert all(str(f).startswith(str(env["tmp"])) for f in files.values())  # only this test's own folder

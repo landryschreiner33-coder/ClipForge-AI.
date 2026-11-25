@@ -215,6 +215,40 @@ def named_elsewhere(ws: str, kind: str, project_id: str) -> str:
     return _used_elsewhere(ws, kind, project_id)
 
 
+def drop_unnamed(ws: str, asset_ids) -> list[str]:
+    """Delete files ClipForge kept only for something that is gone (a library character's reference pictures, when
+    the entry is deleted): each one nothing names any more (the same last look as deleting a project: every project,
+    video, short, library character and text story), that is ClipForge's own copy in the data folder (never a linked
+    file of the owner's), and that was not added again or handed out lately (whoever got it may not have recorded it
+    yet). Its rows go in one transaction with that last look, its folder after it. Returns the ids that went."""
+    ids = [a for a in dict.fromkeys(asset_ids or []) if isinstance(a, str) and a]
+    if not ids:
+        return []
+    now = time.time()
+    drop: list[dict] = []
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")  # a hand-out of the same bytes, or a new use of the file, waits for this
+        named = _used_elsewhere(ws, "", "")
+        for aid in ids:
+            asset = db._decode("assets", conn.execute("SELECT * FROM assets WHERE id = ?",  # noqa: SLF001
+                                                      (aid,)).fetchone())
+            if asset is None or asset["workspace_id"] != ws or aid in named or uploads.is_linked(asset) or \
+                    _asset_folder(asset) is None or _handed_out(conn, aid, now - uploads.REUSE_HOLD_S, ""):
+                continue
+            if conn.execute("SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND "
+                            "updated_at > ? LIMIT 1", (aid, now - AGAIN_S)).fetchone():
+                continue  # added again lately and no project took it yet: a page may be about to use it
+            drop.append(asset)
+        for asset in drop:
+            for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"),
+                                  ("asset_hand_outs", "asset_id"), ("short_files", "asset_id"), ("assets", "id")):
+                conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset["id"],))
+        conn.commit()
+    for asset in drop:
+        remove_asset_files(asset)
+    return [a["id"] for a in drop]
+
+
 def _video_asset_ids(row: dict) -> list[str]:
     """Every asset a video names: its media, its brief and setup, every saved revision of its plan, and an animated
     short's scene files (each scene's picture, its earlier pictures and its clip, also one not in the plan yet) and

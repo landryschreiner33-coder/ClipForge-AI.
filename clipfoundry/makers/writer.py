@@ -170,11 +170,15 @@ def _recall(query: str, workspace_id: str, project_id: str):
 
 
 def _record(workspace_id: str, project_id: str, rec, what: str) -> None:
+    _remember(workspace_id, project_id, rec.ids, what)
+
+
+def _remember(workspace_id: str, project_id: str, ids: list, what: str) -> None:
     from .. import brain
 
     try:
-        if rec.ids:
-            brain.record_use(workspace_id, rec.ids, "short_script", project_id)
+        if ids:
+            brain.record_use(workspace_id, ids, "short_script", project_id)
         if what:
             brain.episode(workspace_id, what, project_id=project_id)
     except Exception:  # noqa: BLE001
@@ -425,10 +429,11 @@ def _story_text(value, limit: int) -> str:
 
 def write_story(topic: str, *, tone: str, length: str, settings: dict, workspace_id: str, project_id: str = "",
                 current: dict | None = None, change: str = "", cancel: Callable[[], bool] | None = None,
-                beat: Callable[..., None] | None = None) -> dict:
+                beat: Callable[..., None] | None = None, remember: bool = True) -> dict:
     """A text story's title and script from a topic, or `current` ({"title", "script"}) revised as `change` asks:
-    {"title", "script", "notes", "model", "local", "memories", "knowhow"}. Raises WriterError (Cancelled when
-    stopped)."""
+    {"title", "script", "notes", "model", "local", "memories", "knowhow", "episode"}. Raises WriterError (Cancelled
+    when stopped). With remember=False nothing is written to the Brain: the caller keeps the writing first and then
+    calls remember_story with the result (a story deleted or stopped meanwhile must not get a note)."""
     from ..pipeline import llm
     from .textstory import MAX_WORDS  # what one video holds: a longer story could never be saved
 
@@ -496,8 +501,14 @@ def write_story(topic: str, *, tone: str, length: str, settings: dict, workspace
     count = len(script.split())
     if not revising and not lo * LENGTH_SLACK[0] <= count <= hi * LENGTH_SLACK[1]:
         notes.append(f"The story has {count} words; {lo}-{hi} were asked for.")
-    _record(workspace_id, project_id, rec,
-            f"ClipForge AI {'revised' if revising else 'wrote'} the text story “{title or topic}” ({count} words).")
+    episode = f"ClipForge AI {'revised' if revising else 'wrote'} the text story “{title or topic}” ({count} words)."
+    if remember:
+        _record(workspace_id, project_id, rec, episode)
     return {"title": title or _text((current or {}).get("title"), MAX_STORY_TITLE), "script": script, "notes": notes,
             "model": llm.provider_label(settings), "local": _local(settings), "memories": rec.ids,
-            "knowhow": know.ids}
+            "knowhow": know.ids, "episode": episode}
+
+
+def remember_story(workspace_id: str, project_id: str, got: dict) -> None:
+    """What write_story(remember=False) left out: the memories it used and the note that it wrote the story."""
+    _remember(workspace_id, project_id, list(got.get("memories") or []), got.get("episode") or "")

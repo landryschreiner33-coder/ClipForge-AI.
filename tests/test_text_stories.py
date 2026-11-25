@@ -666,3 +666,62 @@ def test_a_trimmed_looping_clip_repeats_exactly_its_part(env):
 
     assert [name(corner(t)) for t in (0.25, 0.75, 1.25, 1.75, 2.25)] == ["green", "blue", "green", "blue", "green"]
     assert not list(textstory.folder(story["id"]).glob("preview-loop*"))  # the looped part is not kept
+
+
+@pytest.mark.parametrize("how", ["delete", "stop"])
+def test_a_story_deleted_or_stopped_while_clipforge_ai_writes_gets_no_brain_note(env, monkeypatch, how):
+    """Second review of finding 15: the answer that arrives after Delete (or Stop) leaves no note about the story."""
+    from clipfoundry import db
+    from clipfoundry.makers import writer
+
+    c = env["client"]
+    story = c.post("/api/studio/text-stories", json={}).json()
+    url = f"/api/studio/text-stories/{story['id']}"
+    monkeypatch.setattr(writer, "_usable", lambda settings: True)
+
+    def answer(*a, **k):  # the owner presses Delete or Stop while the model is still answering
+        assert c.request("DELETE", url).status_code == 200 if how == "delete" else \
+            c.post(f"{url}/stop").status_code == 200
+        return json.dumps({"title": "The secret title", "script": " ".join(["word"] * 200)})
+
+    monkeypatch.setattr(writer, "_ask_story", answer)
+    c.post(f"{url}/write", json={"topic": "a secret"})
+    _run(env)
+    scope = f"project:{story['id']}"
+    assert db.scalar("SELECT COUNT(*) FROM brain_memories WHERE scope = ?", (scope,)) == 0
+    assert not db.scalar("SELECT COUNT(*) FROM brain_memories WHERE text LIKE '%secret title%'")
+    if how == "stop":
+        got = c.get(url).json()
+        assert got["status"] == "draft" and got["script"] == "" and "Nothing new was kept" in got["message"]
+
+
+def test_a_page_that_looks_in_the_middle_of_a_stop_never_turns_it_into_a_failure(env, monkeypatch):
+    """Second review of finding 7: a look at the story between Stop marking its job and settling the story settles
+    it as stopped, and a story that has just finished is never settled again."""
+    from clipfoundry import db
+    from clipfoundry.makers import textstory
+    from clipfoundry.studio import jobs as studio_jobs
+
+    c = env["client"]
+    story, url = _ready_story(env)
+    c.post(f"{url}/preview")
+    job_id = db.fetch("text_stories", story["id"])["job_id"]
+    looked = {}
+    real = textstory._settle
+
+    def stop_hook_runs_late(story_id, how, error="", *, job_id=None):
+        if not looked:  # the Stop's own settle: the page polls just before it
+            looked["polling"] = True
+            looked.update(c.get(url).json())
+        real(story_id, how, error, **({"job_id": job_id} if job_id else {}))
+
+    monkeypatch.setattr(textstory, "_settle", stop_hook_runs_late)
+    assert studio_jobs.cancel(job_id)
+    env["queued"].clear()
+    assert looked["status"] == "draft" and "Nothing new was kept" in looked["message"] and not looked["error"]
+    got = c.get(url).json()
+    assert got["status"] == "draft" and not got["error"]
+    # a result written first stays: settling only changes a story that is still working on that job
+    db.update("text_stories", story["id"], status="ready", message="The preview is ready.")
+    real(story["id"], "failed", textstory.STUCK)
+    assert db.fetch("text_stories", story["id"])["status"] == "ready"

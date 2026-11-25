@@ -429,8 +429,8 @@ export function CastPanel({ v, s, opts, off, run }: {
             toast(`${forgetting.name} was deleted from your library.`);
           }}>
           <p className="muted">{forgetting.name}'s details go from your library. Shorts that already
-            have {forgetting.kind === "place" ? "it" : "them"} keep their own copy. The reference pictures are no
-            longer kept for the library: a short or video that uses them keeps them until you delete it.</p>
+            have {forgetting.kind === "place" ? "it" : "them"} keep their own copy. The reference pictures are deleted
+            too, except those a short, a video or another character still uses: they stay until you delete that.</p>
         </ConfirmDialog>
       )}
     </section>

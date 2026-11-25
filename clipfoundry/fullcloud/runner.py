@@ -162,9 +162,19 @@ def run(project_id: str, url: str | None, ctx: JobContext) -> None:
     _after(project_id)
 
 
+NOT_OWN_FOLDER = ("This project's video is not in its own ClipForge folder (the data folder was moved or copied "
+                  "since it was added), so its clips cannot be brought back here. Switch to Local in Settings → "
+                  "Processing and press Process again to make them on this computer.")
+
+
 def _submit(p: dict, url: str | None, c: client.Client, cfg: dict, settings: dict, ctx: JobContext,
             box: dict) -> dict:
+    from .worker_api import own_folder
+
     pid = p["id"]
+    # the clips come back only into the project's own folder (_fetch): said before any upload or worker time
+    if not p.get("source_path") or not own_folder(Path(p["source_path"]).parent):
+        raise RemoteError(NOT_OWN_FOLDER)
     src = Path(p["source_path"]) if p.get("source_path") else None
     link = (url or "") if not (src and src.is_file()) else ""
     if not link and not (src and src.is_file()):
@@ -299,8 +309,13 @@ def _fetch(pid: str, c: client.Client, job_id: str, ctx: JobContext) -> int:
     p = db.get_project(pid) or {}
     pdir = Path(p["source_path"]).parent
     if not own_folder(pdir):  # files come back only into the project's own folder (and only that is tidied)
-        raise RemoteError("This project's video is not in its own ClipForge folder, so its clips cannot be brought "
-                          "back here. Press Process again to make them on this computer.")
+        # the job ends here: Process again decides where to run afresh (decide) instead of following this job
+        _save(pid, phase="failed", job="")
+        try:
+            c.delete(job_id)
+        except client.WorkerError:
+            pass  # it is deleted there after worker_api.KEEP_HOURS anyway
+        raise RemoteError(NOT_OWN_FOLDER)
     res = checked(c.result(job_id), job_id)
     remote_dir, remote_id = str(res["dir"]), str(res["job"]["id"])
     staging = pdir / ".from-worker"

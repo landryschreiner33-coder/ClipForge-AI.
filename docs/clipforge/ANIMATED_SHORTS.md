@@ -37,8 +37,10 @@ This document is the design and the contract between the parts. The user-facing 
    pictures (dropped, or **Use as reference** on a shot's picture). Every shot shows everyone unless the owner picks
    who is in it (the chips under the scene's words). **Describe a change** asks ClipForge AI for changes in the
    owner's words and shows them (old → new) with **Apply to every shot** or **Shot N only**; locked details are never
-   changed (they are refused on the server too). **From my library** reuses a character or place from another short;
-   each short keeps its own copy.
+   changed (they are refused on the server too). Applied to every shot, a detail a shot had its own words for gives way
+   there too, so every shot shows it. **From my library** reuses a character or place from another short; each short
+   keeps its own copy. Deleting one from the library deletes its reference pictures that no short, video or other
+   character still uses.
 9. **Consistency**: each picture of a shot a member is in is made with the member's details in its words and, with a
    model that takes reference pictures (FLUX.2 [klein], ComfyUI's `ReferenceLatent`), with up to 4 reference
    pictures; Z-Image keeps the look by the words only, and the panel says which. After a picture is made, the **look
@@ -47,7 +49,9 @@ This document is the design and the contract between the parts. The user-facing 
    picture). A change to a member makes again only the pictures it is in.
 10. **Timing and transitions**: the short's **Between scenes** (cut, dissolve, fade) changes the plan only; a dissolve
    or fade is kept shorter than a third of the shortest scene, and is fitted again whenever a scene gets shorter (a cut
-   when a scene is too short for one). A scene's **Stays after the words** (0 to 3 s) makes that scene's clip again
+   when a scene is too short for one), with the editor's own check on whole frames. What ClipForge fitted is asked for
+   again at every build (`plan.short.fitted`), so the full dissolve or fade comes back when the scenes are long enough
+   again; one the owner changed in the editor since is theirs. A scene's **Stays after the words** (0 to 3 s) makes that scene's clip again
    (longer or shorter), and with **Animate the pictures** the video maker runs again for it; its picture and voice are
    not made again.
 

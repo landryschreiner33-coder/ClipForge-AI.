@@ -1221,19 +1221,22 @@ def transition_for(short: dict, clips: list[dict]) -> dict:
     """The plan's transition for the short's choice: a dissolve or fade no longer than a third of the shortest scene
     shown (the editor refuses one longer than half of it); a cut when a scene is too short for one."""
     kind = short.get("transition") or "cut"
+    return _fit_transition({"type": kind, "ms": TRANSITION_MS if kind != "cut" else 0}, {"clips": clips})
+
+
+def _fit_transition(asked: dict, plan: dict) -> dict:
+    """`asked` (a dissolve or fade of some length) fitted to the plan's clips: no longer than a third of the shortest
+    clip shown, and never refused by the editor (engine.transition_too_long, which also counts whole frames); a cut
+    when a clip is too short for one."""
+    kind = asked.get("type") or "cut"
     if kind == "cut":
         return {"type": "cut", "ms": 0}
-    shown = [int(c["out_ms"]) - int(c["in_ms"]) for c in clips if c.get("include", True)]
-    ms = min([TRANSITION_MS, *(x // 3 for x in shown)])
-    return {"type": kind, "ms": ms} if ms >= 120 else {"type": "cut", "ms": 0}
-
-
-def _transition_fits(t: dict, clips: list[dict]) -> bool:
-    """Whether the plan's dissolve or fade still fits every clip shown (shorter than half of the shortest)."""
-    if (t.get("type") or "cut") == "cut":
-        return True
-    shown = [int(c["out_ms"]) - int(c["in_ms"]) for c in clips if c.get("include", True)]
-    return not shown or int(t.get("ms") or 0) * 2 < min(shown)
+    shown = [int(c["out_ms"]) - int(c["in_ms"]) for c in plan.get("clips") or [] if c.get("include", True)]
+    ms = min([int(asked.get("ms") or TRANSITION_MS), *(x // 3 for x in shown)])
+    fitted = {"type": kind, "ms": ms}
+    if ms < 120 or engine.transition_too_long({**plan, "transition": fitted}):
+        return {"type": "cut", "ms": 0}
+    return fitted
 
 
 def _fit_fades(c: dict) -> None:
@@ -1343,13 +1346,26 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
     want = short.get("apply") or {}
     if base is not None and int(want.get("captions") or 0) > int(applied.get("captions") or 0):
         plan["captions"] = _captions(short, look, plan.get("captions"))
+    # A dissolve or fade ClipForge shortened or turned into a cut to fit short scenes (`fitted`: what was asked for
+    # and what it became) is asked for again at every build while the plan still has what ClipForge made of it, so it
+    # comes back when the scenes are long enough again. One the owner changed in the editor since is theirs.
+    fitted = before.get("fitted") or {}
+    asked = None
     if (base is None and short.get("transition", "cut") != "cut") or \
             int(want.get("transition") or 0) > int(applied.get("transition") or 0):
-        plan["transition"] = transition_for(short, clips)
-    elif not _transition_fits(plan.get("transition") or {}, clips):
-        # a scene got shorter (fewer words, a lower hold, a split): the dissolve or fade is fitted to the scenes
-        # again, as the editor refuses one longer than half of a clip (a cut when a scene is too short for one)
-        plan["transition"] = transition_for({**short, "transition": plan["transition"]["type"]}, clips)
+        kind = short.get("transition") or "cut"
+        asked = {"type": kind, "ms": TRANSITION_MS if kind != "cut" else 0}
+    elif fitted.get("to") and plan.get("transition") == fitted["to"]:
+        asked = dict(fitted["from"])
+    elif engine.transition_too_long(plan):
+        # a scene got shorter (fewer words, a lower hold, a split): the editor refuses a dissolve or fade longer
+        # than half of a clip, so it is fitted to the scenes again (a cut when a scene is too short for one)
+        asked = dict(plan.get("transition") or {})
+    fitted = {}
+    if asked is not None:
+        plan["transition"] = _fit_transition(asked, plan)
+        if plan["transition"] != asked:
+            fitted = {"from": asked, "to": plan["transition"]}
 
     def follow(anchor_id: str) -> str | None:
         while anchor_id in moved and anchor_id not in ids:
@@ -1412,6 +1428,8 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
                               not (s["id"] in ready and s["id"] in in_video) else _row_state(s, s["id"] in placed)
                               for s in rows},
                      "options": {k: short.get(k) for k in OPTION_STATE}}
+    if fitted:
+        plan["short"]["fitted"] = fitted
     old_outline = {o.get("clip_id"): o for o in plan.get("outline") or []}
     outline = []
     for c in clips:
@@ -2001,9 +2019,11 @@ def cast_propose(project: dict, member_id: str, words: object, scene_id: str | N
 
 
 def cast_apply(project: dict, member_id: str, changes: object, scene_id: str | None = None) -> dict:
-    """Apply changes (from a proposal or typed) to every shot (the short's copy of the member) or to one shot (kept
-    on that scene). Locked details are never changed: {"changed": [...], "kept": [...]}."""
+    """Apply changes (from a proposal or typed) to every shot (the short's copy of the member, and a shot's own words
+    for the same details give way, so every shot shows them) or to one shot (kept on that scene). Locked details are
+    never changed: {"changed": [...], "kept": [...]}."""
     short = project["short"]
+    shots: dict[str, list[str]] = {}  # every shot: the scenes whose own words for these details give way
     try:
         m = cast._member(short, member_id)  # noqa: SLF001
         if scene_id:
@@ -2015,10 +2035,18 @@ def cast_apply(project: dict, member_id: str, changes: object, scene_id: str | N
                 raise ShortError(f"{m['name']} is not in that shot.")
             fields, kept = cast.clean_changes(here, changes)
         else:
-            fields, kept = cast.clean_changes(m, changes)
+            values, kept = cast.clean_values(m, changes)
+            fields = {f: v for f, v in values.items() if v != (m.get(f) or "")}
+            for row in scene_rows(project["id"]):
+                own = (_info(row).get("overrides") or {}).get(member_id) or {}
+                mine = [f for f in values if f in own]
+                if mine:
+                    shots[row["id"]] = mine
+                    # a detail this shot shows otherwise changes here too, also when the short already says it
+                    fields.update({f: values[f] for f in mine if own[f] != values[f]})
     except cast.CastError as exc:
         raise _cast_error(exc) from exc
-    if not fields:
+    if not fields and not shots:
         return {"changed": [], "kept": kept}
     if scene_id:
 
@@ -2033,8 +2061,25 @@ def cast_apply(project: dict, member_id: str, changes: object, scene_id: str | N
         _change_scene(scene_id, put)
         _rebuild(project, waiting="Waiting to make the picture again")
     else:
-        new = [({**x, **fields} if x["id"] == member_id else x) for x in cast.members(short)]
-        _set_cast(project, new)
+        for sid, gone in shots.items():
+
+            def give_way(row: dict, gone: list[str] = gone) -> dict | None:
+                info = dict(_info(row))
+                overrides = dict(info.get("overrides") or {})
+                mine = {k: v for k, v in (overrides.get(member_id) or {}).items() if k not in gone}
+                if mine == (overrides.get(member_id) or {}):
+                    return None
+                overrides[member_id] = mine
+                info["overrides"] = {k: v for k, v in overrides.items() if v}
+                return {"info": info}
+
+            _change_scene(sid, give_way)
+        base = {f: v for f, v in fields.items() if v != (m.get(f) or "")}
+        if base:
+            new = [({**x, **base} if x["id"] == member_id else x) for x in cast.members(short)]
+            _set_cast(project, new)
+        else:
+            _rebuild(project, waiting="Waiting to make the pictures again")
     return {"changed": sorted(fields), "kept": kept}
 
 

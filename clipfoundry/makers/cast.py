@@ -200,10 +200,15 @@ def library_change(workspace_id: str, library_id: str, raw: dict) -> dict:
     return _public({**_library_row(workspace_id, library_id), "library_id": library_id}, workspace_id)
 
 
-def library_delete(workspace_id: str, library_id: str) -> None:
-    """The library's entry goes; the shorts that use the character keep their own copy."""
-    _library_row(workspace_id, library_id)
+def library_delete(workspace_id: str, library_id: str) -> list[str]:
+    """The library's entry goes; the shorts that use the character keep their own copy, and so its reference
+    pictures. A reference picture nothing else names any more (no short, video, other library entry or text story)
+    is deleted with the entry (project_delete.drop_unnamed). Returns the pictures that went."""
+    from ..studio import project_delete
+
+    row = _library_row(workspace_id, library_id)
     db.execute("DELETE FROM cast_library WHERE id = ? AND workspace_id = ?", (library_id, workspace_id))
+    return project_delete.drop_unnamed(workspace_id, list(row.get("refs") or []))
 
 
 # ------------------------------------------------------------------ a short's cast
@@ -345,6 +350,13 @@ def scene_members(short: dict, ids: object) -> list[str]:
 
 def clean_changes(m: dict, changes: object) -> tuple[dict, list[str]]:
     """(the changes that may be made, the locked details a change asked to touch)."""
+    values, kept = clean_values(m, changes)
+    return {f: v for f, v in values.items() if v != (m.get(f) or "")}, kept
+
+
+def clean_values(m: dict, changes: object) -> tuple[dict, list[str]]:
+    """(every detail a change asks for that may be set, also one the member has already; the locked details a change
+    asked to touch)."""
     if not isinstance(changes, dict) or not changes:
         raise CastError("There is nothing to change.")
     kind = m.get("kind") or "character"
@@ -360,8 +372,7 @@ def clean_changes(m: dict, changes: object) -> tuple[dict, list[str]]:
         if f in (m.get("locked") or []):
             kept.append(f)
             continue
-        if text != (m.get(f) or ""):
-            out[f] = text
+        out[f] = text
     return out, kept
 
 

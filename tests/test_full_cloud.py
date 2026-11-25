@@ -724,3 +724,37 @@ def test_tidying_a_worker_job_never_deletes_a_folder_outside_the_projects_folder
     assert worker_api.own_folder(config.projects_dir() / "abc") and not worker_api.own_folder(outside)
     assert not worker_api.own_folder(config.projects_dir())
     assert not worker_api.own_folder(config.projects_dir() / "a" / "b")
+
+
+def test_a_project_outside_its_own_folder_is_refused_before_anything_is_sent_and_never_stays_stuck(desk, monkeypatch):
+    """Second review of the folder guard: such a project is refused before its video is uploaded (no worker time),
+    and one refused when its clips come back ends its job, so Process again picks where to run afresh. Only this
+    test's own temporary folder is used."""
+    from clipfoundry import db
+    from clipfoundry.fullcloud import runner
+    from clipfoundry.pipeline.common import JobContext
+
+    sent = []
+    _desk_worker(monkeypatch, submit=lambda self, **kw: sent.append(kw))
+    elsewhere = desk / "moved-data" / "projects" / "abc"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "source.mp4").write_bytes(b"video")
+    p = db.create_project("moved")
+    db.update_project(p["id"], source_path=str(elsewhere / "source.mp4"))
+    assert runner.decide(p["id"]) == "full_cloud"
+    with pytest.raises(runner.RemoteError, match="Switch to Local"):
+        runner.run(p["id"], None, JobContext(None, lambda: False))
+    assert sent == [] and runner.state(p["id"])["phase"] == "failed"
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM cloud_runs").fetchone()[0] == 0
+    # a job that finished on the worker while the folder moved: refused when it comes back, and ended there
+    job = "1a2b3c4d5e6f"
+    runner._save(p["id"], phase="fetching", job=job, worker="worker.example")
+    c, asked = _answering({})
+    with pytest.raises(runner.RemoteError, match="Switch to Local"):
+        runner._fetch(p["id"], c, job, JobContext(None, lambda: False))
+    assert runner.state(p["id"])["phase"] == "failed" and runner.state(p["id"])["job"] == ""
+    assert asked == [f"/api/worker/v1/jobs/{job}"]  # deleted there; nothing downloaded
+    db.save_settings({"processing_mode": "local"})
+    assert runner.decide(p["id"], again=True) == ""  # Process again runs here
+    assert (elsewhere / "source.mp4").read_bytes() == b"video"
