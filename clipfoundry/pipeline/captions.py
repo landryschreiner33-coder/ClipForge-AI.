@@ -154,6 +154,12 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     # a split view that keeps the whole picture has a strip for the text: the headline starts at its top
     hook_top = None if seam is None else int(opts["seam_hook_top"]) if opts.get("seam_hook_top") is not None \
         else int(seam + SEAM_HOOK_GAP)
+    # Picture-in-picture: the face cam's box is at the top, so the headline and top captions start below it
+    clear = float(opts["clear_top"]) if opts.get("clear_top") else None
+    if hook_top is None and clear is not None:
+        hook_top = int(clear + SEAM_HOOK_GAP)
+    if clear is not None and align == POSITIONS["top"][0]:
+        margin_v = max(margin_v, int(clear + SEAM_HOOK_GAP))
     under_hook = int(hook_bottom(hook_text, hook_top) + HOOK_GAP) if hook_on else 0
     # In a split view the face cam is at the top: captions placed at the top would cover the face, so they go on
     # the line between the two pictures like bottom ones (middle ones already sit about there).

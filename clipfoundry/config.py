@@ -22,18 +22,22 @@ OUTPUT_W, OUTPUT_H = 1080, 1920
 CAPTION_STYLES = ["clean", "bold", "high_energy", "minimal"]
 TRACKING_MODES = ["auto", "center", "face", "speaker", "screen", "manual"]
 LAYOUTS = ["fill", "fit"]
-# What one clip can be framed as: the two above, plus split view (the face cam on top, the rest of the picture
-# below). "auto" makes a split view only when a face cam is found, "split" whenever a face is. They are chosen
-# per live stream and per clip, not in Settings: the full-video editor and saved styles know only LAYOUTS.
-CLIP_LAYOUTS = LAYOUTS + ["auto", "split"]
+# What one clip can be framed as: the two above, plus the layouts that know about a face cam laid over gameplay:
+# "split" (Gameplay + Facecam: the face cam on top, the rest of the picture below), "pip" (Picture-in-picture: the
+# gameplay fills the frame, the face cam in a small box at the top) and "game" (Gameplay only: the gameplay fills
+# the frame and the face cam is left out of it). "auto" makes a split view only when a face cam is found; the other
+# three take any small, steady face. They are chosen per live stream and per clip, not in Settings: the full-video
+# editor and saved styles know only LAYOUTS.
+CLIP_LAYOUTS = LAYOUTS + ["auto", "split", "pip", "game"]
+PIP_CORNERS = ["left", "right"]   # which top corner the face cam's box sits in (Picture-in-picture)
 # Settings → Split view: "auto" looks for a face cam in every clip whose layout nobody chose (render.cam_layout).
 SPLIT_VIEWS = ["auto", "off"]
 # What is under the cam in a split view: the whole picture, or its middle zoomed in to fill (reframe.split_panels)
 SPLIT_GAMES = ["whole", "zoom"]
 LIVE_PICKS = ["best", "balanced", "most"]   # how picky a live stream is (autopilot/live_pick.py)
-# How a live stream's clips are framed: "auto" and "split" as above (without a face cam the clip gets the layout
-# from Settings), "off" never makes a split view.
-LIVE_FRAMINGS = ["auto", "split", "off"]
+# How a live stream's clips are framed: "auto", "split", "pip" and "game" as above (without a face cam the clip
+# gets the layout from Settings), "off" never looks for a face cam.
+LIVE_FRAMINGS = ["auto", "split", "pip", "game", "off"]
 SILENCE_MODES = ["off", "light", "aggressive"]
 CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
 AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]
@@ -185,7 +189,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_live_monitoring": True,  # authorized live sources only (the rights gate applies as always)
     # Live streams: what a new stream starts with; each stream keeps the choice made when it was added.
     "autopilot_live_pick": "best",      # how picky: best (few, strongest), balanced, most (every good moment)
-    "autopilot_live_framing": "auto",   # split view: auto (when a face cam is found), split (always), off
+    "autopilot_live_framing": "auto",   # auto (split view with a face cam), split, pip, game, off
     "autopilot_learning": True,
     # Brain (autopilot/brain.py): the guards on audience-driven strategy changes (section 14 of the build brief)
     "brain_paused": False,              # keep collecting results, change no strategy

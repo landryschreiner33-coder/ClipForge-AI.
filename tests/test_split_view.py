@@ -209,7 +209,8 @@ def test_split_view_passes_the_framing_check_and_is_a_clip_only_layout():
     check = quality.framing_checks(info)[0]
     assert check["status"] == quality.PASS and "Split view" in check["detail"] and "estimate" in check["detail"]
     # Settings, saved styles and the full-video editor keep their two layouts
-    assert config.LAYOUTS == ["fill", "fit"] and set(config.CLIP_LAYOUTS) == {"fill", "fit", "auto", "split"}
+    assert config.LAYOUTS == ["fill", "fit"]
+    assert set(config.CLIP_LAYOUTS) == {"fill", "fit", "auto", "split", "pip", "game"}
     assert "layout" not in config.validate_settings({"layout": "split"})
     assert capabilities.FIELDS["layout"].choices == ("fill", "fit")
     bp = blueprint.Blueprint(clip_id="c", project_id="p", source_id="", input_hash="h",

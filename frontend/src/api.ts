@@ -24,6 +24,20 @@ export interface Project {
   clips?: Clip[];
 }
 
+/** Suggested trims for a clip (pipeline/trims.py): each with the edit it makes and why. */
+export interface TrimSuggestion {
+  id: string;
+  label: string;
+  edit: { start?: number; end?: number; silence?: string };
+  seconds: number; // how much shorter the clip gets (negative: longer)
+  why: string;
+}
+export interface TrimSuggestions {
+  suggestions: TrimSuggestion[];
+  kept_pauses: { at: number; seconds: number; why: string }[];
+  length: number;
+}
+
 export interface Word {
   start: number;
   end: number;
@@ -57,6 +71,25 @@ export interface ClipEdit {
   speed?: number;
   remove_fillers?: boolean;
   caption_emphasis?: boolean;
+  /** The face cam's box drawn for this clip: [x0, y0, x1, y1] in shares of the picture. */
+  cam_box?: number[] | null;
+  /** Picture-in-picture: the top corner the face cam's box sits in. */
+  pip_corner?: "left" | "right";
+}
+
+/** How sure a rendered clip's face cam is (pipeline/facecam.py cam_check). */
+export interface CamCheck {
+  state: "found" | "unsure" | "none" | "manual" | "camera";
+  text: string;
+}
+
+/** Where a video's face cam is: the one found in it or locked by you, and a separate camera recording. */
+export interface FaceCamState {
+  found: { box: number[]; kind: string; locked: boolean } | null;
+  camera: {
+    name: string; width: number; height: number; duration: number; offset: number;
+    synced: "sound" | "you" | "none"; match: number | null; box?: number[] | null;
+  } | null;
 }
 
 export interface ClipFlag {
@@ -75,6 +108,8 @@ export interface ClipAnalysis {
   flags: ClipFlag[];
   viral_potential: number;
   note: string;
+  /** Why it ranks where it does, one line per area (virality.reasons): good true/false, null when not measured. */
+  reasons?: { area: string; good: boolean | null; text: string }[];
   /** From the deeper analysis (pipeline/deep.py) when it ran: the Clip Score, how it came about, and what ClipForge AI
    * added: its ranking of the finalists (scout.py), what it saw (eyes.py), the voice (ears.py), your taste (taste.py). */
   clip_score?: number;
@@ -133,6 +168,14 @@ export interface PostPackage {
   generated_at: number;
   edited: boolean;
   checks: Record<string, string[]>;
+  /** The title options by kind and each destination's pick with its reason (postpack.title_guide). */
+  guide?: {
+    options: { kind: "search" | "curiosity" | "moment"; label: string; text: string }[];
+    youtube: { recommended: number; why: string; note?: string } | null;
+    tiktok: { recommended: number; why: string; field: string } | null;
+  };
+  /** What each platform would refuse or ignore in this text (postpack.field_problems). */
+  limits?: { youtube: string[]; tiktok: string[] };
 }
 
 /** An alternative rendering of a clip ("" id = the original). */
@@ -186,6 +229,8 @@ export interface Clip {
   has_video: boolean;
   has_thumbnail: boolean;
   version: number;
+  /** How sure the last render's face cam is; null when its layout uses none. */
+  cam_check?: CamCheck | null;
 }
 
 export type Settings = Record<string, any>;
@@ -457,6 +502,13 @@ export const api = {
       "GET",
       `/api/clips/${id}/words`,
     ),
+  clipTrims: (id: string) => req<TrimSuggestions>("GET", `/api/clips/${id}/trims`),
+  facecam: (projectId: string) => req<FaceCamState>("GET", `/api/projects/${projectId}/facecam`),
+  lockFacecam: (projectId: string, box: number[] | null) =>
+    req<FaceCamState>("PUT", `/api/projects/${projectId}/facecam`, { box }),
+  patchCamera: (projectId: string, body: { offset?: number; box?: number[]; whole?: boolean }) =>
+    req<FaceCamState>("PATCH", `/api/projects/${projectId}/camera`, body),
+  deleteCamera: (projectId: string) => req<FaceCamState>("DELETE", `/api/projects/${projectId}/camera`),
 };
 
 export const clipVideoUrl = (c: Clip) => `/api/clips/${c.id}/video?v=${c.version}`;
@@ -499,6 +551,31 @@ export function uploadVideo(
     xhr.onabort = () => reject(new Error("Upload canceled. Nothing was added; your file is still on this computer."));
     signal?.addEventListener("abort", () => xhr.abort(), { once: true });
     if (signal?.aborted) return reject(new Error("Upload canceled. Nothing was added."));
+    xhr.send(form);
+  });
+}
+
+/** A separate camera recording for a video; it is lined up by sound unless `offset` (seconds) is given. */
+export function uploadCamera(projectId: string, file: File, offset: string,
+  onProgress: (fraction: number) => void): Promise<FaceCamState> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("offset", offset);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/projects/${projectId}/camera`);
+    xhr.setRequestHeader("X-ClipFoundry", "1");
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(data.detail || "Adding the camera recording failed"));
+      } catch {
+        reject(new Error("Adding the camera recording failed"));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Adding the camera recording failed: server not reachable"));
     xhr.send(form);
   });
 }

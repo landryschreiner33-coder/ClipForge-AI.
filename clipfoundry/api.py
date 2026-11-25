@@ -22,7 +22,7 @@ from . import __version__, config, db, embedder, phone, taste
 from .asyncio_windows import disconnect_cleanup
 from .jobs import worker
 from .pathguard import plain_parts
-from .pipeline import cleanup, cuda, export, llm, postpack, render, transcribe, versions
+from .pipeline import cleanup, cuda, export, facecam, llm, postpack, render, transcribe, versions, virality
 from .pipeline.common import read_json
 from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available, videotoolbox_available
 from .pipeline.process import load_words, project_dir, version_dir
@@ -170,6 +170,9 @@ def _public_clip(c: dict) -> dict:
     out["has_video"] = bool(c.get("output_path")) and Path(c["output_path"]).exists()
     out["has_thumbnail"] = bool(c.get("thumb_path")) and Path(c["thumb_path"]).exists()
     out["version"] = int(c.get("updated_at", 0))
+    if isinstance(c.get("analysis"), dict) and (c["analysis"].get("factors") or {}):
+        out["analysis"] = {**c["analysis"], "reasons": virality.reasons(c["analysis"], c.get("render_info") or {})}
+    out["cam_check"] = facecam.cam_check(c.get("render_info"))  # how sure its face cam is (clip editor)
     return out
 
 
@@ -545,6 +548,104 @@ def project_source(project_id: str) -> FileResponse:
     return FileResponse(src)
 
 
+# ------------------------------------------------------------------ the face cam you set (pipeline/facecam.py)
+class FacecamBody(BaseModel):
+    box: list[float] | None = None
+
+
+def _facecam_state(p: dict) -> dict:
+    pdir = project_dir(p)
+    cam, rec = facecam.found(pdir), facecam.camera(pdir)
+    return {"found": {"box": cam["box"], "kind": cam.get("kind") or "border", "locked": bool(cam.get("locked"))}
+            if cam else None,
+            "camera": {k: rec.get(k) for k in ("name", "width", "height", "duration", "offset", "synced", "match",
+                                               "box")} if rec else None}
+
+
+@app.get("/api/projects/{project_id}/facecam")
+def get_facecam(project_id: str) -> dict:
+    """Where this video's face cam is: the one found in it, the box locked for every clip, a camera recording."""
+    return _facecam_state(_project_or_404(project_id))
+
+
+@app.put("/api/projects/{project_id}/facecam")
+def lock_facecam(project_id: str, body: FacecamBody) -> dict:
+    """Lock a face cam box for every clip of this video ({"box": null} unlocks it). Clips get it when rendered."""
+    p = _project_or_404(project_id)
+    try:
+        facecam.set_lock(project_dir(p), facecam.clean_box(body.box))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _facecam_state(p)
+
+
+@app.post("/api/projects/{project_id}/camera")
+async def add_camera(project_id: str, file: UploadFile = File(...), offset: str = Form("")) -> dict:
+    """A separate camera recording for this video: it becomes the face cam of every clip whose layout uses one,
+    lined up with the video by the sound both recorded (or `offset`: the camera's time at the video's start)."""
+    from starlette.concurrency import run_in_threadpool
+
+    p = _project_or_404(project_id)
+    filename = Path(file.filename or "camera.mp4").name
+    ext = Path(filename).suffix.lower()
+    if ext not in config.VIDEO_EXTENSIONS:
+        raise HTTPException(400, f"Unsupported file type '{ext}'. Use MP4, MOV, MKV, WEBM or M4V.")
+    try:
+        off = float(offset) if offset.strip() else None
+    except ValueError as exc:
+        raise HTTPException(400, "The offset must be a number of seconds.") from exc
+    if off is not None and not math.isfinite(off):
+        raise HTTPException(400, "The offset must be a number of seconds.")
+    pdir = project_dir(p)
+    facecam.remove_camera(pdir)
+    dest = pdir / f"camera{ext}"
+    tmp = pdir / f"camera.upload{ext}"
+    with open(tmp, "wb") as out:
+        shutil.copyfileobj(file.file, out, length=4 * 1024 * 1024)
+    os.replace(tmp, dest)
+    heard = pdir / "audio.wav" if (pdir / "audio.wav").exists() else Path(p["source_path"])
+    try:
+        await run_in_threadpool(facecam.add_camera, pdir, dest, off, heard, filename)
+    except ValueError as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, str(exc)) from exc
+    return _facecam_state(p)
+
+
+class CameraPatch(BaseModel):
+    offset: float | None = None
+    box: list[float] | None = None
+    whole: bool = False   # show all of the camera's picture again (forget its box)
+
+
+@app.patch("/api/projects/{project_id}/camera")
+def patch_camera(project_id: str, body: CameraPatch) -> dict:
+    p = _project_or_404(project_id)
+    try:
+        facecam.update_camera(project_dir(p), body.offset,
+                              None if body.whole else facecam.clean_box(body.box) if body.box is not None else ...)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _facecam_state(p)
+
+
+@app.delete("/api/projects/{project_id}/camera")
+def delete_camera(project_id: str) -> dict:
+    p = _project_or_404(project_id)
+    facecam.remove_camera(project_dir(p))
+    return _facecam_state(p)
+
+
+@app.get("/api/projects/{project_id}/camera/video")
+def camera_video(project_id: str) -> FileResponse:
+    path = facecam.camera_path(project_dir(_project_or_404(project_id)))
+    if path is None:
+        raise HTTPException(404, "This video has no separate camera recording.")
+    return FileResponse(path)
+
+
 @app.get("/api/projects/{project_id}/transcript")
 def project_transcript(project_id: str) -> dict:
     p = _project_or_404(project_id)
@@ -598,7 +699,7 @@ class ClipPatch(BaseModel):
 EDIT_KEYS = {"start", "end", "tracking", "layout", "crop_x", "zoom", "caption_style", "caption_position",
              "caption_size", "highlight_color", "highlight_words", "captions_enabled", "caption_words", "hook",
              "hook_overlay", "hook_seconds", "silence", "auto_zoom", "gain_db", "normalize_audio", "speed",
-             "remove_fillers", "caption_emphasis", "clean_sound", "split_game"}
+             "remove_fillers", "caption_emphasis", "clean_sound", "split_game", "cam_box", "pip_corner"}
 
 
 @app.patch("/api/clips/{clip_id}")
@@ -637,10 +738,17 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
                     finite = False
                 if not finite:
                     raise HTTPException(400, f"The clip's {k} must be a time in seconds.")
-        for k, v in body.edit.items():
+        changes = dict(body.edit)
+        if changes.get("cam_box") is not None:  # the face cam's box drawn for this clip, in shares of the picture
+            try:
+                changes["cam_box"] = facecam.clean_box(changes["cam_box"])
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+        for k, v in changes.items():
             if k not in EDIT_KEYS or (k == "clean_sound" and v is not None and v not in config.CLEAN_SOUND_MODES) \
                     or (k == "layout" and v is not None and v not in config.CLIP_LAYOUTS) \
-                    or (k == "split_game" and v is not None and v not in config.SPLIT_GAMES):
+                    or (k == "split_game" and v is not None and v not in config.SPLIT_GAMES) \
+                    or (k == "pip_corner" and v is not None and v not in config.PIP_CORNERS):
                 continue
             if v is None:
                 edit.pop(k, None)
@@ -778,6 +886,24 @@ def clip_words(clip_id: str, pad: float = 20.0) -> dict:
     around = [w for w in words if start - pad <= w["start"] <= end + pad]
     return {"start": start, "end": end, "original_start": clip["start"], "original_end": clip["end"],
             "duration": project.get("duration", 0), "words": around, "caption_words": edit.get("caption_words")}
+
+
+@app.get("/api/clips/{clip_id}/trims")
+def clip_trims(clip_id: str) -> dict:
+    """Suggested trims for the clip as saved (pipeline/trims.py): a tighter start or end, a sentence cut in half,
+    and the dead air Remove pauses would take out, each with its reason. Nothing is changed."""
+    from .pipeline import trims
+
+    clip = _clip_or_404(clip_id)
+    project = db.get_project(clip["project_id"])
+    assert project
+    edit = clip.get("edit") or {}
+    start = float(edit.get("start", clip["start"]))
+    end = float(edit.get("end", clip["end"]))
+    words = load_words(project)
+    near = [w for w in words if start - 30 <= w["start"] <= end + 30]
+    silence = edit.get("silence", (project.get("options") or {}).get("silence", "off"))
+    return trims.suggest(near, start, end, str(silence or "off"))
 
 
 # ------------------------------------------------------------------ versions

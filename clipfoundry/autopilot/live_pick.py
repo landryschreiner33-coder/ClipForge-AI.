@@ -61,8 +61,8 @@ FULL_PAUSE = 3.0     # seconds of silence that end a moment (the analysis counts
 #                      is said after it belongs to the next moment
 
 
-FRAMING_LABELS = {"auto": "Split view when there is a face cam", "split": "Always split view",
-                  "off": "No split view"}
+FRAMING_LABELS = {"auto": "Split view when there is a face cam", "split": "Gameplay + Facecam",
+                  "pip": "Picture-in-picture", "game": "Gameplay only", "off": "No split view"}
 
 
 def rule(name: str | None) -> dict:

@@ -1,6 +1,7 @@
 import { ReactElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  alignWords, api, Clip, ClipEdit, ClipVersion, errorText, fmtPrecise, Project, Settings, versionVideoUrl, Word,
+  alignWords, api, Clip, ClipEdit, ClipVersion, errorText, fmtPrecise, Project, Settings, TrimSuggestion,
+  versionVideoUrl, Word,
 } from "../api";
 import { at, plural } from "../format";
 import { editHash, TimeField, Timeline } from "../components/editorParts";
@@ -12,6 +13,8 @@ import {
   TabPanel, Tabs, Toggle, toast, TRACKING,
 } from "../components/ui";
 import { VersionsCard } from "../components/versions";
+import { SuggestedTrims } from "../components/suggestedTrims";
+import { FaceCamPanel } from "../components/faceCam";
 import { useLeaveGuard } from "../router";
 import { fmtTime, STORY_MAX_S } from "../studio";
 import "./editor.css";
@@ -31,7 +34,7 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
   trim: ["start", "end"],
   captions: ["captions_enabled", "caption_style", "caption_position", "caption_size", "caption_emphasis",
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
-  layout: ["tracking", "crop_x", "layout", "split_game", "zoom", "auto_zoom"],
+  layout: ["tracking", "crop_x", "layout", "split_game", "cam_box", "pip_corner", "zoom", "auto_zoom"],
   audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
@@ -47,7 +50,18 @@ const CAPTION_MAX = 2200;
 
 const isBusy = (c: Clip) => c.status === "queued" || c.status === "rendering";
 const same = (a: unknown, b: unknown) =>
-  typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-6 : a === b;
+  typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-6
+    : Array.isArray(a) || Array.isArray(b) ? JSON.stringify(a ?? null) === JSON.stringify(b ?? null) : a === b;
+// The layouts that use a face cam laid over gameplay (config.CLIP_LAYOUTS); "auto" splits only when one is found.
+const CAM_LAYOUTS = ["split", "pip", "game", "auto"];
+const LAYOUT_HINTS: Record<string, string> = {
+  fill: "One picture that fills the clip; the sides of a wide video are cropped.",
+  fit: "The whole picture over a blurred background, nothing cut off.",
+  split: "The face cam on top and the gameplay below it, with the captions between them.",
+  pip: "The gameplay fills the clip and the face cam sits in a small box in a top corner.",
+  game: "The gameplay fills the clip and the face cam is left out of it.",
+  auto: "Gameplay + Facecam when a face cam is found in this clip; otherwise one picture.",
+};
 const norm = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
 const andList = (xs: string[]) =>
   (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
@@ -271,6 +285,11 @@ export default function ClipEditor({ id }: { id: string }) {
     else setTrim(Math.min(start, w.end - 1.5), w.end + 0.3);
     announce(`${clickMode === "start" ? "Start" : "End"} set at “${w.w}”`);
   };
+  const useTrim = (s: TrimSuggestion) => {
+    if (s.edit.start !== undefined || s.edit.end !== undefined) setTrim(s.edit.start ?? start, s.edit.end ?? end);
+    if (s.edit.silence) set({ silence: s.edit.silence });
+    announce(`${s.label}: not saved yet${s.edit.silence ? " (Remove pauses is set to Light under Audio)" : ""}`);
+  };
   const resetTrim = () => setDraft((x) => {
     const n = { ...x };
     delete n.start;
@@ -470,6 +489,7 @@ export default function ClipEditor({ id }: { id: string }) {
           ClipForge suggested {fmtPrecise(clip.start)} to {fmtPrecise(clip.end)}. Silence cleanup, filler cuts and
           pacing (in Audio) can make the video shorter than this.
         </p>
+        <SuggestedTrims clipId={clip.id} version={clip.version} onUse={useTrim} />
       </>
     ),
     captions: (
@@ -588,7 +608,7 @@ export default function ClipEditor({ id }: { id: string }) {
             const tracking = e.target.value;
             // Framing the picture by hand means one picture: a split view places its two pictures itself and would
             // ignore it. Unless a split view was picked for this clip, the layout shown changes with it.
-            const toUsual = tracking !== "auto" && (str("layout") === "split" || str("layout") === "auto")
+            const toUsual = tracking !== "auto" && CAM_LAYOUTS.includes(str("layout"))
               && d.layout == null && saved.layout == null;
             set({ tracking, ...(toUsual ? { layout: usualLayout } : {}) });
           }}>
@@ -610,15 +630,23 @@ export default function ClipEditor({ id }: { id: string }) {
         <div className="field">
           <span className="label" id={`${uid}-lay`}>Layout</span>
           <Segmented labelledBy={`${uid}-lay`} value={str("layout")} onChange={(v) => set({ layout: v })}
-            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" },
-              { value: "split", label: "Split view" }, { value: "auto", label: "Split if face cam" }]} />
-          {(str("layout") === "split" || str("layout") === "auto") && <p className="hint">Split view shows the face
-            cam on top and the picture below it, with the captions between them.
-            {str("layout") === "auto" ? " It is used only when a face cam is found in this clip;"
-              : " If no small face is found in this clip,"} otherwise the clip uses the layout from Settings.
-            {str("tracking") !== "auto" && " Split view places both pictures itself, so Framing does not change it."}
-          </p>}
+            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (whole frame)" },
+              { value: "split", label: "Gameplay + Facecam" }, { value: "pip", label: "Picture-in-picture" },
+              { value: "game", label: "Gameplay only" }, { value: "auto", label: "Automatic" }]} />
+          <p className="hint">{LAYOUT_HINTS[str("layout")] || ""}
+            {CAM_LAYOUTS.includes(str("layout")) && str("layout") !== "auto"
+              && " If no face cam is found in this clip and you haven't drawn one, it uses the layout from Settings."}
+            {CAM_LAYOUTS.includes(str("layout")) && str("tracking") !== "auto"
+              && " These layouts place the picture themselves, so Framing does not change them."}
+          </p>
         </div>
+        {CAM_LAYOUTS.includes(str("layout")) && (
+          <FaceCamPanel project={project} clip={clip} layout={str("layout")}
+            box={Array.isArray(eff("cam_box")) ? (eff("cam_box") as number[]) : null}
+            setBox={(b) => set({ cam_box: b })}
+            pipCorner={(eff("pip_corner") as "left" | "right" | undefined) ?? clip.render_info?.pip_corner ?? "right"}
+            setPipCorner={(c) => set({ pip_corner: c })} renderNow={renderOnly} busy={busy} />
+        )}
         {(str("layout") === "split" || str("layout") === "auto") && <div className="field">
           <span className="label" id={`${uid}-game`}>Under the face cam</span>
           <Segmented labelledBy={`${uid}-game`} value={str("split_game")} onChange={(v) => set({ split_game: v })}

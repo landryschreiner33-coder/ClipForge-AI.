@@ -487,3 +487,78 @@ def summary(r: dict) -> dict:
         **({"moment": steer.shown_kinds(r["facts"]["text"], r["facts"])} if r.get("facts") else {}),
         "note": ESTIMATE_NOTE,
     }
+
+
+REASON_AREAS = ("Opening", "Context", "Pacing", "Payoff", "Audio", "Framing")
+
+
+def reasons(summary_: dict, render_info: dict | None = None) -> list[dict]:
+    """Why this clip ranks where it does, in plain words tied to the clip itself: one line each for its opening,
+    context, pacing, payoff, how clearly the speech comes through and (once rendered) its framing.
+    [{"area", "good": True/False/None (None: no measurement), "text"}]. Works on a stored analysis (`summary`), so
+    older clips get reasons too."""
+    f = summary_.get("factors") or {}
+    sig = summary_.get("signals") or {}
+    st = summary_.get("structure") or {}
+    flags = {fl.get("id"): fl for fl in summary_.get("flags") or []}
+    out: list[dict] = []
+
+    def add(area: str, good: bool | None, text: str) -> None:
+        out.append({"area": area, "good": good, "text": text})
+
+    if not f:
+        return out
+    lead = sig.get("to_content_s")
+    if "slow_opening" in flags:
+        add("Opening", False, f"Slow start: {flags['slow_opening'].get('detail', '')}.")
+    elif lead is not None:
+        add("Opening", float(f.get("opening", 0)) >= 6, f"First real word after {float(lead):.1f} s"
+            + ("; the first line gets to the point." if float(f.get("opening", 0)) >= 6 else "."))
+    if "weak_context" in flags:
+        add("Context", False, f"Needs outside context: {flags['weak_context'].get('detail', '')}.")
+    elif "topic_change" in flags:
+        add("Context", False, "Changes topic partway through.")
+    else:
+        add("Context", float(f.get("standalone", 0)) >= 5,
+            "Makes sense on its own: no lines lean on earlier parts of the video."
+            if float(f.get("standalone", 0)) >= 5 else "Some lines may lean on earlier parts of the video.")
+    wps, dead = sig.get("wps"), sig.get("dead_air")
+    if wps is not None:
+        per10 = 10 * float(dead or 0)
+        good = float(f.get("pacing", 0)) >= 6
+        add("Pacing", good, f"{float(wps):.1f} words a second, {per10:.1f} s of dead air per 10 s"
+            + ("." if good else "; slower than most shorts hold attention."))
+    if "misleading_cut" in flags:
+        add("Payoff", False, f"Cut too early: {flags['misleading_cut'].get('detail', '')}.")
+    elif "weak_ending" in flags:
+        add("Payoff", False, f"Weak ending: {flags['weak_ending'].get('detail', '')}.")
+    elif st.get("payoff"):
+        add("Payoff", True, "Ends on its payoff line, so the viewer gets what the opening promised.")
+    else:
+        add("Payoff", None, "No clear payoff line found (a reaction or a visual moment may still carry it).")
+    conf = sig.get("mean_confidence")
+    if conf is not None:
+        c = float(conf)
+        add("Audio", c >= 0.8, f"Speech recognized with {c:.0%} confidence"
+            + (": clear enough to follow without sound." if c >= 0.8 else ": parts may be hard to hear or caption."))
+    else:
+        add("Audio", None, "No word confidence for this transcript (imported subtitles).")
+    ri = render_info or {}
+    mode = ri.get("mode")
+    if mode == "split" and ri.get("layout") == "pip":
+        add("Framing", True, "Picture-in-picture: the gameplay fills the frame with the face cam in a box on top.")
+    elif mode == "split" and ri.get("layout") == "game":
+        add("Framing", True, "Gameplay only: the gameplay fills the frame and the face cam is left out.")
+    elif mode == "split":
+        add("Framing", True, "Split view: the face cam and the gameplay both stay in the 9:16 frame.")
+    elif mode in ("face", "speaker"):
+        add("Framing", True, "The vertical frame follows the speaker's face.")
+    elif ri.get("layout") == "fit" or (ri.get("crop_w") is not None and float(ri.get("crop_w") or 0) >= 0.999):
+        add("Framing", True, "The whole picture is kept (no crop).")
+    elif mode == "manual":
+        add("Framing", True, "Framed by you.")
+    elif mode:
+        add("Framing", False, "No face or subject was tracked, so the picture is cropped in the middle.")
+    else:
+        add("Framing", None, "Framing is checked when the clip is rendered.")
+    return out

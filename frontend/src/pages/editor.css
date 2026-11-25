@@ -63,3 +63,29 @@
   .clip-editor .savebar .grow > .tiny { display: block; }
   .clip-editor .savebar .btn { flex: 1 1 auto; }
 }
+
+/* Suggested trims (Trim tab): each suggestion with its reason and a Use button */
+.trim-suggestions { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line, rgba(160, 190, 255, .18)); }
+.trim-suggestions h4 { margin: 0 0 6px; }
+.trim-suggestions ul { list-style: none; margin: 0; padding: 0; gap: 8px; }
+.trim-suggestions li { gap: 8px; }
+
+/* Face cam (Layout tab): how sure the last render's cam is, the box you draw or lock, a separate camera recording */
+.facecam { display: grid; gap: var(--s2); }
+.cam-check { display: flex; gap: var(--s2); align-items: flex-start; margin: 0; padding: var(--s2) var(--s3);
+  font-size: var(--fs-small); border-radius: var(--r-control); background: var(--well); }
+.cam-check .icon { flex: none; margin-top: 2px; }
+.cam-check.unsure, .cam-check.none { color: var(--warn); }
+.cam-check.found, .cam-check.manual, .cam-check.camera { color: var(--text-2); }
+.cam-draw { display: grid; gap: var(--s2); }
+.cam-editor { position: relative; width: 100%; max-width: 520px; overflow: hidden; border-radius: 8px;
+  background: #000; touch-action: none; user-select: none; cursor: crosshair; }
+.cam-editor video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.cam-box { position: absolute; border: 2px solid var(--primary); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  cursor: move; }
+.cam-box:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.cam-box-handle { position: absolute; right: -8px; bottom: -8px; width: 16px; height: 16px; border-radius: 4px;
+  background: var(--primary); border: 2px solid #fff; cursor: nwse-resize; }
+.cam-recording { display: grid; gap: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line); }
+.cam-recording p { margin: 0; }
+.cam-offset { width: 6.5em; }

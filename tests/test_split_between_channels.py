@@ -270,7 +270,7 @@ def test_the_app_takes_the_split_with_a_stream_and_shows_it(chans, api, monkeypa
     shown = api.get("/api/autopilot/submissions/live", headers=H).json()[0]
     assert shown["submission"]["split"] == "turns"
     assert shown["live"]["pick"] == "balanced" and shown["live"]["framing"] == "split"
-    assert shown["live"]["pick_label"] == "Balanced" and shown["live"]["framing_label"] == "Always split view"
+    assert shown["live"]["pick_label"] == "Balanced" and shown["live"]["framing_label"] == "Gameplay + Facecam"
     assert not shown["live"]["clipping_stopped"] and shown["live"]["note"] == ""
     for wrong in ({"split": "sideways"}, {"live_pick": "everything"}, {"live_framing": "sideways"}):
         refused = api.post("/api/autopilot/submissions/link", headers=H,

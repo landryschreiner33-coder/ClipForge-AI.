@@ -95,6 +95,15 @@ export function ViralPanel({ c }: { c: Clip }) {
         ))}
       </div>
       <StructureChips c={c} />
+      {(a.reasons || []).length > 0 && (
+        <ul className="rank-reasons" aria-label="Why it ranks here">
+          {a.reasons!.map((r) => (
+            <li key={r.area} className={r.good === true ? "good" : r.good === false ? "weak" : "unknown"}>
+              <b>{r.area}:</b> {r.text}
+            </li>
+          ))}
+        </ul>
+      )}
       {(a.flags || []).length > 0 && (
         <ul className="flags">
           {a.flags!.map((f) => (
