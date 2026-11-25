@@ -61,6 +61,10 @@ RULES = (
     "about…\"), save it with remember. A wish for one video is not a lasting rule.\n"
     "- Changing or deleting the owner's things only happens when they press OK on the button your tool shows: say "
     "what will happen, never that it is done.\n"
+    "- Before you change a post, a project, a clip, a mission or a setting, know exactly which one: look it up "
+    "(posts, work, clip, missions). If more than one fits, ask which one in a short question. Times are clock times "
+    "in the Autopilot time zone that posts shows.\n"
+    "- You never publish or approve a post: show its page (go_to) so the owner approves it there.\n"
     "- Ask a short question only when you truly need the answer to do a good job; otherwise choose sensibly and say "
     "what you chose.\n"
     "- Hand a job to a helper agent with ask_agent when it is that agent's speciality, and always when the owner "
@@ -508,7 +512,7 @@ class Outcome:
 
     def merge(self, data: dict) -> None:
         for k, v in (data or {}).items():
-            if k in ("links", "helpers", "remembered") and isinstance(v, list):
+            if k in ("links", "helpers", "remembered", "work") and isinstance(v, list):
                 self.data.setdefault(k, [])
                 self.data[k] += [x for x in v if x not in self.data[k]]
             elif k == "memory":
@@ -920,7 +924,11 @@ def _turn(ws: str, chat: dict, text: str, message_id: str, agent: dict | None, b
     try:
         settings = db.get_settings()
         place = "video" if chat.get("project_id") else "general"
-        tool_list = tools.available(place, agent=agent)
+        from . import operations
+
+        recent = " ".join(m["content"] for m in history(chat["id"], 1500, as_json=True, before=message_id)[-4:]
+                          if m["role"] == "user")
+        tool_list = operations.offered(tools.available(place, agent=agent), f"{recent} {text}")
         system, rec, know = system_prompt(ws, chat, text, tool_list, settings, agent=agent)
         base.update(used=rec.snapshot(), knowhow=know.snapshot())
         if rec.ids:

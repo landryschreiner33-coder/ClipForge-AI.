@@ -1,4 +1,6 @@
-"""ClipForge AI's chat (docs/clipforge/CLIPFORGE_AI.md): one chat per video and one for everything else.
+"""ClipForge AI's chat (docs/clipforge/CLIPFORGE_AI.md): one chat per video, and as many saved chats for everything
+else as you like (`new_chat`, `list_chats`, `rename`, `delete_chat`); each keeps its messages and the actions taken
+in it across restarts.
 
 With a model set up (the built-in one, or an AI helper), everything you say goes to ClipForge AI the assistant
 (assistant.py): it answers like a person, with the conversation so far, your projects and your memories, and uses
@@ -169,11 +171,29 @@ def _routed(chat: dict) -> Callable[[str, str, str], dict] | None:
 
 
 # ------------------------------------------------------------------ chats and messages
-def open_chat(ws: str, project_id: str = "", create: bool = True) -> dict:
-    """The chat of one video (it must be this workspace's), or the general chat; made when first opened (with
-    `create`; without it, a missing chat is an error). A video deleted while its chat is opened gets no new chat:
-    deleting removes the video and its chats together, so a chat made in between is removed again."""
-    title = "ClipForge AI"
+GENERAL_TITLE = "ClipForge AI"   # a general chat nobody has talked in yet
+TITLE_CHARS = 60
+
+
+def open_chat(ws: str, project_id: str = "", create: bool = True, chat_id: str = "") -> dict:
+    """The chat of one video (it must be this workspace's), or a general chat: `chat_id` picks one of the saved
+    general chats, else the one used last; made when first opened (with `create`; without it, a missing chat is an
+    error). A video deleted while its chat is opened gets no new chat: deleting removes the video and its chats
+    together, so a chat made in between is removed again."""
+    if chat_id:
+        chat = get_chat(ws, chat_id)
+        if (chat.get("project_id") or "") != (project_id or ""):
+            raise ChatError("Chat not found.", 404)
+        if not project_id:
+            return chat
+    title = GENERAL_TITLE
+    if not project_id:
+        rows = db.select("brain_chats", "workspace_id = ? AND project_id = ''", (ws,), "updated_at DESC", 1)
+        if rows:
+            return rows[0]
+        if not create:
+            raise ChatError("Chat not found.", 404)
+        return db.insert("brain_chats", {"workspace_id": ws, "project_id": "", "title": title})
     if project_id:
         project = db.fetch("studio_projects", project_id)
         if not project or project["workspace_id"] != ws:
@@ -198,6 +218,59 @@ def get_chat(ws: str, chat_id: str) -> dict:
     if not row or row["workspace_id"] != ws:
         raise ChatError("Chat not found.", 404)
     return row
+
+
+def new_chat(ws: str) -> dict:
+    """A new, empty general chat. The chats you had stay as they are."""
+    return db.insert("brain_chats", {"workspace_id": ws, "project_id": "", "title": GENERAL_TITLE})
+
+
+def list_chats(ws: str) -> list[dict]:
+    """The saved general chats, the one used last first, each with its name, how many messages it has and the last
+    thing said in it. A video's own chat is on that video's page."""
+    out = []
+    for c in db.select("brain_chats", "workspace_id = ? AND project_id = ''", (ws,), "updated_at DESC"):
+        last = db.select("brain_chat_messages", "chat_id = ?", (c["id"],), "created_at DESC, rowid DESC", 1)
+        out.append({"id": c["id"], "title": c.get("title") or GENERAL_TITLE, "named": bool(c.get("named")),
+                    "messages": db.scalar("SELECT COUNT(*) FROM brain_chat_messages WHERE chat_id = ?", (c["id"],)),
+                    "last": tools.one_line(last[0]["text"], 90) if last else "",
+                    "created_at": c["created_at"], "updated_at": c["updated_at"]})
+    return out
+
+
+def rename(ws: str, chat_id: str, title: object) -> dict:
+    """Give a chat your own name (it then keeps it; an unnamed chat is named after the first thing you said)."""
+    chat = get_chat(ws, chat_id)
+    if chat.get("project_id"):
+        raise ChatError("A video's chat is named after the video: rename the video instead.")
+    name = tools.one_line(_text(title, TITLE_CHARS * 2), TITLE_CHARS)
+    if not name:
+        raise ChatError("Give the chat a name.")
+    db.execute("UPDATE brain_chats SET title = ?, named = 1 WHERE id = ?", (name, chat_id))
+    return {**get_chat(ws, chat_id)}
+
+
+def delete_chat(ws: str, chat_id: str) -> dict:
+    """Delete a saved chat and its messages. An answer still being written in it is stopped first. What was done in
+    the chat (a renamed project, a saved memory) stays done; only the conversation goes."""
+    chat = get_chat(ws, chat_id)
+    if chat.get("project_id"):
+        raise ChatError("A video's chat goes with the video. Use Clear to empty it.")
+    if db.scalar("SELECT COUNT(*) FROM brain_chat_messages WHERE chat_id = ? AND status = 'thinking'", (chat_id,)):
+        stop(ws, chat_id)
+    n = db.execute("DELETE FROM brain_chat_messages WHERE chat_id = ?", (chat_id,))
+    db.execute("DELETE FROM brain_chats WHERE id = ?", (chat_id,))
+    return {"deleted": chat_id, "messages": n}
+
+
+def _name_after(chat: dict, text: str) -> None:
+    """A general chat nobody named is named after the first thing said in it."""
+    if chat.get("project_id") or chat.get("named") or (chat.get("title") or GENERAL_TITLE) != GENERAL_TITLE:
+        return
+    words = tools.one_line(text, TITLE_CHARS)
+    if words:
+        chat["title"] = words
+        db.execute("UPDATE brain_chats SET title = ? WHERE id = ? AND named = 0", (words, chat["id"]))
 
 
 def _view(row: dict, ws: str) -> dict:
@@ -287,6 +360,7 @@ def send(ws: str, chat_id: str, text: object, base_revision: int | None = None, 
         return handle(ws, chat.get("project_id") or "", text)
     if db.scalar("SELECT COUNT(*) FROM brain_chat_messages WHERE chat_id = ? AND status = 'thinking'", (chat_id,)):
         raise ChatError("I am still answering your last message. Wait for it, or press Stop.", 409)
+    _name_after(chat, text)
     owner = _add(chat, "owner", text)
     try:
         if forget is not None:
@@ -835,6 +909,8 @@ def decide(ws: str, chat_id: str, message_id: str, action_id: str, do: bool) -> 
         data["pending"] = acts
         if result is not None and result.data.get("links"):
             data["links"] = [*(data.get("links") or []), *result.data["links"]]
+        if result is not None and result.data.get("work"):  # work it queued: the chat follows it (work_state)
+            data["work"] = [*(data.get("work") or []), *result.data["work"]]
         if result is not None and isinstance(result.data.get("memory"), dict):  # kept after the OK: its Undo chip
             data["remembered"] = [*(data.get("remembered") or []), result.data["memory"]]
         if db.fetch("brain_chat_messages", message_id) is None:  # the action deleted this chat with its video

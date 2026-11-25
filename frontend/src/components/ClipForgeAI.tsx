@@ -11,6 +11,7 @@ import { useAppearance } from "../prefs";
 import { navigate } from "../router";
 import { ChangeRequest, Video } from "../studio";
 import { BuiltinProgress } from "./AiHelperSettings";
+import { SavedChats, WorkChip } from "./SavedChats";
 import { ConfirmDialog, Icon, IconName, Pill, toast } from "./ui";
 
 const TONE: Record<ChangeRequest["status"], "good" | "warn" | "bad" | "neutral"> = {
@@ -166,6 +167,8 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   const [hush, setHush] = useState<string | null>(null);
   const [pick, setPick] = useState(0);
   const [heard, setHeard] = useState(false);
+  // Talk to AI keeps several general chats: the one chosen ("" = the one used last); a video has its own chat
+  const [chosen, setChosen] = useState("");
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
@@ -184,7 +187,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   const open = useCallback(async () => {
     const n = ++opened.current;
     try {
-      const c = await chatApi.open(projectId);
+      const c = await chatApi.open(projectId, projectId ? "" : chosen);
       if (n !== opened.current) return;
       setChat(c);
       setMsgs(c.messages);
@@ -194,8 +197,15 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
     } catch (e) {
       if (n === opened.current) setProblem(errorText(e));
     }
-  }, [projectId]);
+  }, [projectId, chosen]);
   useEffect(() => { void open(); }, [open]);
+  const pickChat = (id: string) => {
+    if (id && id === chat?.id) return;
+    setMsgs([]);
+    setChat(null);
+    if (id === chosen) void open();  // "" again (the chat on screen was deleted): the one used last
+    else setChosen(id);
+  };
   // The conversation reads new messages out to a screen reader, but not the whole chat when it first opens.
   useEffect(() => {
     if (!chat || heard) return;
@@ -573,7 +583,11 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   return (
     <div className="cfai-page">
       {section}
-      <HelpersSide agents={agents} ready={ready || !chat} disabled={!!writing || !chat} onAsk={mention} />
+      <div className="cfai-side-col">
+        {!projectId && <SavedChats current={chat?.id || ""} seen={`${msgs.length}:${writing ? 1 : 0}`}
+          disabled={!!writing} onPick={pickChat} />}
+        <HelpersSide agents={agents} ready={ready || !chat} disabled={!!writing || !chat} onAsk={mention} />
+      </div>
     </div>
   );
 }
@@ -622,6 +636,7 @@ const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onD
         {live && <Helper h={{ ...live, ok: true }} live />}
         {r && <Proposal r={r} full={d.tool !== "change"} busy={busy} onAct={(what) => onAct(m, what)} onSend={onSend} />}
         {(d.pending || []).map((a) => <Action key={a.id} a={a} disabled={busy || thinking} onDecide={(doIt) => onDecide(m, a, doIt)} />)}
+        {(d.work || []).map((w) => <WorkChip key={`${w.kind}-${w.id}-${w.started}`} w={w} />)}
         {links.length > 0 && <div className="cfai-links">
           {links.map((l, i) => <a key={i} className="btn btn-small" href={l.href}><Icon name="chev" />{l.label}</a>)}</div>}
         {ask && ask.choices.length > 0 && <Ask ask={ask} said={m.text} disabled={sending || busy} onSend={onSend} />}

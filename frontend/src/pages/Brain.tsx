@@ -13,6 +13,7 @@ import {
 import { Banner, Dialog, EmptyState, Icon, IconName, LinkTabs, PageHead, toast, useMenu } from "../components/ui";
 import { SaveStyleDialog, SkillsTab, StylesTab } from "../components/StylesSkills";
 import { ExampleVideosTab } from "../components/ExampleVideos";
+import { LearnedTab } from "../components/LearnedTab";
 import { MemoryTab } from "../components/MemoryTab";
 import { ClipForgeAI } from "../components/ClipForgeAI";
 import { AgentsTab } from "../components/AgentsTab";
@@ -91,7 +92,8 @@ const savedView = (tab: string) => {
   }
 };
 
-// The space studio's Brain (2026-11-19): five tabs and More. Memory holds the knowledge map (#/brain) and what
+// The space studio's Brain (2026-11-19): six tabs and More (Learned, what your edits taught, added 2026-11-25).
+// Memory holds the knowledge map (#/brain) and what
 // ClipForge AI remembers from your chats (#/brain/memory, "Brain → Memory" in its answers). Talk to AI is a tab of its
 // own and a place in the main navigation (the owner: "make sure im still able to talk to the AI").
 const BRAIN_TABS = [
@@ -100,6 +102,7 @@ const BRAIN_TABS = [
   { id: "talk", href: "#/brain/talk", label: "Talk to AI" },
   { id: "agents", href: "#/brain/agents", label: "Agents" },
   { id: "decisions", href: "#/brain/decisions", label: "Decisions" },
+  { id: "learned", href: "#/brain/learned", label: "Learned" },
 ];
 const MORE_TABS: { id: string; href: string; label: string; detail: string; icon: IconName }[] = [
   { id: "example-videos", href: "#/brain/example-videos", label: "Example videos",
@@ -208,14 +211,15 @@ function MemoryViews({ current }: { current: "map" | "facts" }) {
 /** Brain: Styles, ClipForge AI's Memory, its chat and its helper agents, Notes, Examples and Skills (the graph is an
  * optional view inside Notes). */
 export default function Brain({ tab = "knowledge" }: { tab?: string }) {
-  if (["styles", "skills", "example-videos", "memory", "talk", "agents"].includes(tab)) {
+  if (["styles", "skills", "example-videos", "memory", "talk", "agents", "learned"].includes(tab)) {
     return (
       <div className="page brain-page">
         <PageHead title={tab === "talk" ? "Talk to ClipForge AI" : "Brain"} />
         <BrainTabs current={tab} />
         {tab === "memory" && <MemoryViews current="facts" />}
         {tab === "styles" ? <StylesTab /> : tab === "skills" ? <SkillsTab /> : tab === "memory" ? <MemoryTab />
-          : tab === "talk" ? <ClipForgeAI tall side /> : tab === "agents" ? <AgentsTab /> : <ExampleVideosTab />}
+          : tab === "talk" ? <ClipForgeAI tall side /> : tab === "agents" ? <AgentsTab /> : tab === "learned" ? <LearnedTab />
+          : <ExampleVideosTab />}
       </div>
     );
   }

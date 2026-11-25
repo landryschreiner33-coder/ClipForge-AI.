@@ -442,12 +442,32 @@
   runs that computer under its own terms and privacy policy.
 </p>
 
+<h3 id="learned">What ClipForge learns from your edits (added 2026-11-25)</h3>
+<p>
+  When you save an edit of a clip in the clip editor, ClipForge keeps a note of it in the same data folder, to find
+  your habits (Brain → Learned): which clip and video it was, what kind of video (highlights, a full story, a live
+  clip), and the values after your edit: how far you moved the clip's start and end from where ClipForge put them,
+  its framing (tracking, layout, position, zoom), its captions (style, position, size, word highlight, on or off),
+  its pacing (pause cutting, speed, cutting "um") and, when you pick another of the offered titles, which kind of
+  title it is. A thumbs up or down on a clip is kept too, with the reason you give (up to 300 characters), and
+  counts like keeping or leaving out that clip for the clip choices described in section 3. From
+  these it keeps the habits it found (in words, with the clips they come from and the numbers of the check on your
+  own edited clips), the preferences you set, and a numbered list of every change to what is used, each with a copy
+  of the preferences and of your rules for ClipForge AI as they were then (their words and whether each was on), so
+  you can go back to one. None of this is sent anywhere or used to train a model; nothing about publishing,
+  accounts, spending or daily targets is learned. The notes stay when you delete a video, until you press Forget my
+  edits in Brain → Learned (which keeps what you set and the version list) or delete the data folder; turning
+  learning off records no new edits or thumbs and uses nothing learned (a thumbs up or down still counts for clip
+  choices).
+</p>
+
 <h3 id="clipforge-ai">ClipForge AI (added 2026-11-10)</h3>
 <p>
   ClipForge AI is the assistant you talk with in Brain and in each video's chat. It keeps, in the same data folder:
   each chat's messages (yours, its answers and its helper agents' answers, the steps it took, the OK and No buttons it
-  showed with what became of them, and a copy of the memories each answer used, saved or forgot), the newest 200 per
-  chat, until you press Clear this chat or delete its video; the memories you or it saved (among them the lessons
+  showed with what became of them, a copy of the memories each answer used, saved or forgot, and the work an OK
+  button started, so its state can be shown), the newest 200 per chat, until you press Clear this chat, delete that
+  saved chat (Talk to AI keeps as many named chats as you start) or delete its video; the memories you or it saved (among them the lessons
   it writes from your posts' results once enough of them have real numbers: which kinds of moment did better or worse,
   each starting "From your results:", changed or removed when the numbers no longer say it, and not written again
   after you forget one while the numbers say the same), with a record of the

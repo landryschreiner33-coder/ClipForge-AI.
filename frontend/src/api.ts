@@ -47,6 +47,8 @@ export interface Word {
 export interface ClipEdit {
   start?: number;
   end?: number;
+  /** values this clip started with because ClipForge learned them from your edits (Brain → Learned) */
+  learned_keys?: string[];
   tracking?: string;
   layout?: string;
   split_game?: string;

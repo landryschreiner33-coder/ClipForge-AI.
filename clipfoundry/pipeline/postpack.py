@@ -564,6 +564,12 @@ def generate(sents: list[str], hook: str, hooks_alt: list[str], category: str, s
         pkg = poststyle.dress(pkg, style)   # the owner's way: case, emoji, hashtags; never a new word
         source += " · " + poststyle.note(style)
         pkg["brain"] = {"rules": list(style.get("lines") or []), "memories": list(style.get("ids") or [])}
+    want = (settings.get("learned") or {}).get("title_kind")
+    if want and pkg["titles"]:  # the kind of title you usually pick (Brain → Learned), when one is offered
+        kinds = [title_kind(t, kws) for t in pkg["titles"]]
+        if want in kinds and kinds[pkg["recommended_title"]] != want:
+            pkg["recommended_title"] = kinds.index(want)
+            pkg["learned"] = {"title_kind": want}
     pkg["title"] = pkg["titles"][pkg["recommended_title"]] if pkg["titles"] else ""
     pkg["caption"] = pkg["captions"][0] if pkg["captions"] else ""
     pkg.update({"source": source, "generated_at": time.time(), "edited": False,
@@ -605,6 +611,11 @@ def for_clip(clip: dict, words: list[dict], settings: dict, use_ai: bool = True)
         project = db.get_project(str(clip.get("project_id") or "")) or {}
         ws = str(project.get("workspace_id") or "local")
         settings = {**settings, "workspace_id": ws, "post_style": poststyle.build(ws, str(project.get("id") or ""))}
+    if "learned" not in settings:  # what your edits taught (Brain → Learned): the kind of title you usually pick
+        from ..brain import learned
+
+        project = db.get_project(str(clip.get("project_id") or "")) or {}
+        settings = {**settings, "learned": learned.defaults(str(project.get("workspace_id") or "local"), settings)}
     return generate(clip_sentences(words, clip), clip.get("hook", ""), clip.get("hooks_alt") or [],
                     clip.get("category", ""), settings, df, max(1, len(all_sents)), use_ai)
 

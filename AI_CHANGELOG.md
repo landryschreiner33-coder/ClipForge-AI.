@@ -1,5 +1,44 @@
 # AI changelog
 
+## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code)
+
+Third of the four batches in Landry's "ClipForge Final Release" prompt (sections 4 and 5). Branch
+`claude/project-thread-hqwolr`, on top of batch 2.
+
+- **Commands with real tools** (`brain/operations.py`): ClipForge AI can list posts (upcoming, problems, posted, in
+  the Autopilot time zone), move a post to a time or the nearest free time, fix posts that are too close together
+  (one card for all of them), cancel an upload or take a post off the schedule, retry a failed post, write a clip's
+  post text again, change a clip's framing, render a clip, make a project again, stop work, pause or resume a
+  mission, change an editing setting, and say why a project, clip or job is stuck (`diagnose_*`: stalled after 10
+  minutes without progress, failed, waiting). Each runs the function the app's own button runs (the routes in
+  `api.py` and `autopilot/routes.py`), so the same checks, gap between posts and approval rules apply. Changes and
+  deletions wait for the owner's OK on a card that says what will happen; it never publishes or approves a post.
+  It finds exactly one post, project, clip or mission first and asks which one when more fit. Work it queues comes
+  back as `work` and the chat shows it queued, running (with progress), completed or failed
+  (`GET /api/brain/chats/work/{kind}/{ref}`, `SavedChats.tsx` `WorkChip`). The commands are offered to the model
+  only when the recent words ask for one (`operations.CUES`), so ordinary chats keep their short prompt.
+- **The crew does the work** (`crew_check`, `crew_report`): clips handed to the crew go through the same final check
+  Autopilot runs before a post (`autopilot/gate.py`: file, picture, sound, captions, cuts, text), as durable jobs
+  with idempotency keys at the manual priority, so a retry or restart never runs one twice; a fixable problem goes
+  back to the robot responsible (at most two repairs) and the Director's decisions are kept in the office feed.
+  ClipForge AI reports what the crew found and decided and which command fixes what is left; the office robots
+  animate from those real jobs.
+- **Saved chats** (`brain/chat.py`): Talk to AI keeps as many chats as you start (New chat, switch, rename, delete),
+  named after their first message until you rename one, kept across restarts with their actions. What ClipForge AI
+  remembers is shared by all of them; a video's own chat stays with that video.
+- **Learning from your edits** (`brain/learned.py`, Brain → Learned): each clip editor save is read for trims
+  (against ClipForge's own start and end), framing, captions, pacing and title picks, plus thumbs up or down. When 3
+  clips agree (70%), the habit is written down in words and checked on the owner's own edited clips, one left out at
+  a time, before and after, by format; it is used for new clips only when it gets at least 20% closer on 4 or more
+  clips. Explicit preferences (set by the owner) win over trends and are never overwritten. Each item can be turned
+  off, changed, deleted; every change is a numbered version (with the preferences, whether clip choices move Clip
+  Scores, and the words of the owner's rules for ClipForge AI) and Go back restores one. A new clip starts with the
+  learned values in its edit (`process.learned_edit`, `edit.learned_keys`), so a value the owner never touched is not
+  counted as their choice. The clip-choice model (`taste.py`) gets a held-out check (`learned.taste_check`) and an
+  on/off switch; a title kind you usually pick is recommended first (`postpack.generate`). Publishing rules,
+  accounts, spending limits and daily targets are never learned. Settings: `learn_from_edits`.
+- **Privacy page:** a section on what Brain → Learned keeps, and saved chats in the ClipForge AI section.
+
 ## Final release, batch 2: clip quality, stream layouts, titles, Compare — 2026-11-25 (Claude Code)
 
 Second of the four batches in Landry's "ClipForge Final Release" prompt. Branch `claude/project-thread-hqwolr`, from

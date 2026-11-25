@@ -193,6 +193,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_learning": True,
     # Brain (autopilot/brain.py): the guards on audience-driven strategy changes (section 14 of the build brief)
     "brain_paused": False,              # keep collecting results, change no strategy
+    "learn_from_edits": True,           # Brain → Learned: read your edits for habits, check them, use the proven ones
     "brain_min_clips": 30,              # distinct mature clips in one comparable audience before any change
     "brain_max_step": 0.10,             # largest relative change of a strategy value per accepted update
     "brain_min_views": 10,              # a platform reading counts once a clip has this many views

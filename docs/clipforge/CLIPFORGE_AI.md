@@ -907,6 +907,37 @@ Each job, answer or note a helper finishes is counted on it ("Worked N times").
 another helper (it has no `ask_agent`); work without ClipForge AI's model; be reached when it is switched off (no
 "@", no jobs, no notes); browse the internet; see a file or a key.
 
+## Commands, saved chats and what it learned from edits (2026-11-25)
+
+**Commands** (`brain/operations.py`, final release batch 3): `posts`, `work`, `missions` and `crew_report` look;
+`reschedule_post`, `fix_post_conflicts`, `cancel_upload`, `cancel_post`, `retry_post`, `restart_work`, `stop_work`,
+`regenerate_post_text`, `adjust_framing`, `pause_mission` and `change_setting` change (each waits for an OK);
+`render_clip` and `crew_check` make. Each calls the function the app's own button calls, so a refusal comes back in
+the app's own words; times are in the Autopilot time zone. A command first finds exactly one post, project, clip or
+mission (`toolbox.find`, `operations.find_post`) and names the ones that fit when there are more. Queued work is
+returned as `work` (`{kind, id, label}`) and the chat follows it through `GET /api/brain/chats/work/{kind}/{ref}`
+(`operations.work_state`: queued, running with progress, completed, failed or canceled, a message and a link). The
+commands are offered only when the last few owner messages ask for one (`operations.offered`, `CUES`).
+
+**The crew:** `crew_check` hands rendered clips to the final check Autopilot runs before a post
+(`autopilot/gate.request`, durable `worker_jobs` with an idempotency key, at `host.MANUAL_PRIORITY`); a fixable
+problem goes back to the robot responsible (`gate.repair_*`, at most `MAX_REGENERATIONS`), and `crew_report` reads
+`gate.report_for` and the office feed's decisions.
+
+**Saved chats:** `chat.new_chat`, `list_chats`, `rename`, `delete_chat`, `open_chat(chat_id=…)`; routes
+`GET /api/brain/chats`, `POST /api/brain/chats/new`, `PATCH /api/brain/chats/{chat_id}` `{title}`,
+`DELETE /api/brain/chats/{chat_id}`, `POST /api/brain/chats` `{chat_id}`. A chat is named after its first message
+until it is renamed (`named`).
+
+**Learned from edits** (`brain/learned.py`, Brain → Learned): `observe` (the clip editor's save), `feedback`
+(thumbs), `infer` (3 agreeing clips, 70%), `evaluate` (leave one out on the owner's edited clips, before and after,
+by format; used at 20% closer on 4 or more), `defaults` (what new clips use), `set_status`, `change` (explicit),
+`remove`, `forget_edits`, `versions`, `rollback`, `taste_check`, `set_taste`. Routes: `GET /api/brain/learned`,
+`POST /api/brain/learned/switch|taste|check`, `PATCH /api/brain/learned/{id}` `{status?, value?}`,
+`DELETE /api/brain/learned/{id}`, `DELETE /api/brain/learned/edits`,
+`POST /api/brain/learned/versions/{number}/rollback`, `POST /api/brain/learned/clips/{clip_id}/feedback`
+`{good, why?}`.
+
 ## API
 
 - `GET /api/brain/memories?q=&kind=&project_id=&limit=` (`project_id`: the memories kept for that video or for every video, by their scope) · `POST /api/brain/memories` `{text, kind?, scope?, project_id?, platform?, tags?}` · `PATCH /api/brain/memories/{memory_id}` · `DELETE /api/brain/memories/{memory_id}` · `POST /api/brain/memories/{memory_id}/confirm` · `POST /api/brain/memories/{memory_id}/undo` `{words}` (a chat chip's Undo: forgets the memory only while it is as that answer added it, revision 1 and the same words; 404 when it is gone, 409 when it changed since) · `GET /api/brain/memories/{memory_id}/uses`
