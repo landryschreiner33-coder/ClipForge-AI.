@@ -1069,7 +1069,9 @@ def test_the_general_chat_asks_the_ai_helper_with_its_memories_and_checks_the_an
     assert call["max_tokens"] == assistant.budgets(settings)["max_tokens"] and call["timeout"] > 60
     assert call["system"].startswith(assistant.persona()) and brain.memories.HEADER in call["system"]
     assert "- [fact] my intro is 3 seconds" in call["system"] and "- [rule] Never zoom in on faces" in call["system"]
-    assert call["json_schema"] == tools.reply_schema(tools.available("general"))
+    # the commands (posts, renders, settings…) are offered only when the words are about them (operations.offered)
+    assert call["json_schema"] == tools.reply_schema(
+        [t for t in tools.available("general") if t.name not in brain.operations.COMMANDS])
     assert call["messages"] == [{"role": "user", "content": "how long should my intro be?"}]
     assert [u["where_used"] for u in db.select("brain_memory_uses", "ref_id = ?", (m["id"],))] == ["chat", "chat"]
 

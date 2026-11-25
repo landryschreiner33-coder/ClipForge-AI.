@@ -15,6 +15,7 @@ import {
 import { VersionsCard } from "../components/versions";
 import { SuggestedTrims } from "../components/suggestedTrims";
 import { FaceCamPanel } from "../components/faceCam";
+import { learnedApi } from "../brain";
 import { useLeaveGuard } from "../router";
 import { fmtTime, STORY_MAX_S } from "../studio";
 import "./editor.css";
@@ -79,6 +80,38 @@ function Check({ label, on, onChange, disabled }: {
       <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className="small">{label}</span>
     </label>
+  );
+}
+
+const LEARNED_WORD: Record<string, string> = { start: "start", end: "end", tracking: "framing", layout: "layout",
+  crop_x: "picture position", zoom: "zoom", caption_style: "caption style", caption_position: "caption position",
+  caption_size: "caption size", highlight_words: "word highlight", captions_enabled: "captions", silence: "pause cutting",
+  speed: "speed", remove_fillers: "“um” cutting" };
+
+/** Thumbs up or down on a clip (it teaches ClipForge which moments you like), and which of the clip's values it
+ * started with because ClipForge learned them from your edits (Brain → Learned). */
+function ClipTeach({ clipId, learned }: { clipId: string; learned: string[] }) {
+  const [said, setSaid] = useState<boolean | null>(null);
+  const tell = async (good: boolean) => {
+    try {
+      await learnedApi.feedback(clipId, good);
+      setSaid(good);
+      toast(good ? "Noted: more clips like this one." : "Noted: fewer clips like this one.");
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+  };
+  return (
+    <div className="row wrap clip-teach small">
+      <span className="muted">Good clip?</span>
+      <button type="button" className={`btn btn-small btn-quiet btn-icon${said === true ? " on" : ""}`} aria-pressed={said === true}
+        aria-label="Good clip: more like this" onClick={() => void tell(true)}><Icon name="thumbup" /></button>
+      <button type="button" className={`btn btn-small btn-quiet btn-icon${said === false ? " on" : ""}`} aria-pressed={said === false}
+        aria-label="Not a good clip: fewer like this" onClick={() => void tell(false)}><Icon name="thumbdown" /></button>
+      {learned.length > 0 && <span className="muted grow" data-testid="clip-learned">
+        Started with what you usually do: {learned.map((k) => LEARNED_WORD[k] || k).join(", ")}.{" "}
+        <a className="textlink" href="#/brain/learned">Brain → Learned</a></span>}
+    </div>
   );
 }
 
@@ -778,6 +811,8 @@ export default function ClipEditor({ id }: { id: string }) {
           {clip.has_video && <p>The video below is the last render that worked.</p>}
         </Banner>
       )}
+
+      <ClipTeach clipId={clip.id} learned={clip.edit?.learned_keys || []} />
 
       {brainLessons.length > 0 && <p className="small muted" data-testid="clip-brain-guidance">
         Brain guidance used for this clip: {brainLessons.map(item =>

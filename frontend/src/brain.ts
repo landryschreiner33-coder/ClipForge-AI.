@@ -115,8 +115,16 @@ export type ChatData = { tool?: ChatTool; used?: UsedMemory[]; knowhow?: UsedKno
   helper_live?: { agent: AgentCard; task: string; text: string };
   /** what the assistant saved with its remember tool */
   remembered?: Memory[]; ask?: ChatAsk;
+  /** work a command queued (a render, a project made again, a post moved): the chat follows its state */
+  work?: ChatWork[];
   /** answered without a model: it offers to set up the built-in model */
   setup?: boolean };
+export type ChatWork = { kind: "project" | "clip" | "post" | "job"; id: string; label: string; started: number };
+export type WorkState = { state: "queued" | "running" | "completed" | "failed" | "canceled"; progress: number;
+  message: string; href: string };
+/** A saved general chat (Talk to AI keeps several; a video's chat is its own). */
+export type SavedChat = { id: string; title: string; named: boolean; messages: number; last: string;
+  created_at: number; updated_at: number };
 export type ChatMessage = { id: string; chat_id: string; role: "owner" | "ai" | "agent"; text: string;
   status: "done" | "thinking" | "failed"; data: ChatData; created_at: number; updated_at: number;
   /** after pressing OK: the action deleted this chat's own video (and the chat with it) */
@@ -134,7 +142,13 @@ export type Chat = { id: string; workspace_id: string; project_id: string; title
 export const MAX_CHAT_TEXT = 4000;
 const chats = "/api/brain/chats";
 export const chatApi = {
-  open: (projectId = "") => req<Chat>("POST", chats, { project_id: projectId }),
+  /** A video's chat, or a general chat: `chatId` one of the saved ones ("" = the one used last). */
+  open: (projectId = "", chatId = "") => req<Chat>("POST", chats, { project_id: projectId, chat_id: chatId }),
+  list: () => req<SavedChat[]>("GET", chats),
+  create: () => req<{ id: string; title: string }>("POST", `${chats}/new`),
+  rename: (chatId: string, title: string) => req<SavedChat>("PATCH", `${chats}/${chatId}`, { title }),
+  remove: (chatId: string) => req<{ deleted: string; messages: number }>("DELETE", `${chats}/${chatId}`),
+  work: (kind: string, id: string) => req<WorkState>("GET", `${chats}/work/${kind}/${encodeURIComponent(id)}`),
   messages: (chatId: string, after = "") => req<ChatMessage[]>("GET", `${chats}/${chatId}/messages?after=${encodeURIComponent(after)}`),
   /** `choice`: a quick reply pressed (words the model or the editor offered): it never forgets anything at once.
    * `forget`: a "Which one?" button's memory words, forgotten exactly as they are (not read from the message). */
@@ -170,4 +184,32 @@ export const agentsApi = {
   add: (body: Partial<AgentInput> & { template?: string }) => req<Agent>("POST", agentsBase, body),
   edit: (id: string, body: Partial<AgentInput> & { position?: number }) => req<Agent>("PATCH", `${agentsBase}/${id}`, body),
   remove: (id: string) => req<{ removed: Agent }>("DELETE", `${agentsBase}/${id}`),
+};
+
+// ------------------------------------------------------------------ Brain → Learned (clipfoundry/brain/learned.py)
+export type LearnedCheck = { n: number; before: number | null; after: number | null; unit: string; passed: boolean;
+  summary: string; at?: number; by_format?: Record<string, { n: number; before: number; after: number }> };
+export type LearnedItem = { id: string; key: string; kind: string; source: "explicit" | "inferred"; text: string;
+  value: unknown; evidence: number; status: "trying" | "in_use" | "off"; version: number;
+  evaluation: LearnedCheck | Record<string, never>; created_at: number; updated_at: number };
+export type LearnedVersion = { id: string; number: number; what: string; created_at: number; taste: boolean;
+  evaluation: LearnedCheck | Record<string, never>; in_use: string[] };
+export type Learned = { on: boolean; explicit: LearnedItem[]; inferred: LearnedItem[]; observed: Record<string, number>;
+  rules: number; versions: LearnedVersion[]; keys: Record<string, string>;
+  taste: { events: number; kept: number; left_out: number; ready: boolean; preferences: string[]; used: boolean;
+    check: { n: number; before: number | null; after: number | null; passed: boolean; summary: string } };
+  rules_text: { min_evidence: number; agree: number; eval_min: number; promote: number } };
+const learnedBase = "/api/brain/learned";
+export const learnedApi = {
+  view: () => req<Learned>("GET", learnedBase),
+  switch: (on: boolean) => req<Learned>("POST", `${learnedBase}/switch`, { on }),
+  taste: (on: boolean) => req<Learned>("POST", `${learnedBase}/taste`, { on }),
+  check: () => req<Learned>("POST", `${learnedBase}/check`),
+  status: (id: string, status: "in_use" | "off") => req<Learned>("PATCH", `${learnedBase}/${id}`, { status }),
+  change: (id: string, value: unknown) => req<Learned>("PATCH", `${learnedBase}/${id}`, { value }),
+  remove: (id: string) => req<Learned>("DELETE", `${learnedBase}/${id}`),
+  forgetEdits: () => req<Learned>("DELETE", `${learnedBase}/edits`),
+  rollback: (n: number) => req<Learned>("POST", `${learnedBase}/versions/${n}/rollback`),
+  feedback: (clipId: string, good: boolean, why = "") =>
+    req<{ saved: boolean }>("POST", `${learnedBase}/clips/${clipId}/feedback`, { good, why }),
 };

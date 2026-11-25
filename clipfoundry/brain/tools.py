@@ -122,7 +122,7 @@ def _builtins() -> None:
     global _loaded
     if not _loaded:
         _loaded = True
-        from . import toolbox  # noqa: F401 - registers ClipForge's own tools
+        from . import operations, toolbox  # noqa: F401 - registers ClipForge's own tools and commands
 
 
 def get(name: str) -> Tool | None:

@@ -133,7 +133,17 @@ def _sigmoid(z: np.ndarray) -> np.ndarray:
 def train(ws: str) -> dict | None:
     """Fit the taste model on the workspace's lessons (None while there are too few on either side)."""
     rows = events(ws)
-    if len(rows) < MIN_EVENTS:
+    model = fit(rows)
+    if model is not None:
+        db.execute("INSERT OR REPLACE INTO taste_models (workspace_id, model, n, trained_at) VALUES (?, ?, ?, ?)",
+                   (ws, json.dumps(model), len(rows), model["trained_at"]))
+    return model
+
+
+def fit(rows: list[dict], min_events: int = MIN_EVENTS, min_each: int = MIN_EACH) -> dict | None:
+    """The model for these lessons (None while there are too few on either side); stores nothing (the check in
+    Brain → Learned fits it on part of the lessons and tests it on the rest)."""
+    if len(rows) < min_events:
         return None
     X, y, w = [], [], []
     for r in rows:
@@ -150,7 +160,7 @@ def train(ws: str) -> dict | None:
         return None
     Xa, ya, wa = np.asarray(X, dtype=np.float64), np.asarray(y), np.asarray(w)
     pos, neg = int(ya.sum()), int(len(ya) - ya.sum())
-    if pos < MIN_EACH or neg < MIN_EACH:
+    if pos < min_each or neg < min_each:
         return None
     # both sides weigh the same in all, so a person who exports a lot does not teach "keep everything"
     wa = wa / np.where(ya > 0, wa[ya > 0].sum(), wa[ya == 0].sum()) * 0.5
@@ -166,8 +176,6 @@ def train(ws: str) -> dict | None:
     model = {"weights": [round(float(v), 5) for v in th], "bias": round(float(b), 5), "mu": [round(float(v), 5) for v in mu],
              "sd": [max(1e-4, round(float(v), 5)) for v in sd], "n": len(ya), "positives": pos, "negatives": neg,
              "features": list(FEATURES), "trained_at": time.time()}
-    db.execute("INSERT OR REPLACE INTO taste_models (workspace_id, model, n, trained_at) VALUES (?, ?, ?, ?)",
-               (ws, json.dumps(model), len(rows), model["trained_at"]))
     return model
 
 
@@ -244,6 +252,10 @@ def apply(results: list[dict], opts: dict) -> int:
     ws = str(opts.get("workspace_id") or "")
     m = model(ws) if ws else None
     if not m:
+        return 0
+    from .brain import learned
+
+    if not learned.use_taste(ws):  # you turned clip choices off, or rolled back to before (Brain → Learned)
         return 0
     n = 0
     for r in results:

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from ..cloud import principal
 from ..publish.common import app_request, local_only
 from . import knowhow, memories, tools
+from . import learned as learned_module
 
 router = APIRouter(prefix="/api/brain/memories")
 READ = [Depends(local_only)]
@@ -201,6 +202,11 @@ def _chat_err(exc: chat_module.ChatError) -> HTTPException:
 
 class OpenChat(Input):
     project_id: str = ""
+    chat_id: str = ""        # one of the saved general chats ('' = the one used last)
+
+
+class ChatName(Input):
+    title: str = Field(max_length=200)
 
 
 class Say(Input):
@@ -222,11 +228,53 @@ def open_chat(body: OpenChat) -> dict:
 
     ws = principal.workspace_id()
     try:
-        chat = chat_module.open_chat(ws, body.project_id)
+        chat = chat_module.open_chat(ws, body.project_id, chat_id=body.chat_id)
     except chat_module.ChatError as exc:
         raise _chat_err(exc) from exc
     return {**chat, "messages": chat_module.messages(ws, chat["id"]), "ai": assistant.status(ws),
             "agents": [agents.card(a) | {"role": a["role"]} for a in agents.list_(ws, enabled_only=True)]}
+
+
+@chats.get("", dependencies=READ)
+def saved_chats() -> list[dict]:
+    """The saved general chats, the one used last first."""
+    return chat_module.list_chats(principal.workspace_id())
+
+
+@chats.post("/new", dependencies=WRITE)
+def new_chat() -> dict:
+    """Start a new general chat; the others stay saved."""
+    return chat_module.new_chat(principal.workspace_id())
+
+
+@chats.patch("/{chat_id}", dependencies=WRITE)
+def rename_chat(chat_id: str, body: ChatName) -> dict:
+    try:
+        return chat_module.rename(principal.workspace_id(), chat_id, body.title)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+
+
+@chats.delete("/{chat_id}", dependencies=WRITE)
+def delete_chat(chat_id: str) -> dict:
+    try:
+        return chat_module.delete_chat(principal.workspace_id(), chat_id)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+
+
+@chats.get("/work/{kind}/{ref}", dependencies=READ)
+def work_state(kind: str, ref: str) -> dict:
+    """What work a chat answer started is doing now (queued, running, completed, failed or canceled): the chat asks
+    every few seconds until it is final (brain/operations.py)."""
+    from . import operations
+
+    if kind not in operations.WORK_KINDS:
+        raise HTTPException(404, "Unknown kind of work.")
+    from ..cloud import settings as cloud_settings
+
+    # in the online studio, another workspace's work answers like work that is gone (cloud/ownership.py)
+    return operations.work_state(kind, ref[:80], principal.workspace_id() if cloud_settings.enabled() else None)
 
 
 @chats.get("/{chat_id}/messages", dependencies=READ)
@@ -356,3 +404,99 @@ def remove_agent(agent_id: str) -> dict:
         return {"removed": agents_module.remove(principal.workspace_id(), agent_id)}
     except agents_module.AgentError as exc:
         raise _agent_err(exc) from exc
+
+
+# ------------------------------------------------------------------ Brain → Learned (brain/learned.py)
+learned_routes = APIRouter(prefix="/api/brain/learned")
+
+
+def _learned_err(exc: learned_module.LearnedError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+class LearnedPatch(Input):
+    status: str | None = None          # in_use | off
+    value: Any = None                  # a changed value (the preference becomes yours)
+
+
+class LearnedSwitch(Input):
+    on: bool
+
+
+class LearnedFeedback(Input):
+    good: bool
+    why: str = Field(default="", max_length=300)
+
+
+@learned_routes.get("", dependencies=READ)
+def learned_view() -> dict:
+    return learned_module.view(principal.workspace_id())
+
+
+@learned_routes.post("/switch", dependencies=WRITE)
+def learned_switch(body: LearnedSwitch) -> dict:
+    learned_module.set_on(body.on)
+    return learned_module.view(principal.workspace_id())
+
+
+@learned_routes.post("/taste", dependencies=WRITE)
+def learned_taste(body: LearnedSwitch) -> dict:
+    learned_module.set_taste(principal.workspace_id(), body.on)
+    return learned_module.view(principal.workspace_id())
+
+
+@learned_routes.post("/check", dependencies=WRITE)
+def learned_check() -> dict:
+    """Read your edits again now and check every preference on the clip set (it also happens after each edit)."""
+    ws = principal.workspace_id()
+    learned_module.infer(ws)
+    learned_module.recheck(ws)
+    return learned_module.view(ws)
+
+
+@learned_routes.delete("/edits", dependencies=WRITE)
+def learned_forget_edits() -> dict:
+    learned_module.forget_edits(principal.workspace_id())
+    return learned_module.view(principal.workspace_id())
+
+
+@learned_routes.patch("/{item_id}", dependencies=WRITE)
+def learned_edit(item_id: str, body: LearnedPatch) -> dict:
+    ws = principal.workspace_id()
+    try:
+        if body.value is not None:
+            learned_module.change(ws, item_id, body.value)
+        if body.status is not None:
+            learned_module.set_status(ws, item_id, body.status)
+    except learned_module.LearnedError as exc:
+        raise _learned_err(exc) from exc
+    return learned_module.view(ws)
+
+
+@learned_routes.delete("/{item_id}", dependencies=WRITE)
+def learned_delete(item_id: str) -> dict:
+    ws = principal.workspace_id()
+    try:
+        learned_module.remove(ws, item_id)
+    except learned_module.LearnedError as exc:
+        raise _learned_err(exc) from exc
+    return learned_module.view(ws)
+
+
+@learned_routes.post("/versions/{number}/rollback", dependencies=WRITE)
+def learned_rollback(number: int) -> dict:
+    ws = principal.workspace_id()
+    try:
+        learned_module.rollback(ws, number)
+    except learned_module.LearnedError as exc:
+        raise _learned_err(exc) from exc
+    return learned_module.view(ws)
+
+
+@learned_routes.post("/clips/{clip_id}/feedback", dependencies=WRITE)
+def learned_feedback(clip_id: str, body: LearnedFeedback) -> dict:
+    try:
+        row = learned_module.feedback(clip_id, body.good, body.why)
+    except learned_module.LearnedError as exc:
+        raise _learned_err(exc) from exc
+    return {"saved": True, "id": row["id"]}

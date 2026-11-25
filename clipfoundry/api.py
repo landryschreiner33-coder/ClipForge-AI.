@@ -36,6 +36,7 @@ from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
 from .autopilot import brain_routes, knowledge_routes
+from .brain import learned
 from .brain import routes as memory_routes
 from .autopilot import routes as autopilot_routes
 from .office import integrations as integration_routes
@@ -136,6 +137,7 @@ app.include_router(knowledge_routes.router)
 app.include_router(memory_routes.router)  # ClipForge AI's memories
 app.include_router(memory_routes.chats)  # ClipForge AI's chat
 app.include_router(memory_routes.agent_routes)  # ClipForge AI's helper agents
+app.include_router(memory_routes.learned_routes)  # Brain → Learned: what your edits taught
 app.include_router(integration_routes.router)
 app.include_router(phone.router)
 
@@ -775,8 +777,10 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
                 whole = False
             if whole and "hook_seconds" not in body.edit and length > 0:
                 edit["hook_seconds"] = math.ceil(length) + 1  # "Part N" showed for the whole part: it still does
-        fields["edit"] = edit
+        fields["edit"] = learned.mine(dict(clip.get("edit") or {}), edit)  # a learned value you changed is yours
     db.update_clip(clip_id, **fields)
+    if body.edit is not None or body.post is not None or body.title is not None:  # your taste (Brain → Learned)
+        learned.observe(clip, db.get_clip(clip_id) or clip)
     return get_clip(clip_id)
 
 

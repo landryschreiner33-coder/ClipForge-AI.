@@ -1150,6 +1150,25 @@ html[data-page-hidden="true"] .cfai-dots i { animation-play-state: paused; }
   border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--lift); min-width: 0;
 }
 .cfai-side h2 { font-size: var(--fs-h3); }
+.cfai-side-col { display: grid; gap: var(--s4); align-content: start; min-width: 0; position: sticky;
+  top: calc(var(--topbar) + var(--s4)); }
+.cfai-side-col .cfai-side { position: static; }
+.cfai-chats-head { gap: var(--s2); align-items: center; }
+.cfai-chat-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; max-height: 40vh; overflow-y: auto; }
+.cfai-chat-list li { display: flex; align-items: center; gap: var(--s1); border-radius: var(--r-control); min-width: 0; }
+.cfai-chat-list li.on { background: var(--primary-tint); }
+.cfai-chat-pick { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit;
+  padding: var(--s2); border-radius: var(--r-control); cursor: pointer; }
+.cfai-chat-pick:hover:not(:disabled) { background: var(--well); }
+.cfai-chat-tools { display: flex; opacity: 0.75; }
+.cfai-chat-list li:hover .cfai-chat-tools, .cfai-chat-list li:focus-within .cfai-chat-tools { opacity: 1; }
+.cfai-chat-name { flex: 1; padding: var(--s1); }
+.cfai-chat-name input { width: 100%; }
+.cfai-work { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--line);
+  border-radius: var(--r-control); font-size: var(--fs-small); }
+.cfai-work.completed { border-color: var(--good); }
+.cfai-work.failed { border-color: var(--bad); }
+.cfai-work-dot { display: inline-grid; place-items: center; width: 18px; }
 .cfai-side > .btn { justify-self: start; }
 .cfai-side-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .cfai-side-list li { display: flex; gap: var(--s2); align-items: center; padding: var(--s2) 0; min-width: 0; }
@@ -1158,7 +1177,7 @@ html[data-page-hidden="true"] .cfai-dots i { animation-play-state: paused; }
 @media (min-width: 1101px) { .cfai-page .cfai-helpers-row { display: none; } }
 @media (max-width: 1100px) {
   .cfai-page { grid-template-columns: minmax(0, 1fr); }
-  .cfai-side { position: static; }
+  .cfai-side, .cfai-side-col { position: static; }
 }
 @media (max-width: 640px) {
   .cfai { padding: var(--s2); }
@@ -1217,6 +1236,21 @@ html[data-page-hidden="true"] .cfai-dots i { animation-play-state: paused; }
 .mem-row textarea { width: 100%; min-height: 64px; }
 .mem-meta { display: flex; gap: var(--s3); flex-wrap: wrap; color: var(--text-3); font-size: var(--fs-small); }
 .knowhow-list { display: grid; gap: var(--s2); padding-left: 0; list-style: none; margin: 0; }
+
+/* Brain → Learned (what your edits taught) */
+.learned-list, .learned-versions { display: grid; gap: var(--s2); margin: 0; padding: 0; list-style: none; }
+.learned-item { border: 1px solid var(--line); border-radius: var(--r-control); background: var(--well); padding: var(--s3);
+  display: grid; gap: var(--s2); min-width: 0; }
+.learned-item.in_use { box-shadow: inset 3px 0 0 var(--good); }
+.learned-item.off { opacity: 0.72; }
+.learned-item-head b { overflow-wrap: anywhere; }
+.learned-item p, .learned-versions p { margin: 0; }
+.learned-check { display: flex; gap: var(--s1); align-items: baseline; }
+.learned-versions > li { border-bottom: 1px solid var(--line); padding-bottom: var(--s2); display: grid; gap: 2px; }
+.learned-versions > li:last-child { border-bottom: 0; }
+.learned-versions b { overflow-wrap: anywhere; font-weight: 600; }
+.clip-teach { align-items: center; gap: var(--s1); margin: 0 0 var(--s2); }
+.clip-teach .btn-icon.on { color: var(--primary); border-color: var(--primary); background: var(--primary-tint); }
 .knowhow-list > li > .link-btn { text-decoration: none; text-align: left; color: var(--text); }
 .knowhow-list > li > .link-btn:hover { text-decoration: underline; color: var(--primary); }
 .knowhow-list ul { margin: var(--s1) 0 0; padding-left: 1.2em; display: grid; gap: 4px; }

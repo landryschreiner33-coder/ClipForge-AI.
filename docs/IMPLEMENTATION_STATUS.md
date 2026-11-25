@@ -1,5 +1,25 @@
 # Implementation status
 
+## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code)
+
+Branch `claude/project-thread-hqwolr` on top of batch 2. Landry's final-release prompt, sections 4 and 5: ClipForge AI
+commands with the app's own tools and OK cards, queued work followed in the chat, the crew's final check and
+report, saved chats, and Brain → Learned (what your edits taught, checked before use, versions and rollback).
+Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md), [CLIPFORGE_AI.md](clipforge/CLIPFORGE_AI.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_assistant_commands` (12), `test_saved_chats` (3), `test_learned` (7) | passed |
+| 2026-11-25 | pytest `test_clipforge_ai_chat`, `test_postpack`, `test_post_style`, `test_title_kinds`, `test_trims`, `test_clip_selection_rules`, `test_rank_reasons`, `test_smarter_ai`, `test_story_clips`, `test_facecam_layouts`, `test_integration` | 274 passed, 1 skipped |
+| 2026-11-25 | `pytest -m "not slow"` and `pytest -m slow` (whole suites, this cloud machine) | fast: 3,215 passed, 2 skipped, 1 failed (`test_resuming_clip_creation_keeps_completed_file_and_id`: the learned edits read options the resumed clip did not have; fixed in `3a67930`, the test passes); slow: 31 passed, 1 skipped |
+| 2026-11-25 | The app on test footage (three runs of the ranked-stream video): 5 clip editor saves (start about 1.2 s earlier, captions in the middle) | both habits written down and used after the check (start: off by 1.20 s before, 0.16 s with it; captions: 0% matched before, 100% with it); a new run's clips started 1.27 s and 1.35 s earlier (on a word) with captions in the middle |
+| 2026-11-25 | Talk to AI: a Frame card (zoom 1.2×) pressed OK in the app | the clip editor's change was saved, the clip rendered again, the chat showed Completed with Open |
+| 2026-11-25 | Screenshots (saved chats with an OK card, the work chip, Brain → Learned on a computer and a phone, the clip editor's thumbs and learned start) | in `/mnt/project-files/final-release/batch3/` |
+
+Not verified: a real AI model choosing the commands (the cloud has none: the card in the screenshots was placed as
+the model would place it, then pressed in the app), learning on Landry's own edits, YouTube and TikTok.
+
 ## Final release, batch 2: clip quality, stream layouts, titles, Compare — 2026-11-25 (Claude Code)
 
 Branch `claude/project-thread-hqwolr` from the release line at `cf51120` (batch 1), pull request #69. Landry's

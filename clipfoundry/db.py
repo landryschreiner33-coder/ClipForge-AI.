@@ -525,6 +525,44 @@ CREATE TABLE IF NOT EXISTS taste_models (
     n INTEGER DEFAULT 0,
     trained_at REAL NOT NULL
 );
+-- ------------------------------------------------ what ClipForge learns from your edits (brain/learned.py)
+CREATE TABLE IF NOT EXISTS learned_events (     -- one edit you made: a trim, a crop, a title pick, a caption change
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    clip_id TEXT DEFAULT '',
+    project_id TEXT DEFAULT '',
+    kind TEXT NOT NULL,                        -- trim | framing | title | captions | pacing | feedback
+    fmt TEXT DEFAULT '',                       -- the clip's format: highlights | story | live | ...
+    data TEXT DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learned_events_ws ON learned_events (workspace_id, kind, created_at);
+CREATE TABLE IF NOT EXISTS learned_items (      -- a preference: one you said (explicit) or a trend in your edits
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    key TEXT NOT NULL,                         -- what it sets: start_shift, end_shift, title_kind, caption_style ...
+    kind TEXT NOT NULL,                        -- trim | framing | title | captions | pacing
+    source TEXT NOT NULL,                      -- explicit | inferred
+    text TEXT NOT NULL,
+    value TEXT DEFAULT 'null',
+    evidence INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'trying',              -- trying (not used yet) | in_use | off
+    version INTEGER DEFAULT 1,
+    evaluation TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (workspace_id, key, source)
+);
+CREATE TABLE IF NOT EXISTS learned_versions (   -- every change to what is in use, so any one can be rolled back
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    number INTEGER NOT NULL,
+    what TEXT NOT NULL,                        -- the change in words
+    items TEXT DEFAULT '[]',                   -- the preferences in use after it
+    evaluation TEXT DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learned_versions_ws ON learned_versions (workspace_id, number);
 CREATE TABLE IF NOT EXISTS quota_usage (
     day TEXT NOT NULL,
     bucket TEXT NOT NULL,
@@ -1228,6 +1266,9 @@ CREATE TABLE IF NOT EXISTS robot_names (
 JSON_FIELDS = {
     "phone_devices": set(),
     "taste_events": set(),
+    "learned_events": {"data"},
+    "learned_items": {"value", "evaluation"},
+    "learned_versions": {"items", "evaluation"},
     "taste_models": set(),
     "projects": {"options", "info", "guidance", "destinations"},
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
@@ -1334,6 +1375,8 @@ ADDED_COLUMNS = {
     # the memories ClipForge AI read for a proposal (brain/memories.py)
     "edit_requests": {"memories": "TEXT DEFAULT '[]'", "knowhow": "TEXT DEFAULT '[]'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
+    # ClipForge AI's saved chats (brain/chat.py): a name the owner gave (1) instead of the first message's words
+    "brain_chats": {"named": "INTEGER DEFAULT 0"},
     # a story cut into parts (Story parts, or a Full story longer than five minutes): which part of which story
     "story_proposals": {"part": "INTEGER DEFAULT 0", "parts": "INTEGER DEFAULT 0", "story_key": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)

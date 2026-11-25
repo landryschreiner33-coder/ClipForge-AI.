@@ -58,6 +58,11 @@ def _options(project: dict, settings: dict, *, words: list[dict] | None = None) 
     opts.update({k: v for k, v in (project.get("options") or {}).items() if v is not None})
     opts["origin"] = project.get("origin") or "manual"  # Autopilot work is unattended (pipeline/nvidia.py)
     opts["workspace_id"] = str(project.get("workspace_id") or "local")  # taste.py: whose choices to learn from
+    from ..brain import learned
+
+    # what your edits taught, checked before use (Brain → Learned): how new clips start; the video's own options win
+    opts["learned"] = {k: v for k, v in learned.defaults(opts["workspace_id"], settings).items()
+                       if (project.get("options") or {}).get(k) is None}
     opts["min_duration"] = float(opts.get("min_duration", 25))
     opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 90)))
     opts["target_duration"] = min(opts["max_duration"],
@@ -331,11 +336,34 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
                                         **({"clip_score": r["clip_score"], "explanation": r.get("explanation") or []}
                                            if r.get("clip_score") is not None else {}),
                                         **({"deep": _deep_summary(r["deep"])} if r.get("deep") else {})},
-            post=post, edit={}, status="queued",
+            post=post, edit=learned_edit(p, start, end), status="queued",
             duration=round(end - start, 2), **stable,
         ))
     _count_brain_uses(p, chosen)
     return rows
+
+
+def learned_edit(p: Prepared, start: float, end: float) -> dict:
+    """How a new clip starts in the editor from what your edits taught (Brain → Learned): your usual framing,
+    captions and pacing, and its start and end moved the way you usually move them. The clip keeps ClipForge's own
+    pick as its start and end, so later trims are read against that; `learned_keys` names what was learned, so the
+    clip editor can say so and a later edit counts only what you chose."""
+    from ..brain import learned
+
+    opts = p.opts
+    got = dict(opts.get("learned") or {})
+    if not got:
+        return {}  # nothing learned (or learning is off): the clip starts as ClipForge picked it
+    edit = {k: v for k, v in got.items() if k in learned.KEY_KIND and k not in learned.ONLY_AT_START}
+    ns, ne = learned.shift_bounds(start, end, p.words, {**opts, **got})
+    duration = (p.meta or {}).get("duration")
+    if duration:
+        ne = min(ne, float(duration))
+    if (ns, ne) != (start, end) and ne - ns >= float(opts.get("min_duration") or 5):
+        edit.update({k: v for k, v, was in (("start", ns, start), ("end", ne, end)) if v != was})
+    if edit:
+        edit["learned_keys"] = sorted(edit)
+    return edit
 
 
 def _brain_length(opts: dict) -> dict:

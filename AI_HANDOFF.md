@@ -1,5 +1,28 @@
 # AI handoff
 
+## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code, cloud session)
+
+**Plain-English summary:** ClipForge AI can now do things, not just talk: move or fix scheduled posts, cancel an
+upload, retry a post, write post text again, reframe or render a clip, make a project again, pause a mission, change
+a setting, and say why something is stuck. Changes wait for an OK button and the chat follows the work it started
+until it is done. Clips can be handed to the robot crew's final check, which sends fixable problems back to the robot
+responsible. Talk to AI keeps several named chats. Brain → Learned shows what ClipForge learned from your edits,
+checked on your own clips before it is used, with versions you can go back to.
+
+- **Where things are:** commands and `work_state` in `brain/operations.py` (registered through `brain/tools.py`);
+  saved chats in `brain/chat.py` and `brain/routes.py` (`/api/brain/chats`); learning in `brain/learned.py`
+  (routes `/api/brain/learned`), used by `pipeline/process.py` (`_options` puts `learned` in the options,
+  `learned_edit` starts each new clip's edit), `pipeline/postpack.py` (title kind) and `api.patch_clip`
+  (`learned.mine` and `learned.observe`). UI: `SavedChats.tsx`, `ClipForgeAI.tsx`, `LearnedTab.tsx`, the clip
+  editor's `ClipTeach`.
+- **Worth knowing:** `db.update(table, value, …)` takes the row id as `value`, so learned items (which have a
+  `value` column) are changed through `learned._set`. Commands are offered to the model only when recent words ask
+  for one (`operations.offered`); add a word to `CUES` when a new command is added. A learned trim moves the clip's
+  `edit.start`/`edit.end`, never `clip.start`/`clip.end`, so trims stay measured against ClipForge's own pick.
+- **Blockers:** the cloud has no AI model, so the chat's choice of a command was not tested with a real model here
+  (the cards, OK buttons, tools and work tracking were, through the API and the app). YouTube and TikTok cannot be
+  reached from the cloud.
+
 ## Final release, batch 2: clip quality, stream layouts, titles, Compare — 2026-11-25 (Claude Code, cloud session)
 
 **Plain-English summary:** the second batch of Landry's final-release prompt. ClipForge now turns down more bad
