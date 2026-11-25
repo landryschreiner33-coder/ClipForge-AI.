@@ -18,8 +18,8 @@ from collections import Counter
 from ..brain import steer
 from .audio import Loudness
 from .text_utils import (BACKREF_PHRASES, CAUSAL_PHRASES, CAUSAL_WORDS, CONTRAST_WORDS, EPISODIC_PHRASES,
-                         INTENSIFIERS, OPEN_LOOP_PHRASES, SETUP_PHRASES, SLOW_OPEN_PHRASES, content_tokens, cosine,
-                         count_phrases, tf_vector, tokens)
+                         INTENSIFIERS, ONE_THING, OPEN_LOOP_PHRASES, SETUP_PHRASES, SLOW_OPEN_PHRASES, content_tokens,
+                         cosine, count_phrases, repeat_run, tf_vector, tokens)
 
 FACTORS = ["hook", "opening", "curiosity", "emotion", "density", "payoff", "standalone", "pacing", "uniqueness",
            "clarity", "retention"]
@@ -115,7 +115,8 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     k_early = max(1, math.ceil(ns * 0.4))
     early_low = " ".join(s["text"] for s in sents[:k_early]).lower()
     early_q = any(f["question"] for f in fs[:k_early])
-    open_loop = min(1.0, 0.5 * early_q + 0.35 * count_phrases(early_low, OPEN_LOOP_PHRASES))
+    open_loop = min(1.0, 0.5 * early_q + 0.35 * (count_phrases(early_low, OPEN_LOOP_PHRASES)
+                                                 + bool(ONE_THING.search(early_low))))
     contrast = min(1.0, sum(1 for t in all_toks if t in CONTRAST_WORDS) / max(1.0, dur / 12.0))
     late = fs[max(k_early, ns - max(1, math.ceil(ns * 0.4))):] if ns > 1 else []
     closed = any(f["payoff"] for f in late) or (ns > 1 and fj["complete"] and not fj["question"])
@@ -163,6 +164,12 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     payoff -= 0.2 if late_reply else 0.0
     # "To recap..." / "Thanks for watching": the video announces its end instead of stopping on the payoff
     outro = bool(fj["outro"] or (ns > 1 and fs[-2]["outro"]))
+    # "Thanks for the follow", "let me read chat" in the last lines: the clip runs on after its point
+    chores_end = bool(fj.get("chores") or (ns > 1 and fs[-2].get("chores")))
+    payoff -= 0.2 if chores_end else 0.0
+    # "Consistency matters. Be consistent. Consistency is key.": the clip ends by circling one point
+    repeats_end = repeat_run([s["text"] for s in sents]) if ns >= 4 else 0
+    payoff -= 0.25 if repeats_end else 0.0
     payoff -= 0.2 if outro else 0.0
     payoff = _clamp(payoff)
 
@@ -177,6 +184,20 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     standalone -= 0.20 * (f0["gap_before"] < 0.3) + 0.25 * (max_gap > 3.0) + 0.15 * (not fj["complete"])
     standalone -= 0.30 * internal_transition + 0.15 * max(0.0, min(1.0, internal_boundary - 1.0))
     standalone -= min(0.4, 0.2 * backrefs)
+    # "People in town thought he was crazy" as the first line: who is "he"? The viewer met him earlier in the video.
+    # the first "he" or "she" said before the clip says who anyone is (the first line, or a later one)
+    who = ""
+    for k, s_ in enumerate(sents):
+        if k == 0 and f0["dangling"]:
+            break          # counted above as a start in the middle of a thought
+        who = fs[k].get("who") or ""
+        if who or fs[k].get("names"):
+            break
+    standalone -= 0.3 if who else 0.0
+    # ...and when the line just before the clip says who it is, the clip has cut off its own introduction
+    who_cut = bool(who) and any(feats[k].get("names") for k in range(max(0, s0 - 3), s0)
+                                if not any(feats[j]["transition"] or feats[j]["gap_before"] > 3.0
+                                           for j in range(k + 1, s0 + 1)))
     standalone += 0.05 if (f0["boundary"] > 1.0 or f0["transition"]) else 0.0
     standalone = _clamp(standalone)
 
@@ -259,12 +280,15 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     if rep > 0.18 or near_dup:
         flags.append(_flag("repetitive", "Repetitive", "warn",
                            "says nearly the same thing twice" if near_dup else f"{rep:.0%} repeated phrases"))
-    if standalone < 0.5:
+    if standalone < 0.5 or who:
         why = ("starts in the middle of a thought" if f0["dangling"] else
                "starts as a reply to something outside the clip" if f0["response"] else
+               f"says “{who}” before saying who that is" if who else
                "refers back to earlier parts of the video" if backrefs else
                "changes topic inside the clip" if internal_transition else "needs context from the full video")
-        flags.append(_flag("weak_context", "Needs outside context", "block" if standalone < 0.35 else "warn", why))
+        flags.append(_flag("weak_context", "Needs outside context",
+                           "block" if standalone < 0.35 or who_cut else "warn",
+                           why + ("; the line just before the clip says who" if who_cut else "")))
     continues = nxt is not None and not nxt["transition"] and nxt["boundary"] < 1.0 and fj["gap_after"] < 1.2
     if continues and (fj["question"] or fj["setup"]):
         flags.append(_flag("misleading_cut", "Misleading cut", "block",
@@ -278,14 +302,30 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
                            "moves on to a different topic partway through"))
     if not fj["complete"]:
         flags.append(_flag("weak_ending", "Weak ending", "block", "ends mid-sentence"))
-    elif after_payoff >= 3 or late_reply or fj["transition"] or payoff < 0.35:
-        why = ("keeps talking after the payoff" if after_payoff >= 3 else
+    elif after_payoff >= 3 or late_reply or fj["transition"] or payoff < 0.35 or repeats_end:
+        why = (f"ends by saying the same thing {repeats_end} times" if repeats_end else
+               "keeps talking after the payoff" if after_payoff >= 3 else
                "drifts into a back-and-forth after the point" if late_reply else
                "ends on a transition to another topic" if fj["transition"] else "ends without a clear payoff")
         flags.append(_flag("weak_ending", "Weak ending", "warn", why))
+    goodbyes = 0
+    while goodbyes < ns and (fs[ns - 1 - goodbyes]["outro"] or fs[ns - 1 - goodbyes].get("chores")):
+        goodbyes += 1
     if outro:
-        flags.append(_flag("outro", "Ends with an outro", "warn",
+        flags.append(_flag("outro", "Ends with an outro", "block" if goodbyes >= 2 else "warn",
                            "announces the end (\"to recap\", \"thanks for watching\") instead of stopping on the point"))
+    ads = sum(1 for f in fs if f.get("ad"))
+    if ads:
+        # two ad lines, or one in a short clip, make it an ad read: nobody shares a sponsor message as a clip
+        flags.append(_flag("ad_read", "Ad or sponsor read",
+                           "block" if ads >= 2 or ads / ns >= 0.25 else "warn",
+                           f"{ads} line{'s' if ads > 1 else ''} of an ad or sponsor read (“use code”, “brought to "
+                           "you by”)"))
+    chores = sum(1 for f in fs if f.get("chores"))
+    if chores:
+        flags.append(_flag("chat_chores", "Talks to chat", "block" if chores >= 3 else "warn",
+                           f"{chores} line{'s' if chores > 1 else ''} thanking followers or reading chat, which "
+                           "mean nothing to someone watching the short"))
 
     if and_then_chain:
         flags.append(_flag("and_then", "\"And then\" chain", "warn",
@@ -514,7 +554,11 @@ def reasons(summary_: dict, render_info: dict | None = None) -> list[dict]:
     elif lead is not None:
         add("Opening", float(f.get("opening", 0)) >= 6, f"First real word after {float(lead):.1f} s"
             + ("; the first line gets to the point." if float(f.get("opening", 0)) >= 6 else "."))
-    if "weak_context" in flags:
+    if "ad_read" in flags:
+        add("Context", False, f"Has an ad in it: {flags['ad_read'].get('detail', '')}.")
+    elif "chat_chores" in flags:
+        add("Context", False, f"Talks to chat: {flags['chat_chores'].get('detail', '')}.")
+    elif "weak_context" in flags:
         add("Context", False, f"Needs outside context: {flags['weak_context'].get('detail', '')}.")
     elif "topic_change" in flags:
         add("Context", False, "Changes topic partway through.")

@@ -61,7 +61,8 @@ TRANSITION_PHRASES = ["anyway", "moving on", "move on", "let's move", "next week
                       "that is all", "on another note", "speaking of which", "by the way", "let's talk about",
                       "next up", "switching gears", "one more thing", "last thing", "before we get into",
                       "before we start", "let's get into", "let's jump", "back to", "furthermore", "my next point",
-                      "the next point", "on to the next", "the other thing i wanted"]
+                      "the next point", "on to the next", "the other thing i wanted", "where was i", "where were we",
+                      "what were we saying", "let me read chat"]
 # "What else" moves on to something else only when a sentence opens with it ("What else? Oh, the camera."); said in
 # passing ("I didn't know what else to do", "But what else could I do?") it is part of the story.
 TRANSITION_OPENERS = re.compile(r"^\W*(?:(?:ok(?:ay)?|right|alright|so|and|oh|um|uh|now|also|yeah|hmm+|let's see|"
@@ -108,7 +109,17 @@ INTENSIFIERS = {"so", "really", "literally", "absolutely", "completely", "totall
 BACKREF_PHRASES = ["as i said", "like i said", "as i mentioned", "like i mentioned", "i mentioned", "we talked about",
                    "we discussed", "as we saw", "earlier", "going back to", "back to what", "the other one",
                    "what you just said", "you just said", "like you said", "as you said", "that guy",
-                   "that story"]
+                   "that story", "as i was saying", "like i was saying", "like i showed you", "as i showed you",
+                   "in the last part", "the same way as before", "from before", "that part was"]
+
+# "He" or "she" in the first line of a clip, before the clip says who: the viewer met that person earlier in the video.
+PERSON_PRONOUNS = {"he", "she", "him", "her", "his", "hers", "himself", "herself"}
+# Words that introduce a person, so a "he" or "she" after them is not a cold start.
+PERSON_NOUNS = {"man", "woman", "guy", "girl", "boy", "kid", "dad", "mom", "father", "mother", "grandfather",
+                "grandmother", "grandpa", "grandma", "brother", "sister", "son", "daughter", "uncle", "aunt", "friend",
+                "boss", "teacher", "coach", "wife", "husband", "boyfriend", "girlfriend", "neighbor", "neighbour",
+                "player", "doctor", "customer", "client", "someone", "somebody", "nobody", "everyone", "everybody",
+                "streamer", "chef", "officer", "driver", "stranger", "partner", "manager", "owner", "person"}
 
 # A sentence that starts as a reply to someone else.
 RESPONSE_STARTS = {"exactly", "yes", "yeah", "yep", "no", "nope", "right", "absolutely", "true", "correct",
@@ -122,7 +133,25 @@ OUTRO_PHRASES = ["to recap", "in conclusion", "to sum up", "to summarize", "to s
                  "see you in the next", "see you guys", "that's it for today", "that's all for today",
                  "that is all for today", "don't forget to subscribe", "like and subscribe", "hit the like",
                  "until next time", "catch you next time", "peace out", "that's a wrap", "stay tuned",
-                 "link in my bio", "link in bio"]
+                 "link in my bio", "link in bio", "that's the stream", "that is the stream", "that's all the time we",
+                 "that is all the time we", "thanks for hanging out", "thanks for listening", "thank you for listening",
+                 "thanks so much for listening", "leave a review", "see you tomorrow", "see you next week",
+                 "bye chat", "goodnight chat", "bye guys", "bye everyone", "end the stream", "ending the stream"]
+
+# Stream housekeeping: thanking followers and subs, reading chat, "welcome in". Live it is part of the show; in a
+# short it is a stretch about nothing, and a clip should not run into it after its point.
+CHAT_CHORES = ["thanks for the follow", "thank you for the follow", "for the follow", "gifted sub", "gifted subs",
+               "for the sub",
+               "for the subs", "for the raid", "for the bits", "for the dono", "for the donation", "for the prime",
+               "welcome to everybody who", "welcome in everybody", "welcome in chat", "hydrate", "let me read chat",
+               "read chat", "reading chat", "check chat", "chat says hi", "say hi to chat"]
+
+# An ad or sponsor read: copy written to sell, which no viewer shares as a clip.
+AD_PHRASES = ["brought to you by", "sponsored by", "today's sponsor", "this video's sponsor", "use code",
+              "use my code", "promo code", "discount code", "percent off your", "% off your", "at checkout",
+              "for supporting the show", "for supporting the channel", "for sponsoring", "free trial",
+              "your first order", "your first bag", "your first box", "link in the description", "link below"]
+# AD_PHRASES and CHAT_CHORES are matched as whole words (count_words): "use code" is not "because code".
 
 # Loss or warning framing ("stop doing this", "the mistake that costs you") hooks better than a promise.
 LOSS_WORDS = {"stop", "never", "mistake", "mistakes", "wrong", "lose", "losing", "lost", "loses", "ruin", "ruins",
@@ -136,7 +165,7 @@ LOSS_PHRASES = ["stop doing", "don't do", "do not do", "never do", "the mistake"
 
 # Promotional housekeeping that rarely works in a short.
 PROMO_PHRASES = ["subscribe", "sponsor", "link in the description", "in the description", "patreon",
-                 "promo code", "discount code", "hit the bell", "smash that like", "check out my"]
+                 "promo code", "discount code", "hit the bell", "smash that like", "check out my", "brought to you by"]
 
 # Words too generic to be useful hashtags.
 GENERIC_WORDS = set("""
@@ -183,6 +212,48 @@ def content_tokens(text: str) -> list[str]:
 
 def count_phrases(text_lower: str, phrases: list[str]) -> int:
     return sum(1 for p in phrases if p in text_lower)
+
+
+# "because of one checkbox", "the one setting that changed my aim": a single thing the viewer has to wait to learn
+ONE_THING = re.compile(r"\b(?:one|the only|a single)\s+(?:simple\s+|small\s+|little\s+|tiny\s+|weird\s+)?"
+                       r"(?:thing|setting|mistake|trick|checkbox|button|switch|rule|reason|habit|change|word|step|"
+                       r"tool|tip|secret|question|fix)s?\b")
+
+
+def repeat_run(texts: list[str]) -> int:
+    """How many lines at the end keep saying the same thing ("Consistency is key. You have to be consistent.
+    Consistency matters most."): the trailing run whose lines all share one content word (by its first six letters)
+    and add little else (on average at most 1.5 new content words a line over three lines, 2 over four or more, so a
+    story that names its subject in every line is not a repeat). 0 when fewer than three lines do."""
+    stems = [{t[:6] for t in content_tokens(x) if len(t) >= 3} for x in texts]
+    best = 0
+    for stem in (stems[-1] if stems else ()):
+        k = len(stems)
+        while k > 0 and stem in stems[k - 1]:
+            k -= 1
+        run = stems[k:]
+        if len(run) < 3:
+            continue
+        seen, new = set(run[0]), 0
+        for line in run[1:]:
+            new += len(line - seen)
+            seen |= line
+        if new / (len(run) - 1) <= (1.5 if len(run) == 3 else 2.0):
+            best = max(best, len(run))
+    return best
+
+
+_WORD_RES: dict[tuple[str, ...], re.Pattern] = {}
+
+
+def count_words(text_lower: str, phrases: list[str]) -> int:
+    """Like count_phrases, but each phrase must start and end on a word boundary ("for the sub" is not in "for the
+    subway")."""
+    key = tuple(phrases)
+    rx = _WORD_RES.get(key)
+    if rx is None:
+        rx = _WORD_RES[key] = re.compile("|".join(rf"(?<!\w){re.escape(p)}(?!\w)" for p in phrases))
+    return len({m.group(0) for m in rx.finditer(text_lower)})
 
 
 def ends_sentence(word: str) -> bool:

@@ -8,8 +8,9 @@ so each can be checked on the timeline, saved and undone like any other trim.
 """
 from __future__ import annotations
 
-from .text_utils import (DANGLING_STARTS, OUTRO_PHRASES, PAYOFF_PHRASES, PROMO_PHRASES, RESPONSE_STARTS,
-                         SLOW_OPEN_PHRASES, TRANSITION_PHRASES, build_sentences, count_phrases, ends_sentence, tokens)
+from .text_utils import (AD_PHRASES, CHAT_CHORES, DANGLING_STARTS, OUTRO_PHRASES, PAYOFF_PHRASES, PROMO_PHRASES,
+                         RESPONSE_STARTS, SLOW_OPEN_PHRASES, TRANSITION_PHRASES, build_sentences, count_phrases,
+                         count_words, ends_sentence, repeat_run, tokens)
 
 PAD = 0.12            # kept before the first word of a new start (the word's attack is never clipped)
 END_PAD = 0.35        # kept after the last word of a new end (the sentence's fall is heard)
@@ -133,7 +134,8 @@ def suggest(words: list[dict], start: float, end: float, silence: str = "off", f
 
     # --- talk after the point: an outro or promo at the end, or replies and a change of topic after the payoff
     tail = len(sents)
-    while tail > 1 and (count_phrases(_sentence_text(sents[tail - 1]), OUTRO_PHRASES + PROMO_PHRASES)):
+    while tail > 1 and (count_phrases(_sentence_text(sents[tail - 1]), OUTRO_PHRASES + PROMO_PHRASES)
+                        or count_words(_sentence_text(sents[tail - 1]), CHAT_CHORES + AD_PHRASES)):
         tail -= 1
     if tail < len(sents):
         to = sents[tail - 1]["end"] + END_PAD
@@ -142,13 +144,24 @@ def suggest(words: list[dict], start: float, end: float, silence: str = "off", f
                         "seconds": round(end - min(end, to), 2),
                         "why": f"Ends on “{sents[tail]['text'][:60]}” instead of stopping on the point."})
             new_end = min(end, to)
+    elif repeat_run([s["text"] for s in sents]) and len(sents) >= 4:
+        run = repeat_run([s["text"] for s in sents])
+        cut = len(sents) - run
+        to = sents[cut - 1]["end"] + END_PAD if cut > 0 else end
+        if cut > 0 and end - to >= MIN_SAVING and to - new_start >= MIN_LEFT:
+            out.append({"id": "repeats", "label": "End before it repeats itself", "edit": {"end": round(to, 2)},
+                        "seconds": round(end - to, 2),
+                        "why": f"The last {run} lines say the same thing (“{sents[cut]['text'][:50]}”); ending on "
+                               f"“{sents[cut - 1]['text'][:50]}” keeps the point sharp."})
+            new_end = to
     else:
         payoff = max((k for k, s in enumerate(sents) if count_phrases(_sentence_text(s), PAYOFF_PHRASES)),
                      default=None)
         if payoff is not None and payoff < len(sents) - 1:
             rest = sents[payoff + 1:]
             drift = all((tokens(s["text"]) or [""])[0] in RESPONSE_STARTS
-                        or count_phrases(_sentence_text(s), TRANSITION_PHRASES) for s in rest)
+                        or count_phrases(_sentence_text(s), TRANSITION_PHRASES)
+                        or count_words(_sentence_text(s), CHAT_CHORES) for s in rest)
             to = sents[payoff]["end"] + END_PAD
             if drift and end - to >= 2.0 and to - new_start >= MIN_LEFT:
                 out.append({"id": "after_payoff", "label": "End on the point", "edit": {"end": round(to, 2)},

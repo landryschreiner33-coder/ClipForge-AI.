@@ -176,6 +176,22 @@ def _payoff_sentence(sents: list[str]) -> str:
     return sents[-1] if sents else ""
 
 
+LEANS_ON = {"if", "when", "because", "while", "although", "though", "since", "unless", "until", "whereas", "that's",
+            "it's", "there's", "they're", "he's", "she's", "then", "and", "but", "or", "so", "also", "which", "that",
+            "it", "this", "these", "those", "he", "she", "they", "him", "her", "them", "his", "its", "there", "same",
+            "anyway", "yeah", "right", "exactly", "well", "plus"}
+
+
+def stands_alone(title: str) -> bool:
+    """Whether a line makes sense as a title with nothing around it: it does not open on a word that points at
+    something said before ("That's the setting", "It does not") or on a clause waiting for its other half ("If you
+    upload in ten eighty"). Questions are kept ("Do you know what he did?" asks; it does not point back)."""
+    toks = tokens(title)
+    if not toks:
+        return False
+    return title.rstrip().endswith("?") or toks[0] not in LEANS_ON
+
+
 def _title_score(t: str) -> float:
     s = hk._hookiness(t, 0.0)  # noqa: SLF001
     n = len(t)
@@ -243,7 +259,13 @@ def extract(sents: list[str], hook: str, hooks_alt: list[str], category: str,
     # complete short sentences first, then the best clause of a long one; a cut-off sentence only as a last resort
     full = [t for t in pool if len(t.split()) <= 12]
     clauses = [f for f in (_fragment(t) for t in pool if len(t.split()) > 12) if len(f.split()) <= 12]
-    titles = _distinct([_clean_title(t) for t in full + clauses], 3)
+    # a title is read on its own: "That's the setting" or "If you upload in ten eighty" says nothing without the clip
+    alone = [t for t in full + clauses if stands_alone(t)]
+    titles = _distinct([_clean_title(t) for t in alone], 3)
+    if len(titles) < 3 and kws:
+        titles = _distinct(titles + [_keyword_title(kws)], 3)
+    if len(titles) < 3:
+        titles = _distinct(titles + [_clean_title(t) for t in full + clauses], 3)
     if len(titles) < 3 and kws:
         titles = _distinct(titles + [_keyword_title(kws)], 3)
     if len(titles) < 3:
@@ -305,7 +327,8 @@ def title_kind(title: str, kws: list[str]) -> str:
 def _make_kind(kind: str, sents: list[str], kws: list[str], taken: list[str]) -> str:
     """A title of this kind from the clip's sentences that is not like one already offered ("" when none)."""
     def free(t: str) -> bool:
-        return bool(t) and len(t.split()) >= 3 and not any(_similar(t, o) for o in taken) and len(t) <= TITLE_MAX
+        return bool(t) and len(t.split()) >= 3 and not any(_similar(t, o) for o in taken) and len(t) <= TITLE_MAX \
+            and stands_alone(t.split(": ", 1)[-1])
 
     if kind == "curiosity":
         pool = [x for x in sents if x.rstrip().endswith("?") or count_phrases(x.lower(), OPEN_LOOP_PHRASES)]
