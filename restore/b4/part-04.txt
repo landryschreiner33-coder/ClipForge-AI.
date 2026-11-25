@@ -1,0 +1,673 @@
++                "caption_emphasis", "hook_overlay", "hook_seconds", "normalize_audio", "clean_sound", "crf",
++                "x264_preset", "max_fps")
++OPTION_KEYS = ("clip_count", "min_duration", "max_duration", "target_duration", "caption_style", "tracking", "layout",
++               "silence", "auto_zoom", "hook_overlay", "caption_position", "highlight_words", "remove_fillers",
++               "caption_emphasis", "story_split")
++CLIP_MODES = ("highlights", "full_stories")
++SAFE_NAME = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
++PROJECT_FILES = ("transcript.json", "loudness.json", "thumb.jpg")  # a job's own files the desktop takes back
++
++
++def key() -> str:
++    return os.environ.get(KEY_ENV, "").strip()
++
++
++def enabled() -> bool:
++    return len(key()) >= MIN_KEY
++
++
++def _auth(request: Request) -> None:
++    if not enabled():
++        raise HTTPException(404, "Not Found")
++    if not _key_ok(request.headers.get("authorization", "")):  # WorkerOnly checked it already; checked again here
++        raise HTTPException(401, "This worker's key is not right.")
++
++
++router = APIRouter(dependencies=[Depends(_auth)])
++
++
++def _key_ok(header: str) -> bool:
++    return header.startswith("Bearer ") and hmac.compare_digest(header[7:].strip().encode(), key().encode())
++
++
++def _body_limit() -> int:
++    """The most a request may send: one video at the upload limit, its transcript and the job's choices."""
++    return int(MAX_UPLOAD_GB * 1024 ** 3) + 64 * 1024 * 1024
++
++
++class _TooBig(Exception):
++    pass
++
++
++class WorkerOnly:
++    """A worker answers worker requests only: with the key set, every other address (the app's pages and its whole
++    API, which have no sign-in on a desktop) is 404, so putting the worker on the internet exposes nothing else.
++
++    The key and the size are checked here, before the app reads a byte of the body: without the key, or over the
++    upload limit, nothing is written to the worker's disk (FastAPI stores an upload before its route runs)."""
++
++    def __init__(self, app):
++        self.app = app
++
++    @staticmethod
++    async def _answer(send, status: int, detail: str) -> None:
++        body = json.dumps({"detail": detail}).encode()
++        await send({"type": "http.response.start", "status": status,
++                    "headers": [(b"content-type", b"application/json"),
++                                (b"content-length", str(len(body)).encode())]})
++        await send({"type": "http.response.body", "body": body})
++
++    async def __call__(self, scope, receive, send):
++        if scope["type"] == "websocket" and enabled():  # a worker has none: refused before it is accepted
++            await send({"type": "websocket.close", "code": 1008})
++            return
++        if scope["type"] == "http" and enabled():
++            path = scope.get("path") or ""
++            if not (path.startswith(API + "/") or path == "/healthz"):
++                await self._answer(send, 404, "Not Found")
++                return
++            if path != "/healthz":
++                headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
++                if not _key_ok(headers.get("authorization", "")):
++                    await self._answer(send, 401, "This worker's key is not right.")
++                    return
++                limit = _body_limit()
++                length = headers.get("content-length", "")
++                if length.isdigit() and int(length) > limit:
++                    await self._answer(send, 413, f"The video is over this worker's {MAX_UPLOAD_GB:g} GB limit.")
++                    return
++                seen = [0]
++
++                async def counted():  # a body sent without its length stops at the limit too
++                    message = await receive()
++                    if message.get("type") == "http.request":
++                        seen[0] += len(message.get("body") or b"")
++                        if seen[0] > limit:
++                            raise _TooBig()
++                    return message
++
++                try:
++                    await self.app(scope, counted, send)
++                except _TooBig:
++                    await self._answer(send, 413, f"The video is over this worker's {MAX_UPLOAD_GB:g} GB limit.")
++                return
++        await self.app(scope, receive, send)
++
++
++def apply_settings(project: dict) -> None:
++    """Just before a job runs (jobs.py): the desktop's clip choices that came with it become the worker's."""
++    snapshot = ((project.get("info") or {}).get("worker_job") or {}).get("settings") or {}
++    clean = {k: v for k, v in snapshot.items() if k in SETTING_KEYS}
++    if clean:
++        db.save_settings(clean)
++
++
++def job_started(project_id: str) -> None:
++    """jobs.py, as a job starts here: the desktop's clip choices become the worker's, and the start is noted (the
++    worker time the desktop counts runs from here)."""
++    p = db.get_project(project_id) or {}
++    info = dict(p.get("info") or {})
++    job = dict(info.get("worker_job") or {})
++    apply_settings(p)
++    job.update(started_at=job.get("started_at") or time.time(), ended_at=0)
++    db.update_project(project_id, info={**info, "worker_job": job})
++
++
++def job_ended(project_id: str) -> None:
++    p = db.get_project(project_id)
++    if not p:
++        return
++    info = dict(p.get("info") or {})
++    job = dict(info.get("worker_job") or {})
++    job["ended_at"] = time.time()
++    db.update_project(project_id, info={**info, "worker_job": job})
++
++
++def _job(job_id: str) -> dict:
++    p = db.get_project(job_id)
++    if not p or not (p.get("info") or {}).get("worker_job"):
++        raise HTTPException(404, "No such job on this worker")
++    return p
++
++
++def _pdir(p: dict) -> Path:
++    return Path(p["source_path"]).parent
++
++
++def _ran(p: dict) -> dict:
++    """Which stages ran here, from what the job left behind (never from what it was asked to do)."""
++    pdir, info = _pdir(p), p.get("info") or {}
++    clips = db.list_clips(p["id"])
++    made = [c for c in clips if c.get("output_path") and Path(c["output_path"]).is_file()]
++    t = _read(pdir / "transcript.json")
++    ran = {"ingest": bool(p.get("duration")) and Path(p["source_path"]).is_file(),
++           "transcribe": bool(t), "analyze": p.get("status") == "ready" or bool(clips),
++           "framing": any((c.get("render_info") or {}).get("framing_evidence") is not None for c in made),
++           "captions": any((pdir / "clips" / c["id"] / "captions.ass").is_file() for c in made),
++           "render": bool(made)}
++    how = {"transcribe": (t or {}).get("source") or "", "ingest": "link" if p.get("source_url") else "upload",
++           "analyze": info.get("scoring_source") or ""}
++    return {"ran": ran, "how": {k: v for k, v in how.items() if v}}
++
++
++def _read(path: Path):
++    try:
++        return json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, ValueError):
++        return None
++
++
++def view(p: dict) -> dict:
++    job = (p.get("info") or {}).get("worker_job") or {}
++    src = Path(p["source_path"]) if p.get("source_path") else None
++    return {"id": p["id"], "status": p["status"], "stage": p.get("stage") or "",
++            "step": PIPELINE_STAGE.get(p.get("stage") or "", ""), "progress": p.get("progress") or 0,
++            "message": p.get("message") or "", "error": p.get("error") or "", "duration": p.get("duration") or 0,
++            "created_at": p["created_at"], "updated_at": p["updated_at"],
++            "started_at": job.get("started_at") or 0, "ended_at": job.get("ended_at") or 0,
++            "source": {"name": p.get("source_filename") or "", "link": bool(p.get("source_url")),
++                       "bytes": src.stat().st_size if src and src.is_file() else 0},
++            "clips": len(db.list_clips(p["id"])), "now": time.time(), **_ran(p)}
++
++
++def tidy(now: float | None = None) -> int:
++    """Delete finished jobs nobody fetched within KEEP_HOURS (their videos stay on the worker's disk otherwise)."""
++    now = now or time.time()
++    gone = 0
++    for p in db.list_projects():
++        job = (p.get("info") or {}).get("worker_job")
++        if job and p["status"] in ("ready", "error", "cancelled") and now - p["updated_at"] > KEEP_HOURS * 3600:
++            _delete(p)
++            gone += 1
++    return gone
++
++
++_tidying = threading.Event()
++
++
++def start_tidying() -> None:
++    """On a worker (api.lifespan): unfetched jobs are deleted KEEP_HOURS after they ended, checked at start and every
++    hour, whether or not another job ever comes (the privacy page promises it)."""
++    if not enabled() or _tidying.is_set():
++        return
++    _tidying.set()
++
++    def loop() -> None:
++        while True:
++            try:
++                tidy()
++            except Exception:  # noqa: BLE001 - tried again next hour
++                log.exception("Could not delete old worker jobs")
++            time.sleep(TIDY_EVERY_S)
++
++    threading.Thread(target=loop, name="worker-tidy", daemon=True).start()
++
++
++def _delete(p: dict) -> None:
++    from ..jobs import worker
++
++    worker.cancel(p["id"])
++    if p.get("source_path"):
++        shutil.rmtree(_pdir(p), ignore_errors=True)
++    db.delete_project(p["id"])
++
++
++@router.get(API + "/info")
++def info() -> dict:
++    from ..jobs import worker
++    from ..pipeline import cuda, llm, transcribe
++
++    tidy()
++    settings = db.get_settings()
++    try:
++        plan = transcribe.whisper_plan(settings, cuda.probe())
++        whisper = {"model": plan["model"], "device": plan["device"], "gpu": plan["gpu"], "vram_mb": plan["vram_mb"]}
++    except Exception:  # noqa: BLE001 - the rest still answers
++        whisper = {}
++    jobs = [p for p in db.list_projects() if (p.get("info") or {}).get("worker_job")]
++    return {"worker": True, "version": __version__, "stages": list(STAGES), "whisper": whisper,
++            "ai": llm.provider_label(settings), "max_upload_gb": MAX_UPLOAD_GB, "keep_hours": KEEP_HOURS,
++            "busy": worker.current is not None, "queue": worker.q.qsize(),
++            "jobs": {"waiting": sum(p["status"] in ("queued", "processing", "uploading") for p in jobs),
++                     "finished": sum(p["status"] in ("ready", "error", "cancelled") for p in jobs)}}
++
++
++@router.post(API + "/jobs")
++async def submit(source: UploadFile | None = File(None), transcript: UploadFile | None = File(None),
++                 link: str = Form(""), options: str = Form("{}"), settings: str = Form("{}"),
++                 name: str = Form(""), clip_mode: str = Form("highlights"), guidance: str = Form("{}")) -> dict:
++    from ..jobs import worker
++
++    tidy()
++    link = link.strip()
++    if bool(link) == bool(source is not None and source.filename):
++        raise HTTPException(400, "Send a video or a link.")
++    if link and not link.lower().startswith(("http://", "https://")):
++        raise HTTPException(400, "The link must start with http:// or https://.")
++    try:
++        opts, snap, guide = json.loads(options or "{}"), json.loads(settings or "{}"), json.loads(guidance or "{}")
++    except ValueError as exc:
++        raise HTTPException(400, "The options are not JSON.") from exc
++    if not isinstance(opts, dict) or not isinstance(snap, dict) or not isinstance(guide, dict):
++        raise HTTPException(400, "The options are not JSON objects.")
++    if clip_mode not in CLIP_MODES:
++        raise HTTPException(400, "Unknown clip mode.")
++    split = opts.get("story_split")
++    opts = config.validate_settings({k: v for k, v in opts.items() if k in OPTION_KEYS})
++    if isinstance(split, str) and split.isidentifier():  # Story parts: how a long story is split (studio/clips_flow)
++        opts["story_split"] = split[:40]
++    snap = config.validate_settings({k: v for k, v in snap.items() if k in SETTING_KEYS})
++    filename = Path(source.filename or "video.mp4").name if source is not None and source.filename else ""
++    ext = Path(filename).suffix.lower() if filename else ".mp4"
++    if filename and ext not in config.VIDEO_EXTENSIONS:
++        raise HTTPException(400, f"Unsupported file type '{ext}'.")
++    label = (name or Path(filename).stem or link)[:120] or "Video"
++    p = db.create_project(label, source_filename=filename, source_url=link or None, options=opts,
++                          status="uploading", info={"worker_job": {"settings": snap, "submitted_at": time.time()}},
++                          clip_mode=clip_mode, guidance=guide)
++    pdir = config.projects_dir() / p["id"]
++    pdir.mkdir(parents=True, exist_ok=True)
++    dest = pdir / f"source{ext}"
++    limit = int(MAX_UPLOAD_GB * 1024 ** 3)
++    try:
++        if source is not None and filename:
++            got = 0
++            with open(dest, "wb") as out:
++                while chunk := await source.read(4 * 1024 * 1024):
++                    got += len(chunk)
++                    if got > limit:
++                        raise HTTPException(413, f"The video is over this worker's {MAX_UPLOAD_GB:g} GB limit.")
++                    out.write(chunk)
++        if transcript is not None and transcript.filename:
++            t_ext = Path(transcript.filename).suffix.lower()
++            if t_ext not in config.TRANSCRIPT_EXTENSIONS:
++                raise HTTPException(400, "A transcript must be .srt, .vtt or .json.")
++            tpath = pdir / f"imported_transcript{t_ext}"
++            tpath.write_bytes((await transcript.read())[:20 * 1024 * 1024])
++            opts["transcript_file"] = str(tpath)
++    except BaseException:
++        shutil.rmtree(pdir, ignore_errors=True)
++        db.delete_project(p["id"])
++        raise
++    db.update_project(p["id"], source_path=str(dest), options=opts)
++    worker.submit_project(p["id"], url=link or None)
++    return view(db.get_project(p["id"]))  # type: ignore[arg-type]
++
++
++@router.get(API + "/jobs/{job_id}")
++def job(job_id: str) -> dict:
++    return view(_job(job_id))
++
++
++@router.post(API + "/jobs/{job_id}/cancel")
++def cancel(job_id: str) -> dict:
++    from ..jobs import worker
++
++    p = _job(job_id)
++    if p["status"] in ("queued", "processing", "uploading"):
++        worker.cancel(job_id)
++        if p["status"] != "processing":  # not started: it never will
++            db.update_project(job_id, status="cancelled", message="Cancelled")
++    return view(_job(job_id))
++
++
++@router.delete(API + "/jobs/{job_id}")
++def delete(job_id: str) -> dict:
++    _delete(_job(job_id))
++    return {"deleted": True}
++
++
++CHILDREN = ("clip_blueprints", "quality_reports", "clip_analysis", "clip_scores", "metadata_candidates")
++
++
++@router.get(API + "/jobs/{job_id}/result")
++def result(job_id: str) -> dict:
++    """Everything the desktop needs to rebuild the project: its facts, every clip with its rows and the files in
++    each clip's folder (names and sizes), and the project's own files."""
++    p = _job(job_id)
++    if p["status"] != "ready":
++        raise HTTPException(409, "The job has not finished.")
++    pdir = _pdir(p)
++    clips = []
++    with db.connect() as conn:
++        for c in db.list_clips(job_id):
++            rows = {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t} WHERE clip_id = ?", (c["id"],))]
++                    for t in CHILDREN}
++            folder = pdir / "clips" / c["id"]
++            files = sorted(({"name": f.name, "bytes": f.stat().st_size} for f in folder.iterdir()
++                            if f.is_file() and set(f.name) <= SAFE_NAME and not f.name.startswith(".")),
++                           key=lambda f: f["name"]) if folder.is_dir() else []
++            raw = dict(conn.execute("SELECT * FROM clips WHERE id = ?", (c["id"],)).fetchone())
++            clips.append({"row": raw, "children": rows, "files": files})
++        candidates = [dict(r) for r in conn.execute("SELECT * FROM clip_candidates WHERE project_id = ?",
++                                                    (job_id,))]
++    own = [n for n in PROJECT_FILES if (pdir / n).is_file()]
++    src = Path(p["source_path"])
++    return {"job": view(p), "dir": str(pdir), "project": {k: p.get(k) for k in ("duration", "width", "height", "fps")},
++            "info": {k: v for k, v in (p.get("info") or {}).items() if k != "worker_job"},
++            "clips": clips, "candidates": candidates, "files": own,
++            "source": {"name": src.name, "bytes": src.stat().st_size} if p.get("source_url") and src.is_file() else None}
++
++
++@router.get(API + "/jobs/{job_id}/files/{name}")
++def project_file(job_id: str, name: str) -> FileResponse:
++    p = _job(job_id)
++    pdir = _pdir(p)
++    if name == "source":
++        path = Path(p["source_path"])
++    elif name in PROJECT_FILES:
++        path = pdir / name
++    else:
++        raise HTTPException(404, "No such file")
++    if not path.is_file():
++        raise HTTPException(404, "No such file")
++    return FileResponse(path)
++
++
++@router.get(API + "/jobs/{job_id}/clips/{clip_id}/{name}")
++def clip_file(job_id: str, clip_id: str, name: str) -> FileResponse:
++    p = _job(job_id)
++    c = db.get_clip(clip_id)
++    if not c or c["project_id"] != job_id or not set(name) <= SAFE_NAME or name.startswith("."):
++        raise HTTPException(404, "No such file")
++    path = _pdir(p) / "clips" / clip_id / name
++    if not path.is_file():
++        raise HTTPException(404, "No such file")
++    return FileResponse(path)
+diff --git a/clipfoundry/jobs.py b/clipfoundry/jobs.py
+index 21c7ffd..c33f563 100644
+--- a/clipfoundry/jobs.py
++++ b/clipfoundry/jobs.py
+@@ -33,0 +34,3 @@ class Worker:
++        from .fullcloud import runner
++
++        runner.decide(project_id)  # this computer, or the owner's worker (Settings {U+2192} Processing)
+@@ -129 +132,2 @@ class Worker:
+-                    from .makers import shorts  # noqa: F401 - handlers
++                    from .fullcloud import testjob  # noqa: F401 - handlers
++                    from .makers import look_examples, shorts, textstory  # noqa: F401 - handlers
+@@ -139,0 +144,3 @@ class Worker:
++            from .fullcloud import runner
++
++            runner.stop_waiting(key)  # a Full Cloud job still on the worker is stopped and deleted there too
+@@ -160,0 +168,7 @@ class Worker:
++        start_info = (db.get_project(project_id) or {}).get("info") or {}
++        on_worker = bool(start_info.get("worker_job"))  # a Full Cloud job this computer runs as the owner's worker
++        in_cloud = start_info.get("processing") == "full_cloud"  # this computer's project, run on the worker
++        if on_worker:
++            from .fullcloud import worker_api
++
++            worker_api.job_started(project_id)
+@@ -162,3 +176,8 @@ class Worker:
+-            if url:
+-                self._download(project_id, url, ctx)
+-            process.run_project(project_id, ctx)
++            if in_cloud:
++                from .fullcloud import runner
++
++                runner.run(project_id, url, ctx)
++            else:
++                if url:
++                    self._download(project_id, url, ctx)
++                process.run_project(project_id, ctx)
+@@ -181,0 +201,4 @@ class Worker:
++            if on_worker:
++                from .fullcloud import worker_api
++
++                worker_api.job_ended(project_id)
+diff --git a/clipfoundry/makers/cast.py b/clipfoundry/makers/cast.py
+new file mode 100644
+index 0000000..46608b6
+--- /dev/null
++++ b/clipfoundry/makers/cast.py
+@@ -0,0 +1,542 @@
++"""Characters and places of an animated short (docs/clipforge/ANIMATED_SHORTS.md, "Characters and places").
++
++A cast member is a character or a place with a name, how it looks, what it wears, its colours, what it carries (or
++what is there), up to three reference pictures and the details the owner locked. The owner keeps reusable ones in a
++library (table cast_library); a short takes a copy of each member it uses (`short["cast"]`), so changing a member in
++one short never changes another short's pictures. A scene shows every member of its short unless the owner picked
++who is in it (`info["cast"]`), and a change asked for one shot only is kept on that scene (`info["overrides"]`).
++
++How the members reach the picture maker: their details are written into every picture idea (locked details first,
++so they are the last to be shortened), and a picture model that takes reference pictures (FLUX.2 [klein]) is also
++given their reference pictures. After a picture is made, ClipForge checks that the members' colours are in it, and
++with ClipForge AI's built-in model on this computer it also looks at the picture; what does not match is flagged on
++the scene ("may look different here"), with Make again and Looks right.
++
++A change in the owner's own words ("give Mia a blue raincoat") goes to ClipForge AI, which answers with the fields to
++change; locked details are never changed. The owner sees the proposal and applies it to every shot or to one.
++"""
++from __future__ import annotations
++
++import base64
++import hashlib
++import io
++import json
++import logging
++import os
++import re
++import time
++from pathlib import Path
++
++from .. import db
++
++log = logging.getLogger(__name__)
++
++KINDS = {"character": "Character", "place": "Place"}
++FIELDS = {"character": ("appearance", "clothing", "colors", "props"), "place": ("appearance", "colors", "props")}
++ALL_FIELDS = ("appearance", "clothing", "colors", "props")
++LABELS = {"character": {"appearance": "Looks", "clothing": "Clothes", "colors": "Colours", "props": "Carries"},
++          "place": {"appearance": "Looks", "colors": "Colours", "props": "What is there"}}
++LOCKABLE = (*ALL_FIELDS, "references")
++MAX_NAME = 60
++MAX_FIELD = 300
++MAX_REFS = 3          # reference pictures of one member
++MAX_CAST = 6          # members in one short
++MAX_LIBRARY = 200
++MAX_CHANGE = 400      # characters of a change in the owner's words
++MAX_PROMPT = 700      # characters of the members' details in one picture idea
++PROPOSE_TIMEOUT_S = 120.0
++CHECK_SIZE = (180, 320)
++PRESENT = 0.004       # the share of a picture's pixels that shows a colour is there
++LOOK_TIMEOUT_S = 90.0
++
++# colour words {U+2192} a test on numpy arrays of (hue 0-360, saturation 0-1, value 0-1); other words stay words only
++def _between(h, lo: float, hi: float):
++    return (h >= lo) & (h < hi)
++
++
++COLOURS: dict[str, object] = {
++    "red": lambda h, s, v: ((h < 14) | (h >= 345)) & (s > 0.45) & (v > 0.25),
++    "orange": lambda h, s, v: _between(h, 14, 40) & (s > 0.5) & (v > 0.4),
++    "yellow": lambda h, s, v: _between(h, 40, 68) & (s > 0.4) & (v > 0.5),
++    "gold": lambda h, s, v: _between(h, 35, 60) & (s > 0.35) & (v > 0.4),
++    "green": lambda h, s, v: _between(h, 68, 165) & (s > 0.25) & (v > 0.2),
++    "teal": lambda h, s, v: _between(h, 165, 195) & (s > 0.25) & (v > 0.2),
++    "blue": lambda h, s, v: _between(h, 190, 255) & (s > 0.3) & (v > 0.2),
++    "purple": lambda h, s, v: _between(h, 255, 300) & (s > 0.25) & (v > 0.2),
++    "pink": lambda h, s, v: (_between(h, 300, 345) & (s > 0.2) & (v > 0.45)) |
++    (((h < 14) | (h >= 345)) & (s > 0.15) & (s <= 0.45) & (v > 0.7)),
++    "brown": lambda h, s, v: _between(h, 10, 45) & (s > 0.3) & (v > 0.12) & (v <= 0.62),
++    "black": lambda h, s, v: v < 0.14,
++    "white": lambda h, s, v: (s < 0.12) & (v > 0.86),
++    "grey": lambda h, s, v: (s < 0.12) & (v > 0.3) & (v <= 0.86),
++}
++COLOUR_WORDS = {**{c: c for c in COLOURS}, "gray": "grey", "violet": "purple", "golden": "gold", "navy": "blue",
++                "crimson": "red", "scarlet": "red", "ginger": "orange", "turquoise": "teal", "silver": "grey"}
++
++
++class CastError(Exception):
++    def __init__(self, message: str, status: int = 422) -> None:
++        super().__init__(message)
++        self.status = status
++
++
++def _norm(text: object, limit: int = MAX_FIELD) -> str:
++    return " ".join(str(text or "").split())[:limit] if isinstance(text, (str, int, float)) else ""
++
++
++def _image_ok(asset_id: str, workspace_id: str) -> dict | None:
++    a = db.fetch("assets", asset_id) if asset_id else None
++    if a and a["workspace_id"] == workspace_id and a["kind"] == "image" and Path(a["path"]).is_file():
++        return a
++    return None
++
++
++# ------------------------------------------------------------------ one member
++def clean(raw: dict, workspace_id: str, base: dict | None = None) -> dict:
++    """A member's fields as the owner may set them, checked (on top of `base` when changing one)."""
++    if not isinstance(raw, dict):
++        raise CastError("Send the character's details.")
++    out = dict(base or {"kind": "character", "name": "", **{f: "" for f in ALL_FIELDS}, "locked": [], "refs": []})
++    if "kind" in raw:
++        if raw["kind"] not in KINDS:
++            raise CastError("A cast member is a character or a place.")
++        out["kind"] = raw["kind"]
++    if "name" in raw:
++        name = _norm(raw["name"], 1000)
++        if not name:
++            raise CastError("Give the character a name.")
++        if len(name) > MAX_NAME:
++            raise CastError(f"Keep the name under {MAX_NAME} characters.")
++        out["name"] = name
++    for f in ALL_FIELDS:
++        if f in raw:
++            if raw[f] is not None and not isinstance(raw[f], str):
++                raise CastError("Describe the details in words.")
++            text = _norm(raw[f], 10_000)
++            if len(text) > MAX_FIELD:
++                raise CastError(f"Keep each detail under {MAX_FIELD} characters.")
++            out[f] = text
++    if "locked" in raw:
++        if not isinstance(raw["locked"], list) or any(x not in LOCKABLE for x in raw["locked"]):
++            raise CastError("Lock one of the details: " + ", ".join(LOCKABLE) + ".")
++        out["locked"] = [x for x in LOCKABLE if x in raw["locked"]]
++    if "refs" in raw:
++        refs = raw["refs"]
++        if not isinstance(refs, list) or not all(isinstance(r, str) for r in refs):
++            raise CastError("Choose reference pictures.")
++        refs = list(dict.fromkeys(refs))
++        if len(refs) > MAX_REFS:
++            raise CastError(f"A character keeps at most {MAX_REFS} reference pictures.")
++        for r in refs:
++            if _image_ok(r, workspace_id) is None:
++                raise CastError("A reference picture must be one of your pictures (PNG, JPEG or WebP).", 404)
++        out["refs"] = refs
++    if not out.get("name"):
++        raise CastError("Give the character a name.")
++    if out["kind"] == "place":
++        out["clothing"] = ""
++        out["locked"] = [x for x in out["locked"] if x != "clothing"]
++    return out
++
++
++def _public(m: dict, workspace_id: str) -> dict:
++    refs = [{"asset_id": r, "ok": _image_ok(r, workspace_id) is not None} for r in m.get("refs") or []]
++    return {"id": m["id"], "library_id": m.get("library_id") or "", "kind": m.get("kind") or "character",
++            "name": m.get("name") or "", **{f: m.get(f) or "" for f in ALL_FIELDS},
++            "locked": list(m.get("locked") or []), "refs": refs, "described": describe(m)}
++
++
++def describe(m: dict, override: dict | None = None) -> str:
++    """The member as words for the picture maker: locked details first."""
++    m = {**m, **(override or {})}
++    kind = m.get("kind") or "character"
++    order = [f for f in FIELDS[kind] if f in (m.get("locked") or [])] + \
++        [f for f in FIELDS[kind] if f not in (m.get("locked") or [])]
++    parts = []
++    for f in order:
++        text = _norm(m.get(f)).rstrip(" .;")
++        if not text:
++            continue
++        parts.append({"appearance": text, "clothing": f"wearing {text}", "colors": f"colours {text}",
++                      "props": (f"with {text}" if kind == "character" else f"with {text} there")}[f])
++    name = _norm(m.get("name"), MAX_NAME)
++    head = name if kind == "character" else f"the setting is {name}"
++    return f"{head}: {'; '.join(parts)}" if parts else head
++
++
++# ------------------------------------------------------------------ the library
++def library(workspace_id: str) -> list[dict]:
++    rows = db.select("cast_library", "workspace_id = ?", (workspace_id,), "name COLLATE NOCASE, created_at")
++    return [_public({**r, "library_id": r["id"]}, workspace_id) for r in rows]
++
++
++def _library_row(workspace_id: str, library_id: str) -> dict:
++    row = db.fetch("cast_library", library_id) if library_id else None
++    if not row or row["workspace_id"] != workspace_id:
++        raise CastError("That character is not in your library any more.", 404)
++    return row
++
++
++def library_add(workspace_id: str, raw: dict) -> dict:
++    with db.connect() as conn:
++        n = conn.execute("SELECT COUNT(*) FROM cast_library WHERE workspace_id = ?", (workspace_id,)).fetchone()[0]
++    if n >= MAX_LIBRARY:
++        raise CastError(f"Your library holds at most {MAX_LIBRARY} characters and places; delete one first.")
++    m = clean(raw, workspace_id)
++    lid = "chr-" + os.urandom(6).hex()
++    db.insert("cast_library", {"id": lid, "workspace_id": workspace_id, "kind": m["kind"], "name": m["name"],
++                               **{f: m[f] for f in ALL_FIELDS}, "locked": m["locked"], "refs": m["refs"]})
++    return _public({**_library_row(workspace_id, lid), "library_id": lid}, workspace_id)
++
++
++def library_change(workspace_id: str, library_id: str, raw: dict) -> dict:
++    row = _library_row(workspace_id, library_id)
++    m = clean({k: v for k, v in raw.items() if k != "kind"}, workspace_id, row)
++    db._update("cast_library", library_id, {"name": m["name"], **{f: m[f] for f in ALL_FIELDS},  # noqa: SLF001
++                                            "locked": m["locked"], "refs": m["refs"], "updated_at": time.time()})
++    return _public({**_library_row(workspace_id, library_id), "library_id": library_id}, workspace_id)
++
++
++def library_delete(workspace_id: str, library_id: str) -> None:
++    """The library's entry goes; the shorts that use the character keep their own copy."""
++    _library_row(workspace_id, library_id)
++    db.execute("DELETE FROM cast_library WHERE id = ? AND workspace_id = ?", (library_id, workspace_id))
++
++
++# ------------------------------------------------------------------ a short's cast
++def members(short: dict) -> list[dict]:
++    return [m for m in short.get("cast") or [] if isinstance(m, dict) and m.get("id")]
++
++
++def _info(scene: dict) -> dict:
++    return scene.get("info") or {}
++
++
++def in_scene(short: dict, scene: dict) -> list[dict]:
++    """The members this scene shows, each with the scene's own changes on top (characters first, then places)."""
++    cast = members(short)
++    chosen = _info(scene).get("cast")
++    if isinstance(chosen, list):
++        cast = [m for m in cast if m["id"] in chosen]
++    overrides = _info(scene).get("overrides") or {}
++    out = [{**m, **{k: v for k, v in (overrides.get(m["id"]) or {}).items() if k in ALL_FIELDS}} for m in cast]
++    return sorted(out, key=lambda m: m.get("kind") != "character")
++
++
++def prompt_text(short: dict, scene: dict) -> str:
++    """The members' details for this scene's picture idea ("" without a cast: the short's own character words)."""
++    found = in_scene(short, scene)
++    if not found:
++        return ""
++    texts = [describe(m) for m in found]
++    text = ". ".join(texts)
++    if len(text) <= MAX_PROMPT:
++        return text
++    # too long: each member keeps its locked details and as much of the rest as fits its share
++    share = max(80, MAX_PROMPT // len(found))
++    return ". ".join(t if len(t) <= share else t[:share].rsplit(" ", 1)[0] for t in texts)
++
++
++def reference_assets(short: dict, scene: dict, workspace_id: str) -> list[dict]:
++    """The reference pictures this scene's picture is drawn with: each member's, characters first, at most four."""
++    out: list[dict] = []
++    for m in in_scene(short, scene):
++        for r in m.get("refs") or []:
++            a = _image_ok(r, workspace_id)
++            if a and a["id"] not in {x["id"] for x in out}:
++                out.append(a)
++    return out[:4]
++
++
