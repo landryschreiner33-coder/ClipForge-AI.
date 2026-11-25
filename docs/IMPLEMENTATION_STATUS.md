@@ -1,5 +1,26 @@
 # Implementation status
 
+## Final release, batch 2: clip quality, stream layouts, titles, Compare — 2026-11-25 (Claude Code)
+
+Branch `claude/project-thread-hqwolr` from the release line at `cf51120` (batch 1), pull request #69. Landry's
+final-release prompt, batch 2: better clip picking with reasons, suggested trims, live stream reactions, stream
+layouts with the face cam, three kinds of titles, Posts → Results → Compare, and a before/after benchmark. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md), rules and hypotheses:
+[CLIP_QUALITY_RESEARCH.md](clipforge/CLIP_QUALITY_RESEARCH.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_clip_selection_rules`, `test_compare_results`, `test_facecam_layouts`, `test_rank_reasons`, `test_title_kinds`, `test_trims`, `test_split_view`, `test_split_between_channels` (new and changed) | passed |
+| 2026-11-25 | `scripts/clip_quality_benchmark.py` on three synthetic videos (podcast, game stream, tutorial), `cf51120` against this branch | before 9 clips, after 7; ad read, goodbye and chat-reading clips rejected; the clutch clip keeps its shout; report in `docs/clipforge/benchmarks/clip-quality-2026-11-25.md` |
+| 2026-11-25 | `pytest -m "not slow"` (whole fast suite, this cloud machine) | 3183 passed, 2 skipped, 2 failed: a recap line counted as a goodbye (fixed in `9b3a9e8`; the outro tests pass) and `test_a_story_told_on_stream_is_clipped_with_its_build_up_and_its_ending`, which passed alone, under 8 hash seeds, after each quarter and each half of the files before it |
+| 2026-11-25 | GitHub "Native Mac desktop app" run 45605044316 on `d009163` | Mac build and bundled-app checks passed; `pytest -m slow` passed |
+| 2026-11-25 | GitHub run 45609252829 on `9b3a9e8` (the outro fix): Mac build, `pytest -m "not slow"` and `pytest -m slow` on Ubuntu | see the pull request |
+| 2026-11-25 | Screenshots (editor Layout tab, drawn face cam box, suggested trims, title kinds, why a clip ranks, Compare) and a rendered test clip | in `/mnt/project-files/final-release/batch2/` |
+
+Not verified: real streams with a live chat (ClipForge has no chat connection; a recording has no chat), YouTube and
+TikTok from this cloud machine, real footage (the benchmark videos are synthetic speech).
+
 ## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code)
 
 Branch `claude/project-thread-hqwolr` from the release line at `54f953b`, pull request #68. Landry's final-release
