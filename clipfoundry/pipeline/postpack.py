@@ -84,8 +84,9 @@ CLAIM_WORDS = {"viral", "shocking", "insane", "banned", "exposed", "secret", "se
                "everyone", "nobody", "ever", "only", "first", "last", "famous", "scientists", "experts", "study",
                "research", "doctors", "billionaire", "millionaire"}
 NUMBER_WORDS = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
-                "twelve", "twenty", "thirty", "forty", "fifty", "hundred", "thousand", "million", "billion", "percent",
-                "half", "double", "twice", "dozen"}
+                "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+                "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand",
+                "million", "billion", "percent", "half", "double", "twice", "dozen"}
 EDITABLE = {"titles", "recommended_title", "captions", "hashtags", "description", "cta", "hook", "title", "caption"}
 
 
@@ -310,7 +311,7 @@ def topics(clip_text: str, global_df: Counter | None = None, n_docs: int = 1) ->
     """The clip's topic words (what a Searchable title leads with): specific to the clip, not weak or generic."""
     kws = keywords(clip_text, global_df, n_docs, top=10) if clip_text else []
     return [k for k in kws if k.isalpha() and len(k) > 3 and k not in WEAK_TAGS and not generic_tag(k)
-            and not k.endswith("ly")][:3]
+            and not k.endswith("ly") and k not in NUMBER_WORDS][:3]   # "Eighty: ..." names no topic
 
 
 def title_kind(title: str, kws: list[str]) -> str:

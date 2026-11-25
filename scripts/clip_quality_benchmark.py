@@ -233,9 +233,15 @@ def run(footage: Path, code: Path, out: Path, explain: Path | None = None) -> No
                     continue
                 r = virality.finalize(virality.analyze(inside[0], inside[-1], prep.sentences, feats, words,
                                                        prep.loud, prep.opts))
+                fl = [f"{f['label']}: {f.get('detail', '')}" for f in r["flags"]]
+                nxt = next((s_["start"] for s_ in prep.sentences if s_["start"] >= c["end"]), c["end"] + 3.0)
+                cut_off = [x for x in getattr(virality, "wordless_loud", lambda *a: [])(
+                    words, prep.loud, c["end"], min(nxt, c["end"] + 3.0)) if x[0] > c["end"] + 0.05]
+                if cut_off:
+                    fl.append(f"Cuts off the reaction: stops {cut_off[0][0] - c['end']:.1f} s before a loud moment "
+                              "without words")
                 explained.append({"start": c["start"], "end": c["end"], "viral_potential": r["viral_potential"],
-                                  "blocked": r["blocked"],
-                                  "flags": [f"{f['label']}: {f.get('detail', '')}" for f in r["flags"]]})
+                                  "blocked": r["blocked"], "flags": fl})
         about = (folder / "about.txt").read_text().strip() if (folder / "about.txt").exists() else ""
         report["videos"].append({"name": folder.name, "explained": explained, "about": about,
                                  "duration": round(tr["duration"], 1), "seconds": round(time.time() - t0, 1),

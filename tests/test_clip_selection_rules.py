@@ -98,6 +98,11 @@ def test_no_way_is_a_reaction_not_a_reply():
     assert feats[1]["response"]                    # a real answer to someone still counts
 
 
+def test_a_number_is_not_a_searchable_topic():
+    assert "eighty" not in postpack.topics("If you upload in ten eighty, YouTube compresses ten eighty twice. "
+                                           "Even if you recorded in ten eighty, upload it in four K.")
+
+
 def test_a_he_with_nobody_named_nearby_is_a_warning():
     lines = ["Let me tell you about the worst landlord ever.", "Rent is due on the first.", "Anyway.",
              "People said he was the worst landlord in the city.", "He once charged us for the rain.",
