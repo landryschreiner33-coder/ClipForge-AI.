@@ -1,0 +1,586 @@
++      <NavLink href="#/stories" icon="story" label="Text Stories" on={active === "stories"} />
+@@ -252,0 +257 @@ function Shell({ me }: { me: Me }) {
++                  <a role="menuitem" href="#/stories" onClick={() => setMakeOpen(false)}><b>Make a text story</b><span>A story read aloud over gameplay or any background, with big captions</span></a>
+diff --git a/frontend/src/api.ts b/frontend/src/api.ts
+index 44d9620..3c1d6a9 100644
+--- a/frontend/src/api.ts
++++ b/frontend/src/api.ts
+@@ -24,0 +25,2 @@ export interface Project {
++  /** Made on the owner's worker (Settings {U+2192} Processing {U+2192} Full Cloud): what was sent, the stages, the log. */
++  cloud?: import("./processing").ProjectCloud | null;
+diff --git a/frontend/src/components/AppearanceSettings.css b/frontend/src/components/AppearanceSettings.css
+index 43fe3c2..0b82c35 100644
+--- a/frontend/src/components/AppearanceSettings.css
++++ b/frontend/src/components/AppearanceSettings.css
+@@ -83,0 +84,7 @@
++/* the Custom accent: a striped swatch until a colour is picked, and the browser's own colour picker beside it */
++.ap-swatch.ap-custom i { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--canvas) 55%, transparent); }
++.ap-pick { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-small, 0.875rem); color: var(--text-2);
++  cursor: pointer; }
++.ap-pick input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--control-border);
++  border-radius: 7px; background: var(--surface); cursor: pointer; }
++.ap-pick input[type="color"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+diff --git a/frontend/src/components/AppearanceSettings.tsx b/frontend/src/components/AppearanceSettings.tsx
+index 3e80020..909e116 100644
+--- a/frontend/src/components/AppearanceSettings.tsx
++++ b/frontend/src/components/AppearanceSettings.tsx
+@@ -2 +2 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+-import { motionChoice, OfficeActivity, useMotion } from "../motion";
++import { motionChoice, OfficeActivity, SpaceLook, useMotion } from "../motion";
+@@ -25,0 +26,11 @@ export default function AppearanceSettings() {
++  const shades = appearance.accent_shades;
++  // the colour picker sends a colour for every step of a drag: the last one is saved
++  const [picking, setPicking] = useState<string | null>(null);
++  useEffect(() => {
++    if (!picking) return;
++    const t = window.setTimeout(() => {
++      set({ accent: "custom", accent_color: picking.toUpperCase() });
++      setPicking(null);
++    }, 250);
++    return () => window.clearTimeout(t);
++  }, [picking, set]);
+@@ -47,0 +59,6 @@ export default function AppearanceSettings() {
++              <label className={`ap-swatch ap-custom${appearance.accent === "custom" ? " on" : ""}`}
++                title="Your own colour">
++                <input type="radio" name="ap-accent" value="custom" aria-label="Your own colour"
++                  checked={appearance.accent === "custom"} onChange={() => set({ accent: "custom" })} />
++                <i style={{ background: shades?.primary || appearance.accent_color }} aria-hidden="true" />
++              </label>
+@@ -49 +66,7 @@ export default function AppearanceSettings() {
+-            <span className="ap-accent-name" aria-hidden="true">{accent ? accent[1] : appearance.accent}</span>
++            <label className="ap-pick">
++              <input type="color" value={(picking || appearance.accent_color).toLowerCase()}
++                onChange={(e) => setPicking(e.target.value)} aria-describedby="ap-accent-note" />
++              <span>Pick your own</span>
++            </label>
++            <span className="ap-accent-name" aria-hidden="true">
++              {appearance.accent === "custom" ? "Your own" : accent ? accent[1] : appearance.accent}</span>
+@@ -50,0 +74,4 @@ export default function AppearanceSettings() {
++          {appearance.accent === "custom" && shades?.adjusted && (
++            <p className="ap-hint" id="ap-accent-note">Made a little lighter ({shades.primary}) so links, buttons and
++              selected things stay readable on every background.</p>
++          )}
+@@ -74,0 +102,24 @@ export default function AppearanceSettings() {
++        <Choice id="ap-space" label="Space view" value={motion.spaceLook}
++          onChange={(v) => motion.setSpaceLook(v as SpaceLook)}
++          options={[["orbit", "Orbit the black hole"], ["lighter", "Lighter"]]}
++          hint="Orbit follows the ship round the black hole and bends its light; Lighter draws the turning disk only,
++            for computers whose graphics struggle (ClipForge switches to it by itself if the orbit is not smooth)." />
++        <div className="ap-row">
++          <span className="ap-label" id="ap-sounds">Sound effects</span>
++          <div className="ap-control">
++            <Segmented labelledBy="ap-sounds" value={motion.sounds ? "on" : "off"}
++              onChange={(v) => motion.setSounds(v === "on")}
++              options={[{ value: "off", label: "Off" }, { value: "on", label: "On" }]} />
++            <p className="ap-hint">Little sounds, like the robot office's Taser. Saved in this browser.</p>
++          </div>
++        </div>
++        <div className="ap-row">
++          <span className="ap-label" id="ap-taser">Taser in the office</span>
++          <div className="ap-control">
++            <Segmented labelledBy="ap-taser" value={motion.taser ? "show" : "hide"}
++              onChange={(v) => motion.setTaser(v === "show")}
++              options={[{ value: "show", label: "Show" }, { value: "hide", label: "Hide" }]} />
++            <p className="ap-hint">A joke button in the robot office: zap a robot for a cartoon spark. Their work carries
++              on.</p>
++          </div>
++        </div>
+@@ -82,0 +134,3 @@ export default function AppearanceSettings() {
++          <button type="button" className="btn btn-ghost" onClick={() => set({ palette: "studio", accent: "blue" })}
++            disabled={appearance.palette === "studio" && appearance.accent === "blue"}>
++            <Icon name="back" />Reset colors</button>
+diff --git a/frontend/src/components/BlackHole.tsx b/frontend/src/components/BlackHole.tsx
+index 7f87837..938e3cf 100644
+--- a/frontend/src/components/BlackHole.tsx
++++ b/frontend/src/components/BlackHole.tsx
+@@ -2 +1,0 @@ import { useEffect, useRef, useState } from "react";
+-import { usePageCovered } from "../covered";
+@@ -5,0 +5 @@ import { HoleRenderer, makeHoleRenderer } from "./blackHoleGl";
++import { makeOrbitRenderer, orbitPose } from "./blackHoleOrbit";
+@@ -6,0 +7 @@ import { onPixelRatioChange } from "./pixelRatio";
++import { paintShip } from "./shipArt";
+@@ -54,2 +55,16 @@ const MAX_LOSSES = 3;
+- * The black hole in the studio's sky. Where the browser has WebGL its disk turns (blackHoleGl.ts), the inner streaks
+- * faster; otherwise the canvas painter shows the same picture with a few patches of light travelling round the disk
++ * The orbiting view (blackHoleOrbit.ts) traces every pixel's light and costs the graphics chip far more than the
++ * lighter hole. When this computer cannot draw it smoothly (frames SLOW_GAP apart through two STRETCHes), or has no
++ * WebGL for it, the big hole is the lighter one for the rest of the visit.
++ */
++let orbitTooSlow = false;
++const orbitWatchers = new Set<(slow: boolean) => void>();
++function giveUpOrbit() {
++  orbitTooSlow = true;
++  for (const tell of orbitWatchers) tell(true);
++}
++
++/**
++ * The black hole in the studio's sky. The big one is seen from the ship as it orbits the hole (blackHoleOrbit.ts),
++ * unless Settings {U+2192} Appearance asks for the lighter look or the computer cannot draw it smoothly; then, and for the
++ * slim one in the masthead, it is the lighter hole: where the browser has WebGL its disk turns (blackHoleGl.ts),
++ * otherwise the canvas painter shows the same picture with a few patches of light travelling round the disk
+@@ -59,0 +75,126 @@ export function BlackHole({ size = "small", className = "" }: { size?: "small" |
++  const { spaceLook } = useMotion();
++  const [gaveUp, setGaveUp] = useState(orbitTooSlow);
++  useEffect(() => {
++    orbitWatchers.add(setGaveUp);
++    setGaveUp(orbitTooSlow);
++    return () => {
++      orbitWatchers.delete(setGaveUp);
++    };
++  }, []);
++  if (size === "large" && spaceLook === "orbit" && !gaveUp) return <OrbitingHole className={className} />;
++  return <TurningHole size={size} className={className} />;
++}
++
++/** The big hole seen from the orbiting ship: the hole traced on the chip, the ship and dust painted over it. */
++function OrbitingHole({ className }: { className: string }) {
++  const box = useRef<HTMLDivElement>(null);
++  const { reduceMotion, pageHidden, officeActivity } = useMotion();
++  const [onScreen, setOnScreen] = useState(true);
++  const still = reduceMotion || pageHidden || officeActivity === "low_power";
++  const moving = !still && onScreen;
++  const run = useRef<{ start: () => void; stop: () => void } | null>(null);
++
++  useEffect(() => {
++    const el = box.current;
++    if (!el) return;
++    const cv = el.appendChild(document.createElement("canvas"));
++    const gl = makeOrbitRenderer(cv);
++    if (!gl) {
++      cv.remove();
++      giveUpOrbit();
++      return;
++    }
++    const front = el.appendChild(document.createElement("canvas"));
++    const g2 = front.getContext("2d");
++    const lost = () => giveUpOrbit();
++    cv.addEventListener("webglcontextlost", lost);
++    let w = 0, h = 0, raf = 0, last = 0, going = false;
++    let prev = 0, since = 0, slowStretches = 0, gaps: number[] = [];
++    const draw = (now: number) => {
++      if (!w || !h) return;
++      const t = diskTime(now);
++      gl.draw(t, t);
++      if (g2) paintShip(g2, w, h, orbitPose(t), going ? t : null);
++    };
++    const fit = () => {
++      const dpr = Math.min(2, window.devicePixelRatio || 1);
++      const nw = Math.round(el.clientWidth * dpr), nh = Math.round(el.clientHeight * dpr);
++      if (!nw || !nh || (nw === w && nh === h)) return;
++      w = nw;
++      h = nh;
++      gl.resize(w, h);
++      front.width = w;
++      front.height = h;
++      draw(performance.now());
++    };
++    const tick = (now: number) => {
++      raf = requestAnimationFrame(tick);
++      if (prev && now - prev < STALL) gaps.push(now - prev);
++      prev = now;
++      since ||= now;
++      if (now - since >= STRETCH) {
++        gaps.sort((a, b) => a - b);
++        slowStretches = gaps.length >= 3 && gaps[gaps.length >> 1] > SLOW_GAP ? slowStretches + 1 : 0;
++        gaps = [];
++        since = now;
++        if (slowStretches >= 2) {
++          giveUpOrbit();
++          return;
++        }
++      }
++      if (now - last < FRAME - 2) return;
++      last = now;
++      draw(now);
++    };
++    const halt = () => {
++      if (going) stopTurning(performance.now());
++      going = false;
++      cancelAnimationFrame(raf);
++    };
++    run.current = {
++      start: () => {
++        if (going) return;
++        going = true;
++        startTurning(performance.now());
++        prev = since = slowStretches = 0;
++        gaps = [];
++        raf = requestAnimationFrame(tick);
++      },
++      stop: () => {
++        halt();
++        draw(performance.now());
++      },
++    };
++    const resize = new ResizeObserver(fit);
++    resize.observe(el);
++    const unwatchRatio = onPixelRatioChange(fit);
++    const seen = typeof IntersectionObserver === "function"
++      ? new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting)) : null;
++    seen?.observe(el);
++    fit();
++    return () => {
++      run.current = null;
++      halt();
++      resize.disconnect();
++      unwatchRatio();
++      seen?.disconnect();
++      cv.removeEventListener("webglcontextlost", lost);
++      gl.dispose();
++      cv.remove();
++      front.remove();
++    };
++  }, []);
++
++  useEffect(() => {
++    if (moving) run.current?.start();
++    else run.current?.stop();
++  }, [moving]);
++
++  return (
++    <div ref={box} className={`black-hole large orbit${className ? ` ${className}` : ""}`} aria-hidden="true"
++      data-still={moving ? "false" : "true"} data-look="orbit" />
++  );
++}
++
++/** The lighter hole: the disk seen from one place, turning (blackHoleGl.ts), or painted (blackHoleArt.ts). */
++function TurningHole({ size, className }: { size: "small" | "large"; className: string }) {
+@@ -62 +202,0 @@ export function BlackHole({ size = "small", className = "" }: { size?: "small" |
+-  const covered = usePageCovered();  // behind FilmCraft's editor (covered.ts)
+@@ -67 +207 @@ export function BlackHole({ size = "small", className = "" }: { size?: "small" |
+-  const still = reduceMotion || pageHidden || officeActivity === "low_power" || slow || covered;
++  const still = reduceMotion || pageHidden || officeActivity === "low_power" || slow;
+@@ -202 +342 @@ export function BlackHole({ size = "small", className = "" }: { size?: "small" |
+-      data-still={moving ? "false" : "true"} />
++      data-still={moving ? "false" : "true"} data-look="lighter" />
+diff --git a/frontend/src/components/FilmCraft.tsx b/frontend/src/components/FilmCraft.tsx
+index 0d0cc62..7cc877a 100644
+--- a/frontend/src/components/FilmCraft.tsx
++++ b/frontend/src/components/FilmCraft.tsx
+@@ -3 +2,0 @@ import { errorText, responseError, sendBytes } from "../api";
+-import { useCoverPage } from "../covered";
+@@ -63 +61,0 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
+-  useCoverPage();  // the sky behind the editor holds still while it is open
+diff --git a/frontend/src/components/ProcessingSettings.tsx b/frontend/src/components/ProcessingSettings.tsx
+new file mode 100644
+index 0000000..f27579a
+--- /dev/null
++++ b/frontend/src/components/ProcessingSettings.tsx
+@@ -0,0 +1,231 @@
++/**
++ * Settings {U+2192} Processing (docs/clipforge/FULL_CLOUD.md): where Make clips runs (Local, Hybrid or Full Cloud), the
++ * owner's ClipForge worker (address, key, check), worker time with the owner's price and monthly limit, and the
++ * private test job that proves each stage runs on the worker.
++ */
++import { useCallback, useEffect, useState } from "react";
++import { errorText } from "../api";
++import { fmtBytes, fmtMoney, fmtSpan, Processing, processing, ProcessingMode, STAGE_NAMES, WorkerTest } from "../processing";
++import { Banner, Disclosure, Icon, Pill, ProgressBar, toast } from "./ui";
++
++export default function ProcessingSettings() {
++  const [p, setP] = useState<Processing | null>(null);
++  const [problem, setProblem] = useState("");
++  const [busy, setBusy] = useState(false);
++  const [url, setUrl] = useState("");
++  const [key, setKey] = useState("");
++  const [price, setPrice] = useState("");
++  const [hours, setHours] = useState("");
++
++  // the price and limit fields show the saved values, except while the owner is typing new ones (`fields`)
++  const take = useCallback((got: Processing, fields = true) => {
++    setP(got);
++    if (!fields) return;
++    setPrice(got.price_per_hour ? String(got.price_per_hour) : "");
++    setHours(String(got.month_hours ?? 0));
++  }, []);
++  const load = useCallback(async (check = false, fields = true) => {
++    try {
++      const got = await processing.get(check);
++      take(got, fields);
++      setUrl((u) => u || got.worker.url);
++      setProblem("");
++    } catch (e) {
++      setProblem(errorText(e));
++    }
++  }, [take]);
++  useEffect(() => { void load(true); }, [load]);
++
++  const testRunning = !!p?.test?.job && ["queued", "running"].includes(p.test.job.status);
++  useEffect(() => {  // follow the test job while it runs
++    if (!testRunning) return;
++    const t = window.setInterval(() => { void load(false, false); }, 1500);
++    return () => window.clearInterval(t);
++  }, [testRunning, load]);
++
++  /** Runs one change; true when it worked (a typed key or address is cleared only then). */
++  const act = async (fn: () => Promise<Processing | void>, done?: string): Promise<boolean> => {
++    setBusy(true);
++    try {
++      const got = await fn();
++      if (got) take(got);
++      if (got && got.note) toast(got.note);
++      else if (done) toast(done);
++      setProblem("");
++      return true;
++    } catch (e) {
++      setProblem(errorText(e));
++      return false;
++    } finally {
++      setBusy(false);
++    }
++  };
++  /** A number typed with a dot or a comma; null when it is not one. */
++  const number = (text: string): number | null => {
++    const n = Number(text.trim().replace(",", ".") || 0);
++    return Number.isFinite(n) && n >= 0 ? n : null;
++  };
++  const saveTime = () => {
++    const pr = number(price), hr = number(hours);
++    if (pr === null || hr === null) {
++      setProblem(`${pr === null ? "The price" : "The monthly limit"} is not a number. Type it like 0.44.`);
++      return;
++    }
++    void act(() => processing.set({ price_per_hour: pr, month_hours: hr }), "Saved.");
++  };
++
++  if (!p) return problem ? <Banner tone="bad" title="Processing settings did not load">{problem}</Banner>
++    : <p className="small muted">Loading{U+2026}</p>;
++
++  const check = p.worker.check;
++  const used = p.usage.used_seconds;
++  const limit = p.usage.limit_hours * 3600;
++  const monthLine = `This month: ${fmtSpan(used)} of ${p.usage.limit_hours ? `${p.usage.limit_hours} h` : "0 h (off)"}` +
++    (p.usage.cost !== null ? ` {U+00B7} ${fmtMoney(p.usage.cost)}` : "");
++  const choose = (mode: ProcessingMode) => void act(() => processing.set({ mode }),
++    mode === "full_cloud" ? "Make clips now runs on your worker." : mode === "hybrid"
++      ? "Clips are made here; pictures and video on your cloud computer." : "Everything runs on this computer.");
++
++  return (
++    <div className="stack-4">
++      {problem && <Banner tone="bad" title="That did not work">{problem}</Banner>}
++      <section className="panel" aria-labelledby="pr-where">
++        <h2 id="pr-where">Where Make clips runs</h2>
++        <div className="mode-pick pr-modes" role="radiogroup" aria-label="Where Make clips runs">
++          {p.modes.map((m) => (
++            <label key={m.id} className={m.ready ? "" : "off"}>
++              <input type="radio" name="processing-mode" checked={p.mode === m.id} disabled={busy || !m.ready}
++                onChange={() => choose(m.id)} />
++              <b>{m.name}{p.mode === m.id ? " (in use)" : ""}</b><span>{m.about}</span>
++              {!m.ready && m.why && <span className="pr-why">{m.why}</span>}
++            </label>
++          ))}
++        </div>
++        <p className="small muted">Pictures and video for shorts are made on {p.pictures_on}.
++          {p.mode === "full_cloud" && " Each new Make clips project uploads its video (or sends its link) to your worker" +
++            " and brings the finished clips back here."}</p>
++      </section>
++
++      <section className="panel" aria-labelledby="pr-worker">
++        <h2 id="pr-worker">Your ClipForge worker</h2>
++        <p className="small muted">A worker is ClipForge on a computer you rent (a Linux server or a GPU machine you
++          control), started with a key. It answers only your desktop, only with that key, and never posts anything.</p>
++        <p className="small">{!p.worker.url ? <><Pill>Not set up</Pill> Add its address and key below.</>
++          : !check ? <><Pill>Not checked yet</Pill> {p.worker.host}</>
++          : check.ok ? <><Pill tone="good" icon="check">Connected</Pill> {p.worker.host}
++            {check.version ? ` {U+00B7} ClipForge ${check.version}` : ""}
++            {check.whisper?.model ? ` {U+00B7} transcription ${check.whisper.model} on ${check.whisper.device || "its CPU"}` : ""}
++            {check.ai ? ` {U+00B7} AI: ${check.ai}` : ""}{check.busy ? " {U+00B7} busy with a job" : ""}</>
++          : <><Pill tone="bad">Not answering</Pill> {check.why}</>}</p>
++        <div className="row wrap pr-form">
++          <label className="field grow"><span>Worker address</span><input value={url} spellCheck={false}
++            autoComplete="off" placeholder="https://worker.example.com" onChange={(e) => setUrl(e.target.value)} /></label>
++          <label className="field grow"><span>{p.worker.key_set ? "A new key (leave empty to keep it)" : "Worker key"}</span>
++            <input type="password" value={key} autoComplete="off" onChange={(e) => setKey(e.target.value)} /></label>
++          <button type="button" className="btn btn-small" disabled={busy || !url.trim()}
++            onClick={() => void act(() => processing.worker(url.trim(), key.trim() || undefined))
++              .then((ok) => { if (ok) setKey(""); })}>
++            Save and check</button>
++          {p.worker.url && <button type="button" className="btn btn-small btn-quiet" disabled={busy}
++            onClick={() => void act(() => processing.get(true))}><Icon name="refresh" />Check again</button>}
++          {p.worker.url && <button type="button" className="btn btn-small btn-quiet" disabled={busy}
++            onClick={() => void act(() => processing.worker(""), "The worker is removed; Make clips runs here.")
++              .then((ok) => { if (ok) setUrl(""); })}><Icon name="trash" />Remove worker</button>}
++        </div>
++        <p className="small muted">The key is kept locked on this computer and sent only to this address, over HTTPS.
++          Changing the address forgets the key.</p>
++        <Disclosure summary="How to start a worker">
++          <ol className="small">
++            <li>On the computer you rent: install Python 3.12 and FFmpeg, and copy ClipForge there.</li>
++            <li>Make a key with <span className="mono">openssl rand -base64 32</span> and start ClipForge with it:
++              {" "}<span className="mono">CLIPFOUNDRY_WORKER_KEY={U+2026} CLIPFOUNDRY_WORKERS=off python -m clipfoundry --host
++              127.0.0.1</span>.</li>
++            <li>Put HTTPS in front of it (Caddy does this in five lines), then paste its address and the key here.</li>
++          </ol>
++          <p className="small muted">Every step, with the Caddy setup and checks: deploy/WORKER.md in ClipForge&apos;s
++            folder.</p>
++        </Disclosure>
++      </section>
++
++      <section className="panel" aria-labelledby="pr-time">
++        <h2 id="pr-time">Worker time</h2>
++        <p className="small muted">Worker time is counted on the worker, from a job&apos;s start there to its end.
++          ClipForge does not know what your provider charges: enter what an hour of your worker costs you and estimates
++          show money too. Nothing is sent to the worker once this month&apos;s hours are used up.</p>
++        <div className="row wrap pr-form">
++          <label className="field"><span>Price of an hour ($)</span><input inputMode="decimal" value={price}
++            placeholder="0.44" onChange={(e) => setPrice(e.target.value)} /></label>
++          <label className="field"><span>Monthly limit (hours)</span><input inputMode="decimal" value={hours}
++            onChange={(e) => setHours(e.target.value)} /></label>
++          <button type="button" className="btn btn-small" disabled={busy} onClick={saveTime}>Save</button>
++        </div>
++        <div className="stack-2">
++          <p className="small"><b>{monthLine}</b></p>
++          <ProgressBar value={limit ? Math.min(1, used / limit) : 0} label={monthLine}
++            tone={used < limit ? "good" : undefined} />
++          <p className="small muted">The count starts again on {new Date(p.usage.resets_at * 1000)
++            .toLocaleDateString([], { month: "long", day: "numeric" })}.</p>
++        </div>
++        {!!p.usage.runs.length && <Disclosure summary={`Recent worker jobs (${p.usage.runs.length})`}>
++          <ul className="file-list small">{p.usage.runs.map((r) => (
++            <li key={r.id}><span>{r.kind === "test" ? "Test job" : <a className="textlink" href={`#/project/${r.project_id}`}>
++              Make clips</a>} {U+00B7} {new Date(r.started_at * 1000).toLocaleString([], { month: "short", day: "numeric",
++              hour: "numeric", minute: "2-digit" })}</span>
++              <span className="muted">{r.status} {U+00B7} {fmtSpan(r.seconds)}{r.cost !== null ? ` {U+00B7} ${fmtMoney(r.cost)}` : ""}
++                {r.uploaded_bytes ? ` {U+00B7} ${fmtBytes(r.uploaded_bytes)} sent` : ""}</span></li>))}</ul>
++        </Disclosure>}
++      </section>
++
++      <section className="panel" aria-labelledby="pr-test">
++        <h2 id="pr-test">Test job</h2>
++        <p className="small muted">A private test: ClipForge makes a one-minute video on this computer (nothing of
++          yours), sends it to the worker as a Make clips job, brings the clip back, checks it plays and deletes it
++          there. It counts as worker time.</p>
++        <div className="row-actions">
++          {testRunning
++            ? <button type="button" className="btn btn-small" disabled={busy}
++              onClick={() => void act(async () => { await processing.stopTest(); return processing.get(); })}>
++              <Icon name="stop" />Stop the test</button>
++            : <button type="button" className="btn btn-primary" disabled={busy || !p.worker.url}
++              onClick={() => void act(async () => { await processing.test(); return processing.get(); })}>
++              <Icon name="cloud" />Run a test job</button>}
++        </div>
++        {p.test && <TestResult t={p.test} running={testRunning} stages={p.stages} />}
++      </section>
++
++      <section className="panel" aria-labelledby="pr-here">
++        <h2 id="pr-here">What stays on this computer</h2>
++        <ul className="small">{p.unsupported.map((u) => <li key={u}>{u}</li>)}</ul>
++      </section>
++    </div>
++  );
++}
++
++function TestResult({ t, running, stages }: { t: WorkerTest; running: boolean; stages: Processing["stages"] }) {
++  if (running && t.job) return <div className="stack-2"><p className="small">{t.job.message || "Starting"}</p>
++    <ProgressBar value={t.job.progress || 0} label={t.job.message || "Starting"} /></div>;
++  const when = new Date((t.ended_at || t.started_at) * 1000).toLocaleString([], { month: "short", day: "numeric",
++    hour: "numeric", minute: "2-digit" });
++  return (
++    <div className="stack-2 pr-test">
++      <p className="small">{t.ok ? <Pill tone="good" icon="check">The test worked</Pill>
++        : t.status === "canceled" ? <Pill>Stopped</Pill> : <Pill tone="bad">The test failed</Pill>} {when} {U+00B7} {t.worker}</p>
++      {!t.ok && t.problem && <p className="small">{t.problem}</p>}
++      {!!t.ran && Object.keys(t.ran).length > 0 && <ul className="pr-stages" aria-label="Stages that ran on the worker">
++        {stages.map((s) => <li key={s} className={t.ran?.[s] ? "on" : ""}>
++          <Icon name={t.ran?.[s] ? "check" : "x"} className="sm" /><span>{STAGE_NAMES[s]}
++            <span className="muted">{!t.ran?.[s] ? " {U+00B7} not run" : t.how?.[s]?.startsWith("import") ? " {U+00B7} given the words"
++              : " {U+00B7} on the worker"}</span></span></li>)}
++      </ul>}
++      {t.note && <p className="small muted">{t.note}</p>}
++      {t.ok && <p className="small">
++        {t.upload_seconds !== undefined && <>Upload {fmtBytes(t.uploaded_bytes || 0)} in {fmtSpan(t.upload_seconds)}
++          {t.upload_mbps ? ` (${t.upload_mbps} Mbit/s)` : ""} {U+00B7} </>}
++        Worker time {fmtSpan(t.worker_seconds)}{t.cost !== undefined ? ` (${fmtMoney(t.cost)})` : ""} {U+00B7} start to finish
++        {" "}{fmtSpan(t.round_trip_seconds)}
++        {t.clip && <> {U+00B7} the clip: {t.clip.seconds} s, {t.clip.width}{U+00D7}{t.clip.height}, picture and sound play</>}</p>}
++      {t.worker_info?.whisper?.model && <p className="small muted">Transcription on the worker: {t.worker_info.whisper.model}
++        {" "}on {t.worker_info.whisper.device || "its CPU"}{t.worker_info.ai ? `; picking clips with ${t.worker_info.ai}` : ""}.</p>}
++    </div>
++  );
++}
+diff --git a/frontend/src/components/ShortCast.tsx b/frontend/src/components/ShortCast.tsx
+new file mode 100644
+index 0000000..bb1c7ce
+--- /dev/null
++++ b/frontend/src/components/ShortCast.tsx
+@@ -0,0 +1,498 @@
++/**
++ * Characters and places of an animated short (makers/cast.py): the Characters panel above the scenes, and what each
++ * scene shows of them (who is in the shot, changes for that shot only, the look check). A short keeps its own copy of
++ * each character; Save to library keeps it for other shorts.
++ */
++import { FormEvent, useEffect, useId, useRef, useState } from "react";
++import { errorText } from "../api";
++import {
++  CastField, CastFields, CastKind, CastMember, CastOptions, CastProposal, ShortOptions, ShortScene, ShortView, shorts,
++} from "../shorts";
++import type { Video } from "../studio";
++import { FileDrop, Picked, useUploadsByFile } from "./studioParts";
++import { Banner, ConfirmDialog, Icon, Pill, toast } from "./ui";
++
++type Run = (call: () => Promise<Video>, said?: string) => Promise<Video | null>;
++const FIELD_HINTS: Record<CastField, string> = {
++  appearance: "Age, face, hair, build, species",
++  clothing: "What they wear",
++  colors: "The colours that make them recognisable",
++  props: "What they carry, or what is there",
++};
++const PICTURES = "image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp";
++const isPicture = (f: File) => (f.type ? /^image\/(png|jpeg|webp)$/.test(f.type) : /\.(png|jpe?g|webp)$/i.test(f.name));
++const thumb = (id: string) => `/api/assets/${encodeURIComponent(id)}/thumbnail`;
++
++function labelOf(opts: CastOptions, kind: CastKind, f: CastField) {
++  return opts.labels[kind]?.[f] || f;
++}
++
++/** Calls onAsset once for each picture the owner drops (a dropped file that is not a picture is refused). */
++function PictureDrop({ label, onAsset }: { label: string; onAsset: (assetId: string, uploadIds: string[]) => void }) {
++  const [drop, setDrop] = useState(0);
++  const seen = useRef(new Set<string>());
++  const uploaded = useUploadsByFile();
++  const picked = (rows: Picked[]) => {
++    for (const r of rows) {
++      const k = `${drop}|${r.key}|${r.asset?.upload_id || ""}`;
++      const wrong = !isPicture(r.file) || (!!r.asset && r.asset.kind !== "image");
++      if (seen.current.has(k) || (!wrong && !r.asset)) continue;
++      seen.current.add(k);
++      const id = r.asset?.id || "";
++      window.setTimeout(() => {
++        if (wrong) {
++          setDrop((n) => n + 1);
++          toast("That file is not a picture. Use a PNG, JPEG or WebP picture.", true);
++        } else {
++          onAsset(id, uploaded.of([id]));
++          setDrop((n) => n + 1);
++        }
++      }, 0);
++      return;
++    }
++  };
++  return <FileDrop key={drop} accept={PICTURES} label={label} onAssets={picked} onUploaded={uploaded.add} />;
++}
++
++/** The details form for a new character or a change to one: each detail can be locked. */
++function MemberForm({ opts, initial, kind, saveLabel, busy, withSave, onSave, onCancel }: {
++  opts: CastOptions; initial?: CastMember; kind: CastKind; saveLabel: string; busy: boolean; withSave?: boolean;
++  onSave: (fields: CastFields, save: boolean) => Promise<boolean>; onCancel: () => void;
++}) {
++  const ids = useId();
++  const [name, setName] = useState(initial?.name ?? "");
++  const [values, setValues] = useState<Record<CastField, string>>({
++    appearance: initial?.appearance ?? "", clothing: initial?.clothing ?? "", colors: initial?.colors ?? "",
++    props: initial?.props ?? "",
++  });
++  const [locked, setLocked] = useState<string[]>(initial?.locked ?? []);
++  const [save, setSave] = useState(true);
++  const first = useRef<HTMLInputElement>(null);
++  useEffect(() => first.current?.focus(), []);
++  const fields = opts.fields[kind];
++  const submit = async (e: FormEvent) => {
++    e.preventDefault();
++    if (!name.trim()) {
++      toast(kind === "place" ? "Give the place a name." : "Give the character a name.", true);
++      return;
++    }
++    const body: CastFields = { kind, name: name.trim(), locked: locked as CastMember["locked"] };
++    for (const f of fields) body[f] = values[f].trim();
