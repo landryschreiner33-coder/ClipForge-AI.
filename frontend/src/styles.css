@@ -1259,6 +1259,12 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .total { display: grid; gap: 2px; }
 .total b { font-family: var(--font-display); font-size: 1.5rem; font-variant-numeric: tabular-nums; }
 .total span { font-size: var(--fs-tiny); color: var(--text-3); }
+.compare { display: grid; gap: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.compare-head { justify-content: space-between; align-items: flex-end; gap: var(--s3); }
+.compare-place { display: grid; gap: var(--s2); }
+.compare-place h4 { margin: 0; }
+.compare td .tiny { margin-top: 4px; min-width: 24ch; max-width: 40ch; }
+.compare .small .icon { width: 14px; height: 14px; vertical-align: -2px; }
 .stats { display: grid; gap: 4px; }
 .pub-stats { border-top: 1px solid var(--line); margin-top: var(--s2); padding-top: var(--s2); display: grid; gap: 6px; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }

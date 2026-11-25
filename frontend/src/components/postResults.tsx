@@ -3,6 +3,7 @@ import { api, errorText, PerformanceOverview, PerfSnapshot } from "../api";
 import { num, plural, when } from "../format";
 import { EmptyState, Icon, PlatformName, Skel, toast } from "./ui";
 import { Post } from "./postShared";
+import { ResultsCompare } from "./resultsCompare";
 
 // /api/performance also says why YouTube numbers are left out of the totals (publish/routes.py).
 type Overview = PerformanceOverview & { totals_note?: string; excluded_from_totals?: number };
@@ -166,6 +167,7 @@ export function PostResults({ posts }: { posts: Post[] }) {
               : `Viral Potential vs. real views over ${plural(check.samples, "post")}: rank correlation `
                 + `${check.spearman.toFixed(2)} (1 = the same order, 0 = no relation).`}
           </p>
+          <ResultsCompare />
         </>
       )}
     </section>

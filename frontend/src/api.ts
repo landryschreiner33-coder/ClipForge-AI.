@@ -439,6 +439,24 @@ export interface Publication {
   stats?: PerfSnapshot | null;
 }
 
+/** Results compared by channel, niche, format or clip length (autopilot/compare.py). */
+export type CompareBy = "channel" | "niche" | "format" | "length";
+export type CompareVerdict = "higher" | "lower" | "inconclusive" | "too_few" | "only_one";
+export interface CompareGroup {
+  group: string; posts: number; others: number; median_views: number | null; median_pct: number | null;
+  pct_reported: boolean; verdict: CompareVerdict; ratio: number | null; p: number | null; text: string; test: string;
+}
+export interface ComparePeriod { posts: number; median_views: number | null }
+export interface ComparePlace {
+  platform: "youtube" | "tiktok"; cohort: string; audience: string; posts: number; available: boolean; note: string;
+  groups: CompareGroup[];
+  periods: { days: number; recent: ComparePeriod; before: ComparePeriod; verdict: string; text: string } | null;
+}
+export interface CompareResult {
+  by: CompareBy; label: string; dimensions: Record<CompareBy, string>; places: ComparePlace[]; counted: number;
+  min_posts: number; note: string;
+}
+
 export const api = {
   accounts: () => req<Accounts>("GET", "/api/publish/accounts"),
   connect: (platform: Platform) => req<{ auth_url: string }>("POST", `/api/publish/${platform}/connect`),
@@ -455,6 +473,8 @@ export const api = {
   /** You shared the private YouTube video with your invited viewers (your word: YouTube does not report it). */
   audienceConfirmed: (pubId: string) => req<Publication>("POST", `/api/publications/${pubId}/audience-confirmed`),
   performance: () => req<PerformanceOverview>("GET", "/api/performance"),
+  compareResults: (by: CompareBy) =>
+    req<CompareResult>("GET", `/api/performance/compare?by=${encodeURIComponent(by)}`),
   refreshAllStats: () => req<{ refreshed: number; failed: { platform: string; error: string; fix: string }[] }>("POST", "/api/performance/refresh"),
   refreshPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/refresh`),
   health: () => req<Health>("GET", "/api/health"),

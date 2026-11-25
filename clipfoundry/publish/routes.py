@@ -451,6 +451,18 @@ def performance_overview() -> dict:
             "totals_note": learning.YOUTUBE_NOTE if excluded else "", "excluded_from_totals": excluded}
 
 
+@router.get("/api/performance/compare", dependencies=[Depends(local_only)])
+def performance_compare(by: str = "format") -> dict:
+    """Your posts grouped by channel, niche, format or clip length, each group against the rest of the same
+    platform and audience, read 48 hours after each went out (autopilot/compare.py)."""
+    from ..autopilot import compare
+
+    try:
+        return compare.compare(by)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.get("/api/performance/dataset", dependencies=[Depends(local_only)])
 def performance_dataset(format: str = "csv") -> Response:  # noqa: A002 - query parameter name
     rows = learning.dataset()
