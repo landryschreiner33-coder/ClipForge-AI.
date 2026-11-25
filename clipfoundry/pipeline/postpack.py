@@ -190,6 +190,8 @@ def stands_alone(title: str) -> bool:
     toks = tokens(title)
     if not toks:
         return False
+    if toks[0] in ("even", "only", "just", "especially") and len(toks) > 1 and toks[1] in LEANS_ON:
+        toks = toks[1:]   # "Even if you recorded in ten eighty" waits for its other half too
     return title.rstrip().endswith("?") or toks[0] not in LEANS_ON
 
 

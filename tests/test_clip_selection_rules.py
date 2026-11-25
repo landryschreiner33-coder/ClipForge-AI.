@@ -98,6 +98,12 @@ def test_no_way_is_a_reaction_not_a_reply():
     assert feats[1]["response"]                    # a real answer to someone still counts
 
 
+def test_a_clause_waiting_for_its_other_half_is_not_a_title():
+    assert not postpack.stands_alone("Even if you recorded in ten eighty")
+    assert not postpack.stands_alone("Just because it is free")
+    assert postpack.stands_alone("Even pros miss this setting") and postpack.stands_alone("Just export in 4K")
+
+
 def test_a_number_is_not_a_searchable_topic():
     assert "eighty" not in postpack.topics("If you upload in ten eighty, YouTube compresses ten eighty twice. "
                                            "Even if you recorded in ten eighty, upload it in four K.")
