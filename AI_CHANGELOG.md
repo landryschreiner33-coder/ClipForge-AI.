@@ -3,7 +3,7 @@
 ## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code)
 
 Landry's "ClipForge Final Release" prompt (November 24, 8:58 PM Chicago time) asks for four batches. This is the first.
-Branch `claude/project-thread-hqwolr` from the release line at `54f953b`, pull request into
+Branch `claude/project-thread-hqwolr` from the release line at `54f953b`, pull request #68 into
 `claude/project-thread-x72wkd`.
 
 - **Name and icon:** `scripts/make_icons.py` makes every icon from the attached gold command robot

@@ -2,7 +2,8 @@
 
 ## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code)
 
-Branch `claude/project-thread-hqwolr` from the release line at `54f953b`. Landry's final-release prompt, batch 1:
+Branch `claude/project-thread-hqwolr` from the release line at `54f953b`, pull request #68. Landry's final-release
+prompt, batch 1:
 ClipForge name and the gold command robot icon, Cancel upload (imports, cloud computer transfers, Publish Center,
 scheduled posts), one sign-in for YouTube and TikTok, and Missions in the main menu with per-mission pause and times in
 the Autopilot time zone. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
@@ -12,6 +13,9 @@ the Autopilot time zone. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
 | 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
 | 2026-11-25 | pytest `test_icons`, `test_studio_uploads`, `test_remote_engines` (cancel), `test_youtube`, `test_unattended_publishing`, `test_one_sign_in` | passed (run while each part was built) |
 | 2026-11-25 | pytest `test_autopilot_scheduler`, `test_autopilot_publish`, `test_missions_page`, `test_review_submitted_routes`, `test_review_submitted_mode`, `test_post_to_channels`, `test_split_between_channels` | 110 passed |
+| 2026-11-25 | `pytest -m "not slow"` (whole fast suite, this cloud machine) | 3145 passed, 2 skipped, 1 failed: `test_an_nvenc_encode_waits_while_the_gpu_is_transcribing` (a 2.5 s timing wait on a loaded machine; passed 3 of 3 runs alone) |
+| 2026-11-25 | GitHub "Native Mac desktop app" run 45589634804 on `70694bf`: Mac build + bundled tools, `pytest -m "not slow"` and `pytest -m slow` on Ubuntu | all three jobs passed |
+| 2026-11-25 | Screenshots of Missions, Cancel upload, Change the time (conflict and nearest free time), Accounts, from a seeded demo data folder | in `/mnt/project-files/final-release/batch1/` |
 
 ## Moving sky, turning black hole and smooth page changes — 2026-11-20 (Claude Code)
 
