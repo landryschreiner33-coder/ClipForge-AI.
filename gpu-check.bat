@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-rem ClipFoundry GPU check - runs a real Whisper transcription in the normal ClipFoundry environment
+rem ClipForge GPU check - runs a real Whisper transcription in the normal ClipForge environment
 rem (.venv, set up exactly like start.bat does) and reports whether it ran on the NVIDIA GPU or the CPU.
 rem   Double-click for a quick test, or drag a video onto this file for a realistic one.
 rem   From a terminal:  gpu-check.bat "C:\Videos\podcast.mp4" [--seconds 120]
@@ -13,7 +13,7 @@ if not exist "clipfoundry\gpucheck.py" set "STALE=1"
 if errorlevel 1 set "STALE=1"
 if defined STALE (
   echo.
-  echo   [!] This ClipFoundry folder is out of date - the GPU check needs newer app files.
+  echo   [!] This ClipForge folder is out of date - the GPU check needs newer app files.
   echo       Update the whole folder, not only this file: run "git pull" in this folder, or download
   echo       the branch ZIP again and copy its contents over this folder. Your data and .venv folders stay.
   echo.
@@ -31,7 +31,7 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 rem ------------------------------------------------------------------ run
-title ClipFoundry GPU check
+title ClipForge GPU check
 ".venv\Scripts\python.exe" -m clipfoundry gpu-check %*
 set "RC=%ERRORLEVEL%"
 echo.

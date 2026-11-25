@@ -21,8 +21,29 @@ def is_listening(port):
         return sock.connect_ex(('127.0.0.1', port)) == 0
 
 
+def check_name_and_icon(app: Path, evidence: Path):
+    """What Finder, the Dock, Launchpad and Spotlight call the app: ClipForge, while the folder stays
+    ClipFoundry.app so an update replaces the installed copy in place (build_desktop.FOLDER_NAME)."""
+    lsregister = ('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/'
+                  'lsregister')
+    if Path(lsregister).exists():  # a fresh build is not known to LaunchServices yet; Finder registers on sight
+        subprocess.run([lsregister, '-f', str(app)], check=False, timeout=60)
+    script = ("ObjC.import('AppKit'); var p = $(" + json.dumps(str(app)) + "); "
+              "$.NSFileManager.defaultManager.displayNameAtPath(p).js")
+    shown = subprocess.run(['osascript', '-l', 'JavaScript', '-e', script], capture_output=True, text=True,
+                           check=True, timeout=60).stdout.strip()
+    (evidence / 'display-name.txt').write_text(shown + '\n')
+    assert shown == 'ClipForge', f'Finder would show {shown!r}, not ClipForge'
+    # The Dock and Finder draw these sizes of the gold robot; keep them for a person to look at.
+    subprocess.run(['iconutil', '-c', 'iconset', str(app / 'Contents/Resources/ClipFoundry.icns'), '-o',
+                    str(evidence / 'packaged-icon.iconset')], check=True, timeout=60)
+    sizes = sorted(p.name for p in (evidence / 'packaged-icon.iconset').glob('*.png'))
+    assert 'icon_16x16.png' in sizes and 'icon_512x512@2x.png' in sizes, sizes
+
+
 def main(app: Path, evidence: Path):
     evidence.mkdir(parents=True, exist_ok=True)
+    check_name_and_icon(app, evidence)
     contents = app / 'Contents'
     python = contents / 'Resources/Python/bin/python3.12'
     source = contents / 'Resources/app'

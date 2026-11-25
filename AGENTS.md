@@ -516,6 +516,13 @@ icon rather than interchangeable themes. Publish only the branding correction to
 preserve its existing verification file and legal/product copy. This request grants no real-post authorization
 or TikTok eligibility/approval. The public website update does not require reinstalling the desktop app.
 
+**Gold command robot icon (2026-11-25, owner's release prompt):** The owner approved a new icon, the gold command
+robot (`design/brand/clipforge-icon-gold-source.png`, sha256 f99cf07c…). It replaces the 2026-10-19 robot everywhere:
+`python scripts/make_icons.py` makes every copy from it (the 1024 PNG still at `design/tiktok/app-icon-dark.png`,
+the app, website and favicon copies, the Windows `.ico` and the Mac iconset), and `tests/test_icons.py` fails when a
+copy drifts. Never edit a copy by hand. The TikTok Basic information icon and the public `gh-pages` icon must be
+changed to the new picture by the owner (portal) and with the owner's OK (website) to keep them matching.
+
 **Latest Windows setup continuation (2026-10-19, America/Chicago):** The owner reports pip cannot find a
 matching CTranslate2 distribution. The screenshot alone does not identify the actual Python version, architecture
 or index. Use the project's supported Windows runtime policy: standard **64-bit CPython 3.12**, then **3.11**,

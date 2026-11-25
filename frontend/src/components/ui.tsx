@@ -82,10 +82,11 @@ export function Icon({ name, size, fill = false, className = "" }: { name: IconN
   );
 }
 
+/** The gold command robot (scripts/make_icons.py makes both files from the one approved picture). */
 export function Logo({ size = 32 }: { size?: number }) {
   return (
-    <img src="/app-icon.png" width={size} height={size} alt="" aria-hidden="true"
-      style={{ flex: "none", imageRendering: "pixelated" }} />
+    <img src={size <= 64 ? "/app-icon-128.png" : "/app-icon.png"} width={size} height={size} alt="" aria-hidden="true"
+      style={{ flex: "none" }} />
   );
 }
 

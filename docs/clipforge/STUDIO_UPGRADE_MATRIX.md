@@ -164,9 +164,15 @@ Landry approved it in the thread ("release it"). Source commit for both download
 
 - The web app, its page titles and the website copy already said ClipForge. What still said ClipFoundry, and now says
   ClipForge: the Mac app's window title, menus (About, Hide, Quit, Help), status and error messages, its Finder display
-  name (`CFBundleName`, `CFBundleDisplayName`) and copyright line, the DMG volume name, the Mac and Windows launchers'
+  name and copyright line, the DMG volume name, the Mac and Windows launchers'
   messages (`Open-ClipFoundry.command`, `start.bat`, `start.sh`, `macos/setup.py`, `windows_bootstrap.py`), and the
   phone page (title, labels, messages).
+- Correction (2026-11-25): until then Finder, the Dock, Launchpad and Spotlight still showed "ClipFoundry", because
+  macOS shows a bundle's display name only through a localized name whose plain value matches the folder name. Since
+  2026-11-25 the plain `CFBundleDisplayName` is `ClipFoundry` (the folder), `LSHasLocalizedDisplayName` is on and
+  `en.lproj/InfoPlist.strings` says `ClipForge` (`macos/build_desktop.py` `info_plist`, `write_localization`);
+  `macos/desktop_smoke.py` checks the name Finder shows. The gold command robot icon comes from
+  `scripts/make_icons.py`.
 - Kept, because renaming them would move or orphan people's data or credentials without a tested migration: the bundle
   id `com.clipfoundry.studio`, the executable and `ClipFoundry.app` file name, `Application Support/ClipFoundry`,
   `Videos\ClipFoundry` (the Library page names this real folder), the Keychain service and DPAPI entropy, the window
