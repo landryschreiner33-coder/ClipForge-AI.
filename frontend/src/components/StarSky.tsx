@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { usePageCovered } from "../covered";
 import { useMotion } from "../motion";
 import { onPixelRatioChange } from "./pixelRatio";
 import { addDrift, addSky, setSkyMoving } from "./starSky";
@@ -14,7 +15,8 @@ export function StarSky({ strip = false }: { strip?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const tiles = useRef<HTMLDivElement>(null);
   const { reduceMotion, pageHidden, officeActivity } = useMotion();
-  const moving = !reduceMotion && !pageHidden && officeActivity !== "low_power";
+  const covered = usePageCovered();  // behind FilmCraft's editor (covered.ts)
+  const moving = !reduceMotion && !pageHidden && officeActivity !== "low_power" && !covered;
 
   useEffect(() => {
     const canvas = ref.current, box = tiles.current;

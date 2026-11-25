@@ -368,8 +368,8 @@ def browser_check(out: Path, project: dict, want) -> dict:
             text = ""
             for _ in range(300):  # FilmCraft starts, then the page hands it the files and opens the project
                 frame = next((f for f in page.frames if "/craft/filmcraft/" in f.url), None)
-                text, gone = editor_text(page, trace, t_click)
-                if gone:
+                text, stop = editor_text(page, trace, t_click)
+                if stop:
                     break
                 if "did not open" in text:
                     break
@@ -441,26 +441,29 @@ def browser_check(out: Path, project: dict, want) -> dict:
 
 
 def editor_text(page, trace: list, t0: float) -> tuple[str, bool]:
-    """The editor dialog's text, and whether the dialog has gone. Each read has its own time limit, so a page that
-    stops answering (its one thread busy) is told apart from a dialog that closed; changes go in the trace."""
+    """The editor dialog's text, and whether to stop waiting. Each read has its own time limit, so a page that is
+    busy (FilmCraft's editor loads on the page's own thread) is told apart from a dialog that closed; the trace says
+    when the dialog's first line changed, each slow read, and what the page showed when a read did not answer."""
     t = time.time()
     try:
-        text = page.locator(".craft-editor").inner_text(timeout=10000)
+        text = page.locator(".craft-editor").inner_text(timeout=30000)
     except Exception as exc:  # noqa: BLE001 - what is on the page instead is the report
         took = round(time.time() - t, 1)
         try:
-            body = page.locator("body").inner_text(timeout=15000)
+            body = page.locator("body").inner_text(timeout=30000)
             gone = page.locator(".craft-editor").count() == 0
-            what = "the editor dialog is not on the page" if gone else f"the dialog did not answer: {exc!r}"[:300]
+            what = "the editor dialog is not on the page" if gone else f"the dialog did not answer in {took} s"
         except Exception as exc2:  # noqa: BLE001
-            body, gone, what = "", False, f"the page did not answer in {took + 15:.0f} s: {exc2!r}"[:300]
-        trace.append({"at": round(time.time() - t0, 1), "what": what, "url": page.url, "body": body[:1500]})
+            body, gone, what = "", False, f"the page did not answer in {round(time.time() - t, 1)} s: {exc2!r}"[:300]
+        trace.append({"at": round(time.time() - t0, 1), "what": what, "error": repr(exc)[:200], "url": page.url,
+                      "body": body[-1500:]})
         print("editor page:", json.dumps(trace[-1])[:2500], flush=True)
-        if gone:
-            return "", True
-        if len([e for e in trace if "did not answer" in e["what"]]) >= 6:
-            return "", True  # a minute and more without an answer: report it rather than wait the full five minutes
-        return "", False
+        unanswered = 0
+        for e in reversed(trace):
+            if "did not answer" not in e.get("what", ""):
+                break
+            unanswered += 1
+        return "", gone or unanswered >= 3  # three in a row (minutes): report it rather than wait on
     took = round(time.time() - t, 1)
     first = text.splitlines()[0][:120] if text else ""
     if took > 3 or not trace or trace[-1].get("first") != first:
