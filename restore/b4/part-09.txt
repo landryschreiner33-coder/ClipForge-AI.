@@ -1,0 +1,381 @@
++   For a service, put `CLIPFOUNDRY_WORKER_KEY=...` in an environment file readable only by the service's user
++   (as `deploy/clipforge.service` does with `/etc/clipforge/clipforge.env`).
++4. Put HTTPS in front of it. With Caddy (it gets the certificate itself):
++
++   ```
++   worker.example.com {
++       request_body {
++           max_size 20GB   # one video upload is one request; match CLIPFOUNDRY_WORKER_MAX_GB (default 20)
++       }
++       reverse_proxy 127.0.0.1:8765 {
++           flush_interval -1
++       }
++   }
++   ```
++
++   The desktop refuses an `http://` address unless it is this computer, so the key and your videos never cross the
++   internet unencrypted.
++5. Optional: transcription settings on the worker itself (model, device) are the worker's own: start it once
++   without the key on a private port, change Settings {U+2192} Advanced, stop it, and start it again with the key.
++
++## Connect the desktop
++
++Settings {U+2192} Processing: enter the worker's address (`https://worker.example.com`) and the key, then **Check**.
++Set what an hour of the worker costs you (your provider's price; ClipForge cannot know it) and a monthly limit in
++hours, then **Run a test job**. The test makes a one-minute video on your computer (nothing of yours), runs it on
++the worker, brings the clip back, checks it plays and deletes it there, and shows which stages ran on the worker and
++what the test cost. Then choose **Full Cloud**.
++
++## Checks
++
++- `curl -s https://worker.example.com/healthz` {U+2192} `{"ok": true}`
++- `curl -s https://worker.example.com/api/projects` {U+2192} 404
++- `curl -s https://worker.example.com/api/worker/v1/info` {U+2192} 401 (no key)
++
++## Stopping and restarts
++
++- **Stop** on the project page stops the job on the worker and deletes it there.
++- If the desktop closes or loses its connection while a job runs, the job carries on on the worker. When ClipForge
++  starts again it picks the job up where it is (it never uploads the video a second time) and brings the clips back.
++  A job nobody fetches is deleted after 72 hours.
++- If the worker restarts, its unfinished jobs continue when it starts again.
+diff --git a/docs/IMPLEMENTATION_STATUS.md b/docs/IMPLEMENTATION_STATUS.md
+index 3386ec7..4ba7b4c 100644
+--- a/docs/IMPLEMENTATION_STATUS.md
++++ b/docs/IMPLEMENTATION_STATUS.md
+@@ -2,0 +3,25 @@
++## Final release, batch 4: space look, Text Stories, characters, Full Cloud {U+2014} 2026-11-25 (Claude Code)
++
++Branch `claude/project-thread-hqwolr` on top of batch 3. Landry's final-release prompt, sections 1, 6, 7 and 8: the
++ship and camera orbiting the black hole, your own accent colour and the office Taser; Text Stories; characters and
++places for animated shorts with an example picture for every look; and Full Cloud processing on the owner's own
++ClipForge worker. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md), [FULL_CLOUD.md](clipforge/FULL_CLOUD.md),
++[deploy/WORKER.md](../deploy/WORKER.md).
++
++| When | Command | Result |
++| --- | --- | --- |
++| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
++| 2026-11-25 | pytest `test_theme_contrast` (accent colour readable on every palette), `test_studio_prefs` | passed |
++| 2026-11-25 | pytest `test_text_stories` (13): script, AI write and revise, voice styles and tone, pronunciations kept out of the captions, favourite voices, uploaded / picked / colour backgrounds, preview, export, Stop | passed (real local voice, FFmpeg render) |
++| 2026-11-25 | pytest `test_studio_shorts_cast` (7), `test_look_examples` (4), `test_local_engines` (80, reference pictures in the picture graph) | passed |
++| 2026-11-25 | pytest `test_full_cloud` (9): a real worker started as a second process with its own data folder and key; worker-only answers, the same footage made here and on the worker gives the same clips (start, end, title) whose files are here and play, an edit renders again here, a job picked up again without a second upload, Stop deletes the job there, the private test job, the monthly limit, a job over the limit never reaches the worker, the Processing routes, style choices sent without their names | passed |
++| 2026-11-25 | Exports: a Text Story with an uploaded background, one with a background ClipForge picked from the library, one with its own moving colour | 1080{U+00D7}1920 MP4s with voice, title card and highlighted captions, in `/mnt/project-files/final-release/batch4/` |
++| 2026-11-25 | Screenshots and videos (black hole orbit video, Studio orbit, own colour, Taser, Text Stories editor / preview / phone, characters panel, references, change proposal, drift warning, scene timing, look examples on a computer and a phone, Settings {U+2192} Processing, a Full Cloud project running and done, the test job on a phone) | in `/mnt/project-files/final-release/batch4/` |
++| 2026-11-25 | Mac FilmCraft check (PR #69): the moving sky took about 2.6 s of every 12 s of the page's thread on Projects and 8.9 s on the Studio in headless Chromium without a graphics card, and FilmCraft's editor loads on that thread | `covered.ts` holds the sky and black holes still while the editor is open (from batch 2, `a684076`) |
++
++Not verified: Full Cloud on a rented server (the tests and screenshots use a real worker on the same machine), real
++speech transcription on the worker (no voice in the cloud: the test job sent its words as a transcript), a character's
++reference pictures on a real FLUX.2 klein (the graph is built and checked, the model is not in the cloud), the drift
++warning's colours on real pictures (stored by hand for the screenshot), a ClipForge AI change proposal from a real
++model (the screenshot's answer was placed as the model would answer), the orbit's frame rate on Landry's Mac.
++
+diff --git a/docs/clipforge/ANIMATED_SHORTS.md b/docs/clipforge/ANIMATED_SHORTS.md
+index 71b0fd4..ab83690 100644
+--- a/docs/clipforge/ANIMATED_SHORTS.md
++++ b/docs/clipforge/ANIMATED_SHORTS.md
+@@ -28,0 +29,22 @@ This document is the design and the contract between the parts. The user-facing
++7. **Look** (Make page): every look card shows an example of the look. ClipForge draws these itself
++   (`frontend/src/components/lookArt.tsx`: the same fox on a hill at dusk, drawn with each look's technique), so
++   every card has one even with no picture maker. The chosen look shows larger under the cards. With a picture
++   maker set up, **Make examples with my picture maker** asks it for the same scene in every look
++   (`makers/look_examples.py`) and the cards then show its own pictures, labelled with the maker that drew them.
++   The editor's look-change dialog shows the example too.
++8. **Characters and places** (editor page, above Scenes; `makers/cast.py`, `components/ShortCast.tsx`): up to 6.
++   Each has a name, appearance, clothes, colours and props, any of which can be **locked**, and up to 3 reference
++   pictures (dropped, or **Use as reference** on a shot's picture). Every shot shows everyone unless the owner picks
++   who is in it (the chips under the scene's words). **Describe a change** asks ClipForge AI for changes in the
++   owner's words and shows them (old {U+2192} new) with **Apply to every shot** or **Shot N only**; locked details are never
++   changed (they are refused on the server too). **From my library** reuses a character or place from another short;
++   each short keeps its own copy.
++9. **Consistency**: each picture of a shot a member is in is made with the member's details in its words and, with a
++   model that takes reference pictures (FLUX.2 [klein], ComfyUI's `ReferenceLatent`), with up to 4 reference
++   pictures; Z-Image keeps the look by the words only, and the panel says which. After a picture is made, the **look
++   check** compares it with the members' colours (and, with the built-in model's Eyes on, asks it to look). A shot
++   that may have lost a detail says so, with **Make again** (only that shot) and **Looks right** (kept for that
++   picture). A change to a member makes again only the pictures it is in.
++10. **Timing and transitions**: each scene's **Stays after the words** (0 to 3 s) and the short's **Between scenes**
++   (cut, dissolve, fade) change the plan only; pictures and voices are not made again.
++
+@@ -310 +332,8 @@ crash or a full disk) becomes a designed card with the reason.
+-| `PUT /api/studio/shorts/{video_id}/options` | voice, speed, look, music, captions, motion for the whole short |
++| `PUT /api/studio/shorts/{video_id}/options` | voice, speed, look, music, captions, motion, transition for the whole short |
++| `GET`/`POST /api/studio/shorts/look-examples`, `POST {U+2026}/look-examples/stop`, `GET {U+2026}/look-examples/{look}` | the picture maker's examples of the looks, the job that draws them, and each picture |
++| `GET`/`POST /api/studio/cast`, `PATCH`/`DELETE /api/studio/cast/{id}` | the library of characters and places |
++| `POST /api/studio/shorts/{video_id}/cast`, `PATCH`/`DELETE {U+2026}/cast/{member}` | add (from the library or new), change, remove a member |
++| `POST {U+2026}/cast/{member}/library`, `{U+2026}/reference`, `{U+2026}/propose`, `{U+2026}/apply` | keep in the library, add a reference picture, ask for changes in words (nothing saved), apply changes to every shot or one |
++| `DELETE {U+2026}/scenes/{scene_id}/overrides/{member}` | drop one shot's own change to a member |
++
++A scene's `PATCH` also takes `hold_ms`, `cast` (who is in the shot; `all_cast` puts everyone back) and `drift_ok`.
+@@ -334,0 +364,5 @@ Every change answers with the whole video (as `GET /api/studio/videos/<id>`), so
++* The reference-picture graph is ComfyUI's official FLUX.2 [klein] editing template (LoadImage {U+2192} VAEEncode {U+2192}
++  ReferenceLatent on the positive and the zeroed negative, chained per picture); the tests check the graph and the
++  pictures sent, but a real FLUX.2 model drawing a character from them could only be tried on the owner's Mac.
++* The look check by colour is approximate: it says a detail's colour is missing, not that the face changed. With the
++  built-in model's Eyes on it also asks the model; that answer is a second opinion, and **Looks right** wins.
+diff --git a/docs/clipforge/FULL_CLOUD.md b/docs/clipforge/FULL_CLOUD.md
+new file mode 100644
+index 0000000..cbb6e3b
+--- /dev/null
++++ b/docs/clipforge/FULL_CLOUD.md
+@@ -0,0 +1,115 @@
++# Processing: Local, Hybrid and Full Cloud
++
++Settings {U+2192} Processing chooses where **Make clips** runs.
++
++| Mode | What runs where |
++|---|---|
++| Local | Everything on this computer (the default). |
++| Hybrid | Clips are made here; pictures and video for animated shorts and the other makers are made on the cloud computer (Settings {U+2192} Cloud computer, [CLOUD_GPU.md](CLOUD_GPU.md)). Choosing Hybrid switches `engines_comfyui` to `remote`; choosing Local switches it back to ClipForge's own ComfyUI. |
++| Full Cloud | Make clips runs on the owner's own **ClipForge worker**: getting the video, transcription, finding the moments, framing, captions and rendering. The clips come back into the project here. |
++
++Setting up a worker: [deploy/WORKER.md](../../deploy/WORKER.md).
++
++## How a Full Cloud project runs
++
++`jobs.Worker.submit_project` asks `fullcloud.runner.decide(project_id)` once, when the project is queued: with
++Full Cloud chosen and a worker set up, the project's `info.processing` becomes `full_cloud` and `_run_project`
++hands it to `runner.run` instead of `process.run_project`. A project keeps the mode it was queued with
++(Reprocess decides again).
++
++1. **Estimate and limit** (`usage.py`): the video's length {U+00D7} this worker's own ratio (worker seconds per second of
++   video, the middle of its last ten jobs; 0.6 before it has done one), at least a minute. A job that would go over
++   this month's hours never starts and nothing is sent.
++2. **Check and upload** (`client.py`): `GET /api/worker/v1/info`, then one multipart `POST /jobs` with the video
++   (or the link), the transcript file if the project has one, the project's options (`OPTION_KEYS`), the clip
++   choices from Settings (`SETTING_KEYS`) and the project's guidance snapshot reduced by `runner.lean_guidance`
++   (values and the deciding level's id, no names). Upload progress is the project's progress bar.
++3. **Follow** (`runner._follow`): the worker's job is an ordinary project in its own data folder, run by its own job
++   thread. The desktop polls it and shows its stage and message (`Worker: {U+2026}`) on the project page; each new message
++   goes into the Full Cloud log. Worker time is measured on the worker's clock from the job's start to its end.
++4. **Bring back** (`runner._fetch`): `GET /jobs/{id}/result` gives the project facts, every clip with its rows
++   (`clips` and `CHILDREN`), the candidates and each clip folder's files. Files are downloaded into a staging folder,
++   then rows are written with the worker's folder and project id replaced by this computer's, clip ids kept, and the
++   folders moved into `projects/<id>/clips/<clip_id>/`. A link's video comes back too, so edits render here.
++   Render info's Brain notes are named from this computer's snapshot.
++5. **Delete there**: `DELETE /jobs/{id}`. The run is recorded in `cloud_runs` (status, seconds, bytes, estimate).
++
++Stop (Cancel processing) cancels and deletes the job on the worker. If the desktop closes or loses the
++connection, the job carries on there: on the next start `worker.resume` runs the project again, `runner.run` sees
++`info.cloud.job` and phase `running`/`fetching` and picks it up ("Picked up the job on the worker again") without
++uploading again. Stop on such a project while it still waits in the queue stops and deletes the job there too
++(`runner.stop_waiting`). A worker restart resumes its own jobs. A job never fetched is deleted after 72 hours
++(`worker_api.KEEP_HOURS`), checked at the worker's start, every hour and on each `info` or new job.
++
++What the desktop takes from a worker's answer is checked first (`runner.checked`): the answer is for the job asked
++for, every clip id is an id, every file name is a plain name inside the clip's folder, the project's files are the
++known three; otherwise nothing is changed. Rows are written in one transaction, and their JSON is read and written
++again with this computer's folder (never changed as text). The worker checks the key and the upload size before it
++reads the body (`WorkerOnly`), and the desktop does not start an upload over the worker's `max_upload_gb`.
++
++What `info.cloud` holds (the project page's Full Cloud card, `runner.view`): phase (`waiting`, `upload`, `running`,
++`fetching`, `done`, `failed`, `canceled`, `gone`), worker host, what was uploaded, estimate, worker seconds and cost,
++which stages ran (`ran`) and how (`how`, e.g. `transcribe: import:srt`), the log (last 150 lines), the worker's
++transcription model and AI, and what stays on this computer (`runner.UNSUPPORTED`).
++
++## The worker side (`fullcloud/worker_api.py`)
++
++A ClipForge started with `CLIPFOUNDRY_WORKER_KEY` (24 characters or more):
++
++- `WorkerOnly` middleware: every address except `/api/worker/v1/...` and `/healthz` answers 404, websockets are
++  refused, so the app's pages and API (no sign-in on a desktop) are not reachable.
++- Every worker route needs `Authorization: Bearer <key>` (constant-time compare), else 401.
++- Publishing, Autopilot, the phone listener and the editing apps' download do not start (`api.lifespan`).
++- `apply_settings` writes the job's clip choices into the worker's settings just before the job runs.
++
++| Route | What it does |
++|---|---|
++| `GET /api/worker/v1/info` | version, stages, transcription plan, AI label, upload limit, keep hours, busy, job counts |
++| `POST /api/worker/v1/jobs` | start a job (multipart: `source` or `link`, `transcript`, `options`, `settings`, `name`, `clip_mode`, `guidance`) |
++| `GET /api/worker/v1/jobs/{id}` | status, stage, progress, message, `ran`, `how`, started/ended on the worker's clock |
++| `POST /api/worker/v1/jobs/{id}/cancel` | stop it |
++| `GET /api/worker/v1/jobs/{id}/result` | rows and file lists (409 until ready) |
++| `GET /api/worker/v1/jobs/{id}/files/{name}`, `/clips/{clip}/{name}` | one file |
++| `DELETE /api/worker/v1/jobs/{id}` | delete the job and its folder |
++
++## Settings {U+2192} Processing (`fullcloud/routes.py`, `ProcessingSettings.tsx`)
++
++| Route | |
++|---|---|
++| `GET /api/processing?check=` | modes and whether each is ready, worker (address, host, key set, check), price, monthly hours, usage this month with recent runs, stages, unsupported list, last test |
++| `PUT /api/processing` | `mode`, `price_per_hour`, `month_hours` (ClipForge's own page only) |
++| `POST /api/processing/worker` | address and key; `http://` only for this computer; a new address forgets the key; empty address removes the worker (and leaves Full Cloud) |
++| `POST /api/processing/test`, `/test/stop` | the private test job (`testjob.py`, a studio job) |
++
++The address and key are `ACTION_ONLY_KEYS` (only these routes set them), the key is a sealed `SECRET_KEYS` entry
++never returned to the page, and the address is in `UNSHOWN_KEYS`.
++
++**Test job**: a one-minute video made here (a moving test pattern with `TEST_SCRIPT` read by this computer's voice;
++without a voice, a tone and the words as an SRT, and the result says transcription was not tried), sent as a
++one-clip job; the clip comes back, is probed (picture, sound, length) and the job is deleted there. The result
++lists which stages ran on the worker, upload speed, worker time, cost at the owner's price and the round trip.
++
++## What stays on this computer
++
++`runner.UNSUPPORTED`, shown in Settings and on each project: publishing, scheduling and accounts; Autopilot and
++live streams; animated shorts, Text Stories, Make a YouTube video and FilmCraft (their pictures and video can use
++the cloud computer: Hybrid); editing a clip and rendering it again; the Brain's own clip picking and ClipForge AI
++keys (the worker picks clips with its own transcription model and AI setup).
++
++## Tests
++
++`tests/test_full_cloud.py` starts a real worker (uvicorn in a second process with its own data folder and key):
++worker-only answers and the key; the same footage made here and on the worker gives the same clips (starts, ends,
++titles), whose files are in this computer's folders and play, and an edit renders again here; a job the desktop
++lost track of is picked up without a second upload; Stop deletes the job there; the private test job shows every
++stage ran there; the monthly limit and estimates; a job over the limit never reaches the worker; the Processing
++routes; the worker gets the style values but not the names behind them.
++
++## Limits
++
++- Not run on a rented server yet: the tests and the screenshots use a real worker on the same machine.
++- Worker time and cost are what the worker measured and the owner's own hourly price; ClipForge cannot see a
++  provider's bill. The monthly limit is checked before a job starts; a running job is not stopped when it passes.
++- One video upload is one request: a proxy in front of the worker must allow its size (deploy/WORKER.md).
++- The worker's clip picking uses its own Brain (empty) and AI setup, so the Brain-led steer and lessons from this
++  computer do not apply in Full Cloud; style choices do.
+diff --git a/docs/clipforge/ROUTE_MAP.md b/docs/clipforge/ROUTE_MAP.md
+index 73e3e82..c9ab4d4 100644
+--- a/docs/clipforge/ROUTE_MAP.md
++++ b/docs/clipforge/ROUTE_MAP.md
+@@ -31 +31,2 @@ sign-in: the sign-in page returns to the address that was requested.
+-| Settings | `#/settings`, `#/settings/{appearance,defaults,integrations,storage,advanced}` | existing Settings tabs | Appearance and layouts, default style, storage/retention, advanced. |
++| Text Stories | `#/stories`, `#/stories/:id` | {U+2014} | The list of Text Stories (New story), and one story: script (paste, or ClipForge AI writes and revises it), voice style, tone, pronunciations, favourite voices, background (upload, ClipForge picks, or a moving colour), title card and captions, Make the preview, Export with Stop (AI_CHANGELOG.md, batch 4). |
++| Settings | `#/settings`, `#/settings/{appearance,media,ai,apps,makers,processing,cloud,defaults,integrations,advanced}` | existing Settings tabs | Appearance and layouts, media, ClipForge AI, editing apps, makers, Processing (Local, Hybrid or Full Cloud with your own worker: docs/clipforge/FULL_CLOUD.md), cloud computer, default style, integrations, advanced. |
+diff --git a/docs/legal/privacy.html b/docs/legal/privacy.html
+index a9ba33c..6c88f64 100644
+--- a/docs/legal/privacy.html
++++ b/docs/legal/privacy.html
+@@ -39,2 +39,3 @@
+-      voice makers you set up, a cloud computer you rent to make pictures and video, or an optional AI service you
+-      turn on. It goes straight from your computer to that service.</li>
++      voice makers you set up, a cloud computer you rent to make pictures and video, your own ClipForge worker if you
++      choose Full Cloud, or an optional AI service you turn on. It goes straight from your computer to that
++      service.</li>
+@@ -444,0 +446,70 @@
++<h3 id="characters">Characters, places and look examples in animated shorts (added 2026-11-25)</h3>
++<p>
++  An animated short also keeps, in the same data folder, its characters and places (up to 6): each one's name, what
++  it looks like, its clothes, colours and what it carries, which of these details are locked, up to 3 reference
++  pictures, which shots it is in, any change made for one shot only, and for each picture a maker drew, which details
++  the look check found missing and whether you pressed Looks right. A reference picture you drop is stored like your
++  other uploads; one taken from a shot is that shot's picture. When you keep a character or place in your library
++  (From my library), a copy of its details and reference pictures stays in the data folder for your other shorts
++  until you delete it from the library: deleting a short does not delete it, and its reference pictures stay while
++  the library uses them.
++</p>
++<p>
++  Each picture of a shot a character or place is in is made with its details in the picture's words. With a picture
++  model that can follow reference pictures (FLUX.2 [klein]), up to 4 of them are also handed to ComfyUI with each
++  such picture, as a smaller PNG copy (about one megapixel) made on this computer without the details written into
++  the original file (such as where and when a photo was taken). They go where the picture's words go (the ComfyUI
++  row in section 3): your own ComfyUI on this computer, the ComfyUI app, an address you typed, or the cloud computer
++  you chose. ComfyUI keeps each one in its <code>input</code> folder, like the pictures it animates. The look check
++  measures the picture's colours on this computer; when ClipForge AI is the built-in model with Eyes on, the picture
++  and the details are also shown to that model, on this computer. Nothing of the check is sent anywhere.
++</p>
++<p>
++  Describe a change sends the character's or place's details (and which are locked) and the words you typed to the
++  AI service you chose for ClipForge AI: it stays on this computer with the built-in model and goes online only if
++  you chose an online service (section 3). Nothing is changed until you press Apply. Make examples with my picture
++  maker (Make {U+2192} Animated short {U+2192} Look) asks your picture maker for one picture in each look from ClipForge's own words
++  (a fox on a hill at dusk) and keeps a small copy of each, with which maker made it and when, in the data folder's
++  <code>look_examples</code> until you make them again or delete the data folder.
++</p>
++
++<h3 id="text-stories">Text Stories (added 2026-11-25)</h3>
++<p>
++  A Text Story keeps, in the same data folder: its name, title and script; the voice, voice style, speed and tone you
++  chose and your pronunciations; the caption style, place and size; its backgrounds (which of your videos or uploaded
++  clips, where each is trimmed, whether it loops, how it is framed, and why ClipForge picked it when it did); the
++  recorded narration with each word's time; the latest preview and exported video; and what ClipForge AI was last
++  asked to write, with its notes. Favourite voices are kept for each voice style and each story. When ClipForge picks
++  the backgrounds, it looks only at your own videos in ClipForge (their names, lengths and shapes); when you have
++  none, it draws a moving colour background itself. Clips you upload as backgrounds are kept with your other uploads
++  (section 7). Deleting a story deletes its row, its favourite voices, its narration, preview and export files
++  (<code>text_stories/&lt;id&gt;</code>); a video made from its export in the editor stays until you delete that
++  video. The voice, the captions and the video are made on this computer.
++</p>
++<p>
++  Write it for me and Revise send your topic (or the story's title and script with the change you typed), the tone
++  and length, your standing rules and the facts that fit (up to 6) and the built-in know-how that fits, to the AI
++  service you chose for ClipForge AI: it stays on this computer with the built-in model and goes online only if you
++  chose an online service (section 3).
++</p>
++
++<h3 id="full-cloud">Full Cloud: your own ClipForge worker (added 2026-11-25)</h3>
++<p>
++  If you choose Full Cloud in Settings {U+2192} Processing, Make clips runs on a ClipForge worker: a copy of ClipForge that
++  you start, with a key, on a computer you rent. ClipForge keeps the worker's address in its settings and the key
++  encrypted like your other keys; the key is sent only to that address and is not shown again. With each project made
++  there, ClipForge keeps what was sent (file names and sizes, or the link), the worker's address, which stages ran
++  there, a log of what happened and the estimate. It also keeps a record of each worker job (when it started and
++  ended, its worker time, the bytes sent, the estimate and, for a test job, its results), which counts this month's
++  worker time. Deleting a project keeps that record so the month's time stays right; it goes with the data folder.
++  The clips come back into the project's folder here, like clips made on this computer, and the project's video stays
++  here (a video from a link comes back with the clips).
++</p>
++<p>
++  On the worker, each job is a project in the worker's own data folder: the video (or the video it downloaded from
++  the link), the transcript file, the transcription, the analysis and the clips. ClipForge deletes the job there as
++  soon as the clips are back here, or when you press Stop; a job that is never fetched is deleted 72 hours after it
++  ended. The worker also keeps, as its own settings, the last clip choices it was sent, and its own log files. That
++  computer is run by the company you rent it from, under its own terms and privacy policy.
++</p>
++
+@@ -576 +647,4 @@
+-      whole script with its title and look and the memories and know-how that fit, for picture ideas. Each request
++      whole script with its title and look and the memories and know-how that fit, for picture ideas; with Describe
++      a change on a character or place, its details (and which are locked) and the words you typed. For a Text
++      Story: with Write it for me, your topic, tone and length, or with Revise, the story's title and script and the
++      change you typed, with your standing rules, the facts that fit (up to 6) and the know-how that fits. Each request
+@@ -579,2 +653,2 @@
+-      ideas are neither counted nor limited by it, so they are sent to the online service you chose even when it is
+-      0.
++      ideas, a Text Story's writing and Describe a change are neither counted nor limited by it, so they are sent to
++      the online service you chose even when it is 0.
+@@ -623,2 +697,4 @@
+-      <td>The picture's or clip's words (for a short: the scene's picture idea, the main character and the look's style
+-      words; for a try in Settings: ClipForge's example words); for a clip, the video model's own built-in words to
++      <td>The picture's or clip's words (for a short: the scene's picture idea, the main character, the details of the
++      characters and places in the shot and the look's style words; for a try in Settings or a look example:
++      ClipForge's example words); for a picture of a character or place with reference pictures, up to 4 smaller
++      copies of them (section 2); for a clip, the video model's own built-in words to
+@@ -635,0 +712,12 @@
++    <tr><td>Your ClipForge worker (Full Cloud, added 2026-11-25)</td><td>You choose Full Cloud and make clips from a
++      video or a link; you save or check the worker, or run a test job; while a job runs, and when ClipForge starts
++      again with a job still on the worker</td><td>The video (ClipForge's copy of it) or the link; the transcript file
++      you added, if any; the project's name and clip type; the clip choices from Settings (language, length and count,
++      captions, framing and layout, silence and filler removal, sound and quality) and this project's style choices
++      (the values, and for each one which kind of choice decided it, with that choice's id and version number, but
++      without the names or contents of the styles, skills, examples or Brain notes they came from); requests for
++      the job's progress, to fetch its clips and to delete it; and the key with each request, over an encrypted
++      connection (https; http only to this computer). A test job sends a one-minute test video ClipForge made (a test
++      pattern with ClipForge's test words, read by this computer's voice or given as a transcript). Accounts, posts,
++      Brain notes, ClipForge AI keys and other projects are never sent. With a link, the worker downloads the video
++      from that site itself, so the site sees the worker's address. What the worker keeps: section 2</td></tr>
+@@ -807,2 +895,6 @@
+-    ComfyUI app's own folders and what that app kept (remove those in the app), and the models and copies on a cloud
+-    computer you rent (delete them there, or delete the rented computer; on RunPod: Terminate).</li>
++    ComfyUI app's own folders and what that app kept (remove those in the app), the models and copies on a cloud
++    computer you rent (delete them there, or delete the rented computer; on RunPod: Terminate), and a ClipForge
++    worker's own data folder (delete it there, or delete the rented computer).</li>
++  <li><b>Stop using a worker:</b> Settings {U+2192} Processing {U+2192} Local; Remove worker forgets its address and key here. A job
++    still on the worker is deleted there 72 hours after it ended; to delete everything there at once, delete the
++    worker's data folder or the rented computer.</li>
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index d0a1050..fd1bb39 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -17,0 +18 @@ import MakeShort from "./pages/MakeShort";
++import TextStories from "./pages/TextStories";
+@@ -39 +40 @@ export { navigate };
+-type NavKey = "studio" | "talk" | "projects" | "missions" | "brain" | "publishing" | "accounts" | "settings";
++type NavKey = "studio" | "talk" | "projects" | "stories" | "missions" | "brain" | "publishing" | "accounts" | "settings";
+@@ -43 +44 @@ const SECTION_NAV: Record<string, NavKey> = {
+-  office: "studio", missions: "missions", setup: "studio", dev: "studio", settings: "settings",
++  office: "studio", missions: "missions", setup: "studio", dev: "studio", settings: "settings", stories: "stories",
+@@ -48,0 +50 @@ const SECTION_TITLE: Record<string, string> = {
++  stories: "Text Stories",
+@@ -59,0 +62 @@ function page(route: Route) {
++    case "stories": return <TextStories id={id || ""} />;
+@@ -180,0 +184 @@ function Shell({ me }: { me: Me }) {
