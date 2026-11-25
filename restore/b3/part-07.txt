@@ -1,0 +1,330 @@
++    assert operations.work_state("clip", clip["id"], "local")["href"] == f"#/clip/{clip['id']}"
++    other = operations.work_state("clip", clip["id"], "someone-else")
++    assert other["state"] == "canceled" and other["href"] == "" and operations.work_owner("clip", "nope") is None
+diff --git a/tests/test_clipforge_ai_chat.py b/tests/test_clipforge_ai_chat.py
+index 4fa0bd7..d69e14a 100644
+--- a/tests/test_clipforge_ai_chat.py
++++ b/tests/test_clipforge_ai_chat.py
+@@ -1072 +1072,3 @@ def test_the_general_chat_asks_the_ai_helper_with_its_memories_and_checks_the_an
+-    assert call["json_schema"] == tools.reply_schema(tools.available("general"))
++    # the commands (posts, renders, settings{U+2026}) are offered only when the words are about them (operations.offered)
++    assert call["json_schema"] == tools.reply_schema(
++        [t for t in tools.available("general") if t.name not in brain.operations.COMMANDS])
+diff --git a/tests/test_learned.py b/tests/test_learned.py
+new file mode 100644
+index 0000000..9f19a83
+--- /dev/null
++++ b/tests/test_learned.py
+@@ -0,0 +1,231 @@
++"""Brain {U+2192} Learned: ClipForge reads your edits for habits (trims, framing, captions, pacing, title picks), writes a
++trend down only when several clips agree, checks it on your edited clips (one left out at a time, before and after,
++by format) and uses only what the check supports; you see, change, turn off, delete and roll back every change."""
++from __future__ import annotations
++
++from types import SimpleNamespace
++
++import pytest
++
++from test_clipforge_ai_chat import H, WS
++from test_studio_edit_requests import env  # noqa: F401
++
++WORDS = [{"start": t / 2, "end": t / 2 + 0.4, "w": f"w{t}"} for t in range(0, 400)]
++
++
++def _clip(project_id: str, n: int, **fields) -> dict:
++    from clipfoundry import db
++
++    base = {"rank": n, "start": 10.0 + n * 20, "end": 40.0 + n * 20, "title": f"Clip {n}", "hook": "",
++            "caption_text": "the clutch round where everything went right", "category": "highlights",
++            "score": 70, "edit": {}, "status": "done", "duration": 30.0}
++    return db.create_clip(project_id, **{**base, **fields})
++
++
++def _project(mode: str = "highlights", **fields) -> dict:
++    from clipfoundry import db
++
++    return db.create_project(f"Video {mode}", workspace_id=WS, clip_mode=mode, status="done", **fields)
++
++
++def _trim(clip: dict, start_shift: float, end_shift: float = 0.0) -> dict:
++    """The clip editor's save of a trim (what api.patch_clip hands to learned.observe)."""
++    from clipfoundry import db
++    from clipfoundry.brain import learned
++
++    before = db.get_clip(clip["id"])
++    edit = learned.mine(before.get("edit") or {}, {**(before.get("edit") or {}),
++                                                    "start": before["start"] + start_shift,
++                                                    "end": before["end"] + end_shift})
++    db.update_clip(clip["id"], edit=edit)
++    return {"events": learned.observe(before, db.get_clip(clip["id"])), "clip": db.get_clip(clip["id"])}
++
++
++def test_a_trim_habit_is_written_down_checked_and_used_only_when_the_check_supports_it(env):
++    from clipfoundry.brain import learned
++
++    p, s = _project(), _project("stories")
++    clips = [_clip(p["id"], n) for n in range(3)] + [_clip(s["id"], n, category="story") for n in range(3)]
++    got = _trim(clips[0], -1.5)
++    assert got["events"][0]["kind"] == "trim" and got["events"][0]["data"]["start_shift"] == -1.5
++    assert got["events"][0]["fmt"] == "highlights"
++    _trim(clips[1], -1.2)
++    assert not learned.view(WS)["inferred"]                       # two clips are not a habit
++    _trim(clips[2], -1.8)
++    item = next(i for i in learned.view(WS)["inferred"] if i["key"] == "start_shift")
++    assert item["status"] == "trying" and item["value"] == -1.5 and item["evidence"] == 3
++    assert "start clips about 1.5 s earlier" in item["text"]
++    assert item["evaluation"]["n"] == 3 and not item["evaluation"]["passed"]   # too few clips to decide
++    assert learned.defaults(WS) == {}                              # not used while only being tried
++    _trim(clips[3], -1.4)
++    _trim(clips[4], -1.6)
++    item = next(i for i in learned.view(WS)["inferred"] if i["key"] == "start_shift")
++    ev = item["evaluation"]
++    assert item["status"] == "in_use" and ev["passed"] and ev["n"] == 5
++    assert ev["before"] > ev["after"] and set(ev["by_format"]) == {"highlights", "story"}
++    assert ev["unit"] == "s" and "before" in ev["summary"]
++    assert learned.defaults(WS)["start_shift"] == item["value"]
++    v = learned.versions(WS)
++    assert v[0]["number"] == 1 and v[0]["what"].startswith("Started using") and item["text"] in v[0]["in_use"]
++
++
++def test_a_new_clip_starts_where_you_usually_start_and_a_learned_value_is_never_counted_as_yours(env):
++    from clipfoundry import db
++    from clipfoundry.brain import learned
++    from clipfoundry.pipeline import process
++
++    item = db.insert("learned_items", {"workspace_id": WS, "key": "start_shift", "kind": "trim", "source": "inferred",
++                                       "text": "x", "value": -1.4, "evidence": 5, "status": "in_use"})
++    db.insert("learned_items", {"workspace_id": WS, "key": "caption_position", "kind": "captions",
++                                "source": "inferred", "text": "y", "value": "middle", "evidence": 5,
++                                "status": "in_use"})
++    def run(opts: dict) -> SimpleNamespace:  # what create_clips reads of a prepared video
++        return SimpleNamespace(opts=opts, words=WORDS, meta={"duration": 300.0})
++
++    edit = process.learned_edit(run({"learned": learned.defaults(WS), "min_duration": 5}), 20.0, 50.0)
++    assert edit["start"] == 18.5 and "end" not in edit                   # moved onto a word's start
++    assert edit["caption_position"] == "middle" and set(edit["learned_keys"]) == {"start", "caption_position"}
++    assert process.learned_edit(run({"learned": {}}), 20.0, 50.0) == {}
++    # never shorter than the shortest clip allowed
++    assert "start" not in process.learned_edit(run({"learned": {"start_shift": 3.0}, "min_duration": 29}), 20.0, 50.0)
++    p = _project()
++    clip = _clip(p["id"], 0, edit=edit)
++    # you change the captions' size only: the learned position you left is not your choice, so it is not counted
++    before = db.get_clip(clip["id"])
++    stored = learned.mine(before["edit"], {**before["edit"], "caption_size": 1.3})
++    assert stored["learned_keys"] == sorted(["start", "caption_position"])
++    db.update_clip(clip["id"], edit=stored)
++    ev = learned.observe(before, db.get_clip(clip["id"]))
++    assert ev[0]["kind"] == "captions" and ev[0]["data"]["caption_position"] is None
++    assert ev[0]["data"]["caption_size"] == 1.3
++    # you move the start yourself: from then on it is yours, measured against ClipForge's own pick
++    got = _trim(db.get_clip(clip["id"]), -1.0)
++    assert "start" not in got["clip"]["edit"]["learned_keys"] and got["events"][0]["data"]["start_shift"] == -1.0
++    assert db.fetch("learned_items", item["id"])["status"] == "in_use"
++
++
++def test_you_turn_off_change_delete_and_roll_back(env):
++    from clipfoundry import brain, db
++    from clipfoundry.brain import learned
++
++    rule = brain.remember(WS, "Always keep the punchline in the first two seconds.", kind="rule", source="said")
++    p = _project()
++    for n in range(5):
++        c = _clip(p["id"], n)
++        before = db.get_clip(c["id"])
++        db.update_clip(c["id"], edit={"caption_position": "middle"})
++        learned.observe(before, db.get_clip(c["id"]))
++    item = next(i for i in learned.view(WS)["inferred"] if i["key"] == "caption_position")
++    assert item["status"] == "in_use" and learned.defaults(WS) == {"caption_position": "middle"}
++    assert item["evaluation"]["summary"].startswith("matched your choice in 0% of clips before, 100% with it")
++    first = learned.versions(WS)[0]["number"]
++    learned.set_status(WS, item["id"], "off")
++    assert learned.defaults(WS) == {}
++    mine = learned.change(WS, item["id"], "top")
++    assert mine["source"] == "explicit" and mine["status"] == "in_use" and learned.defaults(WS) == {
++        "caption_position": "top"}
++    with pytest.raises(learned.LearnedError):
++        learned.change(WS, item["id"], "sideways")
++    brain.memories.edit(WS, rule["id"], text="Keep the punchline in the first second.")
++    learned.remove(WS, mine["id"])
++    assert learned.defaults(WS) == {}
++    # back to the first version: the trend in use again, the rule's words as they were, the explicit one gone
++    learned.rollback(WS, first)
++    assert learned.defaults(WS) == {"caption_position": "middle"}
++    assert db.fetch("brain_memories", rule["id"])["text"] == "Always keep the punchline in the first two seconds."
++    numbers = [v["number"] for v in learned.versions(WS)]
++    assert numbers == [5, 4, 3, 2, 1]   # started using, turned off, set by you, deleted, rolled back
++    assert learned.versions(WS)[0]["what"].startswith(f"Rolled back to version {first}")
++    with pytest.raises(learned.LearnedError):
++        learned.rollback(WS, 999)
++
++
++def test_learning_switched_off_records_and_uses_nothing(env):
++    from clipfoundry import db
++    from clipfoundry.brain import learned
++
++    learned.set_on(False)
++    p = _project()
++    c = _clip(p["id"], 0)
++    before = db.get_clip(c["id"])
++    db.update_clip(c["id"], edit={"start": 8.0})
++    assert learned.observe(before, db.get_clip(c["id"])) == []
++    db.insert("learned_items", {"workspace_id": WS, "key": "layout", "kind": "framing", "source": "explicit",
++                                "text": "x", "value": "fit", "status": "in_use"})
++    assert learned.defaults(WS) == {}
++    learned.set_on(True)
++    assert learned.defaults(WS) == {"layout": "fit"}
++
++
++def test_the_title_kind_you_usually_pick_is_recommended_first(env):
++    from clipfoundry.pipeline import postpack
++
++    sents = ["I finally beat the hardest boss in Elden Ring after forty tries.",
++             "Nobody believed the trick would work.", "Why does nobody use this trick?",
++             "The whole chat went wild when the boss fell."]
++    plain = postpack.generate(sents, sents[0], [], "highlights", {"ai_provider": "heuristic"})
++    kws = postpack.topics(plain["clip_text"])
++    kinds = [postpack.title_kind(t, kws) for t in plain["titles"]]
++    other = next(k for k in kinds if k != kinds[plain["recommended_title"]])
++    learned_pkg = postpack.generate(sents, sents[0], [], "highlights",
++                                    {"ai_provider": "heuristic", "learned": {"title_kind": other}})
++    assert postpack.title_kind(learned_pkg["title"], kws) == other and learned_pkg["learned"] == {"title_kind": other}
++
++
++def test_clip_choices_are_checked_and_can_be_switched_off_for_clip_scores(env, monkeypatch):
++    import json
++
++    from clipfoundry import db, taste
++    from clipfoundry.brain import learned
++
++    for n in range(30):
++        kept = n % 2 == 0
++        x = [0.9 if kept else 0.1] + [0.5] * (len(taste.FEATURES) - 1)
++        db.insert("taste_events", {"workspace_id": WS, "clip_id": f"c{n}", "kind": "exported" if kept else "deleted",
++                                   "value": 1.0 if kept else -1.0, "features": json.dumps(x)})
++    check = learned.taste_check(WS)
++    assert check["n"] == 30 and check["after"] > check["before"] and check["passed"]
++    results = [{"analysis": {}, "duration": 30.0}]
++    monkeypatch.setattr(taste, "features_from_result", lambda r: [0.9] + [0.5] * (len(taste.FEATURES) - 1))
++    assert taste.apply(results, {"workspace_id": WS}) == 1 and results[0]["taste"]["adjust"] > 0
++    learned.set_taste(WS, False)
++    assert taste.apply([{}], {"workspace_id": WS}) == 0 and learned.view(WS)["taste"]["used"] is False
++    learned.rollback(WS, 1)          # version 1 was the switch itself (clip choices off): still off
++    assert learned.use_taste(WS) is False
++    learned.set_taste(WS, True)
++    assert taste.apply([{}], {"workspace_id": WS}) == 1
++
++
++def test_the_learned_routes_and_the_editor_save(env):
++    from fastapi.testclient import TestClient
++
++    from clipfoundry import db
++    from clipfoundry.api import app
++
++    from clipfoundry.pipeline import virality
++
++    c = TestClient(app)
++    p = _project()
++    scored = {"factors": {k: 6 for k in virality.FACTORS}, "viral_potential": 70, "signals": {}}
++    clips = [_clip(p["id"], n, analysis=scored) for n in range(5)]
++    for clip in clips:   # the clip editor's save: a layout you choose every time
++        r = c.patch(f"/api/clips/{clip['id']}", json={"edit": {"layout": "fit"}}, headers=H)
++        assert r.status_code == 200
++    view = c.get("/api/brain/learned", headers=H).json()
++    item = next(i for i in view["inferred"] if i["key"] == "layout")
++    assert item["status"] == "in_use" and view["observed"]["framing"] == 5 and view["on"]
++    r = c.patch(f"/api/brain/learned/{item['id']}", json={"status": "off"}, headers=H)
++    assert r.status_code == 200 and next(i for i in r.json()["inferred"] if i["id"] == item["id"])["status"] == "off"
++    assert c.patch(f"/api/brain/learned/{item['id']}", json={"value": "nope"}, headers=H).status_code == 400
++    assert c.patch("/api/brain/learned/missing", json={"status": "off"}, headers=H).status_code == 404
++    number = view["versions"][0]["number"]
++    r = c.post(f"/api/brain/learned/versions/{number}/rollback", headers=H)
++    assert next(i for i in r.json()["inferred"] if i["id"] == item["id"])["status"] == "in_use"
++    r = c.post(f"/api/brain/learned/clips/{clips[0]['id']}/feedback", json={"good": False, "why": "too slow"},
++               headers=H)
++    assert r.json()["saved"] and db.select("taste_events", "clip_id = ?", (clips[0]["id"],))
++    assert c.get("/api/brain/learned", headers=H).json()["observed"]["feedback"] == 1
++    assert c.post("/api/brain/learned/switch", json={"on": False}, headers=H).json()["on"] is False
++    assert c.delete(f"/api/brain/learned/{item['id']}", headers=H).json()["inferred"] == []
++    assert c.post("/api/brain/learned/check", headers=H).status_code == 200
++    assert c.post("/api/brain/learned/switch", json={"on": True}).status_code in (401, 403)   # the app's header
+diff --git a/tests/test_saved_chats.py b/tests/test_saved_chats.py
+new file mode 100644
+index 0000000..a264fab
+--- /dev/null
++++ b/tests/test_saved_chats.py
+@@ -0,0 +1,75 @@
++"""Saved chats: as many general chats as you like, each named after the first thing said in it (or the name you give
++it), kept across restarts with the actions taken in it; switching, renaming and deleting through the API."""
++from __future__ import annotations
++
++from test_clipforge_ai_chat import H, WS, _say
++from test_studio_edit_requests import env  # noqa: F401
++
++
++def test_chats_are_created_switched_renamed_and_deleted(env):
++    from clipfoundry import db
++    from clipfoundry.brain import chat
++
++    first = chat.open_chat(WS)
++    _say(first["id"], "Remember: my intro is 3 seconds.")
++    assert chat.get_chat(WS, first["id"])["title"] == "Remember: my intro is 3 seconds."
++    second = chat.new_chat(WS)
++    assert second["id"] != first["id"] and second["title"] == "ClipForge AI"
++    _say(second["id"], "never zoom in on faces")
++    listed = chat.list_chats(WS)
++    assert [c["id"] for c in listed] == [second["id"], first["id"]]       # the one used last first
++    assert listed[0]["messages"] == 2 and listed[0]["last"]
++    assert chat.open_chat(WS)["id"] == second["id"]                     # opening without an id: the one used last
++    assert chat.open_chat(WS, chat_id=first["id"])["id"] == first["id"]  # switching
++    assert [m["role"] for m in chat.messages(WS, first["id"])] == ["owner", "ai"]
++    # a name you give stays; later messages do not rename it
++    chat.rename(WS, first["id"], "  Intro\nrules  ")
++    _say(first["id"], "I like warm colours")
++    named = chat.get_chat(WS, first["id"])
++    assert named["named"] == 1 and named["title"] == "Intro rules"
++    # deleting removes the conversation only: what was done in it stays (the memories it saved)
++    from clipfoundry import brain
++
++    kept = len(brain.list_(WS))
++    gone = chat.delete_chat(WS, first["id"])
++    assert gone["messages"] == 4 and db.fetch("brain_chats", first["id"]) is None
++    assert not db.select("brain_chat_messages", "chat_id = ?", (first["id"],))
++    assert len(brain.list_(WS)) == kept
++    assert [c["id"] for c in chat.list_chats(WS)] == [second["id"]]
++
++
++def test_a_video_chat_is_not_a_saved_chat_and_another_workspace_sees_nothing(env):
++    import pytest
++
++    from clipfoundry.brain import chat
++
++    mine = chat.new_chat(WS)
++    with pytest.raises(chat.ChatError):
++        chat.open_chat("other", chat_id=mine["id"])
++    with pytest.raises(chat.ChatError):
++        chat.rename("other", mine["id"], "x")
++    with pytest.raises(chat.ChatError):
++        chat.delete_chat("other", mine["id"])
++    assert chat.list_chats("other") == []
++    with pytest.raises(chat.ChatError):
++        chat.rename(WS, mine["id"], "   ")
++
++
++def test_the_chat_routes(env):
++    from fastapi.testclient import TestClient
++
++    from clipfoundry.api import app
++
++    c = TestClient(app)
++    a = c.post("/api/brain/chats", json={}, headers=H).json()
++    b = c.post("/api/brain/chats/new", headers=H).json()
++    c.post(f"/api/brain/chats/{a['id']}/messages", json={"text": "Remember: I post at 6 pm."}, headers=H)
++    listed = c.get("/api/brain/chats", headers=H).json()
++    assert {x["id"] for x in listed} == {a["id"], b["id"]} and listed[0]["id"] == a["id"]
++    opened = c.post("/api/brain/chats", json={"chat_id": b["id"]}, headers=H).json()
++    assert opened["id"] == b["id"] and opened["messages"] == []
++    r = c.patch(f"/api/brain/chats/{b['id']}", json={"title": "Thumbnails"}, headers=H)
++    assert r.status_code == 200 and r.json()["title"] == "Thumbnails"
++    assert c.delete(f"/api/brain/chats/{b['id']}", headers=H).json()["deleted"] == b["id"]
++    assert c.post("/api/brain/chats", json={"chat_id": b["id"]}, headers=H).status_code == 404
++    assert c.patch("/api/brain/chats/nope", json={"title": "x"}, headers=H).status_code == 404
