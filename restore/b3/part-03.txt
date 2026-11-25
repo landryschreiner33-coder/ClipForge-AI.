@@ -1,0 +1,570 @@
++        raise ToolError(f"{_label(wanted, settings)} has passed in {_zone(settings)}. Choose a time in the future.")
++    gap = _gap(settings)
++    clash = [o for o in scheduler._taken(item, settings) if abs(o - wanted) < gap]
++    if clash or (notes and any(abs(o - wanted) < gap for o in scheduler._taken(item, settings))):
++        free = scheduler.nearest_free(item, wanted, settings)
++        if free is None:
++            raise ToolError("Every time within a day of that is taken on this account. Choose another day.")
++        if not notes:
++            notes.append(f"{_label(wanted, settings)} is less than {gap / 60:.0f} minutes from another post on the "
++                         f"same account, so this is the nearest free time.")
++        wanted = free
++    return wanted, notes
++
++
++def _approval_note(item: dict) -> str:
++    if item["status"] == "approved":
++        return "It keeps your approval."
++    if item["status"] == "failed":
++        return "It goes out at the new time only if nothing changed since you approved it; otherwise it asks again."
++    return "It still needs your approval on its page before it posts."
++
++
++def _reschedule_preview(ctx: Ctx, args: dict) -> dict:
++    settings = _settings()
++    item = find_post(args, MOVABLE, "can be moved")
++    at, notes = _when_preview(item, str(args.get("when") or ""), settings)
++    platform = PLATFORM_NAMES.get(item["platform"], item["platform"])
++    return {"label": f"Move {U+201C}{_post_name(item)}{U+201D} ({platform}, {_account(item)[1]}) to {_label(at, settings)}",
++            "detail": [f"Now: {_label(item.get('planned_at'), settings)}. Times are in {_zone(settings)}.", *notes,
++                       _approval_note(item)],
++            "blocked": "", "args": {"post": item["id"], "when": _local(at, settings)}}
++
++
++def _move(item_id: str, local: str) -> dict:
++    """Move one post through the reschedule route (the same as Change the time)."""
++    from fastapi.responses import JSONResponse
++
++    from ..autopilot import routes
++
++    try:
++        out = routes.reschedule_item(item_id, routes.RescheduleBody(local=local))
++    except HTTPException as exc:
++        raise _http(exc) from exc
++    if isinstance(out, JSONResponse):
++        import json
++
++        body = json.loads(out.body)
++        hint = f" The nearest free time now is {body['suggestion_local'].replace('T', ' ')}." if body.get(
++            "suggestion_local") else ""
++        raise ToolError(f"{body.get('detail', 'That time is taken.')}{hint} Ask again to move it there.".replace(
++            "..", "."))
++    return out
++
++
++def _reschedule(ctx: Ctx, args: dict) -> Result:
++    settings = _settings()
++    item = db.fetch("scheduled_publications", args.get("post") or "")
++    if not item:
++        raise ToolError("That post is not there any more.")
++    out = _move(item["id"], args["when"])
++    return Result(f"Moved {U+201C}{_post_name(out)}{U+201D} to {_label(out.get('planned_at'), settings)} ({_zone(settings)}); it "
++                  f"is {STATUS_WORDS.get(out['status'], out['status'])}.",
++                  f"Moved to {_label(out.get('planned_at'), settings)}",
++                  {"links": _post_links(out), "work": [_work("post", out["id"], f"{U+201C}{_post_name(out)}{U+201D}")]})
++
++
++def _fix_preview(ctx: Ctx, args: dict) -> dict:
++    """One move for each post that is too close to another on its account, to the nearest time that keeps the gap
++    from every other post, including the moves before it on this card."""
++    settings = _settings()
++    clash = conflicts(settings)
++    if args.get("platform"):
++        clash = {k: v for k, v in clash.items() if (db.fetch("scheduled_publications", k) or {}).get(
++            "platform") == args["platform"]}
++    if not clash:
++        raise ToolError("No posts are too close to each other now.")
++    gap, moves, detail, planned = _gap(settings), [], [], {}
++    for item_id in clash:
++        item = db.fetch("scheduled_publications", item_id)
++        if not item:
++            continue
++        taken = [planned.get(o_id, o) for o_id, o in _taken_with_ids(item)]  # with the moves planned above
++        free = None
++        for step in range(1, 24 * 12 + 1):
++            for t in (item["planned_at"] + step * 300, item["planned_at"] - step * 300):
++                if t >= time.time() + 120 and all(abs(o - t) >= gap for o in taken):
++                    free = t
++                    break
++            if free:
++                break
++        if free is None:
++            detail.append(f"{U+201C}{_post_name(item)}{U+201D}: no free time within a day; it stays.")
++            continue
++        planned[item_id] = free
++        moves.append({"post": item_id, "when": _local(free, settings)})
++        detail.append(f"{U+201C}{_post_name(item)}{U+201D} ({PLATFORM_NAMES.get(item['platform'], item['platform'])}, "
++                      f"{_account(item)[1]}): {_label(item['planned_at'], settings)} {U+2192} {_label(free, settings)}")
++    if not moves:
++        raise ToolError("Those posts have no free time within a day. Move one by hand on Missions {U+2192} Schedule.")
++    detail.append(f"Times are in {_zone(settings)}; each keeps its approval as it is.")
++    return {"label": f"Move {len(moves)} post(s) so posts on one account are at least {gap / 60:.0f} minutes apart",
++            "detail": detail[:16], "blocked": "", "args": {"moves": moves}}
++
++
++def _taken_with_ids(item: dict) -> list[tuple[str, float]]:
++    account = _account(item)[0]
++    return [(o["id"], o["planned_at"]) for o in db.select(
++        "scheduled_publications", "platform = ? AND id != ? AND status IN ('awaiting_approval', 'approved', "
++        "'publishing', 'reconciling', 'published') AND planned_at IS NOT NULL", (item["platform"], item["id"]))
++        if _account(o)[0] == account]
++
++
++def _fix(ctx: Ctx, args: dict) -> Result:
++    settings = _settings()
++    done, failed, work = [], [], []
++    for move in args.get("moves") or []:
++        item = db.fetch("scheduled_publications", str(move.get("post") or ""))
++        if not item:
++            failed.append("a post that is not there any more")
++            continue
++        try:
++            out = _move(item["id"], str(move.get("when") or ""))
++        except ToolError as exc:
++            failed.append(f"{U+201C}{_post_name(item)}{U+201D}: {exc}")
++            continue
++        done.append(f"{U+201C}{_post_name(out)}{U+201D} to {_label(out.get('planned_at'), settings)}")
++        work.append(_work("post", out["id"], f"{U+201C}{_post_name(out)}{U+201D}"))
++    text = ("Moved " + "; ".join(done) + "." if done else "Nothing was moved.") + (
++        " Not moved: " + " ".join(failed) if failed else "")
++    left = len(conflicts(settings))
++    text += f" {left} post(s) are still too close to another." if left else " No posts are too close now."
++    return Result(text, f"Moved {len(done)} post(s)", {"links": [{"label": "Missions {U+2192} Schedule",
++                                                                  "href": "#/missions"}], "work": work},
++                  ok=bool(done))
++
++
++def _cancel_upload_preview(ctx: Ctx, args: dict) -> dict:
++    item = find_post(args, ("publishing",), "is uploading now")
++    platform = PLATFORM_NAMES.get(item["platform"], item["platform"])
++    return {"label": f"Cancel the upload of {U+201C}{_post_name(item)}{U+201D} to {platform} ({_account(item)[1]})",
++            "detail": ["It stops after the part being sent and ends as canceled: nothing is posted, unless "
++                       f"{platform} already has the whole video, which is then shown as it is.",
++                       "You can try it again later from its page."],
++            "blocked": "", "args": {"post": item["id"]}}
++
++
++def _cancel_upload(ctx: Ctx, args: dict) -> Result:
++    from ..autopilot import routes
++
++    try:
++        out = routes.cancel_upload(str(args.get("post") or ""))
++    except HTTPException as exc:
++        raise _http(exc) from exc
++    said = (out.get("cancel") or {}).get("message") or ""
++    state = STATUS_WORDS.get(out["status"], out["status"])
++    return Result(f"Asked to cancel the upload of {U+201C}{_post_name(out)}{U+201D}. {said} It is {state} now.".replace("  ", " "),
++                  "Canceled the upload" if out["status"] == "canceled" else "Canceling the upload",
++                  {"links": _post_links(out), "work": [_work("post", out["id"], f"{U+201C}{_post_name(out)}{U+201D}")]})
++
++
++def _cancel_post_preview(ctx: Ctx, args: dict) -> dict:
++    settings = _settings()
++    item = find_post(args, CANCELABLE, "is planned")
++    return {"label": f"Don't post {U+201C}{_post_name(item)}{U+201D} on {PLATFORM_NAMES.get(item['platform'], item['platform'])}",
++            "detail": [f"Planned for {_label(item.get('planned_at'), settings)}. It is taken off the schedule; its "
++                       "clip stays, and Try again on its page plans it again."],
++            "blocked": "", "args": {"post": item["id"]}}
++
++
++def _cancel_post(ctx: Ctx, args: dict) -> Result:
++    from ..autopilot import routes
++
++    try:
++        out = routes.cancel_item(str(args.get("post") or ""))
++    except HTTPException as exc:
++        raise _http(exc) from exc
++    return Result(f"{U+201C}{_post_name(out)}{U+201D} is {STATUS_WORDS.get(out['status'], out['status'])}: it will not be posted.",
++                  "Took it off the schedule", {"links": _post_links(out)})
++
++
++def _retry_preview(ctx: Ctx, args: dict) -> dict:
++    item = find_post(args, RETRYABLE, "failed, is held or was canceled")
++    why = one_line(item.get("last_error") or item.get("status_note") or "", 160)
++    return {"label": f"Try {U+201C}{_post_name(item)}{U+201D} again on {PLATFORM_NAMES.get(item['platform'], item['platform'])}",
++            "detail": [*([f"Last time: {why}"] if why else []),
++                       "It gets a new time; it goes out only with a valid approval (otherwise it asks you again)."],
++            "blocked": "", "args": {"post": item["id"]}}
++
++
++def _retry(ctx: Ctx, args: dict) -> Result:
++    from ..autopilot import routes
++
++    try:
++        out = routes.retry_item(str(args.get("post") or ""))
++    except HTTPException as exc:
++        raise _http(exc) from exc
++    return Result(f"{U+201C}{_post_name(out)}{U+201D} is {STATUS_WORDS.get(out['status'], out['status'])}"
++                  + (f" ({out['status_note']})" if out.get("status_note") else "") + ".", "Trying it again",
++                  {"links": _post_links(out), "work": [_work("post", out["id"], f"{U+201C}{_post_name(out)}{U+201D}")]})
++
++
++# ------------------------------------------------------------------ work: what is running, waiting or stuck
++def _queue() -> tuple[str | None, list[tuple[str, str]]]:
++    """(the key the worker runs now, the (kind, key) waiting in its line)."""
++    worker = _api().worker
++    with worker.q.mutex:
++        waiting = [(kind, key) for kind, key, _extra in list(worker.q.queue)]
++    return worker.current, waiting
++
++
++def diagnose_project(p: dict, now: float | None = None) -> dict:
++    """{state, why, next} for one clips project: running, queued, stalled, failed, canceled or done."""
++    now = now or time.time()
++    current, waiting = _queue()
++    status = p.get("status") or ""
++    since = now - float(p.get("updated_at") or now)
++    if status in ("queued", "processing", "rendering"):
++        if current == p["id"]:
++            if since > STALL_S:
++                return {"state": "stalled", "why": f"it is the job running now, but it has not moved for "
++                        f"{int(since // 60)} minutes (at {p.get('stage') or 'its current step'})",
++                        "next": "stop it and start it again with restart_work (what was already made is reused)"}
++            return {"state": "running", "why": f"{p.get('message') or p.get('stage') or 'working'}, "
++                    f"{round(float(p.get('progress') or 0) * 100)}% done", "next": "nothing: it is moving"}
++        line = [k for _kind, k in waiting]
++        if p["id"] in line:
++            ahead = line.index(p["id"]) + (1 if current else 0)
++            return {"state": "queued", "why": f"waiting in line: {ahead} job(s) before it (one heavy job runs at a "
++                    "time so the computer stays usable)", "next": "nothing: it starts by itself"}
++        return {"state": "stalled", "why": "it says it is being made, but nothing is working on it (ClipForge was "
++                "probably closed or stopped while it ran)", "next": "start it again with restart_work"}
++    if status == "importing":
++        return {"state": "running", "why": p.get("message") or "downloading the video", "next": "nothing"}
++    if status == "error":
++        return {"state": "failed", "why": one_line(p.get("error") or p.get("message") or "it stopped with an error",
++                                                   300),
++                "next": "start it again with restart_work; if it fails the same way, the reason above says what to "
++                        "change"}
++    if status == "cancelled":
++        return {"state": "canceled", "why": "it was stopped", "next": "start it again with restart_work"}
++    return {"state": "done", "why": f"finished ({status})", "next": "nothing"}
++
++
++def diagnose_clip(c: dict, now: float | None = None) -> dict:
++    now = now or time.time()
++    current, waiting = _queue()
++    status = c.get("status") or ""
++    since = now - float(c.get("updated_at") or now)
++    if status in ("queued", "rendering"):
++        if current == c["id"]:
++            if since > STALL_S:
++                return {"state": "stalled", "why": f"rendering, but no progress for {int(since // 60)} minutes",
++                        "next": "stop it and render it again with restart_work"}
++            return {"state": "running", "why": f"rendering, {round(float(c.get('progress') or 0) * 100)}% done",
++                    "next": "nothing"}
++        if c["id"] in [k for _kind, k in waiting]:
++            return {"state": "queued", "why": "waiting in line to render", "next": "nothing: it starts by itself"}
++        return {"state": "stalled", "why": "it says it is rendering, but nothing is working on it",
++                "next": "render it again with restart_work"}
++    if status == "error":
++        return {"state": "failed", "why": one_line(c.get("error") or "the render failed", 300),
++                "next": "render it again with restart_work"}
++    return {"state": "done" if status == "ready" else status or "done", "why": status or "ready", "next": "nothing"}
++
++
++def diagnose_job(j: dict, now: float | None = None) -> dict:
++    """A background job (publishing, checks, live captures: worker_jobs)."""
++    now = now or time.time()
++    status = j.get("status") or ""
++    if status == "running" and float(j.get("lease_until") or 0) and float(j["lease_until"]) < now - 60:
++        return {"state": "stalled", "why": "its worker stopped checking in", "next": "ClipForge hands it to a worker "
++                "again by itself within a few minutes; if it does not, restart ClipForge"}
++    if status == "running":
++        return {"state": "running", "why": j.get("message") or j.get("stage") or "working", "next": "nothing"}
++    if status in ("waiting", "retrying"):
++        when = float(j.get("run_after") or 0)
++        later = f" (next try in {max(1, int((when - now) // 60))} minutes)" if when > now else ""
++        return {"state": "waiting", "why": one_line(j.get("wait_reason") or j.get("error") or j.get("message")
++                                                    or status, 200) + later,
++                "next": one_line(j.get("fix") or "nothing: it tries again by itself", 200)}
++    if status == "queued":
++        return {"state": "queued", "why": "waiting for its turn", "next": "nothing"}
++    if status == "failed":
++        return {"state": "failed", "why": one_line(j.get("error") or "it failed", 240),
++                "next": one_line(j.get("fix") or "try the post again with retry_post", 200)}
++    return {"state": "done" if status == "completed" else status, "why": status, "next": "nothing"}
++
++
++JOB_WORDS = {"publish": "Posting", "live_capture": "Recording a live stream", "live_clip": "Clipping a live stream"}
++
++
++def _work_list(ctx: Ctx, args: dict) -> Result:
++    now = time.time()
++    lines: list[str] = []
++    want = set(_said_words(args.get("words") or "")) - {"the", "my", "video", "project", "job", "stuck", "it"}
++
++    def wanted(name: str) -> bool:
++        return not want or bool(want & set(_said_words(name)))
++
++    busy = db.select("projects", "status IN ('queued', 'processing', 'rendering', 'importing', 'error', "
++                     "'cancelled') AND updated_at > ?", (now - RECENT_S,), "updated_at DESC", 40)
++    busy = [p for p in busy if (p.get("workspace_id") or "local") == ctx.ws]
++    for p in busy:
++        if not wanted(p["name"]):
++            continue
++        d = diagnose_project(p, now)
++        lines.append(f"- Project {U+201C}{one_line(p['name'], 60)}{U+201D}: {d['state']}: {d['why']}. Next: {d['next']}.")
++    for c in db.select("clips", "status IN ('queued', 'rendering', 'error') AND updated_at > ?", (now - RECENT_S,),
++                       "updated_at DESC", 30):
++        proj = db.get_project(c["project_id"]) or {}
++        if not wanted(f"{c.get('title')} {proj.get('name')}"):
++            continue
++        d = diagnose_clip(c, now)
++        lines.append(f"- Render of {U+201C}{one_line(c.get('title') or 'a clip', 50)}{U+201D} ({one_line(proj.get('name'), 40)}): "
++                     f"{d['state']}: {d['why']}. Next: {d['next']}.")
++    for j in db.select("worker_jobs", "status IN ('queued', 'running', 'waiting', 'retrying', 'failed') AND "
++                       "updated_at > ?", (now - RECENT_S,), "updated_at DESC", 30):
++        item = db.fetch("scheduled_publications", j.get("ref_id") or "") if j.get("ref_type") == "scheduled" else None
++        name = f"{U+201C}{_post_name(item)}{U+201D}" if item else (j.get("message") or j["kind"])
++        if not wanted(str(name)):
++            continue
++        d = diagnose_job(j, now)
++        lines.append(f"- {JOB_WORDS.get(j['kind'], j['kind'].replace('_', ' ').capitalize())} {one_line(name, 60)}: "
++                     f"{d['state']}: {d['why']}. Next: {d['next']}.")
++    for s in db.select("studio_jobs", "workspace_id = ? AND status IN ('queued', 'running', 'failed') AND "
++                       "updated_at > ?", (ctx.ws, now - RECENT_S), "updated_at DESC", 20):
++        stale = s["status"] == "running" and float(s.get("lease_until") or 0) < now - 60
++        state = "stalled" if stale else s["status"]
++        lines.append(f"- Studio job {s['kind'].replace('_', ' ')}: {state}: "
++                     f"{one_line(s.get('error') or s.get('message') or s['status'], 160)}."
++                     + (" Next: ClipForge picks it up again by itself; if not, restart ClipForge." if stale else ""))
++    current, waiting = _queue()
++    head = (f"The heavy-work line: {'one job running' if current else 'nothing running'}, {len(waiting)} waiting. "
++            "Work started or failed in the last two days:")
++    if not lines:
++        lines.append("- Nothing" + (" matches those words." if want else " is running, waiting or failed."))
++    return Result("\n".join([head, *lines[:LIST_MAX + 4]]), "Checked the work",
++                  {"links": [{"label": "Missions {U+2192} Activity", "href": "#/missions/activity"}]})
++
++
++def _target(ctx: Ctx, args: dict) -> tuple[str, dict, str]:
++    """("project" or "clip", the row, its name) for restart_work and stop_work."""
++    if args.get("clip"):
++        p, c, n = _find_clip(ctx.ws, args.get("project", ""), args["clip"], ctx.project_id)
++        return "clip", c, f"clip {n} of {U+201C}{p['name']}{U+201D}"
++    p = find(ctx.ws, args.get("project", ""), ctx.project_id, "clips")
++    if p["kind"] != "clips":
++        raise ToolError(f"{U+201C}{p['name']}{U+201D} is a YouTube video: its work is on its own page.")
++    return "project", db.get_project(p["id"]) or {}, f"{U+201C}{p['name']}{U+201D}"
++
++
++def _restart_preview(ctx: Ctx, args: dict) -> dict:
++    kind, row, name = _target(ctx, args)
++    d = (diagnose_project if kind == "project" else diagnose_clip)(row)
++    if d["state"] in ("running", "queued"):
++        raise ToolError(f"{name[0].upper() + name[1:]} is {d['state']} ({d['why']}): there is nothing to restart.")
++    if d["state"] == "done":
++        raise ToolError(f"{name[0].upper() + name[1:]} is finished. To change it, edit it or render a clip again.")
++    what = ("Start making the clips of " + name + " again (the saved sound and transcript are reused)"
++            if kind == "project" else "Render " + name + " again")
++    return {"label": what[0].upper() + what[1:], "detail": [f"Now: {d['state']}: {d['why']}."]
++            + (["It is stopped first; press OK again once it has stopped."] if d["state"] == "stalled"
++               and _queue()[0] == row["id"] else []),
++            "blocked": "", "args": {"kind": kind, "id": row["id"]}}
++
++
++def _restart(ctx: Ctx, args: dict) -> Result:
++    api, worker = _api(), _api().worker
++    kind, row_id = args.get("kind"), str(args.get("id") or "")
++    row = (db.get_project if kind == "project" else db.get_clip)(row_id)
++    if not row:
++        raise ToolError("It is not there any more.")
++    current, waiting = _queue()
++    name = f"{U+201C}{row.get('name') or row.get('title') or 'it'}{U+201D}"
++    if current == row_id:  # stuck while running: ask it to stop, then the next press starts it
++        worker.cancel(row_id)
++        raise TryAgain(f"Asked {name} to stop. Press OK again in a moment to start it again.")
++    if row_id in [k for _k, k in waiting]:
++        raise ToolError(f"{name} is already waiting in line; it starts by itself.")
++    try:
++        if kind == "project":
++            if row["status"] in ("queued", "processing", "rendering"):  # stalled: nothing is running it
++                from pathlib import Path
++
++                missing = not row.get("source_path") or not Path(row["source_path"]).exists()
++                worker.submit_project(row_id, url=row.get("source_url") if missing else None)
++            else:
++                api.reprocess(row_id, api.ProcessBody())
++        elif row["status"] in ("queued", "rendering"):
++            worker.submit_render(row_id)
++        else:
++            api.rerender(row_id)
++    except HTTPException as exc:
++        raise _http(exc) from exc
++    work = _work(kind, row_id, name)
++    return Result(f"{name} is in line to be made again; the chat shows when it runs and when it is done.",
++                  f"Started {name} again", {"work": [work], "links": [_open_link(kind, row)]})
++
++
++def _stop_preview(ctx: Ctx, args: dict) -> dict:
++    kind, row, name = _target(ctx, args)
++    d = (diagnose_project if kind == "project" else diagnose_clip)(row)
++    if d["state"] not in ("running", "queued", "stalled"):
++        raise ToolError(f"{name[0].upper() + name[1:]} is not running ({d['state']}).")
++    return {"label": f"Stop {'making ' if kind == 'project' else 'rendering '}{name}",
++            "detail": ["It stops at its next step. What was already made stays; you can start it again later."],
++            "blocked": "", "args": {"kind": kind, "id": row["id"]}}
++
++
++def _stop(ctx: Ctx, args: dict) -> Result:
++    api = _api()
++    kind, row_id = args.get("kind"), str(args.get("id") or "")
++    row = (db.get_project if kind == "project" else db.get_clip)(row_id)
++    if not row:
++        raise ToolError("It is not there any more.")
++    if kind == "project":
++        api.cancel(row_id)
++    else:
++        api.worker.cancel(row_id)
++    name = f"{U+201C}{row.get('name') or row.get('title') or 'it'}{U+201D}"
++    return Result(f"Asked {name} to stop; it stops at its next step.", f"Stopping {name}",
++                  {"work": [_work(kind, row_id, name)], "links": [_open_link(kind, row)]})
++
++
++def _open_link(kind: str, row: dict) -> dict:
++    if kind == "clip":
++        return {"label": "Open the clip", "href": f"#/clip/{row['id']}"}
++    return {"label": f"Open {U+201C}{one_line(row.get('name'), 40)}{U+201D}", "href": f"#/project/{row['id']}"}
++
++
++# ------------------------------------------------------------------ clips: post text, framing, render
++def _regen_preview(ctx: Ctx, args: dict) -> dict:
++    p, c, n = _find_clip(ctx.ws, args.get("project", ""), args.get("clip", ""), ctx.project_id)
++    post = c.get("post") if isinstance(c.get("post"), dict) else {}
++    return {"label": f"Write a new title, post text and hashtags for clip {n} of {U+201C}{p['name']}{U+201D}",
++            "detail": [f"Replaces the current ones (now: {U+201C}{one_line(post.get('title') or c.get('title'), 80)}{U+201D}), "
++                       "your own edits too.",
++                       "Posts already planned keep their own text: change those on the post's page."],
++            "blocked": "", "args": {"clip_id": c["id"]}}
++
++
++def _regen(ctx: Ctx, args: dict) -> Result:
++    api = _api()
++    try:
++        out = api.regenerate_post_package(str(args.get("clip_id") or ""), api.PostPackageBody())
++    except HTTPException as exc:
++        raise _http(exc) from exc
++    post = out.get("post") or {}
++    tags = " ".join(post.get("hashtags") or [])
++    return Result(f"New title: {U+201C}{post.get('title') or out.get('title')}{U+201D}. Hashtags: {tags or 'none'}.",
++                  "Wrote new post text", {"links": [{"label": "Open the clip", "href": f"#/clip/{out['id']}"}]})
++
++
++FOLLOW = {"auto": "the action, automatically", "center": "the middle", "face": "the face", "speaker":
++          "whoever is talking", "screen": "the screen"}
++LAYOUT_WORDS = {"fill": "Fill (crop)", "fit": "Fit (whole frame)", "split": "Gameplay + Facecam",
++                "pip": "Picture-in-picture", "game": "Gameplay only", "auto": "Automatic"}
++
++
++def _framing(args: dict) -> tuple[dict, list[str]]:
++    edit, words = {}, []
++    if args.get("position") is not None:
++        x = max(0.0, min(100.0, float(args["position"])))
++        edit.update(tracking="manual", crop_x=round(x / 100, 3))
++        words.append(f"the picture at {x:.0f}% from the left")
++    elif args.get("follow"):
++        edit["tracking"] = args["follow"]
++        words.append(f"framing follows {FOLLOW[args['follow']]}")
++    if args.get("layout"):
++        edit["layout"] = args["layout"]
++        words.append(f"layout {LAYOUT_WORDS[args['layout']]}")
++    if args.get("zoom") is not None:
++        edit["zoom"] = round(max(1.0, min(2.5, float(args["zoom"]))), 2)
++        words.append(f"zoom {edit['zoom']}{U+00D7}")
++    if args.get("corner"):
++        edit["pip_corner"] = args["corner"]
++        words.append(f"face cam box at the top {args['corner']}")
++    if not edit:
++        raise ToolError("Say what to change: position (0 to 100% from the left), follow, layout, zoom or corner.")
++    return edit, words
++
++
++def _crop_preview(ctx: Ctx, args: dict) -> dict:
++    p, c, n = _find_clip(ctx.ws, args.get("project", ""), args.get("clip", ""), ctx.project_id)
++    edit, words = _framing(args)
++    busy = c.get("status") in ("queued", "rendering")
++    return {"label": f"Frame clip {n} of {U+201C}{p['name']}{U+201D}: " + ", ".join(words),
++            "detail": ["The same change as the clip editor's Layout tab.",
++                       "Then it is rendered again with the new framing." if not busy else
++                       "It is rendering now: the new framing is used the next time it renders."],
++            "blocked": "", "args": {"clip_id": c["id"], "edit": edit}}
++
++
++def _crop(ctx: Ctx, args: dict) -> Result:
++    api = _api()
++    clip_id = str(args.get("clip_id") or "")
++    try:
++        api.patch_clip(clip_id, api.ClipPatch(edit=dict(args.get("edit") or {})))
++        out = api.rerender(clip_id)
++        queued = True
++    except HTTPException as exc:
++        if exc.status_code != 409:
++            raise _http(exc) from exc
++        out, queued = api.get_clip(clip_id), False
++    name = f"{U+201C}{one_line(out.get('title') or 'the clip', 50)}{U+201D}"
++    return Result(f"Saved the new framing of {name}" + (" and queued its render." if queued else
++                                                         "; it is already rendering, so render it again after."),
++                  "Changed the framing", {"links": [{"label": "Open the clip", "href": f"#/clip/{clip_id}"}],
++                                          "work": [_work("clip", clip_id, f"Render {name}")] if queued else []})
++
++
++def _render(ctx: Ctx, args: dict) -> Result:
++    api = _api()
++    p, c, n = _find_clip(ctx.ws, args.get("project", ""), args.get("clip", ""), ctx.project_id)
++    try:
++        api.rerender(c["id"])
++    except HTTPException as exc:
++        raise _http(exc) from exc
++    return Result(f"Clip {n} of {U+201C}{p['name']}{U+201D} is in line to render; the chat shows when it is done.",
++                  f"Queued clip {n} to render", {"work": [_work("clip", c["id"], f"Render clip {n}")],
++                                                 "links": [{"label": f"Open clip {n}", "href": f"#/clip/{c['id']}"}]})
++
++
++# ------------------------------------------------------------------ the crew: the final check and its reviews
++def _crew_clips(ctx: Ctx, args: dict) -> tuple[dict, list[tuple[int, dict]]]:
++    """(the project, [(clip number, clip)]): one clip when `clip` is given, else the project's best ones."""
++    if args.get("clip"):
++        p, c, n = _find_clip(ctx.ws, args.get("project", ""), args["clip"], ctx.project_id)
++        return p, [(n, c)]
++    p = find(ctx.ws, args.get("project", ""), ctx.project_id, "clips")
++    if p["kind"] != "clips":
++        raise ToolError(f"{U+201C}{p['name']}{U+201D} is a YouTube video; the crew checks clips projects.")
++    clips = sorted(db.list_clips(p["id"]), key=lambda c: -float(c.get("score") or 0))
++    return p, [(i + 1, c) for i, c in enumerate(clips[:CREW_MAX])]
++
++
++CREW_MAX = 6  # clips one request hands to the crew
++
++
++def _crew_check(ctx: Ctx, args: dict) -> Result:
++    """Hand clips to the crew's final check (the same job Autopilot runs before a post: CHECK checks the file,
++    picture, sound, captions, cuts and text; a fixable problem goes back to the robot responsible, at most twice)."""
++    from ..autopilot import gate
++    from ..autopilot.host import MANUAL_PRIORITY
++
++    p, picked = _crew_clips(ctx, args)
++    work, skipped = [], []
++    for n, c in picked:
++        if c.get("status") != "ready":
++            skipped.append(f"clip {n} is not rendered yet ({c.get('status')})")
++            continue
++        job = gate.request(c, priority=MANUAL_PRIORITY)
++        if job:
++            work.append(_work("job", job["id"], f"Final check of clip {n}"))
++    if not work:
++        raise ToolError("Nothing to check: " + "; ".join(skipped or ["no clips"])
++                        + ". Render them first (render_clip).")
++    text = (f"The crew is checking {len(work)} clip(s) of {U+201C}{p['name']}{U+201D}: CHECK looks at the file, picture, sound, "
++            "captions, cuts and text, and sends a fixable problem back to the robot responsible (at most twice). "
++            "The chat shows each check as it runs; crew_report tells what they found.")
++    if skipped:
++        text += " Not checked: " + "; ".join(skipped) + "."
++    return Result(text, f"Handed {len(work)} clip(s) to the crew", {"work": work, "links": [
++        {"label": "Office", "href": "#/office"}, {"label": f"Open {U+201C}{p['name']}{U+201D}", "href": f"#/project/{p['id']}"}]})
++
++
++ACTION_WORDS = {"approved": "passed", "rework": "sent back", "rejected": "did not pass", "held": "held for you"}
++
++
++def _crew_report(ctx: Ctx, args: dict) -> Result:
