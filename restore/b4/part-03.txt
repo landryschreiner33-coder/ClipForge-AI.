@@ -1,0 +1,628 @@
++    if res.get("source") and not src.is_file():  # a link: the video comes back for edits and renders here
++        wanted.append((f"/jobs/{job_id}/files/source", staging / "source"))
++    total = sum(int(f["bytes"]) for cl in res["clips"] for f in cl.get("files") or []) + \
++        int((res.get("source") or {}).get("bytes") or 0)
++    done = [0]
++    base = UPLOAD_SHARE + FOLLOW_SHARE
++
++    for path, dest in wanted:
++        before = done[0]
++
++        def moved(n: int, before: int = before) -> None:
++            done[0] = before + n
++            _stage(pid, "fetch", base + (1 - base) * 0.95 * done[0] / max(total, 1),
++                   f"Bringing the clips back ({_mb(done[0])} of {_mb(total)})")
++
++        done[0] = before + c.download(path, dest, cancel=ctx.cancelled, progress=moved)
++        ctx.check()
++    _log(pid, f"Brought back {len(wanted)} files ({_mb(done[0])}).")
++    count = _import(pid, res, staging, remote_dir, remote_id, str(pdir))
++    if (staging / "source").is_file():
++        (staging / "source").replace(src)
++    for n in res.get("files") or []:
++        if (staging / n).is_file():
++            (staging / n).replace(pdir / n)
++    shutil.rmtree(staging, ignore_errors=True)
++    return count
++
++
++def checked(res: dict, job_id: str) -> dict:
++    """A worker's answer is checked before any of it touches this computer: the names in it become file paths and
++    rows here, so a broken or hostile worker must not reach outside the project. Every clip id is an id, every file
++    name is a plain name in the clip's own folder, the project's files are the known three."""
++    def bad(why: str) -> RemoteError:
++        return RemoteError(f"The worker's answer was refused ({why}); nothing was changed here.")
++
++    if not isinstance(res, dict) or not isinstance(res.get("job"), dict) or str(res["job"].get("id") or "") != job_id:
++        raise bad("it is not for this job")
++    if len(str(res.get("dir") or "").strip()) < 4:
++        raise bad("no folder")
++    if not all(isinstance(n, str) and n in PROJECT_FILES for n in res.get("files") or []):
++        raise bad("an unknown project file")
++    if not isinstance(res.get("clips"), list) or not all(isinstance(cl, dict) for cl in res["clips"]):
++        raise bad("no clips")
++    seen = set()
++    for cl in res.get("clips") or []:
++        cid = str((cl.get("row") or {}).get("id") or "")
++        if not ID_RE.match(cid) or cid in seen:
++            raise bad("a clip id that is not an id")
++        seen.add(cid)
++        for f in cl.get("files") or []:
++            name = str((f or {}).get("name") or "")
++            if not name or not set(name) <= SAFE_NAME or name.startswith(".") or not str(f.get("bytes", 0)).isdigit():
++                raise bad("a file name that is not a plain name")
++    return res
++
++
++def _mapped(value, remote_dir: str, local_dir: str, remote_id: str, local_id: str):
++    """A value with the worker's folder and project id changed to this computer's, in every string inside it."""
++    if isinstance(value, str):
++        return value.replace(remote_dir, local_dir).replace(remote_id, local_id)
++    if isinstance(value, list):
++        return [_mapped(v, remote_dir, local_dir, remote_id, local_id) for v in value]
++    if isinstance(value, dict):
++        return {k: _mapped(v, remote_dir, local_dir, remote_id, local_id) for k, v in value.items()}
++    return value
++
++
++def _rows_for(table: str, rows: list[dict], fix) -> list[dict]:
++    """The worker's rows for this computer. Its JSON columns come as text: they are read, changed and written again
++    (changing the text itself would put a Windows folder's backslashes into the JSON unescaped)."""
++    cols, as_json = db.columns(table), db.JSON_FIELDS.get(table, set())
++    out = []
++    for r in rows:
++        row = {}
++        for k, v in r.items():
++            if k not in cols:
++                continue
++            if k in as_json and isinstance(v, str):
++                try:
++                    v = json.dumps(fix(json.loads(v)))
++                except ValueError:
++                    v = None
++            else:
++                v = fix(v)
++            row[k] = v
++        out.append(row)
++    return out
++
++
++def _insert(conn, table: str, row: dict) -> None:
++    conn.execute(f"INSERT INTO {table} ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})", list(row.values()))
++
++
++def lean_guidance(snapshot: dict) -> dict:
++    """What a worker needs of a project's guidance snapshot (studio/guidance.py): the chosen values and, for each,
++    which level decided it, by id only. The names of styles, skills, examples and Brain notes, and the conflicts and
++    explanations, stay on this computer."""
++    if not snapshot.get("schema"):
++        return {}
++    return {"schema": snapshot["schema"], "mode": snapshot.get("mode"), "values": snapshot.get("values") or {},
++            "decisions": [{"field": d.get("field"), "value": d.get("value"),
++                           "from": {k: (d.get("from") or {}).get(k) for k in ("level", "id", "revision")} | {"name": ""}}
++                          for d in snapshot.get("decisions") or []]}
++
++
++def _import(pid: str, res: dict, staging: Path, remote_dir: str, remote_id: str, local_dir: str) -> int:
++    def fix(v):
++        return _mapped(v, remote_dir, local_dir, remote_id, pid)
++
++    from ..studio import guidance as guidance_mod
++
++    local_guidance = (db.get_project(pid) or {}).get("guidance") or {}
++    # which Brain notes shaped the clips, named from this computer's own snapshot (the worker only had their ids)
++    brain_used = guidance_mod.brain_influences(local_guidance) if local_guidance.get("schema") else None
++
++    clips = res["clips"]
++    clashes = [cl["row"]["id"] for cl in clips if (db.get_clip(cl["row"]["id"]) or {}).get("project_id") not in
++               (None, pid)]
++    if clashes:
++        raise RemoteError("A clip from the worker has the same id as a clip here; nothing was changed. Press Retry.")
++    clip_folder = Path(local_dir) / "clips"
++    with db.connect() as conn:  # one transaction: the project's clips change all together or not at all
++        for table in db.CLIP_CHILDREN:
++            conn.execute(f"DELETE FROM {table} WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)", (pid,))
++        conn.execute("DELETE FROM clips WHERE project_id = ?", (pid,))
++        conn.execute("DELETE FROM clip_candidates WHERE project_id = ?", (pid,))
++        for row in _rows_for("clip_candidates", res.get("candidates") or [], fix):
++            _insert(conn, "clip_candidates", {**row, "project_id": pid})
++        for cl in clips:
++            row = {**_rows_for("clips", [cl["row"]], fix)[0], "project_id": pid}
++            if brain_used is not None and row.get("render_info"):  # the worker's rows hold JSON as text
++                info = json.loads(row["render_info"]) if isinstance(row["render_info"], str) else row["render_info"]
++                row["render_info"] = json.dumps({**info, "brain_knowledge": brain_used})
++            for t in CHILDREN:
++                conn.execute(f"DELETE FROM {t} WHERE clip_id = ?", (row["id"],))
++            _insert(conn, "clips", row)
++            for t in CHILDREN:
++                for child in _rows_for(t, (cl.get("children") or {}).get(t) or [], fix):
++                    child["clip_id"] = row["id"]  # a child row belongs to the clip it came with, never another
++                    if "project_id" in child:
++                        child["project_id"] = pid
++                    _insert(conn, t, child)
++    for cl in clips:
++        cid = cl["row"]["id"]
++        got = staging / "clips" / cid
++        if got.is_dir():
++            dest = clip_folder / cid
++            if dest.resolve().parent != clip_folder.resolve():  # checked() allows ids only; never outside the folder
++                raise RemoteError("A clip folder from the worker was outside the project; nothing was moved.")
++            shutil.rmtree(dest, ignore_errors=True)
++            dest.parent.mkdir(parents=True, exist_ok=True)
++            shutil.move(str(got), str(dest))
++    p = db.get_project(pid) or {}
++    meta = {k: v for k, v in (res.get("project") or {}).items() if v}
++    info = {**(p.get("info") or {}), **{k: fix(v) for k, v in (res.get("info") or {}).items()
++                                       if k not in ("cloud", "processing", "resume_count", "worker_job")}}
++    db.update_project(pid, info=info, **meta)
++    return len(clips)
++
++
++def _after(pid: str) -> None:
++    """As after a render here: a "Make & upload clips" request uploads the eligible clips, from this computer."""
++    p = db.get_project(pid) or {}
++    if not (p.get("destinations") or {}):
++        return
++    from ..studio import autopublish
++
++    for clip in db.list_clips(pid):
++        if clip.get("status") == "ready":
++            autopublish.after_render(clip["id"])
++
++
++def _stop(pid: str, c: client.Client, run_id: str) -> None:
++    st = state(pid)
++    if st.get("job"):
++        try:
++            c.cancel(st["job"])
++            c.delete(st["job"])
++            _log(pid, "Stopped. The job was stopped and deleted on the worker.")
++        except client.WorkerError as exc:
++            _log(pid, f"Stopped here; the worker could not be told ({exc}). It deletes the job after 3 days.")
++    _save(pid, phase="canceled", job="")
++    usage.update(run_id, status="canceled", ended_at=time.time())
++
++
++def stop_waiting(pid: str) -> None:
++    """Stop pressed on a project that was not running here (queued after a restart) while its job is still on the
++    worker: the job there is stopped and deleted too, as Stop does for a running one."""
++    p = db.get_project(pid) or {}
++    st = state(pid)
++    if (p.get("info") or {}).get("processing") != "full_cloud" or not st.get("job") or \
++            st.get("phase") not in ("running", "fetching"):
++        return
++    try:
++        c = client.Client.from_settings()
++    except client.WorkerError:
++        _log(pid, "Stopped here; no worker is set up to tell. The job deletes itself there after 3 days.")
++        _save(pid, phase="canceled", job="")
++        usage.update(str(st.get("run") or ""), status="canceled", ended_at=time.time())
++        return
++    _stop(pid, c, str(st.get("run") or ""))
++
++
++def view(project: dict) -> dict | None:
++    """What the project page shows about its Full Cloud run (None for a project made here, also one made here
++    again after a run on the worker)."""
++    info = project.get("info") or {}
++    if info.get("processing") != "full_cloud":
++        return None
++    st = info.get("cloud") or {}
++    return {"phase": st.get("phase") or "waiting", "worker": st.get("worker") or "", "uploaded": st.get("uploaded") or [],
++            "estimate": st.get("estimate") or None, "seconds": st.get("seconds"), "cost": st.get("cost"),
++            "ran": st.get("ran") or {}, "how": st.get("how") or {}, "log": (st.get("log") or [])[-60:],
++            "worker_info": st.get("worker_info") or {}, "unsupported": list(UNSUPPORTED), "clips": st.get("clips")}
++
++
++def _mb(n: float) -> str:
++    if n < 1024 * 1024:
++        return f"{max(1, round(n / 1024))} KB"
++    return f"{n / 1024 / 1024:.1f} MB" if n < 1024 ** 3 else f"{n / 1024 ** 3:.2f} GB"
+diff --git a/clipfoundry/fullcloud/testjob.py b/clipfoundry/fullcloud/testjob.py
+new file mode 100644
+index 0000000..2472910
+--- /dev/null
++++ b/clipfoundry/fullcloud/testjob.py
+@@ -0,0 +1,228 @@
++"""The private test job (Settings {U+2192} Processing {U+2192} Run a test job): proof that the worker does the whole job, with
++nothing of the owner's sent.
++
++ClipForge makes a one-minute test video here (a moving test pattern with a narrator reading TEST_SCRIPT in this
++computer's own voice), sends it to the worker as a Make clips job of one clip, follows it, brings the clip back,
++checks it plays (picture, sound, length) and deletes the job there. The result says which stages ran on the worker,
++how long each part took and what it cost at the owner's price. Without a voice on this computer the video has a tone
++and a ready-made transcript instead, and the result says that transcription was not tried.
++
++It runs as a studio job (one at a time, with progress and Stop) and counts as worker time like any other job.
++"""
++from __future__ import annotations
++
++import logging
++import tempfile
++import time
++from pathlib import Path
++
++from .. import db
++from ..pipeline import ffmpeg_utils
++from ..pipeline.common import Cancelled
++from ..studio.jobs import Canceled, Lease, cancel as cancel_job, enqueue, handler
++from . import client, usage
++from .worker_api import SETTING_KEYS, STAGES
++
++log = logging.getLogger(__name__)
++
++KIND = "cloud_test"
++TEST_SCRIPT = (
++    "This is a private test of your ClipForge worker. Nothing here is yours: ClipForge made this video a moment ago. "
++    "The worker gets the video, listens to it, finds the best moment, frames it for a phone, writes the captions "
++    "and renders the clip. Then your computer brings the clip back and checks that it plays. "
++    "Here is the moment worth keeping. A good short starts with a hook. It says one clear thing. It ends before "
++    "anyone gets bored. If you can hear these words in the finished clip, with captions under them, the test "
++    "worked. The job is deleted from the worker when the test ends, and the time it took is added to this month's "
++    "worker time. That is the whole test. Thank you for listening.")
++WORDS_PER_S = 2.6
++
++
++class TestError(Exception):
++    status = 409
++
++
++def last(workspace_id: str = "local") -> dict | None:
++    rows = db.select("cloud_runs", "workspace_id = ? AND kind = 'test'", (workspace_id,), order="started_at DESC",
++                     limit=1)
++    if not rows:
++        return None
++    r = rows[0]
++    job = db.select("studio_jobs", "kind = ? AND target_id = ?", (KIND, r["id"]), limit=1)
++    j = job[0] if job else {}
++    return {"id": r["id"], "status": r["status"], "worker": r["worker"], "started_at": r["started_at"],
++            "ended_at": r["ended_at"], "seconds": r["seconds"], "uploaded_bytes": r["uploaded_bytes"],
++            **(r.get("info") or {}), "job": {k: j.get(k) for k in ("status", "progress", "message", "error")}
++            if j else None}
++
++
++def start(workspace_id: str) -> dict:
++    settings = db.get_settings()
++    cfg = client.configured(settings)
++    if not cfg:
++        raise TestError("Add your worker's address and key first.")
++    current = last(workspace_id)
++    if current and (current.get("job") or {}).get("status") in ("queued", "running"):
++        return current
++    problem = usage.limit_problem(settings, workspace_id, usage.MIN_SECONDS)
++    if problem:
++        raise TestError(problem)
++    run = usage.start("test", cfg["host"], "", usage.estimate(60, cfg["host"], settings), workspace_id)
++    enqueue(workspace_id, KIND, run["id"], 1)
++    return last(workspace_id) or {}
++
++
++def stop(workspace_id: str) -> dict | None:
++    current = last(workspace_id)
++    if current:
++        for j in db.select("studio_jobs", "kind = ? AND target_id = ? AND status IN ('queued', 'running')",
++                           (KIND, current["id"])):
++            cancel_job(j["id"])
++            usage.update(current["id"], status="canceled", ended_at=time.time())
++    return last(workspace_id)
++
++
++def make_video(folder: Path, cancel=None) -> tuple[Path, Path | None, str]:
++    """The test video, and a transcript when this computer has no voice to read the script ("" or why not)."""
++    out = folder / "clipforge-worker-test.mp4"
++    wav = folder / "narration.wav"
++    srt: Path | None = None
++    why = ""
++    try:
++        from ..makers import voice
++
++        voice.speak(TEST_SCRIPT, wav, voice="auto", speed=1.0, cancel=cancel)
++        seconds = float(ffmpeg_utils.probe(wav).get("duration") or 0)
++        if seconds < 10:
++            raise RuntimeError("the narration came out too short")
++    except (Cancelled, Canceled):
++        raise
++    except Exception as exc:  # noqa: BLE001 - a tone and a transcript stand in
++        log.info("no voice for the worker test: %s", exc)
++        why = "This computer has no voice to read the test, so the worker was given the words (transcription was " \
++              "not tried)."
++        seconds = round(len(TEST_SCRIPT.split()) / WORDS_PER_S, 1)
++        ffmpeg_utils.run(["-f", "lavfi", "-i", f"sine=frequency=330:duration={seconds}", "-ac", "1", "-ar", "16000",
++                          str(wav)], duration=seconds, cancel=cancel)
++        srt = folder / "clipforge-worker-test.srt"
++        srt.write_text(_srt(TEST_SCRIPT, seconds), encoding="utf-8")
++    ffmpeg_utils.run(["-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30", "-i", str(wav), "-t", f"{seconds:.2f}",
++                      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
++                      str(out)], duration=seconds, cancel=cancel)
++    return out, srt, why
++
++
++def _srt(text: str, seconds: float) -> str:
++    sentences = [s.strip() + "." for s in text.replace("!", ".").split(".") if s.strip()]
++    per_word = seconds / max(1, len(text.split()))
++    t, out = 0.0, []
++    for i, s in enumerate(sentences, 1):
++        d = len(s.split()) * per_word
++        out.append(f"{i}\n{_ts(t)} --> {_ts(t + d)}\n{s}\n")
++        t += d
++    return "\n".join(out)
++
++
++def _ts(t: float) -> str:
++    ms = int(round(t * 1000))
++    return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
++
++
++@handler(KIND)
++def run_test(job: dict, lease: Lease) -> dict:
++    run_id = job["target_id"]
++    settings = db.get_settings()
++    cfg = client.configured(settings)
++    if not cfg:
++        usage.update(run_id, status="failed", ended_at=time.time(), info={"problem": "No worker is set up."})
++        raise TestError("No worker is set up.")
++    c = client.Client(cfg["url"], cfg["key"])
++    t0 = time.time()
++    remote = ""
++    result: dict = {"stages": list(STAGES)}
++    try:
++        lease.progress(0.02, "Making the test video on this computer")
++        with tempfile.TemporaryDirectory(prefix="clipforge-worker-test-") as tmp:
++            video, srt, why = make_video(Path(tmp), cancel=lease.canceled)
++            result.update(note=why, transcription_tried=srt is None)
++            facts = c.info()
++            result["worker_info"] = {"version": facts.get("version"), "whisper": facts.get("whisper") or {},
++                                     "ai": facts.get("ai") or ""}
++            size = video.stat().st_size
++            t_up = time.time()
++            usage.update(run_id, status="uploading")
++            got = c.submit(source=video, transcript=srt, options={"clip_count": 1, "min_duration": 15.0,
++                                                                  "target_duration": 25.0, "max_duration": 45.0},
++                           settings={k: settings[k] for k in SETTING_KEYS if k in settings},
++                           name="ClipForge worker test",
++                           progress=lambda n, total: lease.progress(0.1 + 0.1 * n / max(total, 1),
++                                                                    "Uploading the test video"),
++                           cancel=lease.canceled)
++            remote = got["id"]
++            up_s = max(0.01, time.time() - t_up)
++            result.update(upload_seconds=round(up_s, 1), upload_mbps=round(size * 8 / up_s / 1e6, 1),
++                          uploaded_bytes=size)
++            usage.update(run_id, status="running", remote_id=remote, uploaded_bytes=size)
++            last_msg = ""
++            while True:
++                if lease.canceled():
++                    raise Canceled()
++                state = c.job(remote)
++                usage.update(run_id, seconds=usage.measured(state))
++                if state.get("message") and state["message"] != last_msg:
++                    last_msg = state["message"]
++                lease.progress(0.2 + 0.6 * float(state.get("progress") or 0), f"On the worker: {last_msg or 'waiting'}")
++                if state["status"] == "ready":
++                    break
++                if state["status"] in ("error", "cancelled"):
++                    raise TestError(f"The worker could not finish the test: {state.get('error') or state['status']}")
++                time.sleep(1.0)
++            res = c.result(remote)
++            result.update(ran=state.get("ran") or {}, how=state.get("how") or {}, clips=len(res["clips"]),
++                          worker_seconds=usage.measured(state))
++            lease.progress(0.85, "Bringing the clip back")
++            if not res["clips"]:
++                raise TestError("The worker finished but made no clip from the test video.")
++            first = res["clips"][0]
++            mp4 = next((f["name"] for f in first.get("files") or [] if f["name"].endswith(".mp4")), "")
++            if not mp4:
++                raise TestError("The worker made a clip but its video is missing.")
++            back = Path(tmp) / "back.mp4"
++            c.download(f"/jobs/{remote}/clips/{first['row']['id']}/{mp4}", back, cancel=lease.canceled)
++            meta = ffmpeg_utils.probe(back)
++            plays = bool(meta.get("video_codec")) and int(meta.get("width") or 0) > 0 and bool(meta.get("has_audio")) \
++                and float(meta.get("duration") or 0) > 1
++            result["clip"] = {"seconds": round(float(meta.get("duration") or 0), 1), "width": meta.get("width"),
++                              "height": meta.get("height"), "plays": plays, "bytes": back.stat().st_size}
++            if not plays:
++                raise TestError("The clip came back but does not play (no picture or no sound).")
++        c.delete(remote)
++        remote = ""
++        result.update(ok=True, round_trip_seconds=round(time.time() - t0, 1))
++        price = float(settings.get("worker_price_per_hour") or 0)
++        if price:
++            result["cost"] = round(float(result.get("worker_seconds") or 0) / 3600 * price, 3)
++        usage.update(run_id, status="done", ended_at=time.time(), seconds=result.get("worker_seconds") or 0,
++                     info=result)
++        lease.progress(1.0, "The test worked")
++        return {"ok": True}
++    except (Canceled, Cancelled, client.Stopped):
++        _forget(c, remote)
++        usage.update(run_id, status="canceled", ended_at=time.time(), info=result)
++        raise Canceled() from None
++    except Exception as exc:
++        _forget(c, remote)
++        result.update(ok=False, problem=str(exc)[:400], round_trip_seconds=round(time.time() - t0, 1))
++        usage.update(run_id, status="failed", ended_at=time.time(), info=result)
++        if isinstance(exc, (TestError, client.WorkerError)):
++            raise TestError(str(exc)) from exc
++        raise
++
++
++def _forget(c: client.Client, remote: str) -> None:
++    if not remote:
++        return
++    try:
++        c.cancel(remote)
++        c.delete(remote)
++    except client.WorkerError:
++        pass
+diff --git a/clipfoundry/fullcloud/usage.py b/clipfoundry/fullcloud/usage.py
+new file mode 100644
+index 0000000..daccb4e
+--- /dev/null
++++ b/clipfoundry/fullcloud/usage.py
+@@ -0,0 +1,118 @@
++"""Worker time: what each Full Cloud job used, the estimate before it starts, and the monthly limit
++(Settings {U+2192} Processing).
++
++ClipForge cannot know what the owner's provider charges, so the price is the owner's own number (an hour of the
++worker); without it, estimates are in time only. Worker time is measured on the worker, from the job's start there
++to its end (waiting in its queue and moving files are not counted). The estimate comes from earlier jobs on this
++worker (worker seconds for each second of video, the middle of the last ten), or DEFAULT_RATIO before there are any.
++"""
++from __future__ import annotations
++
++import calendar
++import statistics
++import time
++
++from .. import db
++
++DEFAULT_RATIO = 0.6       # worker seconds per second of video, before this worker has done a job
++MIN_SECONDS = 60.0         # starting up, reading and writing: even a short video takes about a minute
++DONE = ("done",)
++
++
++def month_start(now: float | None = None) -> float:
++    t = time.localtime(now or time.time())
++    return time.mktime((t.tm_year, t.tm_mon, 1, 0, 0, 0, 0, 0, -1))
++
++
++def month_end(now: float | None = None) -> float:
++    t = time.localtime(now or time.time())
++    days = calendar.monthrange(t.tm_year, t.tm_mon)[1]
++    return time.mktime((t.tm_year, t.tm_mon, days, 23, 59, 59, 0, 0, -1))
++
++
++def used_seconds(workspace_id: str = "local", now: float | None = None) -> float:
++    """Worker time used this month (jobs that are running count what they used so far)."""
++    total = 0.0
++    for r in db.select("cloud_runs", "workspace_id = ? AND started_at >= ?", (workspace_id, month_start(now))):
++        total += float(r.get("seconds") or 0)
++    return round(total, 1)
++
++
++def ratio(worker: str) -> float:
++    rows = db.select("cloud_runs", "worker = ? AND status = 'done' AND kind = 'project' AND seconds > 0",
++                     (worker,), order="started_at DESC", limit=10)
++    seen = [float(r["seconds"]) / float((r.get("info") or {}).get("video_seconds") or 0)
++            for r in rows if float((r.get("info") or {}).get("video_seconds") or 0) > 0]
++    return round(statistics.median(seen), 3) if seen else DEFAULT_RATIO
++
++
++def estimate(video_seconds: float | None, worker: str, settings: dict) -> dict:
++    """{"seconds", "cost", "price", "ratio", "known"}: about how long the job takes on the worker, and what it
++    costs at the owner's price (None when no price is set or the video's length is not known yet)."""
++    price = float(settings.get("worker_price_per_hour") or 0)
++    r = ratio(worker)
++    if not video_seconds:
++        return {"seconds": None, "cost": None, "price": price or None, "ratio": r, "known": False}
++    secs = max(MIN_SECONDS, float(video_seconds) * r)
++    return {"seconds": round(secs), "cost": round(secs / 3600 * price, 2) if price else None,
++            "price": price or None, "ratio": r, "known": True}
++
++
++def limit_problem(settings: dict, workspace_id: str = "local", need_seconds: float | None = None) -> str:
++    """Why a job may not start because of the monthly limit ("" when it may)."""
++    hours = float(settings.get("worker_month_hours") or 0)
++    if hours <= 0:
++        return "Worker time is set to 0 hours a month (Settings {U+2192} Processing), so nothing is sent to the worker."
++    used = used_seconds(workspace_id)
++    left = hours * 3600 - used
++    if left <= 0:
++        return (f"This month's worker time ({hours:g} h) is used up. Raise it in Settings {U+2192} Processing, or switch "
++                "to Local to make the clips on this computer.")
++    if need_seconds and need_seconds > left:
++        return (f"This video needs about {_mins(need_seconds)} of worker time, and {_mins(left)} is left this month "
++                f"(of {hours:g} h). Raise the limit in Settings {U+2192} Processing, or switch to Local.")
++    return ""
++
++
++def _mins(seconds: float) -> str:
++    m = max(1, round(seconds / 60))
++    return f"{m} minute{'s' if m != 1 else ''}" if m < 120 else f"{m / 60:.1f} hours"
++
++
++def view(settings: dict, workspace_id: str = "local") -> dict:
++    used = used_seconds(workspace_id)
++    hours = float(settings.get("worker_month_hours") or 0)
++    price = float(settings.get("worker_price_per_hour") or 0)
++    runs = db.select("cloud_runs", "workspace_id = ?", (workspace_id,), order="started_at DESC", limit=12)
++    return {"used_seconds": used, "limit_hours": hours, "price_per_hour": price or None,
++            "cost": round(used / 3600 * price, 2) if price else None, "resets_at": month_end() + 1,
++            "runs": [{k: r.get(k) for k in ("id", "kind", "project_id", "worker", "status", "started_at", "ended_at",
++                                             "seconds", "uploaded_bytes")} | {"cost": round(float(r["seconds"] or 0)
++                                                                                         / 3600 * price, 2)
++                                                                               if price else None}
++                     for r in runs]}
++
++
++def start(kind: str, worker: str, project_id: str = "", estimate_: dict | None = None,
++          workspace_id: str = "local") -> dict:
++    return db.insert("cloud_runs", {"workspace_id": workspace_id, "kind": kind, "project_id": project_id,
++                                    "worker": worker, "status": "starting", "started_at": time.time(),
++                                    "estimate": estimate_ or {}, "info": {}})
++
++
++def update(run_id: str, **fields) -> None:
++    if not run_id:
++        return
++    if "info" in fields:
++        row = db.fetch("cloud_runs", run_id) or {}
++        fields["info"] = {**(row.get("info") or {}), **fields["info"]}
++    db._update("cloud_runs", run_id, fields)  # noqa: SLF001
++
++
++def measured(job: dict) -> float:
++    """Worker time of a job, from its own start and end on the worker (so far, while it runs)."""
++    start_at = float(job.get("started_at") or 0)
++    if not start_at:
++        return 0.0
++    end_at = float(job.get("ended_at") or 0) or float(job.get("now") or 0) or time.time()  # the worker's clock
++    return round(max(0.0, end_at - start_at), 1)
+diff --git a/clipfoundry/fullcloud/worker_api.py b/clipfoundry/fullcloud/worker_api.py
+new file mode 100644
+index 0000000..91c3ad5
+--- /dev/null
++++ b/clipfoundry/fullcloud/worker_api.py
+@@ -0,0 +1,420 @@
++"""The worker's side of Full Cloud: a ClipForge started with CLIPFOUNDRY_WORKER_KEY takes Make clips jobs from the
++owner's desktop ClipForge (fullcloud/__init__.py).
++
++Every request must carry ``Authorization: Bearer <key>``; without the key set (24 characters or more) these routes
++do not exist (404). A job is an ordinary project in the worker's own data folder, run by the worker's own job thread
++(jobs.py), so it shows progress, can be stopped and is picked up again when the worker restarts. The desktop's clip
++choices come with the job and are applied just before it runs. Finished jobs wait for the desktop to fetch them and
++are deleted when it says so, or KEEP_HOURS after they ended.
++
++Nothing here publishes, schedules or reaches any account: a job's options never carry destinations.
++"""
++from __future__ import annotations
++
++import hmac
++import json
++import logging
++import os
++import shutil
++import threading
++import time
++from pathlib import Path
++
++from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
++from fastapi.responses import FileResponse
++
++from .. import __version__, config, db
++
++log = logging.getLogger(__name__)
++
++KEY_ENV = "CLIPFOUNDRY_WORKER_KEY"
++MIN_KEY = 24
++KEEP_HOURS = 72
++TIDY_EVERY_S = 3600
++API = "/api/worker/v1"
++MAX_UPLOAD_GB = float(os.environ.get("CLIPFOUNDRY_WORKER_MAX_GB", "20") or 20)
++# What a worker does, in the order a job does it, and what each stage of the pipeline counts as.
++STAGES = ("ingest", "transcribe", "analyze", "framing", "captions", "render")
++PIPELINE_STAGE = {"queued": "", "download": "ingest", "probe": "ingest", "audio": "ingest", "transcribe": "transcribe",
++                  "candidates": "analyze", "scoring": "analyze", "stories": "analyze", "render": "render",
++                  "done": "render"}
++# The desktop's clip choices a job carries (never accounts, keys, addresses, AI services or paths).
++SETTING_KEYS = ("language", "clip_count", "min_duration", "max_duration", "target_duration", "min_score",
++                "ai_max_candidates", "deep_analysis", "caption_style", "caption_position", "highlight_words",
++                "tracking", "layout", "split_view", "split_game", "silence", "remove_fillers", "auto_zoom",
