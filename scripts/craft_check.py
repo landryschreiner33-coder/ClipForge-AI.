@@ -363,16 +363,21 @@ def browser_check(out: Path, project: dict, want) -> dict:
             frame = None
             save_button = page.get_by_role("button", name="Save to ClipForge")
             opened = False
+            got["editor_trace"] = trace = []
+            t_click = time.time()
+            text = ""
             for _ in range(300):  # FilmCraft starts, then the page hands it the files and opens the project
                 frame = next((f for f in page.frames if "/craft/filmcraft/" in f.url), None)
-                text = page.locator(".craft-editor").inner_text()
+                text, gone = editor_text(page, trace, t_click)
+                if gone:
+                    break
                 if "did not open" in text:
                     break
                 if save_button.count() and save_button.is_enabled():
                     opened = True
                     break
                 time.sleep(1)
-            got["dialog"] = page.locator(".craft-editor").inner_text()[:800]
+            got["dialog"] = text[:800]
             snap(page, out / "editor.png")
             if frame is not None:
                 try:
@@ -383,8 +388,8 @@ def browser_check(out: Path, project: dict, want) -> dict:
                 except Exception as exc:  # noqa: BLE001 - only a report
                     got["load"] = repr(exc)
             if not opened:
-                print("editor dialog:", got["dialog"], "\nframe:", got.get("load"), "\nconsole:",
-                      got["console"][-40:], flush=True)
+                print("editor dialog:", got["dialog"], "\nframe:", got.get("load"), "\ntrace:",
+                      json.dumps(trace)[:4000], "\nconsole:", got["console"][-40:], flush=True)
             want(frame is not None, "FilmCraft's editor did not load in the page")
             want(opened, f"the project did not open in FilmCraft's editor: {got['dialog']} / {got.get('load')}")
             if not opened or frame is None:
@@ -433,6 +438,34 @@ def browser_check(out: Path, project: dict, want) -> dict:
         server.terminate()
         server.wait(timeout=30)
     return got
+
+
+def editor_text(page, trace: list, t0: float) -> tuple[str, bool]:
+    """The editor dialog's text, and whether the dialog has gone. Each read has its own time limit, so a page that
+    stops answering (its one thread busy) is told apart from a dialog that closed; changes go in the trace."""
+    t = time.time()
+    try:
+        text = page.locator(".craft-editor").inner_text(timeout=10000)
+    except Exception as exc:  # noqa: BLE001 - what is on the page instead is the report
+        took = round(time.time() - t, 1)
+        try:
+            body = page.locator("body").inner_text(timeout=15000)
+            gone = page.locator(".craft-editor").count() == 0
+            what = "the editor dialog is not on the page" if gone else f"the dialog did not answer: {exc!r}"[:300]
+        except Exception as exc2:  # noqa: BLE001
+            body, gone, what = "", False, f"the page did not answer in {took + 15:.0f} s: {exc2!r}"[:300]
+        trace.append({"at": round(time.time() - t0, 1), "what": what, "url": page.url, "body": body[:1500]})
+        print("editor page:", json.dumps(trace[-1])[:2500], flush=True)
+        if gone:
+            return "", True
+        if len([e for e in trace if "did not answer" in e["what"]]) >= 6:
+            return "", True  # a minute and more without an answer: report it rather than wait the full five minutes
+        return "", False
+    took = round(time.time() - t, 1)
+    first = text.splitlines()[0][:120] if text else ""
+    if took > 3 or not trace or trace[-1].get("first") != first:
+        trace.append({"at": round(time.time() - t0, 1), "first": first, "read_s": took})
+    return text, False
 
 
 def snap(page, path: Path, **kw) -> None:
