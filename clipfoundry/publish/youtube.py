@@ -47,8 +47,8 @@ UNVERIFIED_NOTE = (
     "actually returns. A compliance audit may be needed to request additional quota."
 )
 SETUP_FIX = ("Use a release build of ClipForge (it signs in with ClipForge's own Google app), or under Settings → "
-             "Publishing → YouTube → Advanced paste the client ID and secret of your own Google Cloud OAuth client of "
-             "type 'Desktop app' (YouTube Data API v3 enabled).")
+             "Publishing → YouTube → Advanced paste the client ID and secret of your own Google Cloud OAuth client "
+             "of type 'Desktop app' (YouTube Data API v3 enabled).")
 RECONNECT_FIX = "Click Connect YouTube again (Settings → Publishing or the publish screen)."
 TESTING_NOTE = ("If your OAuth consent screen is in 'Testing', Google ends the connection after 7 days; set it to "
                 "'In production' to stay connected (for your own use you can continue past the 'unverified app' "

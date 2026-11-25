@@ -53,8 +53,9 @@ UNAUDITED_NOTE = (
     "Followers, keeping your account private. Or download the clip and post it yourself."
 )
 SETUP_FIX = ("Use a release build of ClipForge (it signs in with ClipForge's own TikTok app), or under Settings → "
-             "Publishing → TikTok → Advanced paste the client key and secret of your own app on developers.tiktok.com "
-             "(Login Kit for Desktop and the Content Posting API, with the redirect address shown there).")
+             "Publishing → TikTok → Advanced paste the client key and secret of your own app on "
+             "developers.tiktok.com (Login Kit for Desktop and the Content Posting API, with the redirect address "
+             "shown there).")
 RECONNECT_FIX = "Click Connect TikTok again (Settings → Publishing or the publish screen)."
 PROCESSING_NOTE = "It may take a few minutes for the video to be processed and appear on your profile."
 
