@@ -27,7 +27,10 @@ ANALYSIS_W = 640
 TARGET_AR = 9 / 16
 
 # ---- split view (a face cam over a game or screen)
-SPLIT_LAYOUTS = ("auto", "split")   # "auto": split view when a face cam is found; "split": whenever a face is found
+# The layouts that look for a face cam: "auto" (split view when a face cam is found), "split" (Gameplay + Facecam),
+# "pip" (Picture-in-picture) and "game" (Gameplay only, the cam left out). All but "auto" take any small face.
+SPLIT_LAYOUTS = ("auto", "split", "pip", "game")
+FORCED_LAYOUTS = ("split", "pip", "game")
 CAM_MIN_FACE_H = 0.035      # the smallest face looked for in a cam (the detector's limit at the analysis size)
 CAM_PRESENCE = 0.5          # the face is in at least half of the samples ...
 CAM_MAX_FACE_H = 0.24       # ... is small (a taller face is the camera's own picture, not a cam laid over another)
@@ -59,6 +62,16 @@ SPLIT_GAMES = tuple(config.SPLIT_GAMES)
 SPLIT_WHOLE_TOP = (0.28, 0.36)  # the cam's share of the output height
 SPLIT_BAND = 0.11               # the captions' strip between the cam and the picture
 SPLIT_HEAD = (0.35, 0.08)       # of what is left over: this share goes above the cam, at most this much of the height
+# Picture-in-picture: the gameplay fills the frame and the face cam sits in a box in a top corner, below the apps'
+# own top bar (TikTok's Following / For You, YouTube's search) and away from their buttons on the right-hand side
+# lower down. Gameplay only uses the same crop of the gameplay without the box.
+PIP_WIDTH = 0.40                # the box's share of the output width ...
+PIP_MAX_H = 0.25                # ... and at most this share of its height (a tall cam is cropped around the face)
+PIP_MIN_SHAPE = 0.5             # a very wide cam is cropped to at most twice as wide as high
+PIP_TOP = 0.085                 # where the box starts, from the top
+PIP_SIDE = 0.04                 # ... and from the side
+PIP_BORDER = 6                  # a light frame around the box, in output pixels
+PIP_SHIFT = 0.12                # how far the gameplay crop may move off-centre to leave the cam out of it
 
 
 @dataclass
@@ -648,15 +661,18 @@ def _still_there(edge_map: np.ndarray, box: list[float]) -> bool:
     return len(seen) >= 2 and min(seen) >= CAM_SIDE
 
 
-def split_layout(cam: dict, src_w: int, src_h: int, content_x: float | None = None) -> dict:
+def split_layout(cam: dict, src_w: int, src_h: int, content_x: float | None = None,
+                 cam_size: tuple[int, int] | None = None) -> dict:
     """Where the two panels of a split view come from. The cam fills the top panel, whose height follows the cam's
     own shape within SPLIT_TOP; the lower panel shows the middle of the picture at full height, moved a little to the
     side when that leaves the cam out of it. `content_x` (the owner's own crop position) places the lower panel.
+    `cam_size`: the cam is a separate recording of this size, and its box is in that picture.
 
     Returns {"top": the top panel's share of the output height, "cam": box, "focus": the face's centre, "content":
     (centre x, centre y, width, height) of the lower panel's crop}, all normalised to the source picture."""
     x0, y0, x1, y1 = cam["box"]
-    cam_w, cam_h = max(1e-6, (x1 - x0) * src_w), max(1e-6, (y1 - y0) * src_h)
+    pic_w, pic_h = cam_size or (src_w, src_h)
+    cam_w, cam_h = max(1e-6, (x1 - x0) * pic_w), max(1e-6, (y1 - y0) * pic_h)
     top = min(SPLIT_TOP[1], max(SPLIT_TOP[0], cam_h / cam_w * TARGET_AR))
     aspect = TARGET_AR / (1 - top)                       # the lower panel's width over its height
     cw = min(1.0, src_h * aspect / src_w)
@@ -672,7 +688,44 @@ def split_layout(cam: dict, src_w: int, src_h: int, content_x: float | None = No
             cx -= min(SPLIT_SHIFT, max(0.0, (cx + cw / 2) - (x0 - SPLIT_CLEAR)))
     return {"top": round(top, 5), "cam": [round(float(v), 5) for v in cam["box"]],
             "focus": [round(float(cam["face"][0]), 5), round(float(cam["face"][1]), 5)],
-            "content": [round(min(hi, max(lo, cx)), 5), 0.5, round(cw, 5), round(ch, 5)]}
+            "content": [round(min(hi, max(lo, cx)), 5), 0.5, round(cw, 5), round(ch, 5)],
+            **({"cam_size": [int(cam_size[0]), int(cam_size[1])]} if cam_size else {})}
+
+
+def clear_of_cam(box: list[float], crop_w: float) -> float:
+    """Where a full-height crop of the gameplay (`crop_w` of the picture's width) is centred so the face cam is left
+    out of it: the middle, moved to the side away from the cam as little as clears it, at most PIP_SHIFT."""
+    cx = 0.5
+    if box[0] < cx + crop_w / 2 and box[2] > cx - crop_w / 2:   # the middle crop would show some of the cam
+        if (box[0] + box[2]) / 2 < 0.5:
+            cx = min(0.5 + PIP_SHIFT, box[2] + SPLIT_CLEAR + crop_w / 2)
+        else:
+            cx = max(0.5 - PIP_SHIFT, box[0] - SPLIT_CLEAR - crop_w / 2)
+    return round(min(1 - crop_w / 2, max(crop_w / 2, cx)), 5)
+
+
+def pip_corner(split: dict, asked: str | None = None) -> str:
+    """The top corner the face cam's box goes in: the one asked for, else the side the cam is on in the stream."""
+    if asked in config.PIP_CORNERS:
+        return str(asked)
+    if split.get("cam_size"):
+        return "right"
+    return "left" if (split["cam"][0] + split["cam"][2]) / 2 < 0.5 else "right"
+
+
+def pip_panels(split: dict, src_w: int, src_h: int, corner: str = "right", out_w: int = 1080,
+               out_h: int = 1920) -> dict:
+    """Where the face cam's box sits in a Picture-in-picture clip, in output pixels: {"game": "pip", "corner",
+    "inset": (left, top, width, height), "border", "clear_top": the first row below the box and its frame}."""
+    x0, y0, x1, y1 = split["cam"]
+    pic_w, pic_h = split.get("cam_size") or (src_w, src_h)
+    shape = max(1e-6, (y1 - y0) * pic_h) / max(1e-6, (x1 - x0) * pic_w)      # the cam's height over its width
+    w = int(round(out_w * PIP_WIDTH)) // 2 * 2
+    h = int(round(w * min(out_h * PIP_MAX_H / w, max(PIP_MIN_SHAPE, shape)))) // 2 * 2
+    side, top = int(round(out_w * PIP_SIDE)), int(round(out_h * PIP_TOP))
+    left = side if corner == "left" else out_w - side - w
+    return {"game": "pip", "corner": corner, "inset": (left, top, w, h), "border": PIP_BORDER,
+            "clear_top": top + h + PIP_BORDER}
 
 
 def split_panels(split: dict, src_w: int, src_h: int, game: str = "whole", out_w: int = 1080,
@@ -926,15 +979,28 @@ def build_path(sample_t: np.ndarray, target: np.ndarray, cuts: list[float], fps:
 def plan(src: str, start: float, end: float, src_w: int, src_h: int, mode: str, fps: float,
          ctx: JobContext | None = None, manual_x: float = 0.5,
          speech: list[tuple[float, float]] | None = None, layout: str = "fill",
-         cam_hint: dict | None = None) -> Plan:
+         cam_hint: dict | None = None, cam_set: dict | None = None) -> Plan:
     """`speech`: clip-relative (start, end) of spoken words; speaker switches only happen while someone talks.
 
-    `layout` "auto" or "split" also looks for a face cam laid over the picture (`find_cam`; `cam_hint` is the one
+    A `layout` in SPLIT_LAYOUTS also looks for a face cam laid over the picture (`find_cam`; `cam_hint` is the one
     found earlier in the same video). When there is one the plan's mode is "split" and `info["split"]` says where
-    the two panels come from; otherwise the plan is the same as for a filled frame, and `info["layout"]` says so."""
+    the cam and the gameplay come from; otherwise the plan is the same as for a filled frame, and `info["layout"]`
+    says so. `cam_set` is a cam the owner set (facecam.chosen): their own box ("manual"), or a separate camera
+    recording ("camera", its box in the camera's own picture and its "size"). Nothing is looked for then."""
     n_out = max(1, int(round((end - start) * fps)))
     cw, ch = crop_fraction(src_w, src_h)
     look = layout in SPLIT_LAYOUTS
+    if look and cam_set and len(cam_set.get("box") or []) == 4:
+        box = [float(v) for v in cam_set["box"]]
+        kind = cam_set.get("kind") or "manual"
+        own = kind == "camera"  # a separate recording: the gameplay keeps its middle
+        cam = {"box": box, "face": list(cam_set.get("face") or _middle(box)), "kind": kind, "score": 1.0,
+               "presence": 1.0}
+        size = tuple(cam_set["size"]) if own and cam_set.get("size") else None
+        split = split_layout(cam, src_w, src_h, manual_x if mode == "manual" else 0.5 if own else None, size)
+        split["fill_x"] = manual_x if mode == "manual" else 0.5 if own else clear_of_cam(box, cw)
+        return Plan("split", fps, n_out, np.full(n_out, split["content"][0]), np.full(n_out, 0.5), [], 0,
+                    {"layout": "split", "split": split, "cam": {"kind": kind, "score": 1.0, "presence": 1.0}})
     if not look:
         if mode == "center" or (cw >= 0.999 and ch >= 0.999):
             return static_plan("center", fps, n_out)
@@ -942,9 +1008,10 @@ def plan(src: str, start: float, end: float, src_w: int, src_h: int, mode: str, 
             return static_plan("manual", fps, n_out, min(1 - cw / 2, max(cw / 2, manual_x)), 0.5)
     a = analyze(src, start, end, src_w, src_h, ctx, layout=look)
     if look:
-        cam = find_cam(a, force=layout == "split", hint=cam_hint)
+        cam = find_cam(a, force=layout in FORCED_LAYOUTS, hint=cam_hint)
         if cam:
             split = split_layout(cam, src_w, src_h, manual_x if mode == "manual" else None)
+            split["fill_x"] = manual_x if mode == "manual" else clear_of_cam(split["cam"], cw)
             return Plan("split", fps, n_out, np.full(n_out, split["content"][0]), np.full(n_out, 0.5), a["cuts"],
                         len([t for t in a["tracks"] if t.presence >= 3]),
                         {"layout": "split", "split": split,

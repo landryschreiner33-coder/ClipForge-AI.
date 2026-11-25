@@ -50,7 +50,7 @@ export interface SubmissionOptions {
 }
 
 export type LivePick = "best" | "balanced" | "most";
-export type LiveFraming = "auto" | "split" | "off";
+export type LiveFraming = "auto" | "split" | "pip" | "game" | "off";
 export const LIVE_PICKS: { value: LivePick; label: string; hint: string }[] = [
   { value: "best", label: "Only the best moments",
     hint: "About three clips an hour at most. Each has to beat most of the stream so far, and ClipForge waits a "
@@ -63,9 +63,14 @@ export const LIVE_FRAMINGS: { value: LiveFraming; label: string; hint: string }[
   { value: "auto", label: "Split view when there is a face cam",
     hint: "When ClipForge finds a face cam in the picture, the clip shows the face cam on top and the whole "
       + "gameplay below it. Without one, the clip uses your usual layout." },
-  { value: "split", label: "Always split view",
-    hint: "Also splits when the face is only sometimes in view. If no face is found at all, the clip uses your "
-      + "usual layout." },
+  { value: "split", label: "Gameplay + Facecam",
+    hint: "The face cam on top and the gameplay below it, also when the face is only sometimes in view. If no face "
+      + "is found at all, the clip uses your usual layout." },
+  { value: "pip", label: "Picture-in-picture",
+    hint: "The gameplay fills the clip and the face cam sits in a small box at the top. If no face is found at "
+      + "all, the clip uses your usual layout." },
+  { value: "game", label: "Gameplay only",
+    hint: "The gameplay fills the clip and the face cam is left out of it." },
   { value: "off", label: "No split view", hint: "Every clip uses your usual layout from Settings." },
 ];
 

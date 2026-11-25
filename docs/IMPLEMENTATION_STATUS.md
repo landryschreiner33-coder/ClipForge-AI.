@@ -1,5 +1,29 @@
 # Implementation status
 
+## Final release, batch 2: clip quality, stream layouts, titles, Compare — 2026-11-25 (Claude Code)
+
+Branch `claude/project-thread-hqwolr` from the release line at `cf51120` (batch 1), pull request #69. Landry's
+final-release prompt, batch 2: better clip picking with reasons, suggested trims, live stream reactions, stream
+layouts with the face cam, three kinds of titles, Posts → Results → Compare, and a before/after benchmark. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md), rules and hypotheses:
+[CLIP_QUALITY_RESEARCH.md](clipforge/CLIP_QUALITY_RESEARCH.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_clip_selection_rules`, `test_compare_results`, `test_facecam_layouts`, `test_rank_reasons`, `test_title_kinds`, `test_trims`, `test_split_view`, `test_split_between_channels` (new and changed) | passed |
+| 2026-11-25 | `scripts/clip_quality_benchmark.py` on three synthetic videos (podcast, game stream, tutorial), `cf51120` against this branch | before 9 clips, after 7; ad read, goodbye and chat-reading clips rejected; the clutch clip keeps its shout; report in `docs/clipforge/benchmarks/clip-quality-2026-11-25.md` |
+| 2026-11-25 | `pytest -m "not slow"` (whole fast suite, this cloud machine) | 3183 passed, 2 skipped, 2 failed: a recap line counted as a goodbye (fixed in `9b3a9e8`; the outro tests pass) and `test_a_story_told_on_stream_is_clipped_with_its_build_up_and_its_ending`, which passed alone, under 8 hash seeds, after each quarter and each half of the files before it |
+| 2026-11-25 | GitHub "Native Mac desktop app" run 45605044316 on `d009163` | Mac build and bundled-app checks passed; `pytest -m slow` passed |
+| 2026-11-25 | GitHub run 45609252829 on `9b3a9e8` (the outro fix): Mac build, `pytest -m "not slow"` and `pytest -m slow` on Ubuntu | Mac build and slow passed; fast had 2 failures, both root-caused and fixed below |
+| 2026-11-25 | Root cause 1, `test_a_story_told_on_stream_is_clipped_with_its_build_up_and_its_ending`: the meaning vectors (`semantic._lexical`) kept the top k directions of a word matrix whose strongest directions were tied; which of two equally strong directions a maths library returns differs between computers, so the clips picked differed (rotating the tied directions reproduced the GitHub result in 5 of 8 tries) | fixed: a tied group is kept whole or not at all (`semantic.whole_groups`), the matrix is worked in 64-bit; new test `test_what_sentences_mean_does_not_depend_on_which_of_two_equal_directions_the_math_library_picks` fails on the old code; 8 of 8 rotations now pass |
+| 2026-11-25 | Root cause 2, `test_cancel_after_the_last_part_when_youtube_forgot_the_session_keeps_the_hold`: Cancel read the post's info, added its note and wrote the whole info back, so an upload that wrote `outcome_unknown` at the same moment lost it | fixed: Cancel merges its one field in a single SQL update (`db.merge_publication_info`); new test `test_cancel_keeps_what_the_upload_wrote_at_the_same_moment` |
+| 2026-11-25 | `pytest -m "not slow"` again (three parts at once on this machine) | 3,195 passed, 2 skipped, 1 failed: `test_the_engine_stops_when_idle`. Root cause 3: stopping the built-in AI let go of its process before it had ended, so `running()` said stopped while the model was still in memory (and `make_room` then skipped waiting for it before transcription). Fixed in `builtin_ai.Server.stop`; new test `test_the_engine_counts_as_running_until_its_process_has_ended` fails on the old code; `test_builtin_ai.py` 25 passed |
+| 2026-11-25 | Screenshots (editor Layout tab, drawn face cam box, suggested trims, title kinds, why a clip ranks, Compare) and a rendered test clip | in `/mnt/project-files/final-release/batch2/` |
+
+Not verified: real streams with a live chat (ClipForge has no chat connection; a recording has no chat), YouTube and
+TikTok from this cloud machine, real footage (the benchmark videos are synthetic speech).
+
 ## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code)
 
 Branch `claude/project-thread-hqwolr` from the release line at `54f953b`, pull request #68. Landry's final-release

@@ -8,16 +8,17 @@ Stage 2 evaluator covers different moments and topics.
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter
 
 from .audio import Loudness
 import numpy as np
 
-from .text_utils import (DANGLING_STARTS, EMOTION_WORDS, HOOK_PHRASES, HOOK_WORDS, LOSS_PHRASES, LOSS_WORDS,
-                         OUTRO_PHRASES, PAYOFF_PHRASES, PROMO_PHRASES, RESPONSE_STARTS, SETUP_PHRASES,
-                         SLOW_OPEN_PHRASES, STORY_MARKERS, TRANSITION_OPENERS, TRANSITION_PHRASES, content_tokens,
-                         cosine, count_phrases,
-                         ends_sentence, tf_vector, tokens)
+from .text_utils import (AD_PHRASES, CHAT_CHORES, DANGLING_STARTS, EMOTION_WORDS, GENERIC_WORDS, HOOK_PHRASES,
+                         HOOK_WORDS, LOSS_PHRASES, LOSS_WORDS, ONE_THING, OUTRO_PHRASES, PAYOFF_PHRASES, PERSON_NOUNS,
+                         PERSON_PRONOUNS, PROMO_PHRASES, RESPONSE_STARTS, SETUP_PHRASES, SLOW_OPEN_PHRASES,
+                         STOPWORDS, STORY_MARKERS, TRANSITION_OPENERS, TRANSITION_PHRASES, content_tokens, cosine,
+                         count_phrases, count_words, ends_sentence, tf_vector, tokens)
 
 FILLER_TOKENS = {"um", "uh", "erm", "hmm", "mm"}
 
@@ -26,15 +27,59 @@ def _sig(x: float) -> float:
     return 1.0 / (1.0 + math.exp(-x))
 
 
+# "the third one", "two of them", "the other guy": counted people the line points at
+COUNTED_PEOPLE = re.compile(r"\b(?:first|second|third|fourth|fifth|last|other|another|one|two|three|four|five)\s+"
+                            r"(?:one|ones|guy|guys|of them|of us)\b")
+
+
+EXCLAIMS = re.compile(r"(?:no|yes|yeah)[\s,.!]+(?:way|no|yes|yeah)\b")
+
+
+def proper_names(sentences: list[dict]) -> set[str]:
+    """Words the transcript capitalizes in the middle of a sentence (names: "Sarah", "Northwind"), lowercased."""
+    out = set()
+    for s in sentences:
+        for w in s["text"].split()[1:]:
+            bare = w.strip(".,!?;:\"'")
+            if bare[:1].isupper() and bare.lower() not in ("i", "i'm", "i've", "i'd", "i'll"):
+                out.add(bare.lower())
+    return out
+
+
+def names_someone(text: str, proper: set[str] | frozenset[str] = frozenset()) -> bool:
+    """Whether a line introduces a person: a word like "grandfather" or "boss", "the third one", or a name (a word
+    capitalized after the first; the first word only when the transcript capitalizes it elsewhere too, since every
+    sentence starts with a capital)."""
+    if any(t in PERSON_NOUNS for t in tokens(text)) or COUNTED_PEOPLE.search(text.lower()):
+        return True
+    for j, w in enumerate(text.split()):
+        bare = w.strip(".,!?;:\"'")
+        if bare[:1].isupper() and bare.lower() not in ("i", "i'm", "i've", "i'd", "i'll") \
+                and (j > 0 or bare.lower() in proper):
+            return True
+    return False
+
+
+def unnamed_person(text: str, proper: set[str] | frozenset[str] = frozenset()) -> str:
+    """The "he" or "she" a line uses before it names anyone ("People in town thought he was crazy"): as the first
+    line of a clip it leaves the viewer asking who. "" when the line names someone first or has no such word."""
+    for m in re.finditer(r"[A-Za-z']+", text):
+        if m.group(0).lower() in PERSON_PRONOUNS:
+            return "" if names_someone(text[:m.start()], proper) else m.group(0).lower()
+    return ""
+
+
 def sentence_features(sentences: list[dict], words: list[dict]) -> list[dict]:
     feats = []
+    proper = proper_names(sentences)
     for k, s in enumerate(sentences):
         text = s["text"]
         low = text.lower()
         toks = tokens(text)
         lead = [t for t in toks[:4] if t not in FILLER_TOKENS]
         first = lead[0] if lead else ""
-        hookw = sum(1 for t in toks if t in HOOK_WORDS) + 2 * count_phrases(low, HOOK_PHRASES)
+        hookw = sum(1 for t in toks if t in HOOK_WORDS) + 2 * count_phrases(low, HOOK_PHRASES) \
+            + 2 * bool(ONE_THING.search(low))
         f = {
             "n": s["n"],
             "dur": max(0.1, s["end"] - s["start"]),
@@ -52,10 +97,17 @@ def sentence_features(sentences: list[dict], words: list[dict]) -> list[dict]:
             "gap_before": s["start"] - sentences[k - 1]["end"] if k else s["start"],
             "gap_after": sentences[k + 1]["start"] - s["end"] if k + 1 < len(sentences) else 5.0,
             "transition": count_phrases(low, TRANSITION_PHRASES) > 0 or bool(TRANSITION_OPENERS.match(low)),
-            "setup": text.rstrip().endswith("?") or count_phrases(low, SETUP_PHRASES) > 0,
-            "promo": count_phrases(low, PROMO_PHRASES),
+            # a question, "here's why", or "says one thing": a line that promises what comes next
+            "setup": text.rstrip().endswith("?") or count_phrases(low, SETUP_PHRASES) > 0
+            or bool(ONE_THING.search(low)),
+            "promo": count_phrases(low, PROMO_PHRASES) + count_words(low, AD_PHRASES),
+            "ad": count_words(low, AD_PHRASES) > 0,        # "use code SHOW at checkout": an ad read
+            "chores": count_words(low, CHAT_CHORES) > 0,   # "thanks for the follow", "let me read chat"
+            "who": unnamed_person(text, proper),     # "he" before the line says who (virality: standalone)
+            "names": names_someone(text, proper),
             "slow_open": count_phrases(low[:60], SLOW_OPEN_PHRASES) > 0,  # "so today I want to talk about..."
-            "response": first in RESPONSE_STARTS,  # "Exactly." / "No, ..." answers someone outside the clip
+            # "Exactly." / "No, ..." answers someone outside the clip; "No way!", "Yes, yes!" is a reaction
+            "response": first in RESPONSE_STARTS and not EXCLAIMS.match(low),
             "outro": count_phrases(low, OUTRO_PHRASES) > 0,  # "to recap", "thanks for watching": the video is ending
             # "stop doing this", "the mistake that costs you": a loss or a warning hooks better than a promise
             "loss": sum(1 for t in toks if t in LOSS_WORDS) + count_phrases(low, LOSS_PHRASES),
@@ -65,7 +117,7 @@ def sentence_features(sentences: list[dict], words: list[dict]) -> list[dict]:
         h += 0.06 if f["story"] and not f["dangling"] else 0.0  # in the middle of the action beats an introduction
         h += 0.12 if 4 <= f["n"] <= 18 else (-0.05 if f["n"] > 18 else 0.0)
         h -= 0.35 * f["dangling"] + 0.10 * min(f["filler"], 2) + 0.30 * f["slow_open"] + 0.25 * f["response"]
-        h -= 0.30 * f["outro"]
+        h -= 0.30 * f["outro"] + 0.30 * f["ad"] + 0.25 * f["chores"]
         f["opener"] = max(0.0, min(1.0, h + 0.15))
         feats.append(f)
     for f, depth in zip(feats, topic_boundaries(sentences)):
@@ -306,14 +358,19 @@ def find_candidates(words: list[dict], sentences: list[dict], loud: Loudness, op
     return picked
 
 
-def refine_bounds(cand: dict, sentences: list[dict], video_duration: float) -> tuple[float, float]:
-    """Pad cut points into the surrounding pauses so words are never clipped."""
+def refine_bounds(cand: dict, sentences: list[dict], video_duration: float,
+                  loud: Loudness | None = None) -> tuple[float, float]:
+    """Pad cut points into the surrounding pauses so words are never clipped. With `loud`, a laugh or a shout right
+    after the last word (virality.reaction_after) stays in the clip."""
     i, j = cand["s0"], cand["s1"]
     start, end = sentences[i]["start"], sentences[j]["end"]
     prev_end = sentences[i - 1]["end"] if i > 0 else 0.0
     next_start = sentences[j + 1]["start"] if j + 1 < len(sentences) else video_duration
     start -= min(0.3, max(0.0, (start - prev_end) * 0.5))
-    end += min(0.5, max(0.05, (next_start - end) * 0.6))
+    from .virality import reaction_after
+
+    late = reaction_after(sentences, j, loud) if loud is not None else None
+    end = min(next_start - 0.02, late[1] + 0.3) if late else end + min(0.5, max(0.05, (next_start - end) * 0.6))
     return max(0.0, round(start, 3)), min(video_duration, round(end, 3))
 
 

@@ -300,7 +300,7 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
         if r.get("bounds"):
             start, end = r["bounds"]["start"], r["bounds"]["end"]
         elif r["s0"] >= 0:
-            start, end = cand_mod.refine_bounds(r, p.sentences, p.meta["duration"])
+            start, end = cand_mod.refine_bounds(r, p.sentences, p.meta["duration"], p.loud)
         else:
             start, end = r["start"], r["end"]
         stable = {}

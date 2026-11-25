@@ -468,8 +468,9 @@ class PublishWorker:
 
     def cancel(self, pub_id: str) -> None:
         pub = db.get_publication(pub_id)
-        if pub:  # kept in the row too, so a restart before the worker sees it still ends it as canceled
-            db.update_publication(pub_id, info={**(pub.get("info") or {}), "cancel_requested_at": time.time()})
+        if pub:  # kept in the row too, so a restart before the worker sees it still ends it as canceled; merged in
+            # one statement, so what the worker writes at the same moment (the outcome of the last part) stays
+            db.merge_publication_info(pub_id, {"cancel_requested_at": time.time()})
         self.cancelled.add(pub_id)
         timer = self.timers.pop(pub_id, None)
         if timer:  # waiting for the platform's time: nothing is running, so it is canceled right away

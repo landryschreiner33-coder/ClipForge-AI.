@@ -795,8 +795,10 @@ class Server:
 
     def stop(self) -> None:
         with self._lock:
-            proc, self.proc = self.proc, None
-            self.level, self.port, self.key = "", 0, ""
+            # The engine counts as running until its process has really ended: running() (read without the lock,
+            # by the status view and by GPU work waiting for the memory) must never say it stopped while the
+            # process still holds the model in memory. It is let go only after the wait.
+            proc = self.proc
             if proc is not None and proc.poll() is None:
                 proc.terminate()
                 try:
@@ -804,6 +806,8 @@ class Server:
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait(timeout=5)
+            self.proc = None
+            self.level, self.port, self.key = "", 0, ""
             rec = self._record() if proc is not None else None
             if rec and int(rec.get("pid") or 0) == proc.pid:
                 self.pid_file.unlink(missing_ok=True)

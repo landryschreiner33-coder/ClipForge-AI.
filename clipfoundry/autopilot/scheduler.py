@@ -1066,7 +1066,8 @@ def reschedule(item_id: str, planned_at: float) -> dict:
                 effective_connection_id(other) == account:  # each account keeps its own gap
             free = nearest_free(item, planned_at, settings)
             hint = f" The nearest free time is {_label(free, settings)}." if free else ""
-            raise Conflict(f"Less than {gap / 60:.0f} minutes from another {item['platform']} post on this account "
+            name = {"youtube": "YouTube", "tiktok": "TikTok"}.get(item["platform"], item["platform"])
+            raise Conflict(f"Less than {gap / 60:.0f} minutes from another {name} post on this account "
                            f"(“{other['title'][:40]}”).{hint}", free)
     local = _local(planned_at, settings)
     slot = {**(item.get("slot") or {}), "local": local.isoformat(timespec="minutes"), "note": "chosen by you"}

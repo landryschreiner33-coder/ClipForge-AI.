@@ -163,7 +163,12 @@ def optimize_bounds(r: dict, sentences: list[dict], loud: Loudness, duration: fl
     else:
         q = loud.quietest(max(prev_end, first - 0.6), max(prev_end, first - 0.02))
         start = max(q, first - 0.35)
-    if gap_after < 0.1:
+    late = virality.reaction_after(sentences, j, loud)
+    if late:
+        # a laugh or a shout a moment after the last word belongs to the clip: end once it is over
+        end = min(next_start - 0.02, late[1] + 0.3)
+        reasons.append(f"keeps the reaction {late[0] - last:.1f} s after the last word")
+    elif gap_after < 0.1:
         end = last + max(0.0, gap_after / 2)
         reasons.append("the next words follow immediately (tight cut)")
     else:

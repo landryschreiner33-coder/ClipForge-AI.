@@ -1259,6 +1259,12 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .total { display: grid; gap: 2px; }
 .total b { font-family: var(--font-display); font-size: 1.5rem; font-variant-numeric: tabular-nums; }
 .total span { font-size: var(--fs-tiny); color: var(--text-3); }
+.compare { display: grid; gap: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.compare-head { justify-content: space-between; align-items: flex-end; gap: var(--s3); }
+.compare-place { display: grid; gap: var(--s2); }
+.compare-place h4 { margin: 0; }
+.compare td .tiny { margin-top: 4px; min-width: 24ch; max-width: 40ch; }
+.compare .small .icon { width: 14px; height: 14px; vertical-align: -2px; }
 .stats { display: grid; gap: 4px; }
 .pub-stats { border-top: 1px solid var(--line); margin-top: var(--s2); padding-top: var(--s2); display: grid; gap: 6px; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
@@ -1284,6 +1290,13 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .flags { margin: 0; padding-left: 18px; font-size: var(--fs-small); line-height: 1.5; }
 .flags .warn { color: var(--warn); }
 .flags .block { color: var(--bad); }
+/* Why a clip ranks where it does: one line per area, marked good / weak / not measured */
+.rank-reasons { margin: 6px 0; padding: 0; list-style: none; font-size: var(--fs-small); line-height: 1.5; }
+.rank-reasons li { padding-left: 18px; position: relative; }
+.rank-reasons li::before { position: absolute; left: 0; font-weight: 700; }
+.rank-reasons .good::before { content: "+"; color: var(--good); }
+.rank-reasons .weak::before { content: "−"; color: var(--warn); }
+.rank-reasons .unknown::before { content: "·"; color: var(--text-3); }
 .scorebars { display: grid; gap: 7px; }
 .scorebar { display: grid; grid-template-columns: 110px minmax(0, 1fr) 36px; gap: var(--s2); align-items: center; font-size: var(--fs-tiny); color: var(--text-2); }
 .scorebar.wide { grid-template-columns: 150px minmax(0, 1fr) 36px; }
@@ -1660,3 +1673,7 @@ html[data-page-hidden="true"] .pulse, html[data-page-hidden="true"] .inline-spin
 @media (max-width: 420px) {
   .btn { white-space: normal; text-align: center; }
 }
+
+/* Title options: which of the three kinds each is (Searchable, Curiosity, The moment) */
+.kind-tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: var(--fs-tiny); font-weight: 700;
+  background: var(--primary-tint); color: var(--primary); vertical-align: 1px; }

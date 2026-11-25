@@ -23,8 +23,8 @@ from .. import db
 from . import hooks as hk
 from . import llm
 from .common import log
-from .text_utils import (PAYOFF_PHRASES, STOPWORDS, build_sentences, clean_text, content_tokens, count_phrases,
-                         keywords, tokens)
+from .text_utils import (OPEN_LOOP_PHRASES, PAYOFF_PHRASES, STOPWORDS, build_sentences, clean_text, content_tokens,
+                         count_phrases, keywords, tokens)
 
 TITLE_MAX = 100          # YouTube's limit; TikTok has no separate title
 CAPTION_MAX = 2200       # TikTok's caption limit (YouTube descriptions allow 5000 bytes)
@@ -84,8 +84,9 @@ CLAIM_WORDS = {"viral", "shocking", "insane", "banned", "exposed", "secret", "se
                "everyone", "nobody", "ever", "only", "first", "last", "famous", "scientists", "experts", "study",
                "research", "doctors", "billionaire", "millionaire"}
 NUMBER_WORDS = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
-                "twelve", "twenty", "thirty", "forty", "fifty", "hundred", "thousand", "million", "billion", "percent",
-                "half", "double", "twice", "dozen"}
+                "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+                "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand",
+                "million", "billion", "percent", "half", "double", "twice", "dozen"}
 EDITABLE = {"titles", "recommended_title", "captions", "hashtags", "description", "cta", "hook", "title", "caption"}
 
 
@@ -176,6 +177,24 @@ def _payoff_sentence(sents: list[str]) -> str:
     return sents[-1] if sents else ""
 
 
+LEANS_ON = {"if", "when", "because", "while", "although", "though", "since", "unless", "until", "whereas", "that's",
+            "it's", "there's", "they're", "he's", "she's", "then", "and", "but", "or", "so", "also", "which", "that",
+            "it", "this", "these", "those", "he", "she", "they", "him", "her", "them", "his", "its", "there", "same",
+            "anyway", "yeah", "right", "exactly", "well", "plus"}
+
+
+def stands_alone(title: str) -> bool:
+    """Whether a line makes sense as a title with nothing around it: it does not open on a word that points at
+    something said before ("That's the setting", "It does not") or on a clause waiting for its other half ("If you
+    upload in ten eighty"). Questions are kept ("Do you know what he did?" asks; it does not point back)."""
+    toks = tokens(title)
+    if not toks:
+        return False
+    if toks[0] in ("even", "only", "just", "especially") and len(toks) > 1 and toks[1] in LEANS_ON:
+        toks = toks[1:]   # "Even if you recorded in ten eighty" waits for its other half too
+    return title.rstrip().endswith("?") or toks[0] not in LEANS_ON
+
+
 def _title_score(t: str) -> float:
     s = hk._hookiness(t, 0.0)  # noqa: SLF001
     n = len(t)
@@ -243,7 +262,13 @@ def extract(sents: list[str], hook: str, hooks_alt: list[str], category: str,
     # complete short sentences first, then the best clause of a long one; a cut-off sentence only as a last resort
     full = [t for t in pool if len(t.split()) <= 12]
     clauses = [f for f in (_fragment(t) for t in pool if len(t.split()) > 12) if len(f.split()) <= 12]
-    titles = _distinct([_clean_title(t) for t in full + clauses], 3)
+    # a title is read on its own: "That's the setting" or "If you upload in ten eighty" says nothing without the clip
+    alone = [t for t in full + clauses if stands_alone(t)]
+    titles = _distinct([_clean_title(t) for t in alone], 3)
+    if len(titles) < 3 and kws:
+        titles = _distinct(titles + [_keyword_title(kws)], 3)
+    if len(titles) < 3:
+        titles = _distinct(titles + [_clean_title(t) for t in full + clauses], 3)
     if len(titles) < 3 and kws:
         titles = _distinct(titles + [_keyword_title(kws)], 3)
     if len(titles) < 3:
@@ -272,6 +297,154 @@ def extract(sents: list[str], hook: str, hooks_alt: list[str], category: str,
         "description": description, "cta": cta,
         "hook": clean_text(hook).strip().strip("“”\""), "hooks": [h for h in [hook, *hooks_alt] if h][:4],
     }
+
+
+# ------------------------------------------------------------------ three kinds of title, per destination
+# Every package offers a Searchable title (the topic's words first: YouTube's own advice is to "put the most
+# important words near the beginning"), a Curiosity title (a question or open loop the clip answers) and The moment
+# (what happens or is said, specifically). All three come from the clip's own words. See
+# docs/clipforge/CLIP_QUALITY_RESEARCH.md for which parts are platform rules and which are hypotheses.
+KINDS = {"search": "Searchable", "curiosity": "Curiosity", "moment": "The moment"}
+NUMBERISH = re.compile(r"\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|hundred|thousand|million|first|"
+                       r"last)\b", re.I)
+
+
+def topics(clip_text: str, global_df: Counter | None = None, n_docs: int = 1) -> list[str]:
+    """The clip's topic words (what a Searchable title leads with): specific to the clip, not weak or generic."""
+    kws = keywords(clip_text, global_df, n_docs, top=10) if clip_text else []
+    return [k for k in kws if k.isalpha() and len(k) > 3 and k not in WEAK_TAGS and not generic_tag(k)
+            and not k.endswith("ly") and k not in NUMBER_WORDS][:3]   # "Eighty: ..." names no topic
+
+
+def title_kind(title: str, kws: list[str]) -> str:
+    """Which of the three kinds a title is: "curiosity" (a question or an open loop), "search" (one of the clip's
+    topic words among its first four words), else "moment"."""
+    low = title.lower()
+    if title.rstrip().endswith("?") or count_phrases(low, OPEN_LOOP_PHRASES):
+        return "curiosity"
+    if kws and any(k in tokens(title)[:4] for k in kws[:3]):
+        return "search"
+    return "moment"
+
+
+def _make_kind(kind: str, sents: list[str], kws: list[str], taken: list[str]) -> str:
+    """A title of this kind from the clip's sentences that is not like one already offered ("" when none)."""
+    def free(t: str) -> bool:
+        return bool(t) and len(t.split()) >= 3 and not any(_similar(t, o) for o in taken) and len(t) <= TITLE_MAX \
+            and stands_alone(t.split(": ", 1)[-1])
+
+    if kind == "curiosity":
+        pool = [x for x in sents if x.rstrip().endswith("?") or count_phrases(x.lower(), OPEN_LOOP_PHRASES)]
+    elif kind == "moment":
+        payoff = _payoff_sentence(sents)
+        pool = ([payoff] if payoff else []) + [x for x in sents if NUMBERISH.search(x)]
+    else:  # the topic word early: a line that already starts with it, else "Topic: the line"
+        pool = []
+        for k in kws[:3]:
+            lines = [_clean_title(x) for x in sents if k in tokens(_fragment(x))]
+            pool += [t for t in lines if k in tokens(t)[:4]]
+            pool += [f"{k.capitalize()}: {t[:1].lower() + t[1:]}" for t in lines if len(t.split()) <= 10]
+    for t in pool:
+        t = _clean_title(t) if kind != "search" else t[:TITLE_MAX].rstrip()
+        if free(t) and not t.endswith("...") and title_kind(t, kws) == kind:
+            return t
+    return ""
+
+
+def ensure_kinds(pkg: dict, sents: list[str], kws: list[str], keep: frozenset[str] = frozenset()) -> dict:
+    """Make the three options one of each kind where the clip allows it: an option whose kind repeats another's is
+    replaced by one of the missing kind. The recommended title and the titles in `keep` (a model's, already checked
+    against the transcript) are never replaced."""
+    titles = list(pkg.get("titles") or [])
+    rec = int(pkg.get("recommended_title") or 0)
+    for kind in KINDS:
+        have = [title_kind(t, kws) for t in titles]
+        if kind in have:
+            continue
+        spare = [i for i, k in enumerate(have) if i != rec and titles[i] not in keep and have.count(k) > 1]
+        if not spare and len(titles) < 3:
+            new = _make_kind(kind, sents, kws, titles)
+            if new:
+                titles.append(new)
+            continue
+        if not spare:
+            continue
+        new = _make_kind(kind, sents, kws, [t for i, t in enumerate(titles) if i != spare[-1]])
+        if new:
+            titles[spare[-1]] = new
+    pkg["titles"] = titles
+    return pkg
+
+
+def title_guide(pkg: dict, kws: list[str] | None = None) -> dict:
+    """The options labelled by kind, and the recommended one for each destination with a short reason.
+    {"options": [{"kind", "label", "text"}], "youtube": {"recommended", "why"}, "tiktok": {"recommended", "why",
+    "field"}}. YouTube's pick is the package's recommended title; TikTok has no title, so its pick is the line to open
+    the caption with."""
+    titles = list(pkg.get("titles") or [])
+    clip_text = str(pkg.get("clip_text") or "")
+    kws = kws if kws is not None else topics(clip_text)
+    options = [{"kind": title_kind(t, kws), "label": KINDS[title_kind(t, kws)], "text": t} for t in titles]
+    if not options:
+        return {"options": [], "youtube": None, "tiktok": None}
+    rec = max(0, min(len(titles) - 1, int(pkg.get("recommended_title") or 0)))
+    pays_off = bool(count_phrases(clip_text.lower(), PAYOFF_PHRASES))
+
+    def why(o: dict, where: str) -> str:
+        if o["kind"] == "search":
+            k = next((k for k in kws if k in tokens(o["text"])[:4]), "")
+            return (f"Puts the topic{f' (“{k}”)' if k else ''} first, where people searching see it"
+                    + ("; YouTube advises the most important words near the beginning." if where == "youtube" else "."))
+        if o["kind"] == "curiosity":
+            return "Opens a question the clip answers" + (" by the end" if pays_off else "") + \
+                (", which gives a reason to keep watching (TikTok says watch time counts most for many viewers)."
+                 if where == "tiktok" else ", so the title's promise is kept.")
+        return "Says what actually happens or is said, so the viewer gets exactly what the title promised."
+
+    order = {"curiosity": 0, "moment": 1, "search": 2}
+    tk = min(range(len(options)), key=lambda i: (order[options[i]["kind"]], i != rec))
+    return {"options": options,
+            "youtube": {"recommended": rec, "why": why(options[rec], "youtube"),
+                        "note": f"YouTube shows the first {YOUTUBE_HASHTAGS_SHOWN} hashtags above the title."},
+            "tiktok": {"recommended": tk, "why": why(options[tk], "tiktok"), "field": "the caption's first line"}}
+
+
+# ------------------------------------------------------------------ the fields each platform checks
+YOUTUBE_HASHTAGS_IGNORED = 60   # "more than 60 hashtags": YouTube ignores every hashtag on the video
+YOUTUBE_HASHTAGS_SHOWN = 3      # "up to three hashtags ... will appear by your video title"
+
+
+def field_problems(pkg: dict) -> dict:
+    """What each platform would refuse or ignore in this post text, checked before anything is posted:
+    {"youtube": [...], "tiktok": [...]} (empty lists: nothing). Upload-time checks (publish/youtube.py,
+    publish/tiktok.py) still run; this shows the problems while the text is being written."""
+    from ..publish.tiktok import caption_length
+
+    title = str(pkg.get("title") or "")
+    desc = str(pkg.get("description") or "")
+    caption = str(pkg.get("caption") or "")
+    tags = [str(t) for t in pkg.get("hashtags") or []]
+    yt, tt = [], []
+    if not title.strip():
+        yt.append("YouTube needs a title.")
+    if len(title) > TITLE_MAX:
+        yt.append(f"The title is {len(title)} characters; YouTube allows {TITLE_MAX}.")
+    if re.search(r"[<>]", title + desc):
+        yt.append("YouTube does not accept < or > in the title or description.")
+    if len(desc.encode("utf-8")) > 5000:
+        yt.append("The description is over YouTube's 5,000 bytes.")
+    if len(tags) > YOUTUBE_HASHTAGS_IGNORED:
+        yt.append(f"More than {YOUTUBE_HASHTAGS_IGNORED} hashtags: YouTube would ignore all of them.")
+    spaced = [t for t in tags if " " in t.strip()]
+    if spaced:
+        yt.append(f"Hashtags can't contain spaces: {', '.join(spaced[:3])}.")
+    full = (caption + (" " + " ".join(tags) if tags else "")).strip()
+    if caption_length(full) > CAPTION_MAX:
+        tt.append(f"The caption with its hashtags is {caption_length(full)} characters; TikTok allows {CAPTION_MAX}.")
+    dupes = [t for t in dict.fromkeys(t.lower() for t in tags) if [x.lower() for x in tags].count(t) > 1]
+    if dupes:
+        yt.append(f"Repeated hashtags: {', '.join(dupes[:3])}.")
+    return {"youtube": yt, "tiktok": tt}
 
 
 # ------------------------------------------------------------------ optional AI provider
@@ -377,6 +550,7 @@ def generate(sents: list[str], hook: str, hooks_alt: list[str], category: str, s
     source = "Extracted from the clip's transcript"
     settings = settings or {}
     style = poststyle.for_settings(settings)
+    extracted = set(pkg["titles"])
     if use_ai and settings.get("ai_provider", "heuristic") in llm.PROVIDERS and sents:
         try:
             pkg, used = _merge_ai(pkg, _ai_package(settings, sents, category, style), clip_text)
@@ -384,6 +558,8 @@ def generate(sents: list[str], hook: str, hooks_alt: list[str], category: str, s
                 source = f"{llm.provider_label(settings)}, checked against the transcript"
         except llm.ProviderError as exc:
             log.warning("post package: AI provider failed (%s); using the extracted text", exc)
+    kws = topics(clip_text, global_df, n_docs)
+    pkg = ensure_kinds(pkg, sents, kws, frozenset(t for t in pkg["titles"] if t not in extracted))  # a model's stay
     if style:
         pkg = poststyle.dress(pkg, style)   # the owner's way: case, emoji, hashtags; never a new word
         source += " · " + poststyle.note(style)
@@ -392,6 +568,8 @@ def generate(sents: list[str], hook: str, hooks_alt: list[str], category: str, s
     pkg["caption"] = pkg["captions"][0] if pkg["captions"] else ""
     pkg.update({"source": source, "generated_at": time.time(), "edited": False,
                 "checks": checks(pkg, clip_text), "clip_text": clip_text})
+    pkg["guide"] = title_guide(pkg, kws)
+    pkg["limits"] = field_problems(pkg)
     return pkg
 
 
@@ -465,6 +643,8 @@ def apply_edit(pkg: dict, patch: dict) -> dict:
             out[key] = _text(value, 160)
     out["edited"] = True
     out["checks"] = checks(out, out.get("clip_text", ""))
+    out["guide"] = title_guide(out)
+    out["limits"] = field_problems(out)
     return out
 
 

@@ -1,5 +1,56 @@
 # AI changelog
 
+## Final release, batch 2: clip quality, stream layouts, titles, Compare — 2026-11-25 (Claude Code)
+
+Second of the four batches in Landry's "ClipForge Final Release" prompt. Branch `claude/project-thread-hqwolr`, from
+the release line at `cf51120` (batch 1 merged). What is a platform rule, what is a hypothesis and what is tested:
+[docs/clipforge/CLIP_QUALITY_RESEARCH.md](docs/clipforge/CLIP_QUALITY_RESEARCH.md).
+
+- **Clip picking (Highlights and Full stories):** new reasons a moment is rejected or ranked lower, all found by
+  the benchmark below: an ad or sponsor read (`text_utils.AD_PHRASES`, flag `ad_read`), talking to chat ("thanks for
+  the follow", "gifted subs": `CHAT_CHORES`, flag `chat_chores`), two goodbye lines at the end (outro blocks), a
+  "he" or "she" the clip never introduces (`candidates.unnamed_person`; rejected when the line just before the clip
+  says who, so the version that starts there wins), "where was I" and "let me read chat" end a topic, a clip that
+  ends by circling one point (`text_utils.repeat_run`), and a "one thing" line at the end whose answer comes after
+  the cut (misleading cut). "Here is the one setting…" opens a question like "here's why". Phrase lists match whole
+  words (`text_utils.count_words`): "use code" is not "because code". "No way!" is a reaction, not a reply.
+- **Why a clip ranks where it does:** `virality.reasons` gives one line each for Opening, Context, Pacing, Payoff,
+  Audio and Framing, shown under the clip's Viral Potential.
+- **Suggested trims** (`pipeline/trims.py`, `GET /api/clips/{id}/trims`, editor card): a tighter start (warm-up
+  words), an end on the point (outro, chat talk, a reply, a repeat), a line cut in half, and the dead air Remove
+  pauses would take out. Remove pauses keeps up to a second after a question or "wait for it"
+  (`trims.tension_pause`).
+- **Live streams and long recordings:** a laugh, a shout or a crowd that starts within 3 s after the last word stays
+  in the clip, up to 3 s of it (`virality.reaction_after`, `deep.optimize_bounds`, `candidates.refine_bounds`), and
+  Remove pauses keeps it (`render.heard`); a clip that opens right after one gets a warning
+  (`virality.reaction_before`). A face cam moved mid-stream is found in its new place. Chat messages are not read
+  (a recording has none and ClipForge has no chat connection): documented as a blocker.
+- **Stream layouts:** Gameplay + Facecam, Picture-in-picture (the cam in a box at the top, left or right corner,
+  captions below it) and Gameplay only (the gameplay fills the frame, the cam is left out), per clip in the editor's
+  Layout tab and per live stream. The face cam is found in the corner, or you draw a box for one clip or lock it for
+  every clip of the video (`GET/PUT /api/projects/{id}/facecam`); a separate camera recording is lined up with the
+  video by comparing up to five minutes of both sounds, or by the offset you set (`pipeline/facecam.py`,
+  `/api/projects/{id}/camera`). When no cam is found the clip says so and falls back to your usual layout.
+- **Titles and hashtags:** three options per clip, one of each kind where the clip allows: Searchable, Curiosity and
+  The moment, all from the clip's own words; a recommended one per destination with a short reason; a title must make
+  sense alone ("That's the setting" is not offered); a number is never the searchable topic. Fields are checked
+  before posting (title 100 characters, YouTube description 5000 bytes, TikTok caption 2200 characters, hashtags).
+- **Posts → Results → Compare** (`autopilot/compare.py`, `GET /api/performance/compare?by=`, local only): your posts
+  by format, channel, niche or clip length, one platform and audience at a time, each read 48 hours after it went
+  out; medians; "clear" only with 5 posts on each side and a permutation test below 0.1, else "too few posts" or "no
+  clear difference yet"; the last 28 days against the 28 before; YouTube numbers only after you confirm Google's
+  approval for derived metrics; each group ends with a test to run next. Never a promise of views.
+- **Benchmark:** `scripts/clip_quality_benchmark.py` makes three synthetic videos (a podcast, a game stream, a
+  tutorial, read by espeak-ng), runs two versions' real clip finder on them and writes a before/after report:
+  [docs/clipforge/benchmarks/clip-quality-2026-11-25.md](docs/clipforge/benchmarks/clip-quality-2026-11-25.md).
+- **Privacy page:** the face cam box and the camera recording copy are listed under "Your videos and clips".
+- **Fixed after the GitHub check (three root causes):** the meaning vectors kept part of a group of equally strong
+  directions, and which part a maths library returns differs between computers, so clip picks differed on GitHub
+  (`semantic.whole_groups` keeps a tied group whole or not at all); Cancel on a post wrote back a stale copy of the
+  post's info and could lose what the upload wrote at the same moment (`db.merge_publication_info`); stopping the
+  built-in AI said it had stopped before its process ended (`builtin_ai.Server.stop` now lets go after the wait).
+  Each has a test that fails on the old code.
+
 ## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code)
 
 Landry's "ClipForge Final Release" prompt (November 24, 8:58 PM Chicago time) asks for four batches. This is the first.
