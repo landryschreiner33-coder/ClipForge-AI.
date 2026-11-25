@@ -1,0 +1,572 @@
++    delete the job on the worker too (it used to be marked cancelled here only, the worker kept working)."""
++    from clipfoundry import db
++    from clipfoundry.fullcloud import client, runner, usage
++    from clipfoundry.jobs import Worker
++
++    calls = []
++    monkeypatch.setattr(client.Client, "cancel", lambda self, j: calls.append(("cancel", j)) or {})
++    monkeypatch.setattr(client.Client, "delete", lambda self, j: calls.append(("delete", j)) or {})
++    _desk_worker(monkeypatch)
++    p, _ = _cloud_project()
++    runner.decide(p["id"])
++    run = usage.start("project", "worker.example", p["id"], {"seconds": 60, "cost": None, "known": False}, "local")
++    usage.update(run["id"], status="running")
++    runner._save(p["id"], phase="running", job="1a2b3c4d5e6f", run=run["id"], worker="worker.example")
++    Worker()._mark_cancelled("project", p["id"])
++    assert calls == [("cancel", "1a2b3c4d5e6f"), ("delete", "1a2b3c4d5e6f")]
++    assert runner.state(p["id"])["phase"] == "canceled" and db.get_project(p["id"])["status"] == "cancelled"
++    with db.connect() as conn:
++        assert conn.execute("SELECT status FROM cloud_runs").fetchone()[0] == "canceled"
++
++
++def test_the_price_must_be_a_number(desk):
++    from fastapi.testclient import TestClient
++
++    from clipfoundry import db
++    from clipfoundry.api import app
++
++    c, h = TestClient(app), {"X-ClipFoundry": "1"}
++    assert c.put("/api/processing", json={"price_per_hour": None, "month_hours": 10}, headers=h).status_code == 422
++    assert c.put("/api/processing", json={"price_per_hour": "abc"}, headers=h).status_code == 422
++    assert c.put("/api/processing", json={"price_per_hour": "0,44"}, headers=h).status_code == 200
++    assert db.get_settings()["worker_price_per_hour"] == 0.44
++
++
++# ------------------------------------------------------------------ the worker's own checks
++def test_the_worker_checks_its_key_and_the_size_before_reading_an_upload(desk, monkeypatch):
++    """FastAPI stores an upload before its route runs: without the key (or over the limit) nothing may reach the
++    worker's disk, so WorkerOnly answers before the app reads the body."""
++    from fastapi.testclient import TestClient
++
++    from clipfoundry import db
++    from clipfoundry.api import app
++    from clipfoundry.fullcloud import worker_api
++
++    monkeypatch.setenv(worker_api.KEY_ENV, KEY)
++    monkeypatch.setattr(worker_api, "MAX_UPLOAD_GB", 0.0001)  # about 100 KB, plus room for the choices
++    read = []
++    real = worker_api.WorkerOnly.__call__
++
++    async def watching(self, scope, receive, send):
++        async def counting():
++            m = await receive()
++            read.append(len(m.get("body") or b""))
++            return m
++        return await real(self, scope, counting, send)
++
++    monkeypatch.setattr(worker_api.WorkerOnly, "__call__", watching)
++    c = TestClient(app)
++    files = {"source": ("v.mp4", b"x" * 1000, "video/mp4")}
++    r = c.post("/api/worker/v1/jobs", files=files)
++    assert r.status_code == 401 and read == []
++    big = {"source": ("v.mp4", b"x" * (worker_api._body_limit() + 10), "video/mp4")}
++    r = c.post("/api/worker/v1/jobs", files=big, headers={"Authorization": f"Bearer {KEY}"})
++    assert r.status_code == 413 and read == [] and "limit" in r.json()["detail"]
++
++    def chunked():  # no length given: stopped at the limit, not after the whole body
++        for _ in range(400):
++            yield b"y" * 4096
++
++    r = c.post("/api/worker/v1/jobs", content=chunked(),
++               headers={"Authorization": f"Bearer {KEY}", "Content-Type": "multipart/form-data; boundary=zz"})
++    assert r.status_code in (400, 413) and sum(read) <= worker_api._body_limit() + 70_000
++    assert not [p for p in db.list_projects() if (p.get("info") or {}).get("worker_job")]
++
++
++def test_unfetched_jobs_are_deleted_after_three_days_without_a_new_job(desk, monkeypatch):
++    from clipfoundry import config, db
++    from clipfoundry.fullcloud import worker_api
++
++    monkeypatch.setenv(worker_api.KEY_ENV, KEY)
++    monkeypatch.setattr(worker_api, "_tidying", __import__("threading").Event())
++    monkeypatch.setattr(worker_api, "TIDY_EVERY_S", 3600)
++    p = db.create_project("job", info={"worker_job": {"settings": {}}}, status="error")
++    pdir = config.projects_dir() / p["id"]
++    pdir.mkdir(parents=True)
++    (pdir / "source.mp4").write_bytes(b"v")
++    db.update_project(p["id"], source_path=str(pdir / "source.mp4"))
++    with db.connect() as conn:
++        conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (time.time() - 80 * 3600, p["id"]))
++    worker_api.start_tidying()  # what a worker does at start (api.lifespan), then every hour
++    for _ in range(50):
++        if not db.get_project(p["id"]):
++            break
++        time.sleep(0.1)
++    assert db.get_project(p["id"]) is None and not pdir.exists()
+diff --git a/tests/test_local_engines.py b/tests/test_local_engines.py
+index a748c8a..c299308 100644
+--- a/tests/test_local_engines.py
++++ b/tests/test_local_engines.py
+@@ -730,0 +731,55 @@ def test_picture_graphs_follow_the_official_examples():
++def test_flux2_keeps_a_characters_look_from_reference_pictures_and_z_image_from_words():
++    """As ComfyUI's FLUX.2 [klein] image-edit template: each reference picture is encoded and chained into both
++    sides of the guider with ReferenceLatent; the new picture keeps its own size."""
++    f, steps = graphs.picture(catalog.FLUX2_KLEIN_4B, "Mia in the rain", "", 1088, 1920, 3,
++                              references=["mia-a.png", "mia-b.png"])
++    _links_ok(f)
++    assert steps == "11" and f["r0l"]["inputs"] == {"image": "mia-a.png"} and f["r1l"]["inputs"]["image"] == "mia-b.png"
++    assert f["r0e"] == {"class_type": "VAEEncode", "inputs": {"pixels": ["r0l", 0], "vae": ["3", 0]}}
++    assert f["r0p"]["inputs"] == {"conditioning": ["4", 0], "latent": ["r0e", 0]}
++    assert f["r0n"]["inputs"] == {"conditioning": ["10", 0], "latent": ["r0e", 0]}
++    assert f["r1p"]["inputs"]["conditioning"] == ["r0p", 0] and f["r1n"]["inputs"]["conditioning"] == ["r0n", 0]
++    assert (f["9"]["inputs"]["positive"], f["9"]["inputs"]["negative"]) == (["r1p", 0], ["r1n", 0])
++    assert (f["5"]["inputs"]["width"], f["5"]["inputs"]["height"]) == (1088, 1920)
++    assert graphs.labels(f)["r0p"] == "Reading the reference pictures"
++    many, _ = graphs.picture(catalog.FLUX2_KLEIN_4B, "x", "", 64, 64, 1, references=[f"{k}.png" for k in range(9)])
++    assert sum(n["class_type"] == "LoadImage" for n in many.values()) == graphs.MAX_REFERENCES
++    z, _ = graphs.picture(catalog.Z_IMAGE_TURBO, "Mia in the rain", "", 768, 1344, 3, references=["mia-a.png"])
++    assert not any(n["class_type"] in ("LoadImage", "ReferenceLatent") for n in z.values())
++    assert graphs.takes_references(catalog.FLUX2_KLEIN_4B) and not graphs.takes_references(catalog.Z_IMAGE_TURBO)
++
++
++def test_a_picture_with_reference_pictures_sends_them_at_about_a_megapixel(app_settings, fake_comfy, monkeypatch,
++                                                                           tmp_path):
++    from PIL import Image
++
++    from clipfoundry import engines
++
++    monkeypatch.setattr(makers, "machine", lambda: mac(16))
++    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
++    fake_comfy.nodes |= {"VAEEncode", "ReferenceLatent"}
++    ref = tmp_path / "mia.jpg"
++    Image.new("RGB", (2000, 1000), "orange").save(ref)
++    copy = makers.reference_copy(ref, tmp_path / "copy.png")
++    with Image.open(copy) as im:
++        assert im.size == (1440, 720)  # about one megapixel, sides a multiple of 16
++    path = engines.make_image("Mia at the lighthouse", width=1080, height=1920, seed=2,
++                              references=[ref, tmp_path / "gone.png"])
++    sent = fake_comfy.prompts[-1]
++    assert sent["r0l"]["inputs"]["image"] == fake_comfy.uploads[-1] and "r1l" not in sent
++    note = json.loads(path.with_suffix(".json").read_text())
++    assert (note["references"], note["reference_mode"]) == (1, "pictures")
++    # a ComfyUI without the reference nodes still makes the picture, from the words alone
++    fake_comfy.nodes -= {"ReferenceLatent"}
++    uploads = len(fake_comfy.uploads)
++    path = engines.make_image("Mia at the lighthouse", width=1080, height=1920, seed=3, references=[ref])
++    note = json.loads(path.with_suffix(".json").read_text())
++    assert (note["references"], note["reference_mode"]) == (0, "words") and len(fake_comfy.uploads) == uploads
++    assert "r0l" not in fake_comfy.prompts[-1]
++    bad = tmp_path / "bad.png"
++    bad.write_bytes(b"not a picture")
++    fake_comfy.nodes |= {"ReferenceLatent"}
++    with pytest.raises(EngineError, match="reference picture could not be read"):
++        engines.make_image("Mia", width=512, height=512, seed=4, references=[bad])
++
++
+diff --git a/tests/test_look_examples.py b/tests/test_look_examples.py
+new file mode 100644
+index 0000000..1b73d17
+--- /dev/null
++++ b/tests/test_look_examples.py
+@@ -0,0 +1,92 @@
++"""Example pictures of the looks of an animated short, made by the picture maker on this computer
++(makers/look_examples.py): one job draws the same small scene in every look and keeps each as it comes; asking while
++it runs starts nothing new; Stop keeps the ones already made; with no picture maker the page is told why, and a maker
++that draws nothing fails the job with its reason. The picture maker is the fake of tests/test_studio_shorts_cast.py."""
++from __future__ import annotations
++
++from PIL import Image
++from test_studio_shorts_cast import FakePictures, drawn  # noqa: F401
++from test_studio_shorts_flow import _run, env  # noqa: F401
++
++
++def test_every_look_gets_an_example_from_the_picture_maker(env, drawn):  # noqa: F811
++    from clipfoundry.makers import look_examples
++    from clipfoundry.makers.looks import LOOKS
++
++    first = look_examples.start("local")
++    assert first["can_make"] and first["job"]["status"] == "queued" and first["examples"] == {}
++    again = look_examples.start("local")  # asked twice while it waits: still one job
++    assert len(env["queued"]) == 1 and again["job"] == first["job"]
++    done = _run(env, kinds=("look_examples",))
++    assert done[0]["status"] == "done" and done[0]["result"]["made"] == [look.id for look in LOOKS]
++    assert len(drawn.asked) == len(LOOKS)
++    for look, asked in zip(LOOKS, drawn.asked):
++        assert look_examples.IDEA in asked["prompt"] and asked["seed"] == look_examples.SEED
++        assert look.prompt.split(",")[0] in asked["prompt"]  # each look's own style words
++    view = look_examples.view()
++    assert set(view["examples"]) == {look.id for look in LOOKS} and view["job"]["status"] == "done"
++    with Image.open(look_examples.file("anime")) as im:
++        assert im.size == look_examples.SIZE
++    assert view["examples"]["anime"]["engine"] == "Fake pictures"
++    assert view["examples"]["anime"]["url"].startswith("/api/studio/shorts/look-examples/anime?v=")
++    look_examples.start("local")  # a new round once the last one finished
++    assert len(env["queued"]) == 1
++
++
++def test_stop_keeps_the_examples_already_made(env, drawn, monkeypatch):  # noqa: F811
++    from clipfoundry import db
++    from clipfoundry.makers import look_examples
++
++    look_examples.start("local")
++    job_id = env["queued"][0]
++    made = drawn.make_image
++
++    def make_then_stop(prompt, **kw):
++        path = made(prompt, **kw)
++        if len(drawn.asked) == 2:
++            look_examples.stop()  # the owner presses Stop while the second example is drawn
++        return path
++
++    monkeypatch.setattr(drawn, "make_image", make_then_stop)
++    _run(env, kinds=("look_examples",))
++    assert db.fetch("studio_jobs", job_id)["status"] == "canceled"
++    assert set(look_examples.view()["examples"]) == {"cartoon3d"}  # the second was drawn after Stop: not kept
++
++
++def test_no_picture_maker_says_why_and_a_maker_that_draws_nothing_fails_with_its_reason(env, drawn,
++                                                                                         monkeypatch):  # noqa: F811
++    import pytest
++
++    from clipfoundry import db
++    from clipfoundry.makers import look_examples
++
++    monkeypatch.setattr(drawn, "status", lambda role: {"ready": False, "engine": "", "why": "Not installed.",
++                                                       "model": ""})
++    view = look_examples.view()
++    assert not view["can_make"] and view["why"] == "Not installed."
++    with pytest.raises(look_examples.ExampleError):
++        look_examples.start("local")
++    assert env["queued"] == []
++
++    monkeypatch.setattr(drawn, "status", FakePictures.status.__get__(drawn))
++    monkeypatch.setattr(drawn, "make_image", lambda prompt, **kw: drawn.tmp / "nothing.png")
++    look_examples.start("local")
++    job = _run(env, kinds=("look_examples",))[0]
++    assert job["status"] == "failed" and "no picture" in job["error"]
++    assert look_examples.view()["examples"] == {}
++
++
++def test_the_page_reads_and_makes_examples_through_the_api(env, drawn):  # noqa: F811
++    from fastapi.testclient import TestClient
++
++    from clipfoundry.api import app
++
++    c = TestClient(app)
++    assert c.get("/api/studio/shorts/look-examples/anime").status_code == 404
++    assert c.post("/api/studio/shorts/look-examples").json()["job"]["status"] == "queued"
++    _run(env, kinds=("look_examples",))
++    got = c.get("/api/studio/shorts/look-examples").json()
++    assert len(got["examples"]) == 8
++    pic = c.get(got["examples"]["comic"]["url"])
++    assert pic.status_code == 200 and pic.headers["content-type"] == "image/jpeg"
++    assert c.post("/api/studio/shorts/look-examples/stop").json()["job"]["status"] == "done"
+diff --git a/tests/test_studio_prefs.py b/tests/test_studio_prefs.py
+index dd66915..6627ecf 100644
+--- a/tests/test_studio_prefs.py
++++ b/tests/test_studio_prefs.py
+@@ -80 +80,8 @@ def test_appearance_and_layouts_persist_per_device_with_conflicts_and_reset(api)
+-    for bad in ({"palette": "light"}, {"theme": "neon"}, {"text_size": "huge"}, {"office_size": 3}):
++    # your own accent colour: kept, and its readable shades come back with it (never stored: worked out each read)
++    own = api.put("/api/preferences/appearance", json={"value": {"accent": "custom", "accent_color": "#7f1fbf",
++                                                                 "accent_shades": {"primary": "#000000"}}}).json()
++    assert own["value"]["accent_color"] == "#7F1FBF" and own["value"]["accent_shades"]["primary"] != "#000000"
++    assert api.get("/api/preferences/appearance").json()["value"]["accent_shades"] == own["value"]["accent_shades"]
++    assert api.put("/api/preferences/appearance", json={"value": {"accent": "teal"}}).json()["value"]["accent"] == "teal"
++    for bad in ({"palette": "light"}, {"theme": "neon"}, {"text_size": "huge"}, {"office_size": 3},
++                {"accent_color": "red"}, {"accent_color": "#12345"}, {"accent": "gold"}):
+diff --git a/tests/test_studio_shorts_cast.py b/tests/test_studio_shorts_cast.py
+new file mode 100644
+index 0000000..b53aba5
+--- /dev/null
++++ b/tests/test_studio_shorts_cast.py
+@@ -0,0 +1,317 @@
++"""Characters and places of an animated short (makers/cast.py), the owner's timing and transitions between scenes
++(docs/clipforge/ANIMATED_SHORTS.md): every picture of a scene a character is in is drawn with the character's details
++and reference pictures; a change to the character makes only those pictures again; a change for one shot stays on
++that shot; locked details are never changed; a picture that lost a character's colours is flagged, with Looks right;
++the library keeps reusable characters, and each short keeps its own copy.
++
++The voice and motion are the stand-ins of tests/test_studio_shorts_flow.py; the picture maker is a fake that draws a
++plain-coloured picture and records what it was asked."""
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import pytest
++from PIL import Image
++from test_studio_shorts_flow import _fresh, _make, _plan, _run, _scenes, env  # noqa: F401
++
++SCRIPT = ("Mia walked to the lighthouse in the rain.\n\nThe door was open, and a light was on.\n\n"
++          "Inside, an old cat was waiting for her.")
++MIA = {"kind": "character", "name": "Mia", "appearance": "a ten-year-old girl with curly red hair",
++       "clothing": "a yellow raincoat and green boots", "colors": "yellow and green", "props": "a blue umbrella"}
++
++
++class FakePictures:
++    """The local picture maker: draws one colour, records each prompt and its reference pictures."""
++
++    class EngineError(Exception):
++        pass
++
++    def __init__(self, tmp: Path) -> None:
++        self.tmp = tmp
++        self.asked: list[dict] = []
++        self.colour = "yellow"
++        self.model = "flux2-klein-4b"
++
++    def status(self, role):
++        return {"ready": role == "image", "engine": "Fake pictures", "why": "", "model": self.model}
++
++    def make_image(self, prompt, **kw):
++        self.asked.append({"prompt": prompt, "references": [str(r) for r in kw.get("references") or []],
++                           "seed": kw.get("seed")})
++        path = self.tmp / f"made-{len(self.asked)}.png"
++        im = Image.new("RGB", (90, 160), "#2b4a8a")
++        im.paste(Image.new("RGB", (40, 60), self.colour), (25, 60))
++        im.save(path)
++        path.with_suffix(".json").write_text(json.dumps({"references": len(kw.get("references") or [])}))
++        return path
++
++
++@pytest.fixture()
++def drawn(env, monkeypatch):  # noqa: F811
++    from clipfoundry.makers import local_engines, shorts
++
++    fake = FakePictures(env["tmp"])
++    monkeypatch.setattr(local_engines, "module", lambda: fake)
++    monkeypatch.setattr(local_engines, "made_here", lambda path: False)
++    monkeypatch.setattr(shorts, "_status_cache", {})
++    return fake
++
++
++def _picture_file(env, name: str, colour: str) -> dict:
++    from clipfoundry.studio import uploads
++
++    path = env["tmp"] / name
++    Image.new("RGB", (300, 400), colour).save(path)
++    return uploads.store_file("local", path, name)
++
++
++def _prompts_for(fake: FakePictures, words: str) -> list[dict]:
++    return [a for a in fake.asked if words in a["prompt"]]
++
++
++def test_a_character_reaches_every_picture_with_its_reference_and_changes_only_its_shots(env, drawn):  # noqa: F811
++    from clipfoundry import db
++    from clipfoundry.makers import cast, shorts
++
++    project = _make(env, SCRIPT)
++    before = {s["id"]: s["picture_key"] for s in _scenes(project["id"])}
++    assert len(drawn.asked) == 3 and not any("Mia:" in a["prompt"] for a in drawn.asked)
++    ref = _picture_file(env, "mia.png", "#ffcc00")
++    member_id = shorts.cast_add(_fresh(project["id"]), {**MIA, "refs": [ref["id"]], "locked": ["appearance"]})
++    lib = cast.library("local")
++    assert [x["name"] for x in lib] == ["Mia"] and lib[0]["refs"][0]["asset_id"] == ref["id"]
++    _run(env)
++    drawn_with_mia = _prompts_for(drawn, "Mia: a ten-year-old girl with curly red hair; wearing a yellow raincoat")
++    assert len(drawn_with_mia) == 3  # every scene: the cast is in every shot until the owner picks
++    assert all(a["references"] == [str(Path(ref["path"]))] for a in drawn_with_mia)
++    scenes = _scenes(project["id"])
++    assert all(s["picture_key"] != before[s["id"]] for s in scenes)  # (the fake draws the same bytes)
++    assert all(s["info"]["picture"]["references"] == 1 for s in scenes)
++    # the owner takes Mia out of the second shot: only that picture is made again, without her
++    second = scenes[1]
++    n = len(drawn.asked)
++    shorts.update_scene(_fresh(project["id"]), second["id"], {"cast": []})
++    _run(env)
++    assert len(drawn.asked) == n + 1 and "Mia" not in drawn.asked[-1]["prompt"]
++    assert drawn.asked[-1]["references"] == []
++    view = shorts.view(_fresh(project["id"]))
++    assert [x["cast"] for x in view["scenes"]] == [[member_id], [], [member_id]]
++    assert view["scenes"][1]["cast_chosen"] and not view["scenes"][0]["cast_chosen"]
++    assert view["cast"][0]["library"] == "same" and view["cast"][0]["refs"] == [{"asset_id": ref["id"], "ok": True}]
++    # a change for one shot stays on that shot; the locked look is never changed
++    third = view["scenes"][2]
++    n = len(drawn.asked)
++    done = shorts.cast_apply(_fresh(project["id"]), member_id,
++                             {"clothing": "a red raincoat", "appearance": "a tall woman"}, third["id"])
++    assert done == {"changed": ["clothing"], "kept": ["appearance"]}
++    _run(env)
++    assert len(drawn.asked) == n + 1 and "wearing a red raincoat" in drawn.asked[-1]["prompt"]
++    assert "curly red hair" in drawn.asked[-1]["prompt"]
++    view = shorts.view(_fresh(project["id"]))
++    assert view["scenes"][2]["overrides"] == {member_id: {"clothing": "a red raincoat"}}
++    assert view["cast"][0]["clothing"] == MIA["clothing"]  # the other shots keep the yellow raincoat
++    # a change for every shot changes the short's copy, so only the shots Mia is in are made again
++    n = len(drawn.asked)
++    shorts.cast_apply(_fresh(project["id"]), member_id, {"props": "a lantern"})
++    _run(env)
++    assert len(drawn.asked) == n + 2 and all("with a lantern" in a["prompt"] for a in drawn.asked[n:])
++    view = shorts.view(_fresh(project["id"]))
++    assert view["cast"][0]["props"] == "a lantern" and view["cast"][0]["library"] == "differs"
++    assert cast.library("local")[0]["props"] == "a blue umbrella"  # the library keeps its own until saved
++    shorts.cast_to_library(_fresh(project["id"]), member_id)
++    assert cast.library("local")[0]["props"] == "a lantern"
++    assert shorts.view(_fresh(project["id"]))["cast"][0]["library"] == "same"
++    # the one-shot change can be taken back
++    shorts.cast_clear_override(_fresh(project["id"]), third["id"], member_id)
++    _run(env)
++    assert "wearing a yellow raincoat" in drawn.asked[-1]["prompt"]
++    # removing the character makes its pictures again without it and forgets it in the scenes
++    shorts.cast_remove(_fresh(project["id"]), member_id)
++    _run(env)
++    assert all("Mia:" not in a["prompt"] for a in drawn.asked[-2:])
++    assert all("cast" not in s["info"] or s["info"]["cast"] == [] for s in _scenes(project["id"]))
++    assert db.fetch("cast_library", lib[0]["id"])  # the library keeps Mia for other shorts
++
++
++def test_a_picture_that_lost_the_characters_colours_is_flagged_until_the_owner_says_it_looks_right(env, drawn):  # noqa: F811,E501
++    from clipfoundry.makers import shorts
++
++    drawn.colour = "#cc2222"  # the maker drew red, not Mia's yellow
++    project = shorts.create("local", "local", name="", options={"mode": "paste", "script": SCRIPT})
++    shorts.cast_add(_fresh(project["id"]), {**MIA, "locked": ["colors"]})
++    _run(env)
++    view = shorts.view(_fresh(project["id"]))
++    flags = view["scenes"][0]["drift"]["flags"]
++    assert view["scenes"][0]["drift"]["how"] == "colours" and not view["scenes"][0]["drift"]["ok"]
++    assert [f["why"] for f in flags] == ["There is no yellow in this picture.", "There is no green in this picture."]
++    assert flags[0]["name"] == "Mia" and flags[0]["detail"] == "yellow and green"
++    sid = view["scenes"][0]["id"]
++    shorts.update_scene(_fresh(project["id"]), sid, {"drift_ok": True})
++    assert shorts.view(_fresh(project["id"]))["scenes"][0]["drift"]["ok"]
++    # Make again draws it anew; a picture with her colours is not flagged
++    drawn.colour = "yellow"
++    shorts.update_scene(_fresh(project["id"]), sid, {"new_picture": True})
++    _run(env)
++    drift = shorts.view(_fresh(project["id"]))["scenes"][0]["drift"]
++    assert [f["why"] for f in drift["flags"]] == ["There is no green in this picture."] and not drift["ok"]
++    # the owner's own picture is never checked
++    own = _picture_file(env, "own.png", "#123456")
++    shorts.update_scene(_fresh(project["id"]), sid, {"picture_asset_id": own["id"]})
++    _run(env)
++    assert shorts.view(_fresh(project["id"]))["scenes"][0]["drift"] is None
++
++
++def test_the_look_check_asks_the_built_in_model_when_it_is_there(tmp_path):
++    from clipfoundry.makers import cast
++
++    path = tmp_path / "p.png"
++    Image.new("RGB", (90, 160), "yellow").save(path)
++    mia = {"id": "cm-1", **MIA}
++    asked = {}
++
++    def complete(settings, prompt, **kw):
++        asked.update(prompt=prompt, images=kw.get("images"))
++        return json.dumps({"checks": [{"name": "Mia", "matches": False, "differs": ["short black hair"]}]})
++
++    got = cast.check(path, [mia], {}, complete=complete)
++    assert got["how"] == "looked" and "Mia: a ten-year-old girl" in asked["prompt"]
++    assert asked["images"][0].startswith("data:image/jpeg;base64,")
++    assert got["flags"][-1] == {"member": "cm-1", "name": "Mia", "detail": "short black hair",
++                                "why": "ClipForge AI says this does not look like the description."}
++    assert [f["why"] for f in got["flags"][:-1]] == ["There is no green in this picture."]
++
++
++def test_a_change_in_the_owners_words_is_proposed_and_never_touches_locked_details(env, monkeypatch):  # noqa: F811
++    from clipfoundry.makers import cast
++
++    mia = {"id": "cm-1", **MIA, "locked": ["clothing"]}
++    seen = {}
++
++    def complete(settings, prompt, **kw):
++        seen["prompt"] = prompt
++        return json.dumps({"clothing": "a purple coat", "props": "a blue umbrella and a lantern",
++                           "note": "Gave her a lantern."})
++
++    got = cast.propose(mia, "give her a lantern and a purple coat", {}, complete=complete)
++    assert got["changes"] == {"props": "a blue umbrella and a lantern"} and got["kept"] == ["clothing"]
++    assert got["note"] == "Gave her a lantern. Locked, so not changed: clothes."
++    assert "- clothing (locked): a yellow raincoat" in seen["prompt"] and "<<<give her a lantern" in seen["prompt"]
++    with pytest.raises(cast.CastError, match="Say what"):
++        cast.propose(mia, "  ", {}, complete=complete)
++    with pytest.raises(cast.CastError, match="needs ClipForge AI"):
++        cast.propose(mia, "taller", {"ai_provider": "heuristic"})
++    with pytest.raises(cast.CastError, match="could not be read"):
++        cast.propose(mia, "taller", {}, complete=lambda *a, **k: "no json here")
++
++
++def test_details_are_checked_and_long_casts_fit_the_picture_idea(env):  # noqa: F811
++    from clipfoundry.makers import cast
++
++    with pytest.raises(cast.CastError, match="name"):
++        cast.clean({"kind": "character"}, "local")
++    with pytest.raises(cast.CastError, match="character or a place"):
++        cast.clean({"kind": "robot", "name": "x"}, "local")
++    with pytest.raises(cast.CastError, match="300"):
++        cast.clean({"name": "x", "appearance": "y" * 301}, "local")
++    with pytest.raises(cast.CastError, match="Lock one"):
++        cast.clean({"name": "x", "locked": ["hair"]}, "local")
++    with pytest.raises(cast.CastError, match="your pictures") as exc:
++        cast.clean({"name": "x", "refs": ["as-nope"]}, "local")
++    assert exc.value.status == 404
++    place = cast.clean({"kind": "place", "name": "Old lighthouse", "appearance": "white with a red top",
++                        "clothing": "ignored", "props": "gulls"}, "local")
++    assert place["clothing"] == "" and cast.describe(place) == \
++        "the setting is Old lighthouse: white with a red top; with gulls there"
++    locked_last = {**MIA, "locked": ["props"]}
++    assert cast.describe(locked_last).startswith("Mia: with a blue umbrella; a ten-year-old girl")
++    big = {"cast": [{"id": f"cm-{k}", "kind": "character", "name": f"N{k}", "appearance": "word " * 55}
++                    for k in range(6)]}
++    text = cast.prompt_text(big, {"info": {}})
++    assert len(text) <= cast.MAX_PROMPT + 6 and text.count("N") >= 6
++    assert cast.prompt_text({"cast": []}, {"info": {}}) == ""
++    assert cast.colour_words("Navy boots, GOLDEN hair, grey-green scarf") == ["blue", "gold", "grey", "green"]
++
++
++def test_the_owners_timing_and_transitions_reach_the_plan(env):  # noqa: F811
++    from clipfoundry.makers import shorts
++    from clipfoundry.studio import engine, video_flow
++
++    project = _make(env, SCRIPT)
++    first = _scenes(project["id"])[0]
++    voiced = first["info"]["voice"]["duration_ms"]
++    clip_before = first["clip_asset_id"]
++    shorts.update_scene(_fresh(project["id"]), first["id"], {"hold_ms": 2000})
++    _run(env)
++    plan = _plan(project["id"])
++    first = _scenes(project["id"], plan)[0]
++    assert first["clip_asset_id"] != clip_before and first["duration_ms"] >= voiced + shorts.END_MS + 2000 - 40
++    assert plan["clips"][0]["out_ms"] == voiced + shorts.TAIL_MS + 2000
++    assert shorts.view(_fresh(project["id"]))["scenes"][0]["hold_ms"] == 2000
++    with pytest.raises(shorts.ShortError, match="stays after its words"):
++        shorts.update_scene(_fresh(project["id"]), first["id"], {"hold_ms": 1234})
++    clips = [c["asset_id"] for c in plan["clips"]]
++    shorts.set_options(_fresh(project["id"]), {"transition": "dissolve"})
++    _run(env)
++    plan = _plan(project["id"])
++    assert plan["transition"]["type"] == "dissolve" and 120 <= plan["transition"]["ms"] <= shorts.TRANSITION_MS
++    assert [c["asset_id"] for c in plan["clips"]] == clips  # nothing was made again
++    project = _fresh(project["id"])
++    assert engine.validate(plan, video_flow._assets(project, plan)) == []
++    with pytest.raises(shorts.ShortError, match="cut, a dissolve or a fade"):
++        shorts.set_options(project, {"transition": "spin"})
++    options = shorts.options()
++    assert [t["id"] for t in options["transitions"]] == ["cut", "dissolve", "fade"]
++    assert options["holds_ms"] == [0, 500, 1000, 2000, 3000] and options["cast"]["max_cast"] == 6
++
++
++def test_the_api_keeps_a_library_and_a_shorts_cast(env, drawn):  # noqa: F811
++    from fastapi.testclient import TestClient
++
++    from clipfoundry.api import app
++    from clipfoundry.makers import shorts
++    from clipfoundry.studio import project_delete
++
++    ref = _picture_file(env, "ref.png", "#ffcc00")
++    with TestClient(app, base_url="http://127.0.0.1:8765") as api:
++        h = {"X-ClipFoundry": "1"}
++        r = api.post("/api/studio/cast", json={"name": "Rex", "appearance": "a small brown dog", "refs": [ref["id"]]},
++                     headers=h)
++        assert r.status_code == 200, r.text
++        rex = r.json()
++        assert rex["id"].startswith("chr-") and rex["library_id"] == rex["id"]
++        assert api.post("/api/studio/cast", json={"name": ""}, headers=h).status_code == 422
++        assert api.post("/api/studio/cast", json={"name": "X", "refs": ["as-nope"]}, headers=h).status_code == 404
++        r = api.patch(f"/api/studio/cast/{rex['id']}", json={"colors": "brown and white"}, headers=h)
++        assert r.status_code == 200 and r.json()["colors"] == "brown and white"
++        assert [x["name"] for x in api.get("/api/studio/cast", headers=h).json()["library"]] == ["Rex"]
++        # the library's reference pictures are kept when a project that also has the file is deleted
++        assert ref["id"] in project_delete.named_elsewhere("local", "full_video", "vid-x")
++        video = api.post("/api/studio/shorts", json={"mode": "paste", "script": SCRIPT}, headers=h).json()
++        _run(env)
++        r = api.post(f"/api/studio/shorts/{video['id']}/cast", json={"library_id": rex["id"]}, headers=h)
++        assert r.status_code == 200 and r.json()["short"]["cast"][0]["name"] == "Rex"
++        member = r.json()["short"]["cast"][0]
++        assert api.post(f"/api/studio/shorts/{video['id']}/cast", json={"library_id": rex["id"]},
++                        headers=h).status_code == 409
++        r = api.post(f"/api/studio/shorts/{video['id']}/cast/{member['id']}/propose", json={"words": "make him big"},
++                     headers=h)
++        assert r.status_code == 422 and "needs ClipForge AI" in r.json()["detail"]
