@@ -1,0 +1,509 @@
++  .look-card:hover .look-thumb .look-art { transform: scale(1.04); }
++}
+diff --git a/frontend/src/pages/stories.css b/frontend/src/pages/stories.css
+new file mode 100644
+index 0000000..5af9c26
+--- /dev/null
++++ b/frontend/src/pages/stories.css
+@@ -0,0 +1,91 @@
++/* Text Stories (pages/TextStories.tsx) */
++.stories { display: grid; gap: var(--s4); }
++.story-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
++.story-row {
++  display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: 12px;
++  border: 1px solid var(--line); background: var(--surface); color: var(--text); text-decoration: none;
++}
++.story-row:hover { border-color: var(--primary); }
++.story-row .grow { display: grid; gap: 2px; min-width: 0; }
++
++.story-step h2 { display: flex; align-items: center; gap: var(--s3); }
++.step-n {
++  display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; flex: none;
++  font-size: var(--fs-small); font-weight: 700; color: var(--primary);
++  border: 1.5px solid color-mix(in srgb, var(--primary) 60%, transparent);
++}
++.step-n.done { background: var(--primary); color: var(--on-primary, #0b0d14); border-color: var(--primary); }
++.step-n .icon { width: 16px; height: 16px; }
++.story-script { min-height: 220px; font-size: 1rem; line-height: 1.55; resize: vertical; }
++.story-name { max-width: 420px; }
++
++.story-work {
++  position: sticky; top: var(--s2); z-index: 3; display: flex; align-items: center; gap: var(--s3);
++  padding: var(--s3) var(--s4); border-radius: 12px; background: var(--raised); border: 1px solid var(--primary);
++}
++.story-work .grow { display: grid; gap: 6px; min-width: 0; }
++.story-bar { display: block; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
++.story-bar i { display: block; height: 100%; background: var(--primary); transition: width 400ms ease; }
++
++.story-writer {
++  display: grid; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: 12px;
++  border: 1px dashed color-mix(in srgb, var(--primary) 45%, transparent);
++  background: color-mix(in srgb, var(--primary) 6%, transparent);
++}
++.story-writer b .icon { margin-right: 6px; vertical-align: -2px; }
++.story-writer summary { cursor: pointer; color: var(--text-2); }
++.story-writer-new { margin-top: var(--s3); }
++
++.style-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
++.style-card {
++  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--s3); padding: var(--s3);
++  border-radius: 12px;
++  border: 1.5px solid var(--line-strong); background: var(--surface);
++}
++.style-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
++.style-card label { display: grid; gap: 4px; cursor: pointer; min-width: 0; }
++.style-card .hear-btn { min-width: 0; width: auto; }
++.style-card input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
++.style-card:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
++
++.story-rows { display: grid; gap: var(--s3); }
++.story-row-pick { display: grid; grid-template-columns: minmax(0, 180px) minmax(0, 1fr); gap: var(--s3); align-items: center; }
++.story-row-pick .label { font-weight: 600; font-size: var(--fs-small); }
++.story-row-pick input[type="range"] { width: 100%; accent-color: var(--primary); }
++.story-rules .row input[type="text"] { flex: 1; min-width: 0; }
++
++.bg-row {
++  display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3); border-radius: 12px;
++  border: 1px solid var(--line); background: var(--surface);
++}
++.bg-thumb { width: 72px; height: 128px; flex: none; border-radius: 8px; object-fit: cover; background: var(--raised); }
++.bg-trim input[type="number"] { width: 5.5rem; }
++.bg-pos { display: inline-flex; align-items: center; gap: var(--s2); }
++.bg-pos input[type="range"] { width: 140px; accent-color: var(--primary); }
++.bg-actions { display: grid; gap: var(--s2); justify-items: end; }
++.bg-actions .icon.up { transform: rotate(-90deg); }
++.bg-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--s3); }
++.bg-choice {
++  display: grid; gap: 4px; text-align: left; padding: var(--s2); border-radius: 12px; cursor: pointer;
++  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit;
++}
++.bg-choice:hover, .bg-choice:focus-visible { border-color: var(--primary); }
++.bg-choice img, .bg-swatch { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; display: block; }
++.bg-choices > .btn { align-self: start; justify-self: start; }
++
++.story-out { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--s4); align-items: start; }
++.story-video { width: 220px; aspect-ratio: 9 / 16; border-radius: 12px; background: #000; }
++.empty-video { display: grid; place-items: center; align-content: center; gap: var(--s2); border: 1px dashed var(--line-strong);
++  background: var(--raised); color: var(--text-3); }
++.story-stale { color: var(--warn); display: flex; gap: 6px; align-items: center; }
++.story-delete { justify-content: flex-end; }
++.story-out .stack-3 > .btn { justify-self: start; }
++
++@media (max-width: 720px) {
++  .style-grid { grid-template-columns: minmax(0, 1fr); }
++  .story-row-pick { grid-template-columns: minmax(0, 1fr); }
++  .story-out { grid-template-columns: minmax(0, 1fr); }
++  .story-video { width: 100%; max-width: 280px; }
++  .bg-row { flex-wrap: wrap; }
++}
++.stories .choice .icon { margin-right: 4px; vertical-align: -2px; }
+diff --git a/frontend/src/prefs.tsx b/frontend/src/prefs.tsx
+index 80f980a..56227e2 100644
+--- a/frontend/src/prefs.tsx
++++ b/frontend/src/prefs.tsx
+@@ -17 +17,6 @@ export type Appearance = { palette: "studio" | "midnight" | "graphite" | "plum";
+-  video_setup_mode: "ask" | "auto" };
++  video_setup_mode: "ask" | "auto";
++  /** The colour picked for the Custom accent (accent "custom"). */
++  accent_color: string;
++  /** Worked out by the server from accent_color: the shades that keep text readable on every palette. */
++  accent_shades?: AccentShades };
++export type AccentShades = { primary: string; primary_hover: string; primary_tint: string; adjusted: boolean };
+@@ -20 +25 @@ export const DEFAULT_APPEARANCE: Appearance = { palette: "studio", accent: "blue
+-  remember_style: true, video_setup_mode: "ask" };
++  remember_style: true, video_setup_mode: "ask", accent_color: "#6CCFF6" };
+@@ -67,0 +73,7 @@ function apply(a: Appearance) {
++  // the Custom accent: its readable shades (worked out by the server), or the preset's colours from theme.css
++  const custom = a.accent === "custom" ? a.accent_shades : undefined;
++  for (const [token, value] of [["--primary", custom?.primary], ["--primary-hover", custom?.primary_hover],
++    ["--primary-tint", custom?.primary_tint]] as const) {
++    if (value) root.style.setProperty(token, value);
++    else root.style.removeProperty(token);
++  }
+@@ -76,0 +89 @@ function clean(v: Partial<Appearance> & { theme?: unknown }): Appearance {
++  if (v.accent_shades) out.accent_shades = v.accent_shades;
+@@ -183,0 +197,5 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
++      // the Custom accent's readable shades come back from the server, for the colour that was saved
++      const back = r.value as Partial<Appearance>;
++      if (back.accent_shades) {
++        setAppearance((a) => (a.accent_color === back.accent_color ? { ...a, accent_shades: back.accent_shades } : a));
++      }
+diff --git a/frontend/src/processing.ts b/frontend/src/processing.ts
+new file mode 100644
+index 0000000..1c83256
+--- /dev/null
++++ b/frontend/src/processing.ts
+@@ -0,0 +1,72 @@
++/**
++ * Settings {U+2192} Processing and the project page's Full Cloud card (docs/clipforge/FULL_CLOUD.md): where Make clips runs
++ * (Local, Hybrid or Full Cloud), the owner's worker, worker time and its monthly limit, and the private test job.
++ */
++import { req } from "./api";
++
++export type ProcessingMode = "local" | "hybrid" | "full_cloud";
++export type WorkerStage = "ingest" | "transcribe" | "analyze" | "framing" | "captions" | "render";
++export const STAGE_NAMES: Record<WorkerStage, string> = {
++  ingest: "Getting the video", transcribe: "Transcription", analyze: "Finding the moments", framing: "Framing",
++  captions: "Captions", render: "Rendering",
++};
++export type WorkerCheck = { ok: true; version?: string; whisper: { model?: string; device?: string };
++  ai: string; busy?: boolean; jobs: { waiting?: number; finished?: number }; keep_hours?: number;
++  max_upload_gb?: number } | { ok: false; why: string };
++export type CloudRun = { id: string; kind: "project" | "test"; project_id: string; worker: string; status: string;
++  started_at: number; ended_at: number | null; seconds: number; uploaded_bytes: number; cost: number | null };
++export type WorkerTest = {
++  id: string; status: string; worker: string; started_at: number; ended_at: number | null; seconds: number;
++  ok?: boolean; problem?: string; note?: string; transcription_tried?: boolean; ran?: Partial<Record<WorkerStage, boolean>>;
++  how?: Record<string, string>; upload_seconds?: number; upload_mbps?: number; uploaded_bytes?: number;
++  worker_seconds?: number; round_trip_seconds?: number; cost?: number;
++  clip?: { seconds: number; width: number; height: number; plays: boolean; bytes: number };
++  worker_info?: { version?: string; whisper?: { model?: string; device?: string }; ai?: string };
++  job: { status: string; progress: number; message: string; error: string } | null;
++};
++export type Processing = {
++  mode: ProcessingMode;
++  modes: { id: ProcessingMode; name: string; about: string; ready: boolean; why: string }[];
++  pictures_on: string;
++  worker: { url: string; host: string; key_set: boolean; check: WorkerCheck | null };
++  price_per_hour: number | null; month_hours: number;
++  usage: { used_seconds: number; limit_hours: number; price_per_hour: number | null; cost: number | null;
++    resets_at: number; runs: CloudRun[] };
++  stages: WorkerStage[]; unsupported: string[]; test: WorkerTest | null; note?: string;
++};
++/** The project page's Full Cloud card (GET /api/projects/{id} {U+2192} cloud). */
++export type ProjectCloud = {
++  phase: "waiting" | "upload" | "running" | "fetching" | "done" | "failed" | "canceled" | "gone";
++  worker: string; uploaded: { what?: string; name: string; link: string; bytes: number }[];
++  estimate: { seconds: number | null; cost: number | null; price: number | null; known: boolean } | null;
++  seconds: number | null; cost: number | null; ran: Partial<Record<WorkerStage, boolean>>; how: Record<string, string>;
++  log: { at: number; text: string }[]; worker_info: { version?: string; whisper?: { model?: string; device?: string };
++    ai?: string }; unsupported: string[]; clips?: number | null;
++};
++
++export const processing = {
++  get: (check = false) => req<Processing>("GET", `/api/processing${check ? "?check=true" : ""}`),
++  set: (body: { mode?: ProcessingMode; price_per_hour?: number; month_hours?: number }) =>
++    req<Processing>("PUT", "/api/processing", body),
++  worker: (url: string, key?: string) => req<Processing>("POST", "/api/processing/worker",
++    key === undefined ? { url } : { url, key }),
++  test: () => req<{ test: WorkerTest }>("POST", "/api/processing/test"),
++  stopTest: () => req<{ test: WorkerTest | null }>("POST", "/api/processing/test/stop"),
++};
++
++export function fmtSpan(seconds: number | null | undefined): string {
++  const s = Math.max(0, Math.round(seconds || 0));
++  if (s < 60) return `${s} s`;
++  const m = Math.round(s / 60);
++  return m < 120 ? `${m} min` : `${(s / 3600).toFixed(1)} h`;
++}
++
++export function fmtMoney(n: number | null | undefined): string {
++  if (n === null || n === undefined) return "";
++  return n < 0.01 && n > 0 ? "under $0.01" : `$${n.toFixed(2)}`;
++}
++
++export function fmtBytes(n: number): string {
++  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
++  return n < 1024 ** 3 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`;
++}
+diff --git a/frontend/src/router.ts b/frontend/src/router.ts
+index ceb350b..205b0e7 100644
+--- a/frontend/src/router.ts
++++ b/frontend/src/router.ts
+@@ -33 +33 @@ const ALIASES: [RegExp, string][] = [
+-  [/^settings\/(?!(appearance|media|ai|apps|makers|cloud|defaults|integrations|advanced)$).*$/, "settings"],
++  [/^settings\/(?!(appearance|media|ai|apps|makers|processing|cloud|defaults|integrations|advanced)$).*$/, "settings"],
+@@ -37,2 +37,2 @@ const ALIASES: [RegExp, string][] = [
+-const PAGES = ["", "office", "missions", "projects", "publishing", "create", "project", "clip", "publish", "post", "setup",
+-  "settings", "brain", "dev", "accounts", "video"];
++const PAGES = ["", "office", "missions", "projects", "stories", "publishing", "create", "project", "clip", "publish",
++  "post", "setup", "settings", "brain", "dev", "accounts", "video"];
+diff --git a/frontend/src/shorts.ts b/frontend/src/shorts.ts
+index b5a0bb5..a851935 100644
+--- a/frontend/src/shorts.ts
++++ b/frontend/src/shorts.ts
+@@ -10 +10,3 @@ import type { Video } from "./studio";
+-export type EngineStatus = { ready: boolean; engine: string; why: string; available: boolean; remote?: boolean };
++export type EngineStatus = { ready: boolean; engine: string; why: string; available: boolean; remote?: boolean;
++  /** The picture model keeps a character's look from reference pictures (FLUX.2 klein); else from the words only. */
++  references?: boolean };
+@@ -40,0 +43,4 @@ export type ShortOptions = {
++  transitions: { id: ShortTransition; label: string }[];
++  /** How long a scene may stay after its words, in ms (the owner's timing). */
++  holds_ms: number[];
++  cast: CastOptions;
+@@ -42,0 +49,21 @@ export type ShortOptions = {
++export type ShortTransition = "cut" | "dissolve" | "fade";
++export type CastKind = "character" | "place";
++export type CastField = "appearance" | "clothing" | "colors" | "props";
++export type CastOptions = {
++  kinds: { id: CastKind; label: string }[]; fields: Record<CastKind, CastField[]>;
++  labels: Record<CastKind, Partial<Record<CastField, string>>>; lockable: (CastField | "references")[];
++  max_cast: number; max_refs: number; max_field: number; max_name: number; max_change: number;
++};
++/** A character or place: in the library (id = library_id) or a short's own copy (id "cm-{U+2026}"). */
++export type CastMember = {
++  id: string; library_id: string; kind: CastKind; name: string; appearance: string; clothing: string; colors: string;
++  props: string; locked: (CastField | "references")[]; refs: { asset_id: string; ok: boolean }[];
++  /** The words the picture maker reads. */
++  described: string;
++  /** A short's copy only: "same" as its library entry, "differs", or "none" (not in the library). */
++  library?: "same" | "differs" | "none";
++};
++export type CastFields = Partial<Pick<CastMember, "kind" | "name" | CastField | "locked">> & { refs?: string[] };
++export type CastProposal = { changes: Partial<Record<CastField, string>>; kept: CastField[]; note: string;
++  model: string };
++export type DriftFlag = { member: string; name: string; detail: string; why: string };
+@@ -54 +81,11 @@ export type ShortScene = {
+-  picture: { source: "engine" | "card" | "upload" | ""; engine: string; why: string };
++  picture: { source: "engine" | "card" | "upload" | ""; engine: string; why: string;
++    /** Reference pictures the maker drew with, and how many it was given (a words-only model uses none). */
++    references?: number; asked_references?: number };
++  /** The cast members in this shot (all of the short's unless the owner picked: cast_chosen). */
++  cast?: string[]; cast_chosen?: boolean;
++  /** Changes for this shot only, by member id. */
++  overrides?: Record<string, Partial<Record<CastField, string>>>;
++  /** How long it stays after its words, in ms. */
++  hold_ms?: number;
++  /** What the look check found in the current picture (null: not checked, or the owner's own picture). */
++  drift?: { flags: DriftFlag[]; how: "colours" | "looked" | ""; ok: boolean } | null;
+@@ -72,0 +110 @@ export type ShortView = {
++  transition?: ShortTransition; cast?: CastMember[];
+@@ -94,0 +133,11 @@ export type ScenePatch = {
++  hold_ms?: number;
++  /** Who is in the shot; all_cast puts everyone back. */
++  cast?: string[]; all_cast?: boolean;
++  /** The owner looked at a flagged picture and it is right. */
++  drift_ok?: boolean;
++};
++/** The picture maker's own examples of the looks (makers/look_examples.py), and the job that draws them. */
++export type LookExamples = {
++  examples: Record<string, { url: string; engine: string; at: number }>;
++  job: { status: string; progress: number; message: string; error: string } | null;
++  can_make: boolean; why: string;
+@@ -97 +146 @@ export type ShortOptionsPatch = Partial<{ voice: string; speed: number; look: st
+-  motion: ShortMotion }>;
++  motion: ShortMotion; transition: ShortTransition }>;
+@@ -99,0 +149 @@ const scenes = (videoId: string) => `/api/studio/shorts/${encodeURIComponent(vid
++const cast = (videoId: string) => `/api/studio/shorts/${encodeURIComponent(videoId)}/cast`;
+@@ -140,0 +191,28 @@ export const shorts = {
++  // ---- the picture maker's examples of the looks
++  lookExamples: () => req<LookExamples>("GET", "/api/studio/shorts/look-examples"),
++  makeLookExamples: () => req<LookExamples>("POST", "/api/studio/shorts/look-examples"),
++  stopLookExamples: () => req<LookExamples>("POST", "/api/studio/shorts/look-examples/stop"),
++  // ---- characters and places (makers/cast.py)
++  library: () => req<{ library: CastMember[] }>("GET", "/api/studio/cast"),
++  libraryAdd: (body: CastFields) => req<CastMember>("POST", "/api/studio/cast", body),
++  libraryChange: (id: string, body: CastFields) => req<CastMember>("PATCH", `/api/studio/cast/${encodeURIComponent(id)}`, body),
++  libraryDelete: (id: string) => req<{ deleted: boolean }>("DELETE", `/api/studio/cast/${encodeURIComponent(id)}`),
++  castAdd: (videoId: string, body: CastFields & { library_id?: string; save?: boolean }) =>
++    req<Video>("POST", cast(videoId), body),
++  castChange: (videoId: string, memberId: string, body: CastFields) =>
++    req<Video>("PATCH", `${cast(videoId)}/${encodeURIComponent(memberId)}`, body),
++  castRemove: (videoId: string, memberId: string) => req<Video>("DELETE", `${cast(videoId)}/${encodeURIComponent(memberId)}`),
++  castToLibrary: (videoId: string, memberId: string) =>
++    req<Video>("POST", `${cast(videoId)}/${encodeURIComponent(memberId)}/library`),
++  /** A reference picture: an upload of the owner's (asset_id with the page's upload_ids) or a scene's picture. */
++  castReference: (videoId: string, memberId: string, body: { asset_id?: string; upload_ids?: string[]; scene_id?: string }) =>
++    req<Video>("POST", `${cast(videoId)}/${encodeURIComponent(memberId)}/reference`, body),
++  /** What ClipForge AI would change for the owner's words; nothing is saved. */
++  castPropose: (videoId: string, memberId: string, words: string, sceneId?: string) =>
++    req<CastProposal>("POST", `${cast(videoId)}/${encodeURIComponent(memberId)}/propose`, { words, scene_id: sceneId }),
++  /** Changes for every shot (no sceneId) or for one shot. */
++  castApply: (videoId: string, memberId: string, changes: Partial<Record<CastField, string>>, sceneId?: string) =>
++    req<Video & { applied: { changed: CastField[]; kept: CastField[] } }>("POST",
++      `${cast(videoId)}/${encodeURIComponent(memberId)}/apply`, { changes, scene_id: sceneId }),
++  clearOverride: (videoId: string, sceneId: string, memberId: string) =>
++    req<Video>("DELETE", `${scenes(videoId)}/${encodeURIComponent(sceneId)}/overrides/${encodeURIComponent(memberId)}`),
+diff --git a/frontend/src/space.css b/frontend/src/space.css
+index 59db1d9..0d1de08 100644
+--- a/frontend/src/space.css
++++ b/frontend/src/space.css
+@@ -584,0 +585,19 @@ html[data-preview] *::-webkit-scrollbar { display: none; }
++
++/* ------------------------------------------------------------------ the robot office's Taser (office/taser.ts): an
++   easter egg; the spark and the robot's words, gone after a moment. Under Reduced motion it is a still spark. */
++.taser-btn { min-height: 30px; padding: 0 10px; gap: 6px; font-size: var(--fs-small, 0.8125rem); }
++.taser-btn.on { color: var(--warn); border-color: var(--warn); box-shadow: 0 0 10px -2px var(--warn); }
++.office-map:has(.taser-btn.on) .robot-hit { cursor: crosshair; }
++.taser-zap { position: absolute; z-index: 5; width: 0; height: 0; pointer-events: none; }
++.taser-zap svg { position: absolute; left: -32px; top: -40px; overflow: visible;
++  filter: drop-shadow(0 0 6px #8fe3ff) drop-shadow(0 0 2px #fff); animation: taser-flicker 0.5s steps(2) 2; }
++.taser-zap polyline { fill: none; stroke: #fff6b0; stroke-width: 3.5; stroke-linejoin: miter; }
++.taser-zap polyline.arc { stroke: #8fe3ff; stroke-width: 2.5; animation: taser-arc 0.18s steps(2) infinite; }
++.taser-words { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); white-space: nowrap;
++  padding: 4px 9px; border-radius: 10px; background: var(--raised); border: 1px solid var(--warn); color: var(--text);
++  font: 700 0.8125rem/1.25 "Courier Prime", ui-monospace, monospace; box-shadow: 0 4px 16px -6px #000;
++  animation: taser-pop 0.25s ease-out; }
++@keyframes taser-flicker { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
++@keyframes taser-arc { 0% { transform: translateY(0); } 100% { transform: translateY(-3px) scaleX(-1); } }
++@keyframes taser-pop { 0% { transform: translateX(-50%) scale(0.6); opacity: 0; }
++  100% { transform: translateX(-50%) scale(1); opacity: 1; } }
+diff --git a/frontend/src/styles.css b/frontend/src/styles.css
+index 87bbebe..8fb8688 100644
+--- a/frontend/src/styles.css
++++ b/frontend/src/styles.css
+@@ -1713,0 +1714,16 @@ html[data-page-hidden="true"] .pulse, html[data-page-hidden="true"] .inline-spin
++
++/* Settings {U+2192} Processing (components/ProcessingSettings.tsx) */
++.mode-pick.pr-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
++.mode-pick.pr-modes label { align-content: start; }
++.pr-modes label.off { cursor: default; opacity: 0.72; }
++.pr-form { align-items: flex-end; }
++.pr-form > .field { flex: 1 1 220px; min-width: 0; }
++.pr-modes .pr-why { color: var(--warn); }
++@media (max-width: 860px) { .mode-pick.pr-modes { grid-template-columns: minmax(0, 1fr); } }
++.pr-stages { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
++  gap: 6px var(--s3); font-size: var(--fs-small); }
++.pr-stages li { display: flex; align-items: baseline; gap: 6px; color: var(--text-3); min-width: 0; }
++.pr-stages li.on { color: var(--text); }
++.pr-stages li.on .icon { color: var(--good); }
++.pc-cloud .pc-log { max-height: 220px; overflow: auto; margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
++.pc-cloud .pc-log li { font-size: var(--fs-small); }
+diff --git a/frontend/src/textStories.ts b/frontend/src/textStories.ts
+new file mode 100644
+index 0000000..9d3e485
+--- /dev/null
++++ b/frontend/src/textStories.ts
+@@ -0,0 +1,95 @@
++/**
++ * Text Stories (clipfoundry/makers/textstory.py): a story read aloud over background video with big captions, and the
++ * voice previews and favourite voices every maker can use (makers/voice_styles.py). Every change answers with the
++ * whole story, so the page shows it at once.
++ */
++import { req, responseError } from "./api";
++
++export type StoryVoice = { voice: string; style: string; speed: number; tone: number };
++export type VoiceStyle = { id: string; name: string; about: string; speed: number; tone: number };
++export type VoiceChoice = { id: string; name: string; lang: string; gender: string; about: string; engine: string };
++export type Pronunciation = { word: string; say: string };
++export type StoryCaptions = { style: string; position: string; size: string };
++export type Background = {
++  id: string; asset_id?: string; builtin?: string; in_s: number; out_s: number; loop: boolean; focus_x: number;
++  focus_y: number; why: string;
++  /** shown only: */
++  filename?: string; name?: string; missing?: boolean; duration?: number; width?: number; height?: number;
++  has_thumbnail?: boolean;
++};
++export type Made = { ready: boolean; current: boolean; duration?: number; at?: number; size?: number; url: string };
++export type StoryStatus = "draft" | "writing" | "voicing" | "rendering" | "ready" | "failed";
++export type Story = {
++  id: string; name: string; own_name: string; title: string; script: string; words: number; seconds: number;
++  voice: StoryVoice; pronunciations: Pronunciation[]; captions: StoryCaptions; backgrounds: Background[];
++  status: StoryStatus; stage: "" | "write" | "preview" | "export"; message: string; error: string; working: boolean;
++  job: { progress: number; message: string } | null;
++  narration: { ready: boolean; voice?: string; fallback?: string; timing?: string; rule?: string; duration?: number };
++  made: { preview: Made; export: Made };
++  writer: { notes: string[] | null; model: string | null; local: boolean | null };
++  project_id: string; updated_at: number;
++  steps: { script: boolean; voice: boolean; background: boolean; preview: boolean; export: boolean };
++};
++export type StoryListItem = { id: string; name: string; status: StoryStatus; words: number; exported: boolean;
++  updated_at: number };
++export type Favourite = { voice: string; speed: number; tone: number; style: string };
++export type StoryOptions = {
++  voices: VoiceChoice[]; default_voice: string; styles: VoiceStyle[]; tone_range: [number, number];
++  speed_range: [number, number];
++  captions: { styles: { id: string; label: string }[]; positions: { id: string; label: string }[];
++    sizes: { id: string; label: string }[] };
++  builtins: { id: string; name: string; colors: string[] }[];
++  writer: { configured: boolean; label: string; local: boolean };
++  tones: { id: string; label: string }[]; lengths: { id: string; label: string }[];
++  favourites: Record<string, Favourite>;
++  limits: { max_words: number; max_title: number; wpm: number; max_backgrounds: number };
++  links: { ai: string; makers: string };
++};
++export type BackgroundChoice = { asset_id: string; filename: string; duration: number; width: number; height: number;
++  score: number; why: string };
++export type StoryPatch = Partial<{ name: string; title: string; script: string; voice: Partial<StoryVoice>;
++  pronunciations: Pronunciation[]; captions: Partial<StoryCaptions>; backgrounds: Partial<Background>[] }>;
++
++const BASE = "/api/studio/text-stories";
++const one = (id: string) => `${BASE}/${encodeURIComponent(id)}`;
++
++export const textStories = {
++  options: () => req<StoryOptions>("GET", `${BASE}/options`),
++  list: () => req<{ stories: StoryListItem[] }>("GET", BASE),
++  create: (body: { name?: string; title?: string; script?: string } = {}) => req<Story>("POST", BASE, body),
++  get: (id: string) => req<Story>("GET", one(id)),
++  change: (id: string, body: StoryPatch) => req<Story>("PATCH", one(id), body),
++  remove: (id: string) => req<{ deleted: boolean }>("DELETE", one(id)),
++  pickBackgrounds: (id: string) => req<Story>("POST", `${one(id)}/backgrounds/auto`),
++  backgroundChoices: (id: string) =>
++    req<{ videos: BackgroundChoice[] }>("GET", `${BASE}/backgrounds?text_story_id=${encodeURIComponent(id)}`),
++  write: (id: string, body: { topic?: string; tone?: string; length?: string; change?: string }) =>
++    req<Story>("POST", `${one(id)}/write`, body),
++  preview: (id: string) => req<Story>("POST", `${one(id)}/preview`),
++  export: (id: string) => req<Story>("POST", `${one(id)}/export`),
++  stop: (id: string) => req<Story>("POST", `${one(id)}/stop`),
++  openInEditor: (id: string) => req<{ video_id: string }>("POST", `${one(id)}/open-in-editor`),
++  setFavourite: (scope: string, voice: Partial<StoryVoice> | null) =>
++    req<{ favourites: Record<string, Favourite> }>("PUT", "/api/studio/voices/favourites", { scope, voice }),
++  /** A few seconds of a voice at this speed and tone, as WAV, and what to tell the owner when another voice read it. */
++  hear: async (v: { voice: string; speed: number; tone: number; text?: string }):
++    Promise<{ blob: Blob; note: string }> => {
++    const res = await fetch("/api/studio/voices/preview", {
++      method: "POST", headers: { "Content-Type": "application/json", "X-ClipFoundry": "1" }, body: JSON.stringify(v),
++    });
++    if (!res.ok) throw await responseError(res);
++    let note = "";
++    try {
++      note = decodeURIComponent(res.headers.get("X-ClipForge-Note") || "");
++    } catch {
++      note = "Another voice read this preview.";
++    }
++    return { blob: await res.blob(), note };
++  },
++};
++
++/** "0:42", "1:05". */
++export function clock(seconds: number): string {
++  const s = Math.max(0, Math.round(seconds));
++  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
++}
+diff --git a/scripts/craft_check.py b/scripts/craft_check.py
+index b88b6c5..4520fe0 100644
+--- a/scripts/craft_check.py
++++ b/scripts/craft_check.py
+@@ -366,3 +365,0 @@ def browser_check(out: Path, project: dict, want) -> dict:
+-            got["editor_trace"] = trace = []
+-            t_click = time.time()
+-            text = ""
+@@ -371,3 +368 @@ def browser_check(out: Path, project: dict, want) -> dict:
+-                text, stop = editor_text(page, trace, t_click)
+-                if stop:
+-                    break
++                text = page.locator(".craft-editor").inner_text()
+@@ -380 +375 @@ def browser_check(out: Path, project: dict, want) -> dict:
+-            got["dialog"] = text[:800]
++            got["dialog"] = page.locator(".craft-editor").inner_text()[:800]
+@@ -391,2 +386,2 @@ def browser_check(out: Path, project: dict, want) -> dict:
+-                print("editor dialog:", got["dialog"], "\nframe:", got.get("load"), "\ntrace:",
+-                      json.dumps(trace)[:4000], "\nconsole:", got["console"][-40:], flush=True)
++                print("editor dialog:", got["dialog"], "\nframe:", got.get("load"), "\nconsole:",
++                      got["console"][-40:], flush=True)
+@@ -443,31 +437,0 @@ def browser_check(out: Path, project: dict, want) -> dict:
+-def editor_text(page, trace: list, t0: float) -> tuple[str, bool]:
+-    """The editor dialog's text, and whether to stop waiting. Each read has its own time limit, so a page that is
+-    busy (FilmCraft's editor loads on the page's own thread) is told apart from a dialog that closed; the trace says
+-    when the dialog's first line changed, each slow read, and what the page showed when a read did not answer."""
+-    t = time.time()
+-    try:
+-        text = page.locator(".craft-editor").inner_text(timeout=30000)
+-    except Exception as exc:  # noqa: BLE001 - what is on the page instead is the report
+-        took = round(time.time() - t, 1)
+-        try:
+-            body = page.locator("body").inner_text(timeout=30000)
+-            gone = page.locator(".craft-editor").count() == 0
+-            what = "the editor dialog is not on the page" if gone else f"the dialog did not answer in {took} s"
+-        except Exception as exc2:  # noqa: BLE001
+-            body, gone, what = "", False, f"the page did not answer in {round(time.time() - t, 1)} s: {exc2!r}"[:300]
+-        trace.append({"at": round(time.time() - t0, 1), "what": what, "error": repr(exc)[:200], "url": page.url,
+-                      "body": body[-1500:]})
+-        print("editor page:", json.dumps(trace[-1])[:2500], flush=True)
+-        unanswered = 0
+-        for e in reversed(trace):
+-            if "did not answer" not in e.get("what", ""):
+-                break
+-            unanswered += 1
+-        return "", gone or unanswered >= 3  # three in a row (minutes): report it rather than wait on
