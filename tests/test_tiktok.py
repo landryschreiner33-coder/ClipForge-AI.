@@ -256,3 +256,28 @@ def test_unreachable_platform_is_a_plain_error_not_a_crash(app_client, tt, monke
     r = app_client.get("/api/publish/tiktok/creator")
     assert r.status_code == 400 and "Could not reach TikTok" in r.json()["detail"]
     assert "internet connection" in r.json()["fix"]
+
+
+def test_a_cancel_that_comes_while_the_last_part_is_sent_never_says_nothing_was_published(app_client, tt, clip,
+                                                                                         monkeypatch):
+    """Publish Center: Cancel upload was pressed while the last part was on its way. That part still arrived, so
+    TikTok had the whole video and posted it; then TikTok asked ClipForge to wait a second before reading its
+    status, the Cancel cut that wait short and the post said "Upload cancelled. Nothing was published." Once every
+    part is sent, a Cancel can no longer stop TikTok: the status is read to the end and the post says it came too
+    late."""
+    from clipfoundry.publish import jobs, tiktok
+
+    c, data = clip
+    _connect(app_client, tt)
+    real = tiktok.upload_chunks
+
+    def cancel_while_the_last_part_is_sent(*args, **kwargs):
+        real(*args, **kwargs)
+        jobs.worker.cancel(jobs.worker.current)  # as the Cancel upload button does, while the row says "uploading"
+
+    monkeypatch.setattr(tiktok, "upload_chunks", cancel_while_the_last_part_is_sent)
+    tt.rate_limit_status, tt.retry_after = 1, "1"  # TikTok asks to wait a second before its status is read
+    pub = _wait(app_client, _post(app_client, c["id"]).json()["id"])
+    assert pub["status"] == "done", pub
+    assert "Nothing was published" not in pub["message"] and pub["message"].startswith(jobs.TOO_LATE_TIKTOK)
+    assert pub["info"]["cancel_requested_at"] > 0 and bytes(tt.uploads[pub["remote_id"]]["data"]) == data
