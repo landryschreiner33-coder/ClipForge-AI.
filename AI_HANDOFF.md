@@ -23,6 +23,21 @@ runs on your own ClipForge worker and the clips come back into the project.
   again from the local snapshot. `ffmpeg_utils.probe` has no `has_video` key (use `video_codec` and `width`). Every
   new Settings tab must also go in the settings pattern in `frontend/src/router.ts`. `covered.ts`: anything that
   covers the whole window and does heavy work on the page's thread should call `useCoverPage()`.
+- **Review fixes (Text Stories):** a job writes its result only through `textstory._patch_working` (the row must
+  still be working on the same job), so a late Stop or a newer job wins; `get()` settles a story whose job is gone
+  (`_unstick`). Exports are remembered by fingerprint in `text_story_exports` so they are never picked as a
+  background. `voice_styles.for_style` decides the voice a new style brings. Full Cloud deletes or fills a folder only
+  when `worker_api.own_folder` says it is a project's own folder in the projects folder. The Brain note about a written
+  story is recorded by `write_job` after `_patch_working` (`write_story(remember=False)` + `remember_story`).
+- **Transitions in shorts:** fit them with `shorts._fit_transition`, which uses `engine.transition_too_long` (the
+  editor's own check, also on whole frames); `plan["short"]["fitted"]` = {"from", "to"} remembers what ClipForge
+  changed so it is asked for again. `project_delete.drop_unnamed(ws, ids)` deletes files nothing names any more.
+- **TikTok after the last part:** once `upload_chunks` returns, TikTok has the whole video; `run_tiktok` reads the
+  status to the end (no stop cuts its waits) and a Cancel upload mark makes the message start with
+  `jobs.TOO_LATE_TIKTOK`. Never end a finished TikTok upload as cancelled: a planned post would be uploaded twice.
+- **Restoring work from a patch:** a patch made from a tree without a later fix removes that fix when applied (batch 4
+  lost `covered.ts`). After applying one, check every commit since the patch's base with
+  `git show <c> -- <file> | git apply --check -`: a forward patch that still applies is a change the head lacks.
 - **Blockers:** Full Cloud was tested with a real worker on the same machine, not a rented server; the cloud has no
   speech model, voice for the worker's transcription, FLUX.2 klein or AI model, so those parts are tested with a
   transcript, a built graph and placed answers.

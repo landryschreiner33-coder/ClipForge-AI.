@@ -2,8 +2,9 @@
 
 ## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code)
 
-Last of the four batches in Landry's "ClipForge Final Release" prompt (sections 1, 6, 7 and 8). Branch
-`claude/project-thread-hqwolr`, on top of batch 3.
+Last of the four batches in Landry's "ClipForge Final Release" prompt (sections 1, 6, 7 and 8). Built on
+`claude/project-thread-hqwolr`; brought over as a checked patch and shipped from `claude/project-thread-8ua98o` on top
+of batch 3 (PR #70).
 
 - **Space look** (section 1): the big black hole is traced per pixel round a Schwarzschild hole with the ship and
   camera orbiting it (`blackHoleOrbit.ts`, `shipArt.ts`), falling back to the lighter turning disk when frames are
@@ -15,10 +16,11 @@ Last of the four batches in Landry's "ClipForge Final Release" prompt (sections 
   uploaded (trimmed, looped, moved, replaced) or picked by ClipForge from usable videos, or a moving colour
   background; title card and highlighted captions; preview and 1080×1920 export as studio jobs with Stop.
 - **Animated shorts: characters and places** (section 7, `makers/cast.py`, `ShortCast.tsx`): a library of
-  characters and places with their details and up to 4 reference pictures each, used in every shot they are in
-  (FLUX.2 klein's reference graph when the picture model can, the words otherwise); "Describe a change" proposals
-  that show what would change before anything is applied; a colour drift check per scene against the character's
-  pictures; per-scene hold time and transitions. **Look examples** (`makers/look_examples.py`, `lookArt.tsx`):
+  characters and places with their details and up to 3 reference pictures each (up to 4 go with one picture),
+  used in every shot they are in (FLUX.2 klein's reference graph when the picture model can, the words otherwise);
+  "Describe a change" proposals that show what would change before anything is applied; a colour drift check per
+  scene against the character's pictures; a hold time per scene and one transition between scenes for the whole
+  short. **Look examples** (`makers/look_examples.py`, `lookArt.tsx`):
   every look card shows an example picture (a drawn one until your picture maker makes real ones with "Make
   examples with my picture maker"), with a larger preview of the chosen look.
 - **Full Cloud** (section 6, `fullcloud/`, [docs/clipforge/FULL_CLOUD.md](docs/clipforge/FULL_CLOUD.md),
@@ -33,11 +35,43 @@ Last of the four batches in Landry's "ClipForge Final Release" prompt (sections 
   on this computer.
 - **Privacy page**: characters and reference pictures, Text Stories, Full Cloud (what goes to the worker, what it
   keeps and for how long).
+- **Review fixes** (findings 7 to 25 of the batch's review, each with a test that fails on the code before it):
+  a Text Story never stays "working" after ClipForge stops (it says what happened and the button works again); Stop
+  that comes too late keeps nothing new; a script longer than one video holds is refused with the limit named; the
+  title's pronunciations count in the captions; a story's export is never offered back as a background, nor a
+  background whose file is gone; the editor link goes only to a project that still exists; a new style brings its
+  favourite voice unless the story keeps its own; deleting a story removes its Brain notes; a voice engine's copy is
+  kept with the story (and a preview of your own words is not kept); a failed render leaves no half file;
+  pronunciations match words with punctuation round them; a trimmed background loops as trimmed. Animated shorts:
+  "Nothing changed" when a change was already there, a change for one shot uses that shot's details, a held scene
+  refits its transition, an unchanged reference picture is not checked again, and the library has Delete.
+- **Full Cloud folder guard**: the worker's tidy-up and the desktop's fetch only touch a project's own folder inside
+  the projects folder (`worker_api.own_folder`); a row that names any other folder is left alone and logged.
+- **Second review of the fixes** (7 more problems, each with a test that fails before its fix): ClipForge AI's note
+  about a story is written only after the story kept the writing (`writer.remember_story`), so a story deleted or
+  stopped meanwhile gets none; a page that looks at a story in the middle of a Stop settles it as stopped, and a
+  story is settled in one conditional write (`_settle`), never over a result; a dissolve is fitted with the editor's
+  own check on whole frames (`engine.transition_too_long`), and one ClipForge shortened or turned into a cut comes
+  back when the scenes are long enough again (`plan.short.fitted`); Apply to every shot also reaches a shot with its
+  own words for that detail; deleting a library entry deletes its reference pictures that nothing else uses
+  (`project_delete.drop_unnamed`); a Full Cloud project outside its own folder is refused before anything is sent,
+  and one refused when its clips come back ends its job, so Process again can run it here. A last look found 3
+  smaller ones, also fixed with tests: From my library marks the entry's pictures as handed out to the short
+  (`cast.hold_refs`), so a Delete at the same moment keeps them; a transition the owner sets in the editor clears
+  what ClipForge fitted; a Stop sent from a page that still showed a finished job never stops a newer one.
+- **Fact-check of the release report** (every sentence checked against the code, each finding checked again by a
+  second reader) found one real problem, fixed with 2 tests that fail before it: a TikTok upload stopped after its last
+  part (Cancel upload in Publish Center, or Stop all or a job cancel on a planned post) while TikTok asked to wait
+  before its status was read: the wait was cut short, so the post said "Nothing was published", or went back for a
+  new time and would have been posted twice. Once every part is sent the status is now read to the end, and a late
+  Cancel upload says so (`jobs.TOO_LATE_TIKTOK`). **GitHub's Mac FilmCraft check** then timed out again: the batch 4
+  patch had been made from a tree without `covered.ts` (a684076) and the check's busy-page handling (72c4ab6), so
+  applying it removed them. Both are back, and the orbiting hole holds still behind the editor too.
 
 ## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code)
 
-Third of the four batches in Landry's "ClipForge Final Release" prompt (sections 4 and 5). Branch
-`claude/project-thread-hqwolr`, on top of batch 2.
+Third of the four batches in Landry's "ClipForge Final Release" prompt (sections 4 and 5). Built on
+`claude/project-thread-hqwolr` on top of batch 2; merged as PR #70 (`f1c0618`).
 
 - **Commands with real tools** (`brain/operations.py`): ClipForge AI can list posts (upcoming, problems, posted, in
   the Autopilot time zone), move a post to a time or the nearest free time, fix posts that are too close together
