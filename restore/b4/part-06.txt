@@ -1,0 +1,606 @@
++def short_cast_reference(video_id: str, member_id: str, body: CastReference) -> dict:
++    try:
++        shorts.cast_reference(_short(video_id), member_id, body.model_dump(exclude_none=True))
++    except video_flow.VideoError as exc:
++        raise _bad(exc) from exc
++    return _answer(video_id)
++
++
++class CastWords(BaseModel):
++    words: str = ""
++    scene_id: str | None = None
++
++
++@router.post("/api/studio/shorts/{video_id}/cast/{member_id}/propose")
++def short_cast_propose(video_id: str, member_id: str, body: CastWords) -> dict:
++    try:
++        return shorts.cast_propose(_short(video_id), member_id, body.words, body.scene_id)
++    except video_flow.VideoError as exc:
++        raise _bad(exc) from exc
++
++
++class CastApply(BaseModel):
++    changes: dict[str, str]
++    scene_id: str | None = None  # one shot; none: every shot
++
++
++@router.post("/api/studio/shorts/{video_id}/cast/{member_id}/apply")
++def short_cast_apply(video_id: str, member_id: str, body: CastApply) -> dict:
++    try:
++        done = shorts.cast_apply(_short(video_id), member_id, body.changes, body.scene_id)
++    except video_flow.VideoError as exc:
++        raise _bad(exc) from exc
++    return {**_answer(video_id), "applied": done}
++
++
++@router.delete("/api/studio/shorts/{video_id}/scenes/{scene_id}/overrides/{member_id}")
++def short_clear_override(video_id: str, scene_id: str, member_id: str) -> dict:
++    try:
++        shorts.cast_clear_override(_short(video_id), scene_id, member_id)
++    except video_flow.VideoError as exc:
++        raise _bad(exc) from exc
++    return _answer(video_id)
+diff --git a/clipfoundry/makers/shorts.py b/clipfoundry/makers/shorts.py
+index a17a4c6..4ba81e1 100644
+--- a/clipfoundry/makers/shorts.py
++++ b/clipfoundry/makers/shorts.py
+@@ -37 +37 @@ from ..studio.jobs import Canceled, Lease, enqueue, handler, on_stop
+-from . import local_engines, looks
++from . import cast, local_engines, looks
+@@ -47,0 +48,3 @@ SPEED_RANGE = (0.7, 1.4)
++TRANSITIONS = {"cut": "Cut", "dissolve": "Dissolve", "fade": "Fade through black"}
++TRANSITION_MS = 320    # a dissolve or fade between scenes (shorter when a scene is very short)
++HOLDS_MS = (0, 500, 1000, 2000, 3000)  # how long a scene may stay on screen after its words (the owner's timing)
+@@ -49 +52 @@ OPTION_FIELDS = ("mode", "tone", "length", "audience", "look", "voice", "speed",
+-                 "review")
++                 "review", "transition")
+@@ -51 +54,2 @@ DEFAULTS = {"mode": "paste", "tone": "curious", "length": "standard", "audience"
+-            "voice": "auto", "speed": 1.05, "music": "balanced", "captions": "", "motion": "camera", "review": False}
++            "voice": "auto", "speed": 1.05, "music": "balanced", "captions": "", "motion": "camera", "review": False,
++            "transition": "cut"}
+@@ -76 +80,2 @@ OWNER_FIELDS = ("narration", "picture_prompt", "picture_from", "picture_source",
+-OPTION_STATE = ("voice", "voice_used", "speed", "look", "music", "captions", "motion")
++OPTION_STATE = ("voice", "voice_used", "speed", "look", "music", "captions", "motion", "transition", "cast")
++APPLIED = ("captions", "music", "transition")  # plan parts a build sets again from the short's options
+@@ -239,0 +245,2 @@ def clean_options(raw: dict, base: dict | None = None) -> dict:
++        if key == "transition" and value not in TRANSITIONS:
++            raise ShortError("Choose a cut, a dissolve or a fade between the scenes.")
+@@ -251 +258 @@ def clean_options(raw: dict, base: dict | None = None) -> dict:
+-        if key in ("audience", "tone", "length", "look", "music", "captions", "mode", "motion") and \
++        if key in ("audience", "tone", "length", "look", "music", "captions", "mode", "motion", "transition") and \
+@@ -305,0 +313,5 @@ def options() -> dict:
++            "transitions": [{"id": k, "label": v} for k, v in TRANSITIONS.items()], "holds_ms": list(HOLDS_MS),
++            "cast": {"kinds": [{"id": k, "label": v} for k, v in cast.KINDS.items()],
++                     "fields": {k: list(v) for k, v in cast.FIELDS.items()}, "labels": cast.LABELS,
++                     "lockable": list(cast.LOCKABLE), "max_cast": cast.MAX_CAST, "max_refs": cast.MAX_REFS,
++                     "max_field": cast.MAX_FIELD, "max_name": cast.MAX_NAME, "max_change": cast.MAX_CHANGE},
+@@ -516,0 +529,3 @@ def picture_keys(scene: dict, short: dict) -> tuple[str, str]:
++    with_cast = cast.key(short, scene)  # "" without characters, so the pictures of older shorts stay theirs
++    if with_cast:
++        base = (*base[:4], with_cast)
+@@ -519,0 +535,17 @@ def picture_keys(scene: dict, short: dict) -> tuple[str, str]:
++def character_words(short: dict, scene: dict) -> str:
++    """Who and where the scene's picture shows, for the picture maker: the short's characters and places in this
++    scene (makers/cast.py), or, for a short without any, the main character ClipForge AI described."""
++    if cast.members(short):
++        return cast.prompt_text(short, scene)
++    return short.get("character") or ""
++
++
++def hold_ms(scene: dict) -> int:
++    """How long the owner keeps the scene on screen after its words (0 to 3 s)."""
++    try:
++        value = int(_info(scene).get("hold_ms") or 0)
++    except (TypeError, ValueError):
++        return 0
++    return value if value in HOLDS_MS else 0
++
++
+@@ -539,0 +572 @@ def clip_key(scene: dict, short: dict, vkey: str) -> str:
++    hold = hold_ms(scene)
+@@ -541 +574 @@ def clip_key(scene: dict, short: dict, vkey: str) -> str:
+-                 list(SIZE), END_MS)
++                 list(SIZE), END_MS, *((hold,) if hold else ()))
+@@ -982,0 +1016,2 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int,
++                found = cast.in_scene(short, scene)
++                refs = [Path(a["path"]) for a in cast.reference_assets(short, scene, ws)]
+@@ -984,2 +1019,2 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int,
+-                                    character=short.get("character") or "", seed=int(scene["seed"]), index=seq,
+-                                    cancel=lease.canceled,
++                                    character=character_words(short, scene), seed=int(scene["seed"]), index=seq,
++                                    cancel=lease.canceled, references=refs,
+@@ -988,0 +1024,4 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int,
++                drift = None
++                if got["source"] == "engine" and found:
++                    step(0.66, f"Checking the characters in scene {n}")
++                    drift = cast.check(made_path, found, settings)
+@@ -1000 +1039,2 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int,
+-                        "failed": engine_key if got["source"] != "engine" and got.get("tried") else ""}
++                        "failed": engine_key if got["source"] != "engine" and got.get("tried") else "",
++                        "references": int(got.get("references") or 0), "asked_references": len(refs)}
+@@ -1008,2 +1048,4 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int,
+-                    out.update(picture_asset_id=stored["id"], picture_key=made_key,
+-                               info={**_info(row), "picture": pic_info})
++                    info = {k: v for k, v in _info(row).items() if k != "drift"}
++                    if drift is not None:
++                        info["drift"] = {**drift, "key": made_key, "asset_id": stored["id"], "ok": False}
++                    out.update(picture_asset_id=stored["id"], picture_key=made_key, info={**info, "picture": pic_info})
+@@ -1026 +1068 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int,
+-    duration_s = float(meta["duration_s"]) + END_MS / 1000
++    duration_s = float(meta["duration_s"]) + (END_MS + hold_ms(scene)) / 1000
+@@ -1082 +1124 @@ def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path
+-    prompt, _negative = looks.prompt_for(look, scene["picture_prompt"], short.get("character") or "")
++    prompt, _negative = looks.prompt_for(look, scene["picture_prompt"], character_words(short, scene))
+@@ -1161 +1203 @@ def _auto_out(scene: dict, last: bool) -> int:
+-    return whole if last else min(whole, _voice_ms(scene) + TAIL_MS)
++    return whole if last else min(whole, _voice_ms(scene) + TAIL_MS + hold_ms(scene))
+@@ -1170 +1212 @@ def _scene_clip(scene: dict, keep: dict, taken: set[str]) -> dict:
+-    out = min(int(scene["duration_ms"]), _voice_ms(scene) + TAIL_MS)
++    out = min(int(scene["duration_ms"]), _voice_ms(scene) + TAIL_MS + hold_ms(scene))
+@@ -1177,0 +1220,11 @@ def _scene_clip(scene: dict, keep: dict, taken: set[str]) -> dict:
++def transition_for(short: dict, clips: list[dict]) -> dict:
++    """The plan's transition for the short's choice: a dissolve or fade no longer than a third of the shortest scene
++    shown (the editor refuses one longer than half of it); a cut when a scene is too short for one."""
++    kind = short.get("transition") or "cut"
++    if kind == "cut":
++        return {"type": "cut", "ms": 0}
++    shown = [int(c["out_ms"]) - int(c["in_ms"]) for c in clips if c.get("include", True)]
++    ms = min([TRANSITION_MS, *(x // 3 for x in shown)])
++    return {"type": kind, "ms": ms} if ms >= 120 else {"type": "cut", "ms": 0}
++
++
+@@ -1284,0 +1338,3 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
++    if (base is None and short.get("transition", "cut") != "cut") or \
++            int(want.get("transition") or 0) > int(applied.get("transition") or 0):
++        plan["transition"] = transition_for(short, clips)
+@@ -1341 +1397 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
+-                     "applied": {k: max(int(want.get(k) or 0), int(applied.get(k) or 0)) for k in ("captions", "music")},
++                     "applied": {k: max(int(want.get(k) or 0), int(applied.get(k) or 0)) for k in APPLIED},
+@@ -1608 +1664 @@ def _put_back_options(data: dict, current: dict, target: dict) -> None:
+-    for k in ("captions", "music"):
++    for k in APPLIED:
+@@ -1638 +1694,2 @@ def update_scene(project: dict, scene_id: str, body: dict) -> None:
+-    allowed = {"narration", "picture_prompt", "move", "picture_asset_id", "upload_ids", "new_picture", "again"}
++    allowed = {"narration", "picture_prompt", "move", "picture_asset_id", "upload_ids", "new_picture", "again",
++               "hold_ms", "cast", "drift_ok"}
+@@ -1691,0 +1749,28 @@ def update_scene(project: dict, scene_id: str, body: dict) -> None:
++    info_changes: dict = {}            # the owner's timing, who is in the shot, a drift warning set aside
++    if "hold_ms" in body:
++        if isinstance(body["hold_ms"], bool) or body["hold_ms"] not in HOLDS_MS:
++            raise ShortError("Choose how long the scene stays after its words: "
++                             + ", ".join(f"{h / 1000:g} s" for h in HOLDS_MS) + ".")
++        if int(body["hold_ms"]) != hold_ms(s):
++            info_changes["hold_ms"] = int(body["hold_ms"])
++    if "cast" in body:
++        try:
++            chosen = None if body["cast"] is None else cast.scene_members(short, body["cast"])
++        except cast.CastError as exc:
++            raise ShortError(str(exc)) from exc
++        if chosen != _info(s).get("cast"):
++            info_changes["cast"] = chosen
++    if body.get("drift_ok"):
++        drift = _info(s).get("drift") or {}
++        if drift.get("key") != s["picture_key"]:
++            raise ShortError("This picture changed meanwhile; look at it again.")
++        _change_scene(scene_id, lambda r: {"info": {**_info(r), "drift": {**(_info(r).get("drift") or {}),
++                                                                          "ok": True}}})
++    if info_changes:
++        def put_info(row: dict) -> dict:
++            info = {**_info(row), **info_changes}
++            if info.get("cast") is None:
++                info.pop("cast", None)
++            return {"info": info}
++
++        _change_scene(scene_id, put_info)
+@@ -1692,0 +1778,2 @@ def update_scene(project: dict, scene_id: str, body: dict) -> None:
++        if info_changes:
++            _rebuild(project)
+@@ -1769 +1856 @@ def set_options(project: dict, body: dict) -> None:
+-    allowed = {"voice", "speed", "look", "music", "captions", "motion"}
++    allowed = {"voice", "speed", "look", "music", "captions", "motion", "transition"}
+@@ -1779 +1866,2 @@ def set_options(project: dict, body: dict) -> None:
+-        (("captions",) if "captions" in changes or ("look" in changes and not new.get("captions")) else ())
++        (("captions",) if "captions" in changes or ("look" in changes and not new.get("captions")) else ()) + \
++        (("transition",) if "transition" in changes else ())
+@@ -1785,0 +1874,163 @@ def set_options(project: dict, body: dict) -> None:
++# ------------------------------------------------------------------ characters and places (makers/cast.py)
++def cast_view(short: dict, workspace_id: str) -> list[dict]:
++    """The short's characters and places for the page, each with whether its library entry differs from this short's
++    copy ("same", "differs", or "none" when it is not in the library)."""
++    out = cast.view(short, workspace_id)
++    if not out:
++        return out
++    for m in out:
++        lib = db.fetch("cast_library", m["library_id"]) if m["library_id"] else None
++        if lib is None or lib["workspace_id"] != workspace_id:
++            m["library"] = "none"
++        else:
++            same = all((lib.get(f) or "") == (m.get(f) or "") for f in ("name", *cast.ALL_FIELDS)) and \
++                list(lib.get("locked") or []) == m["locked"] and list(lib.get("refs") or []) == \
++                [r["asset_id"] for r in m["refs"]]
++            m["library"] = "same" if same else "differs"
++    return out
++
++
++def _set_cast(project: dict, new: list[dict], waiting: str = "Waiting to make the pictures again") -> None:
++    """Save the short's new cast; scenes stop naming members that left, and a build makes again every picture whose
++    characters changed (the owner's own pictures stay)."""
++    keep = {m["id"] for m in new}
++    for s in scene_rows(project["id"]):
++        info = _info(s)
++        chosen, overrides = info.get("cast"), info.get("overrides") or {}
++        if (isinstance(chosen, list) and any(i not in keep for i in chosen)) or any(k not in keep for k in overrides):
++            def tidy(row: dict) -> dict:
++                i = dict(_info(row))
++                if isinstance(i.get("cast"), list):
++                    i["cast"] = [x for x in i["cast"] if x in keep]
++                i["overrides"] = {k: v for k, v in (i.get("overrides") or {}).items() if k in keep}
++                return {"info": i}
++
++            _change_scene(s["id"], tidy)
++    _rebuild(project, {"cast": new}, waiting=waiting)
++
++
++def _cast_error(exc: cast.CastError) -> ShortError:
++    out = ShortError(str(exc))
++    out.status = exc.status  # type: ignore[attr-defined] - the API answers with it (makers/routes.py)
++    return out
++
++
++def cast_add(project: dict, body: dict) -> str:
++    try:
++        new, m = cast.add(project["short"], project["workspace_id"], body)
++    except cast.CastError as exc:
++        raise _cast_error(exc) from exc
++    _set_cast(project, new)
++    return m["id"]
++
++
++def cast_change(project: dict, member_id: str, body: dict) -> None:
++    try:
++        new = cast.change(project["short"], project["workspace_id"], member_id, body)
++    except cast.CastError as exc:
++        raise _cast_error(exc) from exc
++    if new != cast.members(project["short"]):
++        _set_cast(project, new)
++
++
++def cast_remove(project: dict, member_id: str) -> None:
++    try:
++        new = cast.remove(project["short"], member_id)
++    except cast.CastError as exc:
++        raise _cast_error(exc) from exc
++    _set_cast(project, new)
++
++
++def cast_to_library(project: dict, member_id: str) -> dict:
++    """Keep this short's character in the library; nothing in the short changes, so nothing is made again."""
++    try:
++        new, got = cast.save_to_library(project["short"], project["workspace_id"], member_id)
++    except cast.CastError as exc:
++        raise _cast_error(exc) from exc
++    _patch_short(project["id"], {"cast": new})
++    return got
++
++
++def cast_reference(project: dict, member_id: str, body: dict) -> None:
++    """Give a character a reference picture: an uploaded one (`asset_id` with the page's `upload_ids`) or a scene's
++    picture (`scene_id`), so the picture maker keeps that look in every shot."""
++    ws = project["workspace_id"]
++    if body.get("scene_id"):
++        scene = _scene(project, str(body["scene_id"]))
++        aid = scene["picture_asset_id"]
++        if not aid or _asset_ok(aid, ws, "image") is None:
++            raise ShortError("That scene has no picture yet.")
++    else:
++        aid = str(body.get("asset_id") or "")
++    try:
++        new = cast.add_reference(project["short"], ws, member_id, aid)
++    except cast.CastError as exc:
++        raise _cast_error(exc) from exc
++    if body.get("upload_ids") and not body.get("scene_id"):
++        uploads.taken(ws, body["upload_ids"], project["id"], [aid])
++    if new != cast.members(project["short"]):
++        _set_cast(project, new)
++
++
++def cast_propose(project: dict, member_id: str, words: object, scene_id: str | None = None) -> dict:
++    """What ClipForge AI would change for the owner's words (nothing is saved): for one shot, the member as that shot
++    shows it is the starting point."""
++    short = project["short"]
++    try:
++        m = cast._member(short, member_id)  # noqa: SLF001
++        if scene_id:
++            here = next((x for x in cast.in_scene(short, _scene(project, scene_id)) if x["id"] == member_id), None)
++            if here is None:
++                raise ShortError(f"{m['name']} is not in that shot.")
++            m = here
++        return cast.propose(m, words, db.get_settings())
++    except cast.CastError as exc:
++        raise _cast_error(exc) from exc
++
++
++def cast_apply(project: dict, member_id: str, changes: object, scene_id: str | None = None) -> dict:
++    """Apply changes (from a proposal or typed) to every shot (the short's copy of the member) or to one shot (kept
++    on that scene). Locked details are never changed: {"changed": [...], "kept": [...]}."""
++    short = project["short"]
++    try:
++        m = cast._member(short, member_id)  # noqa: SLF001
++        fields, kept = cast.clean_changes(m, changes)
++    except cast.CastError as exc:
++        raise _cast_error(exc) from exc
++    if not fields:
++        return {"changed": [], "kept": kept}
++    if scene_id:
++        s = _scene(project, scene_id)
++        if not any(x["id"] == member_id for x in cast.in_scene(short, s)):
++            raise ShortError(f"{m['name']} is not in that shot.")
++
++        def put(row: dict) -> dict:
++            info = dict(_info(row))
++            overrides = dict(info.get("overrides") or {})
++            mine = {**(overrides.get(member_id) or {}), **fields}
++            overrides[member_id] = {k: v for k, v in mine.items() if v != (m.get(k) or "")}
++            info["overrides"] = {k: v for k, v in overrides.items() if v}
++            return {"info": info}
++
++        _change_scene(scene_id, put)
++        _rebuild(project, waiting="Waiting to make the picture again")
++    else:
++        new = [({**x, **fields} if x["id"] == member_id else x) for x in cast.members(short)]
++        _set_cast(project, new)
++    return {"changed": sorted(fields), "kept": kept}
++
++
++def cast_clear_override(project: dict, scene_id: str, member_id: str) -> None:
++    s = _scene(project, scene_id)
++    if member_id not in (_info(s).get("overrides") or {}):
++        return
++
++    def put(row: dict) -> dict:
++        info = dict(_info(row))
++        info["overrides"] = {k: v for k, v in (info.get("overrides") or {}).items() if k != member_id}
++        return {"info": info}
++
++    _change_scene(scene_id, put)
++    _rebuild(project, waiting="Waiting to make the picture again")
++
++
+@@ -1829 +2080 @@ def voice_sample(voice_id: str, speed: float) -> tuple[Path, str]:
+-def _scene_view(s: dict, n: int, plan: dict | None) -> dict:
++def _scene_view(s: dict, n: int, plan: dict | None, short: dict | None = None) -> dict:
+@@ -1830,0 +2082,6 @@ def _scene_view(s: dict, n: int, plan: dict | None) -> dict:
++    short = short or {}
++    drift = info.get("drift") or {}
++    current_drift = drift.get("key") == s["picture_key"] and drift.get("asset_id") == s["picture_asset_id"] and \
++        s["picture_source"] != "upload"
++    overrides = {mid: {k: v for k, v in (o or {}).items() if k in cast.ALL_FIELDS}
++                 for mid, o in (info.get("overrides") or {}).items() if any(m["id"] == mid for m in cast.members(short))}
+@@ -1846 +2103,7 @@ def _scene_view(s: dict, n: int, plan: dict | None) -> dict:
+-            "picture": {"source": source, "engine": pic.get("engine") or "", "why": pic.get("why") or ""},
++            "picture": {"source": source, "engine": pic.get("engine") or "", "why": pic.get("why") or "",
++                        "references": int(pic.get("references") or 0),
++                        "asked_references": int(pic.get("asked_references") or 0)},
++            "cast": [m["id"] for m in cast.in_scene(short, s)], "cast_chosen": isinstance(info.get("cast"), list),
++            "overrides": {k: v for k, v in overrides.items() if v}, "hold_ms": hold_ms(s),
++            "drift": ({"flags": list(drift.get("flags") or []), "how": drift.get("how") or "",
++                       "ok": bool(drift.get("ok"))} if current_drift else None),
+@@ -1863 +2126 @@ def view(project: dict, plan: dict | None = None) -> dict:
+-    shown = [_scene_view(s, n, plan) for n, s in enumerate(rows, 1)]
++    shown = [_scene_view(s, n, plan, short) for n, s in enumerate(rows, 1)]
+@@ -1876,0 +2140 @@ def view(project: dict, plan: dict | None = None) -> dict:
++            "cast": cast_view(short, project["workspace_id"]),
+diff --git a/clipfoundry/makers/textstory.py b/clipfoundry/makers/textstory.py
+new file mode 100644
+index 0000000..e5c1666
+--- /dev/null
++++ b/clipfoundry/makers/textstory.py
+@@ -0,0 +1,758 @@
++"""Text Stories (the final-release prompt, section 8): a story read aloud over background video, with big captions.
++
++The steps are the page's: script (pasted or written by ClipForge AI, which can also revise it) {U+2192} voice (a voice, a
++style, speed, tone and pronunciations; makers/voice_styles.py) {U+2192} background (your own uploaded clips, trimmed,
++looped and moved within the frame, or ones ClipForge picks from your usable videos; when you have none, a moving
++colour background ClipForge draws itself) {U+2192} preview (a small, quick render) {U+2192} export (1080 {U+00D7} 1920, 30 fps, H.264
++and AAC: what TikTok, YouTube Shorts and Reels take).
++
++The narrator reads the title first, while it shows on a card in the middle of the screen; then the captions show
++the story's words, the one being said lit up (studio/engine.highlight_events). The background's own sound is left
++out. Everything is made on this computer by FFmpeg and the voice engines; only ClipForge AI's writing can go online,
++and only when the AI service chosen in Settings is an online one (the page says so).
++
++The work runs as studio jobs (studio/jobs.py), so it shows progress, can be stopped and continues after a restart.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import logging
++import math
++import os
++import re
++import shutil
++import time
++from pathlib import Path
++
++from .. import config, db
++from ..pipeline import ffmpeg_utils
++from ..pipeline.common import Cancelled
++from ..studio import engine, uploads
++from ..studio.jobs import Canceled, Lease, cancel as cancel_job, enqueue, handler, on_stop
++from . import voice_styles
++
++log = logging.getLogger(__name__)
++
++SIZE = (1080, 1920)
++PREVIEW_SIZE = (360, 640)
++FPS = 30
++TAIL_S = 0.6               # the background runs on this long after the last word
++TITLE_HOLD_S = 0.35        # the title card stays this long after its last word
++MAX_SCRIPT = 6000          # characters
++MAX_WORDS = 650            # about 3.7 minutes at 175 words a minute
++MAX_TITLE = 140
++MAX_NAME = 120
++MAX_BACKGROUNDS = 12
++MAX_PIECES = 80            # background pieces in one render (a short clip looped over a long story)
++MIN_PIECE_S = 1.0
++RENDER_RECIPE = 2          # part of every render key: a changed recipe renders again
++WPM = 175
++CAPTION_STYLES = {"bold": "Bold", "clean": "Clean", "high_energy": "High energy"}
++CAPTION_PLACES = {"middle": "Middle", "raised": "Lower", "top": "Top"}
++CAPTION_SIZES = {"medium": "Medium", "large": "Large"}
++DEFAULT_CAPTIONS = {"style": "bold", "position": "middle", "size": "large"}
++# Moving colour backgrounds ClipForge draws itself (FFmpeg's gradients source): free of anyone's rights
++BUILTINS = {
++    "aurora": {"name": "Aurora", "colors": ("0x0b1d51", "0x3a0ca3", "0x4cc9f0", "0x7209b7"), "type": "linear"},
++    "sunset": {"name": "Sunset", "colors": ("0x3d0c45", "0xd1495b", "0xedae49", "0x1b1b3a"), "type": "radial"},
++    "ocean": {"name": "Deep sea", "colors": ("0x03045e", "0x0077b6", "0x00b4d8", "0x023e8a"), "type": "circular"},
++}
++# words in a video's name that say it was made to sit behind a story
++HINTS = ("gameplay", "minecraft", "parkour", "satisfying", "subway", "surfer", "driving", "drive", "racing", "race",
++         "slime", "asmr", "background", "broll", "b-roll", "loop", "game", "soap", "sand", "kinetic", "satisfy")
++WORKING = ("writing", "voicing", "rendering")
++
++
++class StoryError(ValueError):
++    def __init__(self, message: str, status: int = 422):
++        super().__init__(message)
++        self.status = status
++
++
++# ------------------------------------------------------------------ rows
++def folder(story_id: str) -> Path:
++    d = config.data_dir() / "text_stories" / story_id
++    d.mkdir(parents=True, exist_ok=True)
++    return d
++
++
++def get(story_id: str, workspace_id: str) -> dict:
++    s = db.fetch("text_stories", story_id)
++    if not s or s["workspace_id"] != workspace_id:
++        raise StoryError("Story not found.", 404)
++    return s
++
++
++def _patch(story_id: str, **fields) -> dict:
++    db._update("text_stories", story_id, fields)  # noqa: SLF001 - db.update takes the id as its first value
++    return db.fetch("text_stories", story_id) or {}
++
++
++def _hash(*parts) -> str:
++    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:16]
++
++
++def words_of(story: dict) -> int:
++    return len((story.get("title") or "").split()) + len((story.get("script") or "").split())
++
++
++def spoken(story: dict) -> tuple[str, str]:
++    """(what the narrator reads as written, the title part of it). The title is read first, as its own sentence."""
++    title = " ".join((story.get("title") or "").split())
++    script = " ".join((story.get("script") or "").split())
++    if title and not re.search(r"[.!?{U+2026}]$", title):
++        title_read = title + "."
++    else:
++        title_read = title
++    return (f"{title_read} {script}".strip(), title_read)
++
++
++# ------------------------------------------------------------------ the page's choices
++def options(workspace_id: str) -> dict:
++    from . import voice, writer
++
++    try:
++        voices = voice.voices()
++    except Exception:  # noqa: BLE001 - the page still opens; the voice step says why
++        log.exception("the voice list failed")
++        voices = []
++    settings = db.get_settings()
++    return {
++        "voices": voices, "default_voice": voice.default_voice() if voices else "",
++        "styles": voice_styles.styles(), "tone_range": list(voice_styles.TONE_RANGE),
++        "speed_range": list(voice_styles.SPEED_RANGE),
++        "captions": {"styles": [{"id": k, "label": v} for k, v in CAPTION_STYLES.items()],
++                     "positions": [{"id": k, "label": v} for k, v in CAPTION_PLACES.items()],
++                     "sizes": [{"id": k, "label": v} for k, v in CAPTION_SIZES.items()]},
++        "builtins": [{"id": k, "name": v["name"], "colors": ["#" + c[2:] for c in v["colors"]]}
++                     for k, v in BUILTINS.items()],
++        "writer": writer.ready(settings),
++        "tones": [{"id": k, "label": v} for k, v in writer.STORY_TONE_LABELS.items()],
++        "lengths": [{"id": k, "label": v} for k, v in writer.STORY_LENGTH_LABELS.items()],
++        "favourites": voice_styles.favourites(workspace_id),
++        "limits": {"max_words": MAX_WORDS, "max_title": MAX_TITLE, "wpm": WPM, "max_backgrounds": MAX_BACKGROUNDS},
++        "links": {"ai": "#/settings/ai", "makers": "#/settings/makers"},
++    }
++
++
++def _starting_voice(workspace_id: str) -> dict:
++    fav = voice_styles.favourite_for(workspace_id, style=voice_styles.DEFAULT_STYLE)
++    return voice_styles.clean_voice(fav) if fav else voice_styles.clean_voice({})
++
++
++def create(workspace_id: str, *, name: str = "", title: str = "", script: str = "") -> dict:
++    title, script = _clean_title(title), _clean_script(script)
++    story = db.insert("text_stories", {
++        "id": "tst-" + os.urandom(6).hex(), "workspace_id": workspace_id, "name": " ".join(name.split())[:MAX_NAME],
++        "title": title, "script": script, "voice": _starting_voice(workspace_id), "pronunciations": [],
++        "captions": dict(DEFAULT_CAPTIONS), "backgrounds": [], "narration": {}, "preview": {}, "export": {},
++        "writer": {}, "status": "draft", "message": ""})
++    return story
++
++
++def list_stories(workspace_id: str) -> list[dict]:
++    rows = db.select("text_stories", "workspace_id = ?", (workspace_id,), "updated_at DESC", 200)
++    return [{"id": s["id"], "name": display_name(s), "status": s["status"], "words": words_of(s),
++             "exported": _file_ok(s, "export"), "updated_at": s["updated_at"]} for s in rows]
++
++
++def display_name(story: dict) -> str:
++    if story.get("name"):
++        return story["name"]
++    words = (story.get("title") or story.get("script") or "").split()
++    return " ".join(words[:7]) + ("{U+2026}" if len(words) > 7 else "") if words else "New text story"
++
++
++def _clean_title(value: object) -> str:
++    if not isinstance(value, str):
++        raise StoryError("The title must be text.")
++    title = " ".join(value.split())
++    if len(title) > MAX_TITLE:
++        raise StoryError(f"Keep the title under {MAX_TITLE} characters.")
++    return title
++
++
++def _clean_script(value: object) -> str:
++    if not isinstance(value, str):
++        raise StoryError("The script must be text.")
++    paras = [" ".join(p.split()) for p in re.split(r"\n\s*\n", value.replace("\r", ""))]
++    script = "\n\n".join(p for p in paras if p)
++    if len(script) > MAX_SCRIPT or len(script.split()) > MAX_WORDS:
++        raise StoryError(f"The script is too long for one video; keep it under {MAX_WORDS} words.")
++    return script
++
++
++def _clean_captions(raw: object, base: dict) -> dict:
++    if not isinstance(raw, dict):
++        raise StoryError("Captions must be a set of choices.")
++    out = {**DEFAULT_CAPTIONS, **base}
++    for key, allowed in (("style", CAPTION_STYLES), ("position", CAPTION_PLACES), ("size", CAPTION_SIZES)):
++        if key in raw:
++            if raw[key] not in allowed:
++                raise StoryError(f"Choose one of the caption {key}s.")
++            out[key] = raw[key]
++    return out
++
++
++def _num(value, lo: float, hi: float, what: str) -> float:
++    try:
++        v = float(value)
++    except (TypeError, ValueError):
++        raise StoryError(f"The {what} must be a number.") from None
++    if not math.isfinite(v):
++        raise StoryError(f"The {what} must be a number.")
++    return min(hi, max(lo, v))
++
++
++def _clean_backgrounds(workspace_id: str, raw: object) -> list[dict]:
