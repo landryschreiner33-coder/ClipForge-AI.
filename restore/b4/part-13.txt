@@ -1,0 +1,719 @@
+diff --git a/frontend/src/components/shipArt.ts b/frontend/src/components/shipArt.ts
+new file mode 100644
+index 0000000..49f821f
+--- /dev/null
++++ b/frontend/src/components/shipArt.ts
+@@ -0,0 +1,94 @@
++import { OrbitPose } from "./blackHoleOrbit";
++
++/**
++ * The ship in front of the camera as it orbits the black hole (blackHoleOrbit.ts): chunky pixel art like the app's
++ * gold robot icon, flying the way the orbit goes, banking with it, lit on the side facing the hole's disk, with dust
++ * streaming past. Drawn on its own canvas over the hole. Still when motion is off: the same picture, no movement.
++ */
++
++// . nothing  H hull shade  h hull  l hull lit edge  g gold  w window  W window shine  e engine  f fin
++const SHIP = [
++  "........ff..............",
++  ".......fffg.............",
++  ".....lllllllllll........",
++  "e..lHhhhhhhhhhhhhl......",
++  "eelhhhhhhgggggghhhwww...",
++  "eeHhhhhhhhhhhhhhhhwWwww.",
++  "eeHHhhhhhhhhhhhhhhhhhhhl",
++  "e..HHHHHHHHHHHHHHHHHHH..",
++  ".....HHHHgggHHHHHH......",
++  "........ff..............",
++  ".......fff..............",
++];
++const COLOURS: Record<string, string> = {
++  H: "#3c4f78", h: "#8fa6cf", l: "#d9e6ff", g: "#f2c14e", w: "#5fd3ff", W: "#e8fbff", e: "#56627d", f: "#c99a2e",
++};
++
++let sprite: HTMLCanvasElement | null = null;
++function shipSprite(): HTMLCanvasElement {
++  if (sprite) return sprite;
++  const c = document.createElement("canvas");
++  c.width = SHIP[0].length;
++  c.height = SHIP.length;
++  const g = c.getContext("2d");
++  if (g) {
++    SHIP.forEach((row, y) => [...row].forEach((ch, x) => {
++      if (ch === ".") return;
++      g.fillStyle = COLOURS[ch];
++      g.fillRect(x, y, 1, 1);
++    }));
++  }
++  return (sprite = c);
++}
++
++/** Dust in front of the ship: fixed points that the orbit carries past. */
++const DUST = Array.from({ length: 18 }, (_, i) => {
++  const r = (n: number) => ((Math.sin(i * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1;
++  return { x: r(1), y: 0.15 + r(2) * 0.8, depth: 0.3 + r(3) * 0.7, size: r(4) };
++});
++
++/**
++ * One picture of the ship and dust on `g` (w {U+00D7} h canvas pixels) for the orbit pose, `t` seconds of flying (for the
++ * engine's flicker and the gentle bob; pass null for a still picture).
++ */
++export function paintShip(g: CanvasRenderingContext2D, w: number, h: number, pose: OrbitPose, t: number | null) {
++  g.clearRect(0, 0, w, h);
++  const s = Math.max(2, Math.round(h / 62));
++  const along = pose.phi / (Math.PI * 2);
++  // dust: drifts left as the ship flies right, the nearer specks faster and bigger
++  for (const d of DUST) {
++    const x = ((d.x - along * (1.5 + d.depth * 3)) % 1 + 1) % 1;
++    const size = Math.max(1, Math.round(s * (0.25 + d.depth * 0.45 + d.size * 0.2)));
++    g.fillStyle = `rgba(200, 225, 255, ${(0.18 + d.depth * 0.35).toFixed(2)})`;
++    g.fillRect(Math.round(x * w), Math.round(d.y * h), size, size);
++  }
++  const art = shipSprite();
++  const sw = art.width * s, sh = art.height * s;
++  const bob = t === null ? 0 : Math.sin(t * 0.9) * h * 0.012;
++  const cx = w * 0.19, cy = h * 0.74 + bob;
++  g.save();
++  g.translate(cx, cy);
++  // banks with the orbit, and dips its nose a little as the camera climbs
++  g.rotate(-pose.roll * 1.6 + (pose.incl - 0.13) * 0.3);
++  g.imageSmoothingEnabled = false;
++  // the engine: a flame of square pixels that flickers
++  const flick = t === null ? 0.6 : 0.55 + 0.45 * Math.abs(Math.sin(t * 13.0) * Math.sin(t * 7.3));
++  const flame = Math.round((3 + flick * 4) * s);
++  for (let k = 0; k < flame; k += s) {
++    const fade = 1 - k / flame;
++    const [r, gr] = [Math.round(150 + 105 * fade), Math.round(205 + 50 * fade)];
++    g.fillStyle = `rgba(${r}, ${gr}, 255, ${(0.85 * fade).toFixed(2)})`;
++    const half = Math.max(1, Math.round((1 + fade * 1.2) * s));
++    g.fillRect(-sw / 2 - s - k, -sh / 2 + 5 * s - half / 2 + s / 2, s, half);
++  }
++  g.drawImage(art, -sw / 2, -sh / 2, sw, sh);
++  // the side facing the hole is lit by the disk: brighter when its bright side is towards the ship
++  const warm = 0.18 + 0.14 * Math.cos(pose.phi);
++  g.globalCompositeOperation = "source-atop";
++  const grad = g.createLinearGradient(sw / 2, -sh / 2, -sw / 2, sh / 2);
++  grad.addColorStop(0, `rgba(255, 200, 120, ${warm.toFixed(2)})`);
++  grad.addColorStop(1, "rgba(255, 200, 120, 0)");
++  g.fillStyle = grad;
++  g.fillRect(-sw / 2, -sh / 2, sw, sh);
++  g.restore();
++}
+diff --git a/frontend/src/components/ui.tsx b/frontend/src/components/ui.tsx
+index 7060e48..ee11b81 100644
+--- a/frontend/src/components/ui.tsx
++++ b/frontend/src/components/ui.tsx
+@@ -20,0 +21 @@ const PATHS = {
++  story: "M6 3h9l4 4v14H6zM15 3v4h4M9 11h7M9 14.5h7M9 18h4",
+@@ -64,0 +66 @@ const PATHS = {
++  image: "M4 5h16v14H4zM9 10.5a1.5 1.5 0 1 0 0-.01M4 17l5-5 4 4 2.5-2.5L20 18",
+diff --git a/frontend/src/covered.ts b/frontend/src/covered.ts
+deleted file mode 100644
+index b641e09..0000000
+--- a/frontend/src/covered.ts
++++ /dev/null
+@@ -1,30 +0,0 @@
+-/**
+- * A full-window editor (FilmCraft's, inside ClipForge) covers the page: the sky and the black holes behind it hold
+- * still while it is open, so the editor has the computer to itself. Without a graphics card the moving sky alone
+- * takes about a fifth of the page's time, and FilmCraft's editor runs on that same page.
+- */
+-import { useEffect, useSyncExternalStore } from "react";
+-
+-let covers = 0;
+-const listeners = new Set<() => void>();
+-const notify = () => listeners.forEach((l) => l());
+-
+-/** While `on`, the page counts as covered. */
+-export function useCoverPage(on = true) {
+-  useEffect(() => {
+-    if (!on) return;
+-    covers += 1;
+-    notify();
+-    return () => {
+-      covers -= 1;
+-      notify();
+-    };
+-  }, [on]);
+-}
+-
+-export function usePageCovered(): boolean {
+-  return useSyncExternalStore((l) => {
+-    listeners.add(l);
+-    return () => { listeners.delete(l); };
+-  }, () => covers > 0);
+-}
+diff --git a/frontend/src/motion.tsx b/frontend/src/motion.tsx
+index e149418..e6b43bb 100644
+--- a/frontend/src/motion.tsx
++++ b/frontend/src/motion.tsx
+@@ -6,0 +7,7 @@ const OFFICE_KEY = "clipforge.officeActivity";
++const LOOK_KEY = "clipforge.spaceLook";
++const SOUND_KEY = "clipforge.sounds";
++const TASER_KEY = "clipforge.taser";
++const LOOKS = ["orbit", "lighter"] as const;
++const lookNow = () => storedChoice<SpaceLook>(LOOK_KEY, LOOKS, "orbit");
++const soundsNow = () => storedChoice(SOUND_KEY, ["on", "off"] as const, "off") === "on";
++const taserNow = () => storedChoice(TASER_KEY, ["show", "hide"] as const, "show") === "show";
+@@ -10,0 +18,2 @@ export type OfficeActivity = "full" | "calm" | "low_power";
++/** The big black hole: seen from the orbiting ship (every pixel's light traced), or the lighter turning disk. */
++export type SpaceLook = "orbit" | "lighter";
+@@ -23,0 +33,25 @@ interface MotionState {
++  spaceLook: SpaceLook;
++  setSpaceLook: (value: SpaceLook) => void;
++  /** Little sound effects (the office's Taser): off unless turned on in Settings {U+2192} Appearance. */
++  sounds: boolean;
++  setSounds: (value: boolean) => void;
++  /** The robot office's Taser button (an easter egg): shown unless hidden in Settings {U+2192} Appearance. */
++  taser: boolean;
++  setTaser: (value: boolean) => void;
++}
++
++function storedChoice<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
++  try {
++    const v = window.localStorage.getItem(key);
++    return (allowed as readonly string[]).includes(v ?? "") ? (v as T) : fallback;
++  } catch {
++    return fallback;
++  }
++}
++
++function keep(key: string, value: string) {
++  try {
++    window.localStorage.setItem(key, value);
++  } catch {
++    /* lasts for this visit */
++  }
+@@ -71,0 +106,15 @@ export function MotionProvider({ children }: { children: ReactNode }) {
++  const [spaceLook, setLook] = useState<SpaceLook>(lookNow);
++  const [sounds, setSound] = useState(soundsNow);
++  const [taser, setTaserShown] = useState(taserNow);
++  const setTaser = useCallback((value: boolean) => {
++    keep(TASER_KEY, value ? "show" : "hide");
++    setTaserShown(value);
++  }, []);
++  const setSpaceLook = useCallback((value: SpaceLook) => {
++    keep(LOOK_KEY, value);
++    setLook(value);
++  }, []);
++  const setSounds = useCallback((value: boolean) => {
++    keep(SOUND_KEY, value ? "on" : "off");
++    setSound(value);
++  }, []);
+@@ -104,0 +154,3 @@ export function MotionProvider({ children }: { children: ReactNode }) {
++      if (event.key === LOOK_KEY || event.key === null) setLook(lookNow());
++      if (event.key === SOUND_KEY || event.key === null) setSound(soundsNow());
++      if (event.key === TASER_KEY || event.key === null) setTaserShown(taserNow());
+@@ -122 +174,2 @@ export function MotionProvider({ children }: { children: ReactNode }) {
+-    pageHidden, persistent: stored.persistent, setReduceMotion, setAnimationMode, officeActivity, setOfficeActivity }),
++    pageHidden, persistent: stored.persistent, setReduceMotion, setAnimationMode, officeActivity, setOfficeActivity,
++    spaceLook, setSpaceLook, sounds, setSounds, taser, setTaser }),
+@@ -124 +177 @@ export function MotionProvider({ children }: { children: ReactNode }) {
+-    setOfficeActivity]);
++    setOfficeActivity, spaceLook, setSpaceLook, sounds, setSounds, taser, setTaser]);
+diff --git a/frontend/src/office/OfficeMap.tsx b/frontend/src/office/OfficeMap.tsx
+index 5b1a462..9a18a5e 100644
+--- a/frontend/src/office/OfficeMap.tsx
++++ b/frontend/src/office/OfficeMap.tsx
+@@ -9,0 +10 @@ import SHIP from "../space/ship-world.json";
++import { reaction, zapSound } from "./taser";
+@@ -54 +55,17 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
+-  const { pageHidden, officeActivity } = useMotion();
++  const { pageHidden, officeActivity, taser, sounds } = useMotion();
++  // the Taser easter egg: armed, a click on a robot zaps it (taser.ts) instead of opening it
++  const [armed, setArmed] = useState(false);
++  const [zaps, setZaps] = useState<{ key: number; id: string; x: number; y: number; words: string }[]>([]);
++  const zapCount = useRef(0);
++  useEffect(() => {
++    if (!taser) setArmed(false);
++  }, [taser]);
++  const zap = (id: string) => {
++    const el = buttons.current.get(id);
++    if (!el) return;
++    const key = ++zapCount.current;
++    const x = el.offsetLeft + el.offsetWidth / 2, y = el.offsetTop + el.offsetHeight * 0.35;
++    setZaps((list) => [...list.filter((z) => z.id !== id), { key, id, x, y, words: reaction() }]);
++    if (sounds) zapSound();
++    window.setTimeout(() => setZaps((list) => list.filter((z) => z.key !== key)), 1700);
++  };
+@@ -274 +291 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
+-          onClick={() => onRobot(c.id, motion.actors.get(c.id)?.card || null)}>
++          onClick={() => (armed ? zap(c.id) : onRobot(c.id, motion.actors.get(c.id)?.card || null))}>
+@@ -280,0 +298,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
++        {zaps.map((z) => <span key={z.key} className="taser-zap" style={{ left: z.x, top: z.y }} aria-hidden="true">
++          <svg viewBox="0 0 64 64" width="64" height="64">
++            <polyline points="30,2 22,26 34,28 20,62 44,24 32,22 40,2" />
++            <polyline className="arc" points="6,30 14,26 10,36 18,32" />
++            <polyline className="arc" points="58,30 50,24 54,36 46,32" />
++          </svg>
++          <span className="taser-words">{z.words}</span>
++        </span>)}
+@@ -292,0 +318,5 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
++      {taser && <button type="button" className={`btn btn-ghost taser-btn${armed ? " on" : ""}`} aria-pressed={armed}
++        onClick={() => setArmed((a) => !a)} title="An easter egg: zap a robot for a cartoon spark. Work carries on.">
++        <Icon name="spark" size={14} />{armed ? "Taser on: pick a robot" : "Taser"}</button>}
++      <span className="sr-only" role="status" aria-live="polite">{zaps.length ? `${BY_ID[zaps[zaps.length - 1].id]
++        ?.name || "The robot"}: ${zaps[zaps.length - 1].words}` : ""}</span>
+diff --git a/frontend/src/office/taser.ts b/frontend/src/office/taser.ts
+new file mode 100644
+index 0000000..356a0f7
+--- /dev/null
++++ b/frontend/src/office/taser.ts
+@@ -0,0 +1,71 @@
++/**
++ * The robot office's Taser (the owner, 2026-11-25: "clicking it on a robot plays a brief cartoon spark and a funny
++ * reaction"). Purely for fun: nothing is sent anywhere and the robot's job carries on. The spark is drawn by
++ * OfficeMap (space.css .taser-zap); under Reduced motion it shows as a still spark. The sound plays only when
++ * Settings {U+2192} Appearance {U+2192} Sound effects is on.
++ */
++
++const REACTIONS = [
++  "Bzzt! My circuits!",
++  "Hey! I was rendering!",
++  "That tickles!",
++  "Ow, my bolts!",
++  "Totally fine. Totally fine.",
++  "Was that a firmware update?",
++  "My antenna is buzzing!",
++  "I'll put that in my report.",
++  "Static cling! Static cling!",
++  "Rebooting my dignity{U+2026}",
++];
++
++let last = -1;
++/** A reaction, never the same one twice in a row. */
++export function reaction(): string {
++  let k = Math.floor(Math.random() * REACTIONS.length);
++  if (k === last) k = (k + 1) % REACTIONS.length;
++  last = k;
++  return REACTIONS[k];
++}
++
++let audio: AudioContext | null = null;
++
++/** A short cartoon zap: crackling noise and a falling buzz, about a quarter of a second, quiet. */
++export function zapSound() {
++  try {
++    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext })
++      .webkitAudioContext;
++    if (!Ctor) return;
++    audio ||= new Ctor();
++    const ctx = audio, now = ctx.currentTime, length = 0.28;
++    const out = ctx.createGain();
++    out.gain.setValueAtTime(0.0001, now);
++    out.gain.exponentialRampToValueAtTime(0.16, now + 0.01);
++    out.gain.exponentialRampToValueAtTime(0.0001, now + length);
++    out.connect(ctx.destination);
++    // the crackle: noise through a band-pass filter
++    const noise = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
++    const data = noise.getChannelData(0);
++    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (Math.random() < 0.3 ? 1 : 0.2);
++    const crackle = ctx.createBufferSource();
++    crackle.buffer = noise;
++    const band = ctx.createBiquadFilter();
++    band.type = "bandpass";
++    band.frequency.value = 2400;
++    band.Q.value = 0.8;
++    crackle.connect(band).connect(out);
++    // the buzz: a sawtooth falling in pitch
++    const buzz = ctx.createOscillator();
++    buzz.type = "sawtooth";
++    buzz.frequency.setValueAtTime(880, now);
++    buzz.frequency.exponentialRampToValueAtTime(110, now + length);
++    const quiet = ctx.createGain();
++    quiet.gain.value = 0.35;
++    buzz.connect(quiet).connect(out);
++    crackle.start(now);
++    buzz.start(now);
++    crackle.stop(now + length);
++    buzz.stop(now + length);
++  } catch {
++    /* no sound: the spark still shows */
++  }
++}
+diff --git a/frontend/src/pages/MakeShort.tsx b/frontend/src/pages/MakeShort.tsx
+index 4e365cb..8a51683 100644
+--- a/frontend/src/pages/MakeShort.tsx
++++ b/frontend/src/pages/MakeShort.tsx
+@@ -2,0 +3 @@ import { errorText } from "../api";
++import { hasLookArt, LookExample } from "../components/lookArt";
+@@ -4 +5 @@ import { HearButton } from "../components/ShortScenes";
+-import { Banner, Icon, PageHead, Segmented, Skel } from "../components/ui";
++import { Banner, Icon, PageHead, ProgressBar, Segmented, Skel } from "../components/ui";
+@@ -7 +8,2 @@ import {
+-  aboutLength, ShortLength, ShortLook, ShortMode, ShortMotion, ShortOptions, shorts, speakingSeconds, spokenWords,
++  aboutLength, LookExamples, ShortLength, ShortLook, ShortMode, ShortMotion, ShortOptions, shorts, speakingSeconds,
++  spokenWords,
+@@ -61,0 +64,39 @@ function LookSwatch({ look }: { look: ShortLook }) {
++/** The picture maker's own examples of the looks, asked again every 1.5 s while they are drawn. */
++function useLookExamples(enabled: boolean) {
++  const [ex, setEx] = useState<LookExamples | null>(null);
++  const [problem, setProblem] = useState("");
++  const working = ex?.job?.status === "queued" || ex?.job?.status === "running";
++  useEffect(() => {
++    if (!enabled) return;
++    let alive = true;
++    const load = () => shorts.lookExamples().then((x) => alive && setEx(x)).catch(() => undefined);
++    load();
++    const t = working ? window.setInterval(load, 1500) : 0;
++    return () => {
++      alive = false;
++      if (t) window.clearInterval(t);
++    };
++  }, [enabled, working]);
++  const act = (call: () => Promise<LookExamples>) => {
++    setProblem("");
++    call().then(setEx).catch((e) => setProblem(errorText(e)));
++  };
++  return { ex, working, problem, make: () => act(shorts.makeLookExamples), stop: () => act(shorts.stopLookExamples) };
++}
++
++/** The chosen look, larger: its example and what it is. */
++function LookPreview({ look, made }: { look: ShortLook; made?: { url: string; engine: string } }) {
++  return (
++    <div className="look-preview" aria-live="polite">
++      <span className="look-thumb look-thumb-large"><LookExample look={look.id} name={look.name} made={made} /></span>
++      <div className="stack-2">
++        <b>{look.name}</b>
++        <p className="small">{look.about}</p>
++        <p className="small muted">{made
++          ? `Made by ${made.engine} on this computer, from the same idea for every look.`
++          : "Drawn by ClipForge to show the style. Your pictures are made by your picture maker in this look."}</p>
++      </div>
++    </div>
++  );
++}
++
+@@ -123,0 +165,3 @@ export default function MakeShort() {
++  const lookEx = useLookExamples(!!engines?.image.ready);
++  const examples = lookEx.ex?.examples ?? {};
++  const chosenLook = opts && c ? opts.looks.find((l) => l.id === c.look) : undefined;
+@@ -237 +281,3 @@ export default function MakeShort() {
+-                <LookSwatch look={l} />
++                {hasLookArt(l.id) || examples[l.id]
++                  ? <span className="look-thumb"><LookExample look={l.id} name={l.name} made={examples[l.id]} /></span>
++                  : <LookSwatch look={l} />}
+@@ -246,0 +293,27 @@ export default function MakeShort() {
++        {chosenLook && <LookPreview look={chosenLook} made={examples[chosenLook.id]} />}
++        {engines?.image.ready && lookEx.ex && (
++          <div className="look-examples-row">
++            {lookEx.working ? (
++              <>
++                <div className="look-examples-progress">
++                  <ProgressBar value={lookEx.ex.job?.progress ?? 0} label="Example pictures" />
++                  <span className="small muted">{lookEx.ex.job?.message || "Waiting for the picture maker"}</span>
++                </div>
++                <button type="button" className="btn btn-small" onClick={lookEx.stop}><Icon name="stop" />Stop</button>
++              </>
++            ) : (
++              <>
++                <span className="small muted">{Object.keys(examples).length
++                  ? "The cards show your picture maker's own examples."
++                  : `See what ${engines.image.engine || "your picture maker"} draws in each look: one small picture per look, kept on this computer.`}</span>
++                <button type="button" className="btn btn-small" disabled={!lookEx.ex.can_make} onClick={lookEx.make}>
++                  <Icon name="image" />{Object.keys(examples).length ? "Make them again" : "Make examples with my picture maker"}
++                </button>
++              </>
++            )}
++            {lookEx.ex.job?.status === "failed" && lookEx.ex.job.error && !lookEx.working && (
++              <p className="short-warn small"><Icon name="alert" className="sm" /><span>{lookEx.ex.job.error}</span></p>
++            )}
++            {lookEx.problem && <p className="short-warn small"><Icon name="alert" className="sm" /><span>{lookEx.problem}</span></p>}
++          </div>
++        )}
+diff --git a/frontend/src/pages/ProjectView.tsx b/frontend/src/pages/ProjectView.tsx
+index 176f848..d41fcbc 100644
+--- a/frontend/src/pages/ProjectView.tsx
++++ b/frontend/src/pages/ProjectView.tsx
+@@ -22,0 +23 @@ import "./library.css";
++import { ProjectCloudCard } from "../components/projectCloud";
+@@ -226,0 +228 @@ export default function ProjectView({ id, focus = "" }: { id: string; focus?: st
++      {p.cloud && <ProjectCloudCard c={p.cloud} status={p.status} />}
+diff --git a/frontend/src/pages/Settings.tsx b/frontend/src/pages/Settings.tsx
+index 00773f6..ee9def1 100644
+--- a/frontend/src/pages/Settings.tsx
++++ b/frontend/src/pages/Settings.tsx
+@@ -5,0 +6 @@ import MediaSourcesSettings from "../components/MediaSources";
++import ProcessingSettings from "../components/ProcessingSettings";
+@@ -79,0 +81,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
++  if (tab === "processing") {
++    return (
++      <SettingsFrame current="processing" sub="Make clips on this computer, or on your own ClipForge worker in the cloud (Full Cloud).">
++        <ProcessingSettings />
++      </SettingsFrame>
++    );
++  }
+@@ -102,0 +111 @@ const SETTINGS_TABS = [
++  { id: "processing", href: "#/settings/processing", label: "Processing" },
+diff --git a/frontend/src/pages/Studio.tsx b/frontend/src/pages/Studio.tsx
+index 1bfe24c..e43b69a 100644
+--- a/frontend/src/pages/Studio.tsx
++++ b/frontend/src/pages/Studio.tsx
+@@ -381 +381 @@ function AskAI({ make = false }: { make?: boolean }) {
+- * four choices as + Make at the top of every page. */
++ * choices as + Make at the top of every page. */
+@@ -385,0 +386 @@ const MAKE_CHOICES: { href: string; icon: IconName; title: string; words: string
++  { href: "#/stories", icon: "story", title: "Make a text story", words: "A story read over a background" },
+diff --git a/frontend/src/pages/TextStories.tsx b/frontend/src/pages/TextStories.tsx
+new file mode 100644
+index 0000000..0bb3d63
+--- /dev/null
++++ b/frontend/src/pages/TextStories.tsx
+@@ -0,0 +1,730 @@
++import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
++import { errorText } from "../api";
++import { Banner, EmptyState, Icon, PageHead, Segmented, Skel, toast } from "../components/ui";
++import { navigate } from "../router";
++import { uploadFile } from "../studio";
++import {
++  Background, BackgroundChoice, clock, Story, StoryListItem, StoryOptions, StoryPatch, StoryVoice, textStories,
++} from "../textStories";
++import "./stories.css";
++
++/**
++ * Text Stories (main navigation): write or paste a story, or let ClipForge AI write and revise it; choose a voice
++ * style and hear it; put your own clips behind it (trimmed, looped, moved in the frame) or let ClipForge pick; preview
++ * it small and fast, then export the full video. The work runs in ClipForge's job line, so Stop always works and a
++ * restart carries on.
++ */
++export default function TextStories({ id }: { id: string }) {
++  return id ? <StoryEditor id={id} key={id} /> : <StoryList />;
++}
++
++const STATUS: Record<string, string> = { draft: "Draft", writing: "Writing", voicing: "Recording the voice",
++  rendering: "Making the video", ready: "Ready", failed: "Needs you" };
++
++function StoryList() {
++  const [list, setList] = useState<StoryListItem[] | null>(null);
++  const [problem, setProblem] = useState("");
++  const [busy, setBusy] = useState(false);
++  useEffect(() => {
++    textStories.list().then((r) => setList(r.stories)).catch((e) => setProblem(errorText(e)));
++  }, []);
++  const start = async () => {
++    setBusy(true);
++    try {
++      const s = await textStories.create();
++      navigate(`stories/${s.id}`);
++    } catch (e) {
++      toast(errorText(e), true);
++      setBusy(false);
++    }
++  };
++  const newButton = (
++    <button type="button" className="btn btn-primary btn-large" disabled={busy} onClick={() => void start()}>
++      <Icon name="plus" />New text story
++    </button>
++  );
++  return (
++    <div className="page narrow stories">
++      <PageHead kind="Make" title="Text Stories" actions={newButton}
++        sub={"A story read aloud over background video, with big captions: write it, pick a voice and a background, "
++          + "preview, export."} />
++      {problem && <Banner tone="bad" title="Your stories could not be loaded">{problem}</Banner>}
++      {!list && !problem && (
++        <div className="stack-3" aria-hidden="true"><Skel className="skel-block" /><Skel className="skel-block" /></div>
++      )}
++      {list && list.length === 0 && (
++        <EmptyState icon="story" title="No text stories yet">
++          Paste a story or let ClipForge AI write one. Your own gameplay or satisfying clips go behind it, or
++          ClipForge picks.
++        </EmptyState>
++      )}
++      {list && list.length > 0 && (
++        <ul className="story-list">
++          {list.map((s) => (
++            <li key={s.id}>
++              <a href={`#/stories/${s.id}`} className="story-row">
++                <Icon name="story" />
++                <span className="grow"><b>{s.name}</b>
++                  <span className="small muted">
++                    {s.words} words {U+00B7} {STATUS[s.status] || s.status}{s.exported ? " {U+00B7} exported" : ""}
++                  </span>
++                </span>
++                <Icon name="chev" className="sm" />
++              </a>
++            </li>
++          ))}
++        </ul>
++      )}
++    </div>
++  );
++}
++
++/** One numbered step of the story. */
++function Step({ n, title, done, children, id }: { n: number; title: string; done: boolean; children: ReactNode;
++  id: string }) {
++  return (
++    <section className="panel story-step" aria-labelledby={id}>
++      <h2 id={id}>
++        <span className={`step-n${done ? " done" : ""}`} aria-hidden="true">{done ? <Icon name="check" /> : n}</span>
++        {title}</h2>
++      {children}
++    </section>
++  );
++}
++
++function useAudio() {
++  const audio = useRef<HTMLAudioElement | null>(null);
++  const url = useRef("");
++  const [playing, setPlaying] = useState("");
++  const stop = useCallback(() => {
++    audio.current?.pause();
++    audio.current = null;
++    if (url.current) URL.revokeObjectURL(url.current);
++    url.current = "";
++    setPlaying("");
++  }, []);
++  useEffect(() => stop, [stop]);
++  const play = async (key: string, v: { voice: string; speed: number; tone: number; text?: string }) => {
++    if (playing === key) {
++      stop();
++      return;
++    }
++    stop();
++    setPlaying(key);
++    try {
++      const { blob, note } = await textStories.hear(v);
++      if (note) toast(note);
++      url.current = URL.createObjectURL(blob);
++      const a = new Audio(url.current);
++      audio.current = a;
++      a.onended = () => audio.current === a && stop();
++      await a.play();
++    } catch (e) {
++      stop();
++      if ((e as Error).name !== "NotAllowedError") toast(errorText(e), true);
++    }
++  };
++  return { playing, play, stop };
++}
++
++function StoryEditor({ id }: { id: string }) {
++  const ids = useId();
++  const [story, setStory] = useState<Story | null>(null);
++  const [opts, setOpts] = useState<StoryOptions | null>(null);
++  const [problem, setProblem] = useState("");
++  const [title, setTitle] = useState("");
++  const [script, setScript] = useState("");
++  const [name, setName] = useState("");
++  const [saving, setSaving] = useState(false);
++  const typed = useRef(false);
++  const audio = useAudio();
++
++  const take = useCallback((s: Story) => {
++    setStory(s);
++    if (!typed.current) {
++      setTitle(s.title);
++      setScript(s.script);
++      setName(s.own_name);
++    }
++  }, []);
++  useEffect(() => {
++    textStories.get(id).then(take).catch((e) => setProblem(errorText(e)));
++    textStories.options().then(setOpts).catch((e) => setProblem(errorText(e)));
++  }, [id, take]);
++  // while ClipForge works on it, follow the work
++  const working = !!story?.working;
++  useEffect(() => {
++    if (!working) return;
++    const t = window.setInterval(() => {
++      textStories.get(id).then((s) => {
++        if (!s.working) typed.current = false;  // what was written comes in
++        take(s);
++      }).catch(() => {});
++    }, 1200);
++    return () => window.clearInterval(t);
++  }, [working, id, take]);
++
++  const change = async (patch: StoryPatch) => {
++    setSaving(true);
++    try {
++      take(await textStories.change(id, patch));
++      return true;
++    } catch (e) {
++      toast(errorText(e), true);
++      return false;
++    } finally {
++      setSaving(false);
++    }
++  };
++  // the text fields are saved a moment after typing stops, and when leaving the field
++  const textTimer = useRef<number | undefined>(undefined);
++  const saveText = useCallback(async (now: { title: string; script: string; name: string }) => {
++    window.clearTimeout(textTimer.current);
++    setSaving(true);
++    try {
++      const s = await textStories.change(id, now);
++      typed.current = false;
++      take(s);
++    } catch (e) {
++      toast(errorText(e), true);
++    } finally {
++      setSaving(false);
++    }
++  }, [id, take]);
++  const typing = (next: Partial<{ title: string; script: string; name: string }>) => {
++    typed.current = true;
++    const now = { title, script, name, ...next };
++    if (next.title !== undefined) setTitle(next.title);
++    if (next.script !== undefined) setScript(next.script);
++    if (next.name !== undefined) setName(next.name);
++    window.clearTimeout(textTimer.current);
++    textTimer.current = window.setTimeout(() => void saveText(now), 900);
++  };
++  const flush = () => {
++    if (typed.current) void saveText({ title, script, name });
++  };
++
++  const act = async (what: "preview" | "export" | "stop") => {
++    if (typed.current) await saveText({ title, script, name });
++    try {
++      take(await textStories[what](id));
++    } catch (e) {
++      toast(errorText(e), true);
++    }
++  };
++
++  if (problem && !story) {
++    return (
++      <div className="page narrow stories">
++        <PageHead kind="Make" title="Text story"
++          crumbs={[{ label: "Text Stories", href: "#/stories" }, { label: "Story" }]} />
++        <Banner tone="bad" title="This story could not be opened">{problem}</Banner>
++      </div>
++    );
++  }
++  if (!story || !opts) {
++    return (
++      <div className="page narrow stories" aria-busy="true">
++        <Skel className="skel-block" /><Skel className="skel-block" />
++      </div>
++    );
++  }
++  const words = script.split(/\s+/).filter(Boolean).length + title.split(/\s+/).filter(Boolean).length;
++  const locked = story.working;
++  const progress = story.job ? Math.round(story.job.progress * 100) : 0;
++
++  return (
++    <div className="page narrow stories">
++      <PageHead kind="Text story" title={story.name}
++        crumbs={[{ label: "Text Stories", href: "#/stories" }, { label: story.name }]}
++        sub={`${words} words {U+00B7} about ${clock(story.seconds)} read aloud${saving ? " {U+00B7} saving{U+2026}" : ""}`} />
++
++      {story.working && (
++        <div className="story-work" role="status" aria-live="polite">
++          <span className="inline-spinner" aria-hidden="true" />
++          <span className="grow"><b>{story.job?.message || story.message}</b>
++            <span className="story-bar" aria-hidden="true"><i style={{ width: `${Math.max(4, progress)}%` }} /></span>
++          </span>
++          <button type="button" className="btn btn-small" onClick={() => void act("stop")}>
++            <Icon name="stop" />Stop
++          </button>
++        </div>
++      )}
++      {!story.working && story.error && <Banner tone="bad" title="That did not work">{story.error}</Banner>}
++      {!story.working && !story.error && story.message && <Banner tone="info">{story.message}</Banner>}
++
++      <Step n={1} id={`${ids}-script`} title="Script" done={story.steps.script}>
++        <label className="field"><span>Title <span className="muted">(read first, shown on a card)</span></span>
++          <input type="text" value={title} maxLength={opts.limits.max_title} disabled={locked}
