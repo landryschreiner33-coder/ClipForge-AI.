@@ -49,6 +49,17 @@ transfers retain their identity and reconcile rather than uploading again blindl
 work without deleting completed clips or posts already on YouTube. Existing files and published videos are not
 rewritten by the update.
 
+**Cancel upload** (on a post that is uploading now: the post page and the Posts menu; added 2026-11-25) is different
+from canceling its job in Advanced → Jobs (which only postpones the post to a new time) and from Stop all. The upload
+stops after the part being sent and the post ends as *canceled*: nothing is posted, the clip and its file stay, and
+**Retry** makes exactly one new upload (a new session; the canceled one never gets its last part, so YouTube makes no
+video from it). The request is written into the upload record (`info.cancel_requested_at`) and the post's history, so
+a waiting or retrying job, a restart or the orphan check never revives the canceled upload. When the platform already
+has the whole video, ClipForge shows that instead: YouTube's upload session is asked (`youtube.session_state`); a
+finished video is recorded as posted ("Too late to cancel"), and anything unclear after the last part keeps the
+outcome-unknown hold (rule 6). A TikTok upload whose chunks all arrived is processing on TikTok and can't be stopped
+from ClipForge; the page says so. Publish Center's own **Cancel upload** follows the same rules.
+
 **Make clips only** requires no upload consent and creates no automatic posting plan. Use Clips to edit/export the
 results. Existing Queue backlog keeps the default manual review behavior. Inline previews and **Approve selected**
 can approve up to 50 selected YouTube posts with one explicit batch review; this is not permission for future work.

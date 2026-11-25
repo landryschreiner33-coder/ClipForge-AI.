@@ -358,6 +358,10 @@ function PostRow({ p, tz, reviewing, selected, selectionFull, onSelect, onApprov
       ? [{ label: "Open the source video", href: p.source.url, external: true, icon: "link" as const }] : []),
     ...(cancelable ? ["separator" as const,
       { label: "Cancel this post…", danger: true, icon: "x" as const, onSelect: () => onAction("cancel", p) }] : []),
+    ...(p.status === "publishing" && !(p.platform === "tiktok" && p.publication?.status === "processing")
+      && !(p.status_note || "").startsWith("Canceling") ? ["separator" as const,
+      { label: "Cancel upload…", danger: true, icon: "x" as const, onSelect: () => onAction("cancel-upload", p) }]
+      : []),
   ];
   return (
     <div className={`post-row ${reviewing ? "post-select-row" : ""} ${selected ? "post-selected" : ""}`} data-id={p.id}>

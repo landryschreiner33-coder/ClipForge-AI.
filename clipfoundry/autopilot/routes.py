@@ -769,7 +769,8 @@ def _public_item(item: dict, settings: dict) -> dict:
             "metadata_options": db.select("metadata_candidates", "clip_id = ? AND platform = ?",
                                           (item["clip_id"], item["platform"]), "score DESC"),
             "publication": ({k: pub.get(k) for k in ("id", "status", "url", "privacy", "requested_privacy",
-                                                     "message", "error", "fix", "info", "remote_id", "delivery")}
+                                                     "message", "error", "fix", "info", "remote_id", "delivery",
+                                                     "progress")}
                             if pub else None)}
 
 
@@ -990,6 +991,20 @@ def cancel_item(item_id: str) -> dict:
         raise HTTPException(409, str(exc)) from exc
 
 
+@router.post("/scheduled/{item_id}/cancel-upload", dependencies=WRITE)
+def cancel_upload(item_id: str) -> dict:
+    """Cancel upload on a post that is uploading now: it ends as canceled (nothing posted), or shows that the
+    platform already had the whole video."""
+    from . import publisher
+
+    _item_or_404(item_id)
+    try:
+        result = publisher.cancel_upload(item_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {**_public_item(_item_or_404(item_id), db.get_settings()), "cancel": result}
+
+
 @router.post("/scheduled/{item_id}/retry", dependencies=WRITE)
 def retry_item(item_id: str) -> dict:
     """Try a failed or blocked post again (with a new time). It needs a valid approval to go out."""
@@ -998,6 +1013,9 @@ def retry_item(item_id: str) -> dict:
     item = _item_or_404(item_id)
     if item["status"] not in ("failed", "blocked", "action_needed", "canceled"):
         raise HTTPException(409, "Only failed, blocked or canceled posts can be retried")
+    job = db.fetch("worker_jobs", f"publish:{item_id}", "idem_key")
+    if job and job["status"] == "running":  # a canceled upload still stopping: one upload at a time, never two
+        raise HTTPException(409, "Still stopping the canceled upload. Try again in a moment.")
     valid = approval_valid({**item, "status": "approved", "publication_id": ""}) and not (
         rights.review_before_publish() and (item.get("approval") or {}).get("by") == "automatic")
     db.update("scheduled_publications", item_id, status="approved" if valid else "awaiting_approval",

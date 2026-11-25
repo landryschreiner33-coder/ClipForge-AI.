@@ -172,6 +172,80 @@ def outcome_unknown(item: dict, pub: dict, exc: PublishError) -> dict:
     return {"message": "Needs your check: the upload may have finished"}
 
 
+# ------------------------------------------------------------------ Cancel upload (one post, not the whole job queue)
+UPLOAD_CANCELED = "Upload canceled by you. Nothing was posted. Retry uploads it again."
+TIKTOK_TOO_LATE = ("Too late to cancel: TikTok already has the whole video and is processing it. It can't be stopped "
+                   "from ClipForge; delete it in the TikTok app if you do not want it.")
+
+
+def cancel_requested(pub: dict | None) -> bool:
+    return bool(((pub or {}).get("info") or {}).get("cancel_requested_at"))
+
+
+def cancel_pressed(item: dict, since: float) -> bool:
+    """Cancel upload was pressed on this post during the job run that started at `since` (it may have been pressed
+    before the run made its upload record, so the post's own history is read too)."""
+    return any(e.get("event") == "upload_cancel_requested" and float(e.get("at") or 0) >= since
+               for e in (_item(item["id"]) or item).get("audit") or [])
+
+
+def cancel_upload(item_id: str) -> dict:
+    """Cancel upload on a post that is uploading now. Different from canceling the job (which only postpones the
+    post) and from Stop all: the post ends as canceled and nothing is posted, unless the platform already has the
+    whole video, which is then shown as it is. The request is kept in the upload record, so a restart or a waiting
+    job never undoes it, and a stop never authorizes a second upload (rule 6)."""
+    item = _item(item_id)
+    if not item:
+        raise LookupError("This post no longer exists")
+    if item["status"] != "publishing":
+        raise ValueError("Only a post that is uploading now has an upload to cancel")
+    pub = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
+    if pub and pub["platform"] == "tiktok" and pub["status"] == "processing":
+        raise ValueError(TIKTOK_TOO_LATE)
+    if pub:
+        db.update_publication(pub["id"], info={**(pub.get("info") or {}), "cancel_requested_at": time.time()})
+        pub = db.get_publication(pub["id"]) or pub
+    db.update("scheduled_publications", item_id, status_note="Canceling: it stops after the part being sent",
+              audit=_audit(item, "upload_cancel_requested", "Cancel upload: by you"))
+    job = db.fetch("worker_jobs", f"publish:{item_id}", "idem_key")
+    if job and job["status"] == "running":  # it stops at its next part; the handler then settles it (publish())
+        queue.cancel(job["id"], "Cancel upload: by you")
+        return {"status": "stopping", "message": "Stopping after the part being sent."}
+    if job and job["status"] in ("queued", "waiting", "retrying"):
+        queue.cancel(job["id"], "Cancel upload: by you")
+    return settle_cancel(_item(item_id) or item, pub)
+
+
+def settle_cancel(item: dict, pub: dict | None) -> dict:
+    """End a canceled upload by what the platform really has. YouTube: a session that never got its last part makes
+    no video; after the last part its session is asked, and anything unclear is held for your check (reconciling),
+    never called canceled. TikTok: chunks that stopped are never posted; a finished upload is read back."""
+    if pub and pub["status"] in ("done", "action_needed"):
+        return finish(item, pub)
+    if pub and pub["platform"] == "youtube" and (pub.get("info") or {}).get("final_chunk_at"):
+        outcome = publish_jobs._youtube_cancel_outcome(pub)  # noqa: SLF001
+        if outcome is None:
+            outcome_unknown(item, pub, youtube._outcome_unknown())
+            return {"status": "reconciling", "message": "Needs your check: the upload may have finished"}
+        db.update_publication(pub["id"], **outcome)
+        if outcome["status"] == "done":
+            taste.published(pub["clip_id"])
+            result = finish(item, db.get_publication(pub["id"]) or pub)
+            return {**result, "status": "published", "message": publish_jobs.TOO_LATE_YOUTUBE}
+    if pub and pub["platform"] == "tiktok" and pub["status"] == "processing" and pub.get("remote_id"):
+        if recover(pub) == "done":
+            return {**finish(item, db.get_publication(pub["id"]) or pub), "status": "published"}
+        return {"status": "publishing", "message": TIKTOK_TOO_LATE}
+    current = _item(item["id"]) or item
+    if pub and current.get("publication_id") not in ("", pub["id"]):
+        return {"status": current["status"], "message": "A newer upload of this post is under way"}
+    if pub and pub["status"] != "cancelled":
+        db.update_publication(pub["id"], status="cancelled", message="Upload canceled by you. Nothing was posted.",
+                              delivery={**(pub.get("delivery") or {}), "transfer": "cancelled"})
+    _set(current, "canceled", UPLOAD_CANCELED, "upload_canceled", publication_id="", planned_at=None)
+    state.resolve(f"publish:{item['id']}")
+    return {"status": "canceled", "message": UPLOAD_CANCELED}
+
 def recover(pub: dict) -> str:
     """What happened to an upload that was interrupted: 'done', 'resume' (upload again/continue) or 'wait'."""
     if pub["status"] in ("done", "action_needed"):
@@ -315,6 +389,9 @@ def publish(job: Job) -> dict:
     if item["status"] in ("published", "canceled", "replaced"):
         return {"message": f"Nothing to do: the post is {item['status']}"}
     existing = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
+    if item["status"] in ("publishing", "reconciling") and cancel_requested(existing):
+        # Cancel upload was pressed (perhaps before a restart): settle it, never continue the transfer
+        return settle_cancel(item, existing)
     started = publish_jobs.transfer_started(existing)
     uncertain = bool(existing and publish_jobs.unknown_outcome(existing))
     if uncertain and item["platform"] == "youtube":
@@ -480,6 +557,12 @@ def publish(job: Job) -> dict:
             runner(pub, job.cancelled)
     except (queue.Canceled, UploadCancelled):
         current = db.get_publication(pub["id"]) or pub
+        if cancel_requested(current) or cancel_pressed(item, float(job.row.get("started_at") or 0)):
+            # Cancel upload on this post (not Stop all, not a job cancel, which only postpone it)
+            result = settle_cancel(_item(item["id"]) or item, current)
+            if result.get("status") == "published":
+                return result
+            raise queue.Canceled()
         if current["platform"] == "youtube" and (current.get("info") or {}).get("final_chunk_at"):
             outcome_unknown(item, current, youtube._outcome_unknown())
             raise queue.Canceled()

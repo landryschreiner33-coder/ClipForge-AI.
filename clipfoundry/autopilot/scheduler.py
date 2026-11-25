@@ -1142,12 +1142,18 @@ def reconcile_orphans(now: float) -> int:
     for item in db.select("scheduled_publications", "status = 'publishing' AND updated_at < ?", (now - ORPHAN_AFTER,)):
         if item["id"] in active:
             continue
-        if item.get("publication_id"):
+        pub = db.get_publication(item["publication_id"]) if item.get("publication_id") else None
+        from .publisher import cancel_pressed, settle_cancel
+
+        old = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
+        if ((pub or {}).get("info") or {}).get("cancel_requested_at") or (
+                old and old["status"] == "canceled" and cancel_pressed(item, float(old.get("started_at") or 0))):
+            settle_cancel(item, pub)  # Cancel upload was pressed: never revive the stopped job
+        elif item.get("publication_id"):
             db.update("scheduled_publications", item["id"], status="reconciling",
                       status_note="Checking with the platform whether the upload finished",
                       audit=_audit(item, "reconciling", "The upload job stopped before it finished; checking with the "
                                                         "platform what happened"))
-            old = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
             if old and old["status"] == "canceled":
                 # The post already has an upload record. Reconcile that same session after work resumes; this is
                 # the narrowly scoped exception to cancellation, never permission to start a second upload.

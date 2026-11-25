@@ -262,7 +262,8 @@ export function checkSummary(p: Post): string {
 }
 
 // ------------------------------------------------------------------ dialogs that change a post
-export type PostAction = "cancel" | "retry" | "publish-now" | "resolve-yes" | "resolve-no" | "link" | "reschedule";
+export type PostAction = "cancel" | "cancel-upload" | "retry" | "publish-now" | "resolve-yes" | "resolve-no" | "link"
+  | "reschedule";
 
 /**
  * One dialog per action. Each says exactly what will happen, then calls the API; an error keeps the dialog open
@@ -282,6 +283,25 @@ export function PostActionDialog({ action, post: p, tz, account, onClose, onDone
         onClose={onClose}
         onConfirm={() => ap.cancel(p.id).then(done("Post canceled. Nothing was posted."))}>
         <p className="muted">It won't be posted. The clip stays in your Library, and you can plan it again later.</p>
+      </ConfirmDialog>
+    );
+  }
+  if (action === "cancel-upload") {
+    return (
+      <ConfirmDialog title={`Cancel this upload to ${name}?`} confirmLabel="Cancel upload" cancelLabel="Keep uploading"
+        danger onClose={onClose}
+        onConfirm={() => ap.cancelUpload(p.id).then((out) => {
+          toast(out.cancel?.message || "Upload canceled.");
+          onDone(out as Post);
+        })}>
+        <p className="muted">
+          The upload stops after the part being sent, and nothing is posted. The clip and its file stay in ClipForge;
+          Retry uploads it again.
+        </p>
+        <p className="small muted">
+          If {name} already has the whole video, it can't be taken back from ClipForge: you'll see that it was posted,
+          and you can remove it on {name}.
+        </p>
       </ConfirmDialog>
     );
   }

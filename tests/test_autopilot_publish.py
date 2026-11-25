@@ -613,3 +613,145 @@ def test_paused_publishing_uploads_nothing_new_but_finishes_an_upload_under_way(
     db.save_settings({"autopilot_publishing_paused": False})
     run_publish(item["id"])
     assert len(g.videos) == 1 and db.fetch("scheduled_publications", item["id"])["status"] == "published"
+
+
+# ------------------------------------------------------------------ Cancel upload on one post
+def _upload_with_cancel_at(monkeypatch, item_id: str, when) -> dict:
+    """Run the post's upload job as the app does (claimed by a worker host); when `when(fraction)` is true, press
+    Cancel upload on the post (the host's heartbeat then tells the running job, as it does every few seconds)."""
+    from clipfoundry.autopilot import host, publisher, queue
+    from clipfoundry.publish import jobs as publish_jobs
+
+    worker_host = host.WorkerHost(periodic=False)
+    job = queue.enqueue("publish", {"scheduled_id": item_id}, idem_key=f"publish:{item_id}",
+                        ref=("scheduled", item_id))
+    real, pressed = publish_jobs._progress_writer, []
+
+    def watching(pub_id):
+        write = real(pub_id)
+
+        def checkpoint(frac):
+            write(frac)
+            if not pressed and when(frac):
+                pressed.append(publisher.cancel_upload(item_id))
+                worker_host.running()[job["id"]].cancel_event.set()
+
+        return checkpoint
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", watching)
+    worker_host._run("publisher", queue.claim("publisher", "test-host"))
+    monkeypatch.setattr(publish_jobs, "_progress_writer", real)
+    assert pressed and pressed[0]["status"] == "stopping"
+    return queue.get(job["id"])
+
+
+def test_cancel_upload_mid_transfer_ends_the_post_another_goes_out_and_retry_uploads_once(env, monkeypatch):
+    """Release check: a large upload is canceled mid-transfer, another post's upload proceeds, and Retry on the
+    canceled one makes exactly one upload."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import publisher, routes
+
+    g, t, tmp = env
+    connect(g, t)
+    big = make_item(tmp, size=700_000, approve={"options": {"made_for_kids": False}})
+    other = make_item(tmp, approve={"options": {"made_for_kids": False}}, text="Another clip, another post.")
+    job = _upload_with_cancel_at(monkeypatch, big["id"], lambda f: 0.1 < f < 1.0)
+    row = db.fetch("scheduled_publications", big["id"])
+    assert row["status"] == "canceled" and row["status_note"] == publisher.UPLOAD_CANCELED
+    assert row["publication_id"] == "" and job["status"] == "canceled"
+    assert [e["event"] for e in row["audit"]][-2:] == ["upload_cancel_requested", "upload_canceled"]
+    abandoned = next(iter(g.sessions.values()))
+    assert 0 < len(abandoned["data"]) < abandoned["size"] and not g.videos  # it never got its last part
+    run_publish(other["id"])  # the next post's upload is not held up
+    assert db.fetch("scheduled_publications", other["id"])["status"] == "published" and len(g.videos) == 1
+    routes.retry_item(big["id"])
+    assert db.fetch("scheduled_publications", big["id"])["status"] == "approved"
+    run_publish(big["id"])
+    assert db.fetch("scheduled_publications", big["id"])["status"] == "published"
+    assert len(g.videos) == 2 and len(g.sessions) == 3  # one new upload; the canceled session stays unfinished
+    assert len(abandoned["data"]) < abandoned["size"]
+
+
+def test_cancel_upload_when_youtube_already_has_the_whole_video_shows_it_is_posted(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs as publish_jobs
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}})
+    _upload_with_cancel_at(monkeypatch, item["id"], lambda f: f >= 1.0)
+    row = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(row["publication_id"])
+    assert row["status"] == "published" and pub["status"] == "done" and pub["message"].startswith(publish_jobs.TOO_LATE)
+    assert len(g.videos) == 1 and len(g.sessions) == 1
+
+
+def test_cancel_upload_while_the_job_waits_for_youtube_is_not_undone_by_a_restart(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import publisher, queue, scheduler
+
+    g, t, tmp = env
+    connect(g, t)
+    g.rate_limit_puts, g.retry_after = 1, "7200"
+    item = make_item(tmp, size=700_000, approve={"options": {"made_for_kids": False}})
+    with pytest.raises(queue.Wait):
+        run_publish(item["id"])
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "publishing"
+    result = publisher.cancel_upload(item["id"])
+    assert result["status"] == "canceled"
+    job = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
+    assert job["status"] == "canceled"
+    queue.recover(time.time() + 3600)  # the app starts again later
+    scheduler.reconcile_orphans(time.time() + 3600)
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "canceled"
+    assert queue.get(job["id"])["status"] == "canceled" and not g.videos  # never revived, nothing uploaded
+
+
+def test_a_cancel_pressed_just_before_the_app_closed_is_kept_after_the_restart(env, monkeypatch):
+    """The app closed while the canceled upload was still stopping: the next start ends it as canceled instead of
+    checking it with YouTube and continuing the session."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+    from clipfoundry.publish import jobs as publish_jobs
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, size=700_000, approve={"options": {"made_for_kids": False}})
+
+    class Crash(BaseException):
+        pass
+
+    real = publish_jobs._progress_writer
+
+    def crashing(pub_id):
+        write = real(pub_id)
+
+        def w(frac):
+            write(frac)
+            if 0.1 < frac < 1.0:
+                raise Crash()
+        return w
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", crashing)
+    with pytest.raises(Crash):
+        run_publish(item["id"])
+    monkeypatch.setattr(publish_jobs, "_progress_writer", real)
+    row = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(row["publication_id"])
+    db.update_publication(pub["id"], info={**pub["info"], "cancel_requested_at": time.time()})  # pressed, then closed
+    job = queue.jobs(worker="publisher")[0]
+    queue.cancel(job["id"])
+    db.execute("UPDATE scheduled_publications SET updated_at = ? WHERE id = ?", (time.time() - 600, item["id"]))
+    scheduler.reconcile_orphans(time.time())
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "canceled"
+    assert queue.get(job["id"])["status"] == "canceled" and not g.videos and len(g.sessions) == 1
+
+
+def test_cancel_upload_is_only_for_a_post_uploading_now(env):
+    from clipfoundry.autopilot import publisher
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}})
+    with pytest.raises(ValueError, match="uploading now"):
+        publisher.cancel_upload(item["id"])

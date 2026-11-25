@@ -430,6 +430,34 @@ def _resume_offset(c: httpx.Client, session: str, size: int, token: Token, sleep
     return 0, None
 
 
+def session_state(session: str, size: int, token: Token) -> tuple[str, dict | int | None]:
+    """Where an upload session stands, for Cancel upload, so the person is told what really happened. Sends no
+    video bytes. ("complete", video): YouTube has the whole file and made the video. ("partial", offset): YouTube
+    has `offset` bytes; a session that never gets the rest makes no video. ("expired", None): YouTube no longer knows
+    the session. ("unknown", None): no clear answer (offline, signed out, a wait was asked for)."""
+    try:
+        with client(30) as c:
+            r = c.put(session, headers={"Authorization": f"Bearer {token.get()}", "Content-Range": f"bytes */{size}",
+                                        "Content-Length": "0"})
+    except (httpx.HTTPError, PublishError):
+        return "unknown", None
+    if r.status_code in (200, 201):
+        return "complete", _json(r)
+    if r.status_code == 308:
+        return "partial", _next_offset(r)
+    if r.status_code in (404, 410):
+        return "expired", None
+    return "unknown", None
+
+
+def cancel_is_safe(state: str, offset: dict | int | None, size: int, final_chunk_sent: bool) -> bool:
+    """A cancel may end as "nothing was posted" only when YouTube cannot make the video any more: it has less than
+    the whole file. Right after the last part was sent YouTube may still be putting it together, so then only a
+    session missing more than one whole part counts; anything less certain keeps the outcome-unknown hold."""
+    if state != "partial" or not isinstance(offset, int):
+        return False
+    return offset < size - (CHUNK if final_chunk_sent else 0)
+
 def video_url(video_id: str) -> str:
     return f"https://www.youtube.com/shorts/{video_id}"
 

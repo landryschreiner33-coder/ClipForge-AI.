@@ -191,6 +191,8 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     else:
         message = ("Uploaded to YouTube as Private. Next: share it privately in YouTube Studio with the people you "
                    "picked; until then nobody else can watch it.")
+    if cancelled():  # Cancel upload came while the last part was on its way: say so, the video is there
+        message, info = TOO_LATE + message, {**info, "cancel_too_late": True}
     db.update_publication(pub["id"], status="done", progress=1.0, remote_id=vid, url=youtube.video_url(vid),
                           privacy=privacy, message=message, info={**info, "locked_private": locked_private},
                           delivery=delivery)
@@ -299,10 +301,53 @@ def _hold_manual_unknown(pub: dict, exc: PublishError) -> dict:
     return db.get_publication(pub["id"]) or pub
 
 
+TOO_LATE = "Too late to cancel: YouTube already had the whole video, so it is uploaded. "
+TOO_LATE_YOUTUBE = TOO_LATE + "YouTube is processing it; delete it in YouTube Studio if you do not want it."
+CANCELED_PART = "Upload canceled. YouTube had only part of the video, so nothing was posted."
+
+
+def _youtube_cancel_outcome(pub: dict) -> dict | None:
+    """After the last part was sent, ask YouTube's upload session what it has (Cancel upload shows the real state):
+    the fields to write, or None when it cannot be told (the outcome-unknown hold then stays)."""
+    info = pub.get("info") or {}
+    if not info.get("upload_session"):
+        return None
+    try:
+        token = youtube.Token(db.get_settings(), _status_connection(pub))
+        size = os.path.getsize(pub["video_path"])
+    except (PublishError, OSError):
+        return None
+    state, found = youtube.session_state(info["upload_session"], size, token)
+    if state == "complete" and isinstance(found, dict) and found.get("id"):
+        vid = found["id"]
+        st = found.get("status") or {}
+        return {"status": "done", "progress": 1.0, "remote_id": vid, "url": youtube.video_url(vid),
+                "privacy": st.get("privacyStatus") or "", "message": TOO_LATE_YOUTUBE, "error": "", "fix": "",
+                "info": {**info, "studio_url": youtube.studio_url(vid), "upload_status": st.get("uploadStatus", ""),
+                         "cancel_too_late": True},
+                "delivery": {**(pub.get("delivery") or {}), "transfer": "uploaded"}}
+    if youtube.cancel_is_safe(state, found, size, bool(info.get("final_chunk_at"))):
+        return {"status": "cancelled", "message": CANCELED_PART,
+                "delivery": {**(pub.get("delivery") or {}), "transfer": "cancelled"}}
+    return None
+
+
 def _cancel_publication(pub_id: str, message: str) -> None:
     pub = db.get_publication(pub_id)
     if pub and pub["platform"] == "youtube" and (pub.get("info") or {}).get("final_chunk_at"):
-        _hold_manual_unknown(pub, youtube._outcome_unknown())
+        outcome = _youtube_cancel_outcome(pub)
+        if outcome is None:  # never "canceled" while YouTube may have the video: that could post it twice
+            _hold_manual_unknown(pub, youtube._outcome_unknown())
+            return
+        db.update_publication(pub_id, **outcome)
+        if outcome["status"] == "done":
+            taste.published(pub["clip_id"])
+            try:
+                read = refresh(db.get_publication(pub_id) or pub)  # read its visibility back, as after any upload
+                if not (read.get("message") or "").startswith(TOO_LATE):
+                    db.update_publication(pub_id, message=TOO_LATE + (read.get("message") or ""))
+            except PublishError as exc:
+                log.info("visibility read after a late cancel failed: %s", exc)
     elif pub:
         db.update_publication(pub_id, status="cancelled", message=message)
 
@@ -422,12 +467,19 @@ class PublishWorker:
         self.start()
 
     def cancel(self, pub_id: str) -> None:
+        pub = db.get_publication(pub_id)
+        if pub:  # kept in the row too, so a restart before the worker sees it still ends it as canceled
+            db.update_publication(pub_id, info={**(pub.get("info") or {}), "cancel_requested_at": time.time()})
         self.cancelled.add(pub_id)
         timer = self.timers.pop(pub_id, None)
         if timer:  # waiting for the platform's time: nothing is running, so it is canceled right away
             timer.cancel()
             self.cancelled.discard(pub_id)
             _cancel_publication(pub_id, "Cancelled while waiting. Nothing was published.")
+        elif pub and pub_id != self.current and pub["status"] == "queued" and not transfer_started(pub):
+            # waiting behind another upload: ended now instead of showing "queued" until its turn comes. It stays
+            # in `cancelled` until the worker reaches it, so an upload that just started stops at its first part.
+            _cancel_publication(pub_id, "Cancelled before the upload started. Nothing was published.")
 
     def later(self, pub_id: str, at: float) -> None:
         """Start this upload again at `at` (the time the platform asked for), not before."""

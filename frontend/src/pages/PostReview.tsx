@@ -558,13 +558,32 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
         </section>
       );
     }
-    case "publishing":
+    case "publishing": {
+      const stopping = (p.status_note || "").startsWith("Canceling");
+      const tiktokDone = p.platform === "tiktok" && p.publication?.status === "processing";
+      const pct = Math.round(100 * Math.max(0, Math.min(1, p.publication?.progress ?? 0)));
       return (
-        <Banner tone="info" icon="upload" title="Uploading now">
-          {p.publication?.message || p.status_note || "The upload has started."} It can't be canceled from ClipForge
-          once it started; wait for it to finish.
+        <Banner tone="info" icon="upload" title={stopping ? "Canceling the upload" : "Uploading now"}>
+          {stopping ? p.status_note : (p.publication?.message || p.status_note || "The upload has started.")}
+          {p.publication && !tiktokDone && (
+            <div className="bar" style={{ margin: "8px 0" }} role="progressbar" aria-label="Upload progress" aria-valuemin={0}
+              aria-valuemax={100} aria-valuenow={pct}>
+              <span style={{ width: `${pct}%` }} />
+            </div>
+          )}
+          {tiktokDone ? (
+            <span> TikTok already has the whole video and is processing it, so it can't be canceled from ClipForge.</span>
+          ) : (
+            <div className="row wrap">
+              <button type="button" className="btn btn-small btn-danger" disabled={stopping}
+                onClick={() => onAction("cancel-upload")}>
+                <Icon name="x" />{stopping ? "Canceling…" : "Cancel upload…"}
+              </button>
+            </div>
+          )}
         </Banner>
       );
+    }
     case "published":
       if (onPlatform(p)) {
         return (

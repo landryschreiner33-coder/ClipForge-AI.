@@ -515,7 +515,7 @@ export interface ScheduledItem extends ScheduledItemRow {
   clip_scores: Record<string, any> | null;
   metadata_options: MetadataOption[];
   quality: QualitySummary | null;
-  publication: { id: string; status: string; url: string; privacy: string; requested_privacy: string; message: string; error: string; fix: string; info: Record<string, any> } | null;
+  publication: { id: string; status: string; url: string; privacy: string; requested_privacy: string; message: string; error: string; fix: string; info: Record<string, any>; progress?: number } | null;
   warnings?: string[];
 }
 
@@ -579,6 +579,9 @@ export const ap = {
   edit: (id: string, body: Record<string, unknown>) => req<ScheduledItem>("PATCH", `${A}/scheduled/${id}`, body),
   reschedule: (id: string, planned_at: number) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/reschedule`, { planned_at }),
   cancel: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/cancel`),
+  /** Cancel upload on a post that is uploading now (not the job queue's cancel, which only postpones it). */
+  cancelUpload: (id: string) =>
+    req<ScheduledItem & { cancel: { status: string; message: string } }>("POST", `${A}/scheduled/${id}/cancel-upload`),
   retry: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/retry`),
   publishNow: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/publish-now`),
   link: (id: string, url: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/link`, { url }),
