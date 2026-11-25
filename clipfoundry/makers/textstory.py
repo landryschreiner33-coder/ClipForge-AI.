@@ -44,7 +44,7 @@ MAX_WORDS = 650            # about 3.7 minutes at 175 words a minute
 MAX_TITLE = 140
 MAX_NAME = 120
 MAX_BACKGROUNDS = 12
-MAX_PIECES = 80            # background pieces in one render (a short clip looped over a long story)
+MAX_PIECES = 5000          # a guard only: a looping clip is one input however often it plays (render())
 MIN_PIECE_S = 1.0
 RENDER_RECIPE = 2          # part of every render key: a changed recipe renders again
 WPM = 175
@@ -62,6 +62,7 @@ BUILTINS = {
 HINTS = ("gameplay", "minecraft", "parkour", "satisfying", "subway", "surfer", "driving", "drive", "racing", "race",
          "slime", "asmr", "background", "broll", "b-roll", "loop", "game", "soap", "sand", "kinetic", "satisfy")
 WORKING = ("writing", "voicing", "rendering")
+STUCK = "ClipForge stopped before it finished, and nothing new was kept. Press the button again to try once more."
 
 
 class StoryError(ValueError):
@@ -81,7 +82,20 @@ def get(story_id: str, workspace_id: str) -> dict:
     s = db.fetch("text_stories", story_id)
     if not s or s["workspace_id"] != workspace_id:
         raise StoryError("Story not found.", 404)
-    return s
+    return _unstick(s)
+
+
+def _unstick(story: dict) -> dict:
+    """A story that says ClipForge is working on it while its job has ended (or is gone) is settled, so the page never
+    shows work that is not happening and Stop, the edits and the buttons work again. The handlers settle the story
+    themselves; this catches what a crash between their steps could leave."""
+    if story["status"] not in WORKING:
+        return story
+    job = db.fetch("studio_jobs", story.get("job_id") or "") if story.get("job_id") else None
+    if job and job["status"] in ("queued", "running"):
+        return story
+    _settle(story["id"], "failed", STUCK)
+    return db.fetch("text_stories", story["id"]) or story
 
 
 def _patch(story_id: str, **fields) -> dict:
@@ -256,8 +270,13 @@ def update(story: dict, body: dict) -> dict:
     if "script" in body:
         fields["script"] = _clean_script(body["script"])
     if "voice" in body:
+        raw = body["voice"]
+        if isinstance(raw, dict) and "style" in raw and "voice" not in raw and \
+                raw["style"] != (story.get("voice") or {}).get("style"):
+            # a style picked on its own: the story's kept voice stays, else the style's favourite comes with it
+            raw = {**voice_styles.for_style(ws, story["id"], str(raw["style"])), **raw}
         try:
-            fields["voice"] = voice_styles.clean_voice(body["voice"], story.get("voice") or None)
+            fields["voice"] = voice_styles.clean_voice(raw, story.get("voice") or None)
         except voice_styles.VoiceStyleError as exc:
             raise StoryError(str(exc)) from exc
     if "pronunciations" in body:
@@ -281,11 +300,19 @@ def update(story: dict, body: dict) -> dict:
 
 
 def delete(story: dict) -> None:
+    """The story, its favourite voice, its folder (voice, preview, export) and what ClipForge AI remembered about it
+    (Brain memories kept for this story). The fingerprints of its exports stay (text_story_exports), so a copy of one
+    is never offered back as a background."""
     if story.get("job_id"):
         cancel_job(story["job_id"])
-    db.execute("DELETE FROM text_stories WHERE id = ?", (story["id"],))
-    db.execute("DELETE FROM voice_favorites WHERE workspace_id = ? AND scope = ?",
-               (story["workspace_id"], f"project:{story['id']}"))
+    ws, scope = story["workspace_id"], f"project:{story['id']}"
+    with db.connect() as conn:
+        conn.execute("DELETE FROM text_stories WHERE id = ?", (story["id"],))
+        conn.execute("DELETE FROM voice_favorites WHERE workspace_id = ? AND scope = ?", (ws, scope))
+        # the scope says whom a memory is for (as when a video is deleted: studio/project_delete.py)
+        conn.execute("DELETE FROM brain_memory_uses WHERE memory_id IN (SELECT id FROM brain_memories WHERE "
+                     "workspace_id = ? AND scope = ?)", (ws, scope))
+        conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND scope = ?", (ws, scope))
     shutil.rmtree(config.data_dir() / "text_stories" / story["id"], ignore_errors=True)
 
 
@@ -297,13 +324,15 @@ def usable_backgrounds(workspace_id: str, need_s: float = 0.0) -> list[dict]:
     stories themselves."""
     made = {str(s.get("export_asset_id") or "") for s in
             (r.get("export") or {} for r in db.select("text_stories", "workspace_id = ?", (workspace_id,)))}
+    # every story video ever sent to the editor, also after a new export or the story's deletion
+    made_sha = {r["sha256"] for r in db.select("text_story_exports", "workspace_id = ?", (workspace_id,))}
     out = []
     for a in db.select("assets", "workspace_id = ? AND kind = 'video'", (workspace_id,), "created_at DESC", 400):
         p = a.get("probe") or {}
         d = float(p.get("duration") or 0.0)
-        if a["id"] in made or not p.get("has_video", True) or d < 5.0:
+        if a["id"] in made or a.get("sha256") in made_sha or not p.get("has_video", True) or d < 5.0:
             continue
-        if not uploads.is_linked(a) and not Path(a["path"]).is_file():
+        if not Path(a["path"]).is_file():  # stored or linked: a linked video can be moved or deleted too
             continue
         name = (a.get("filename") or "").lower()
         why, score = [], 0.0
@@ -421,16 +450,22 @@ def start(story: dict, what: str, body: dict | None = None) -> dict:
     else:
         raise StoryError("Unknown step.")
     revision = int(story.get("revision") or 0) + 1
-    fields.update(revision=revision, error="")
+    # the job is made first and handed to the worker only once the story names it: a worker that took the job before
+    # the story named it would find it is not the story's job, skip it and leave the story working forever
+    job = enqueue(story["workspace_id"], kind, story["id"], revision, submit=False)
+    fields.update(revision=revision, error="", job_id=job["id"])
     story = _patch(story["id"], **fields)
-    job = enqueue(story["workspace_id"], kind, story["id"], revision)
-    return _patch(story["id"], job_id=job["id"])
+    from ..jobs import worker
+
+    worker.submit_studio(job["id"])
+    return story
 
 
 def stop(story: dict) -> dict:
-    if story["status"] not in WORKING or not story.get("job_id"):
+    if story["status"] not in WORKING:
         return story
-    cancel_job(story["job_id"])
+    if not story.get("job_id") or not cancel_job(story["job_id"]):
+        _settle(story["id"], "canceled")  # its job had already ended (or is gone): nothing else would settle it
     return db.fetch("text_stories", story["id"]) or story
 
 
@@ -457,6 +492,18 @@ def _render_stopped(job: dict, how: str) -> None:
 def _own_job(job: dict) -> dict | None:
     s = db.fetch("text_stories", job["target_id"])
     return s if s and s.get("job_id") == job["id"] else None
+
+
+def _patch_working(story_id: str, job_id: str, **fields) -> dict | None:
+    """Change a story only while this job is still its work (not stopped, not replaced): one write, so a Stop that
+    lands at the same moment is never written over. None when the story moved on."""
+    fields["updated_at"] = time.time()
+    enc = db._encode("text_stories", fields)  # noqa: SLF001
+    cols = ", ".join(f"{k} = ?" for k in enc)
+    marks = ", ".join("?" for _ in WORKING)
+    changed = db.execute(f"UPDATE text_stories SET {cols} WHERE id = ? AND job_id = ? AND status IN ({marks})",
+                         [*enc.values(), story_id, job_id, *WORKING])
+    return db.fetch("text_stories", story_id) if changed else None
 
 
 def _plain(exc: BaseException) -> str:
@@ -486,19 +533,20 @@ def write_job(job: dict, lease: Lease) -> dict:
                                  current={"title": story.get("title"), "script": story.get("script")}
                                  if ask.get("change") else None, change=ask.get("change") or "",
                                  cancel=lease.canceled, beat=lambda m: lease.progress(0.5, m))
+        script = _clean_script(got["script"])
+        title = _clean_title(got["title"][:MAX_TITLE])
     except (Canceled, Cancelled):
         raise
     except Exception as exc:
-        _patch(story["id"], status="failed", stage="", message="", error=_plain(exc))
+        _patch_working(story["id"], job["id"], status="failed", stage="", message="", error=_plain(exc))
         raise
-    if _own_job(job) is None or lease.canceled():
+    if lease.canceled() or _patch_working(
+            story["id"], job["id"], title=title, script=script, status="draft", stage="", error="",
+            message=("ClipForge AI revised the story." if ask.get("change") else
+                     "ClipForge AI wrote the story. Read it through and change anything you like."),
+            writer={"ask": ask, "notes": got["notes"], "model": got["model"], "local": got["local"],
+                    "at": time.time()}) is None:
         raise Canceled()
-    script = _clean_script(got["script"])
-    _patch(story["id"], title=_clean_title(got["title"][:MAX_TITLE]), script=script, status="draft", stage="",
-           error="", message=("ClipForge AI revised the story." if ask.get("change") else
-                              "ClipForge AI wrote the story. Read it through and change anything you like."),
-           writer={"ask": ask, "notes": got["notes"], "model": got["model"], "local": got["local"],
-                   "at": time.time()})
     return {"words": len(script.split())}
 
 
@@ -510,19 +558,29 @@ def render_job(job: dict, lease: Lease) -> dict:
     what = story.get("stage") if story.get("stage") in ("preview", "export") else "preview"
     try:
         narration = make_narration(story, lease)
-        story = _patch(story["id"], narration=narration, status="rendering",
-                       message="Making the preview" if what == "preview" else "Making the video")
+        # a Stop pressed as the voice finished has settled the story already: never write it back to working
+        moved_on = lease.canceled() or None
+        story = None if moved_on else _patch_working(  # type: ignore[assignment]
+            job["target_id"], job["id"], narration=narration, status="rendering",
+            message="Making the preview" if what == "preview" else "Making the video")
+        if story is None:
+            raise Canceled()
         made = render(story, what, lease)
     except (Canceled, Cancelled):
         raise
     except Exception as exc:
-        log.exception("text story %s failed", story["id"])
-        _patch(story["id"], status="failed", stage="", message="", error=_plain(exc))
+        log.exception("text story %s failed", job["target_id"])
+        _patch_working(job["target_id"], job["id"], status="failed", stage="", message="", error=_plain(exc))
         raise
-    if _own_job(job) is None:
+    d = folder(job["target_id"])
+    if _patch_working(job["target_id"], job["id"], **{what: made}, status="ready", stage="", error="",
+                      message="The preview is ready." if what == "preview" else
+                      "Your video is ready to download.") is None:
+        (d / made["file"]).unlink(missing_ok=True)  # stopped as it finished: nothing new is kept
         raise Canceled()
-    _patch(story["id"], **{what: made}, status="ready", stage="", error="",
-           message="The preview is ready." if what == "preview" else "Your video is ready to download.")
+    for old in [*d.glob(f"{what}.mp4"), *d.glob(f"{what}-*.mp4")]:
+        if old.name != made["file"]:
+            old.unlink(missing_ok=True)  # the one it replaces
     return {"file": made["file"], "duration": made["duration"]}
 
 
@@ -540,30 +598,66 @@ def make_narration(story: dict, lease: Lease | None = None) -> dict:
     if not written:
         raise StoryError("Write or paste the story first.")
     v = story.get("voice") or voice_styles.clean_voice({})
-    said, counts = voice_styles.pronounce(written, story.get("pronunciations") or [])
+    rules = story.get("pronunciations") or []
+    # the title and the script are pronounced apart: a rule never spans the two, and the captions know exactly how
+    # many of the written words are the title's (a rule for several words makes one caption word of them)
+    said_title, title_counts = voice_styles.pronounce(title_read, rules)
+    said_script, script_counts = voice_styles.pronounce(written[len(title_read):].strip(), rules)
+    said, counts = f"{said_title} {said_script}".strip(), title_counts + script_counts
     if lease:
         lease.progress(0.05, "Recording the voice")
     raw = d / f"voice-{key}.raw.wav"
     got = voice.speak(said, raw, voice=v.get("voice") or "auto", speed=float(v.get("speed") or 1.0),
                       cancel=lease.canceled if lease else None)
     out = d / f"voice-{key}.wav"
-    if lease:
-        lease.progress(0.25, "Timing the words")
-    voice_styles.shape(raw, out, float(v.get("tone") or 0.0), cancel=lease.canceled if lease else None)
-    raw.unlink(missing_ok=True)
-    timed, how = voice.time_words(out, said, engine_words=got.get("words"), settings=db.get_settings(),
-                                  cancel=lease.canceled if lease else None)
-    if len(timed) != len(said.split()):
-        timed, how = voice.estimate_words(out, said), "estimated"
+    try:
+        if lease:
+            lease.progress(0.25, "Timing the words")
+        voice_styles.shape(raw, out, float(v.get("tone") or 0.0), cancel=lease.canceled if lease else None)
+        raw.unlink(missing_ok=True)
+        timed, how = voice.time_words(out, said, engine_words=got.get("words"), settings=db.get_settings(),
+                                      cancel=lease.canceled if lease else None)
+        if len(timed) != len(said.split()):
+            timed, how = voice.estimate_words(out, said), "estimated"
+    except BaseException:
+        from . import local_engines
+
+        raw.unlink(missing_ok=True)
+        out.unlink(missing_ok=True)
+        local_engines.discard_made(got.get("original"))  # the voice engine's own copy goes with it
+        raise
     words = voice_styles.words_back(timed, written, counts)
     for old_file in d.glob("voice-*.wav"):
         if old_file.name != out.name:
             old_file.unlink(missing_ok=True)
+    _keep_original(got.get("original"), d)
     duration = float(got.get("duration_s") or 0.0) or (words[-1]["end"] if words else 0.0)
     return {"key": key, "file": out.name, "duration": round(duration, 3), "words": words,
-            "title_words": len(title_read.split()), "timing": how, "engine": got.get("engine") or "",
+            "title_words": sum(1 for c in title_counts if c > 0), "timing": how, "engine": got.get("engine") or "",
             "voice": got.get("voice") or "", "voice_id": got.get("voice_id") or "",
             "fallback": got.get("fallback") or "", "rule": got.get("rule") or ""}
+
+
+def _keep_original(original: object, d: Path) -> None:
+    """The local voice engine keeps its own copy of what it read (engines/made, with a note holding the words): it
+    is moved into the story's folder as voice-original.*, replacing the last one, so it goes when the story does.
+    Nothing outside engines/made is taken; this never fails the work."""
+    from . import local_engines
+
+    if not original:
+        return
+    src = Path(str(original))
+    try:
+        if not local_engines.made_here(src):
+            return
+        for old in d.glob("voice-original.*"):
+            old.unlink(missing_ok=True)
+        for item, dest in ((src, d / f"voice-original{src.suffix.lower()}"), (src.with_suffix(".json"),
+                                                                            d / "voice-original.json")):
+            if item.is_file():
+                shutil.move(str(item), str(dest))
+    except OSError as exc:
+        log.warning("the voice engine's copy could not be kept with the story: %s", exc)
 
 
 def pieces(backgrounds: list[dict], total_s: float) -> list[dict]:
@@ -614,13 +708,23 @@ def story_ass(story: dict, narration: dict, width: int, height: int) -> str:
     return head + sep + tail
 
 
-def _source_args(piece: dict, size: tuple[int, int]) -> list[str]:
-    w, h = size
-    if piece.get("builtin"):
-        b = BUILTINS[piece["builtin"]]
-        colours = ":".join(f"c{i}={c}" for i, c in enumerate(b["colors"]))
-        return ["-f", "lavfi", "-i", f"gradients=s={w}x{h}:r={FPS}:{colours}:n={len(b['colors'])}:speed=0.012:"
-                                     f"type={b['type']}:seed=7:d={piece['length']:.3f}"]
+def _runs(plays: list[dict]) -> list[dict]:
+    """The pieces as inputs: the plays of one looping clip one after another are one run (`times` plays, `length`
+    their total), so a short clip looped over a long story is one input, not one per play."""
+    out: list[dict] = []
+    for p in plays:
+        last = out[-1] if out else None
+        same = last is not None and p.get("loop") and last.get("loop") and all(
+            last.get(k) == p.get(k) for k in ("id", "asset_id", "builtin", "in_s", "out_s"))
+        if same:
+            last["times"] += 1
+            last["length"] = round(last["length"] + p["length"], 3)
+        else:
+            out.append({**p, "times": 1, "play": p["length"]})
+    return out
+
+
+def _video_path(piece: dict) -> Path:
     asset = db.fetch("assets", piece["asset_id"])
     if not asset:
         raise StoryError("A background video was deleted. Choose another background.")
@@ -628,7 +732,32 @@ def _source_args(piece: dict, size: tuple[int, int]) -> list[str]:
     if not path.is_file():
         raise StoryError(f"The background video “{asset.get('filename') or path.name}” is missing from this "
                          "computer. Choose another background.")
-    return ["-ss", f"{float(piece['in_s']):.3f}", "-t", f"{piece['length']:.3f}", "-i", str(path)]
+    return path
+
+
+def _source_args(piece: dict, size: tuple[int, int], loop_file: Path | None = None) -> list[str]:
+    w, h = size
+    if piece.get("builtin"):
+        b = BUILTINS[piece["builtin"]]
+        colours = ":".join(f"c{i}={c}" for i, c in enumerate(b["colors"]))
+        return ["-f", "lavfi", "-i", f"gradients=s={w}x{h}:r={FPS}:{colours}:n={len(b['colors'])}:speed=0.012:"
+                                     f"type={b['type']}:seed=7:d={piece['length']:.3f}"]
+    if loop_file is not None:  # the clip's trimmed part, made once, played over and over
+        return ["-stream_loop", "-1", "-i", str(loop_file)]
+    return ["-ss", f"{float(piece['in_s']):.3f}", "-t", f"{piece['length']:.3f}", "-i", str(_video_path(piece))]
+
+
+def _loop_part(piece: dict, size: tuple[int, int], dest: Path, cancel=None) -> Path:
+    """The looping clip's trimmed part at the frame size (cropped where the owner placed it), without sound: FFmpeg
+    can loop a whole file but not a part of one, so the part is made once and looped."""
+    w, h = size
+    fx, fy = float(piece.get("focus_x", 0.5)), float(piece.get("focus_y", 0.5))
+    ffmpeg_utils.run(["-ss", f"{float(piece['in_s']):.3f}", "-t", f"{piece['play']:.3f}", "-i",
+                      str(_video_path(piece)), "-an", "-vf",
+                      f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:(in_w-{w})*{fx:.3f}:"
+                      f"(in_h-{h})*{fy:.3f},setsar=1,fps={FPS},format=yuv420p", "-c:v", "libx264", "-preset",
+                      "ultrafast", "-crf", "12", "-pix_fmt", "yuv420p", str(dest)], cancel=cancel)
+    return dest
 
 
 def render(story: dict, what: str, lease: Lease | None = None) -> dict:
@@ -642,45 +771,64 @@ def render(story: dict, what: str, lease: Lease | None = None) -> dict:
     size = PREVIEW_SIZE if what == "preview" else SIZE
     w, h = size
     total = round(float(narration.get("duration") or 0.0) + TAIL_S, 3)
-    plays = pieces(story.get("backgrounds") or [], total)
+    plays = _runs(pieces(story.get("backgrounds") or [], total))
     if not plays:
         raise StoryError("Choose a background first, or let ClipForge pick one.")
-    args: list[str] = []
-    chains = []
-    for i, p in enumerate(plays):
-        args += _source_args(p, size)
-        fx, fy = float(p.get("focus_x", 0.5)), float(p.get("focus_y", 0.5))
-        chains.append(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
-                      f"crop={w}:{h}:(in_w-{w})*{fx:.3f}:(in_h-{h})*{fy:.3f},setsar=1,fps={FPS},format=yuv420p,"
-                      f"trim=duration={p['length']:.3f},setpts=PTS-STARTPTS[v{i}]")
-    args += ["-i", str(voice_file)]
+    key = render_key(story, what)
     ass = d / f"{what}.ass"
-    ass.write_text(story_ass(story, narration, w, h), encoding="utf-8")
-    joined = "".join(f"[v{i}]" for i in range(len(plays)))
-    chains.append(f"{joined}concat=n={len(plays)}:v=1:a=0,tpad=stop_mode=clone:stop_duration={total:.3f},"
-                  f"trim=duration={total:.3f},setpts=PTS-STARTPTS,"
-                  f"ass={ffmpeg_utils.filter_path(ass, d)}:fontsdir={ffmpeg_utils.filter_path(config.FONTS_DIR, d)},"
-                  f"format=yuv420p[vout]")
-    chains.append(f"[{len(plays)}:a]aresample=48000,apad[aout]")
-    tmp = d / f"{what}.part.mp4"
-    if what == "preview":
-        video = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p"]
-    else:
-        video, _ = ffmpeg_utils.video_encoder_args(db.get_settings())
-        video += ffmpeg_utils.delivery_args(FPS)
-    out_args = [*args, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aout]", "-t", f"{total:.3f}",
-                "-r", str(FPS), *video, "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart",
-                str(tmp)]
+    tmp = d / f"{what}-{key}.part.mp4"
+    made_parts: list[Path] = []
 
-    def progress(frac: float) -> None:
-        if lease:
-            lease.progress(0.35 + 0.63 * frac, "Making the preview" if what == "preview" else "Making the video")
+    def tidy() -> None:  # what this render made on the way (also when it stops or fails)
+        for f in (ass, *made_parts):
+            f.unlink(missing_ok=True)
 
-    ffmpeg_utils.run(out_args, duration=total, progress=progress, cancel=lease.canceled if lease else None, cwd=d)
-    final = d / f"{what}.mp4"
-    tmp.replace(final)
-    ass.unlink(missing_ok=True)
-    return {"key": render_key(story, what), "file": final.name, "duration": total, "width": w, "height": h,
+    try:
+        args: list[str] = []
+        chains = []
+        for i, p in enumerate(plays):
+            part = None
+            if p["times"] > 1 and not p.get("builtin"):
+                part = d / f"{what}-loop{i}.mp4"
+                made_parts.append(part)
+                _loop_part(p, size, part, cancel=lease.canceled if lease else None)
+            args += _source_args(p, size, part)
+            fx, fy = float(p.get("focus_x", 0.5)), float(p.get("focus_y", 0.5))
+            chains.append(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
+                          f"crop={w}:{h}:(in_w-{w})*{fx:.3f}:(in_h-{h})*{fy:.3f},setsar=1,fps={FPS},format=yuv420p,"
+                          f"trim=duration={p['length']:.3f},setpts=PTS-STARTPTS[v{i}]")
+        args += ["-i", str(voice_file)]
+        ass.write_text(story_ass(story, narration, w, h), encoding="utf-8")
+        joined = "".join(f"[v{i}]" for i in range(len(plays)))
+        chains.append(f"{joined}concat=n={len(plays)}:v=1:a=0,tpad=stop_mode=clone:stop_duration={total:.3f},"
+                      f"trim=duration={total:.3f},setpts=PTS-STARTPTS,"
+                      f"ass={ffmpeg_utils.filter_path(ass, d)}:"
+                      f"fontsdir={ffmpeg_utils.filter_path(config.FONTS_DIR, d)},format=yuv420p[vout]")
+        chains.append(f"[{len(plays)}:a]aresample=48000,apad[aout]")
+        if what == "preview":
+            video = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p"]
+        else:
+            video, _ = ffmpeg_utils.video_encoder_args(db.get_settings())
+            video += ffmpeg_utils.delivery_args(FPS)
+        out_args = [*args, "-filter_complex", ";".join(chains), "-map", "[vout]", "-map", "[aout]", "-t",
+                    f"{total:.3f}", "-r", str(FPS), *video, "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                    "-movflags", "+faststart", str(tmp)]
+
+        def progress(frac: float) -> None:
+            if lease:
+                lease.progress(0.35 + 0.63 * frac, "Making the preview" if what == "preview" else "Making the video")
+
+        ffmpeg_utils.run(out_args, duration=total, progress=progress, cancel=lease.canceled if lease else None,
+                         cwd=d)
+        # named by what it was made from, so a stopped job never replaces the file the story still names
+        final = d / f"{what}-{key}.mp4"
+        tmp.replace(final)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # Stop or a failure: the partial video goes too
+        raise
+    finally:
+        tidy()
+    return {"key": key, "file": final.name, "duration": total, "width": w, "height": h,
             "at": time.time(), "size": final.stat().st_size}
 
 
@@ -723,7 +871,7 @@ def view(story: dict) -> dict:
                       "timing": narr.get("timing") or "", "rule": narr.get("rule") or "",
                       "duration": narr.get("duration")} if narr else {"ready": False},
         "made": made, "writer": {k: (story.get("writer") or {}).get(k) for k in ("notes", "model", "local")},
-        "project_id": story.get("project_id") or "", "updated_at": story["updated_at"],
+        "project_id": editor_project(story), "updated_at": story["updated_at"],
         "steps": {"script": words_of(story) > 0, "voice": bool(v.get("voice")), "background": bool(backgrounds),
                   "preview": made["preview"]["current"], "export": made["export"]["current"]},
     }
@@ -735,6 +883,16 @@ def file_for(story: dict, what: str) -> Path:
     if not _file_ok(story, what):
         raise StoryError("That video has not been made yet.", 404)
     return folder(story["id"]) / story[what]["file"]
+
+
+def editor_project(story: dict) -> str:
+    """The editor video made from the export the story has now ("" when there is none: never made, made from an
+    earlier export, or deleted since), so "Open in the editor" never leads to an old or deleted video."""
+    pid = str((story.get("export") or {}).get("project_id") or "")
+    if not pid:
+        return ""
+    project = db.fetch("studio_projects", pid)
+    return pid if project and project.get("workspace_id") == story["workspace_id"] else ""
 
 
 def open_in_editor(story: dict, user_id: str) -> dict:
@@ -752,7 +910,11 @@ def open_in_editor(story: dict, user_id: str) -> dict:
     except uploads.UploadError as exc:
         copy.unlink(missing_ok=True)
         raise StoryError(str(exc), getattr(exc, "status", 422)) from exc
+    # its fingerprint stays after a new export or the story's deletion: a copy of it is never a background
+    db.execute("INSERT OR IGNORE INTO text_story_exports (workspace_id, sha256, created_at) VALUES (?, ?, ?)",
+               (story["workspace_id"], asset["sha256"], time.time()))
     project = video_flow.create(story["workspace_id"], user_id, name=name, asset_ids=[asset["id"]], brief={})
-    export = {**(story.get("export") or {}), "export_asset_id": asset["id"]}
+    # kept with the export it was made from: a new export replaces both, so the page offers the button again
+    export = {**(story.get("export") or {}), "export_asset_id": asset["id"], "project_id": project["id"]}
     _patch(story["id"], project_id=project["id"], export=export)
     return project

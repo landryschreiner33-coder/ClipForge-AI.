@@ -315,3 +315,88 @@ def test_the_api_keeps_a_library_and_a_shorts_cast(env, drawn):  # noqa: F811
         assert api.delete(f"/api/studio/cast/{rex['id']}", headers=h).json() == {"deleted": True}
         assert api.delete(f"/api/studio/cast/{rex['id']}", headers=h).status_code == 404
         _run(env)
+
+
+# ------------------------------------------------------------------ batch 4 review fixes (findings 20-24)
+def test_who_is_in_the_shot_sent_with_another_change_never_enters_the_picture_history(env, drawn):  # noqa: F811
+    """Finding 20: a scene PATCH with `cast` and narration keeps the scene's pictures a list of pictures."""
+    from clipfoundry.makers import shorts
+
+    project = _make(env, SCRIPT)
+    member_id = shorts.cast_add(_fresh(project["id"]), dict(MIA))
+    _run(env)
+    first = _scenes(project["id"])[0]
+    shorts.update_scene(_fresh(project["id"]), first["id"], {"cast": [member_id], "narration": "Mia ran home."})
+    _run(env)
+    row = next(s for s in _scenes(project["id"]) if s["id"] == first["id"])
+    assert all(isinstance(p, dict) for p in row.get("pictures") or [])
+    view = shorts.view(_fresh(project["id"]))  # the editor page opens
+    assert view["scenes"][0]["cast"] == [member_id] and view["scenes"][0]["cast_chosen"]
+    # an owner's picture sent with `cast` is recorded in the history
+    pic = _picture_file(env, "own.png", "#336699")
+    shorts.update_scene(_fresh(project["id"]), first["id"], {"cast": [], "picture_asset_id": pic["id"]})
+    row = next(s for s in _scenes(project["id"]) if s["id"] == first["id"])
+    assert any(p.get("asset_id") == pic["id"] for p in row["pictures"])
+
+
+def test_a_one_shot_change_back_to_the_usual_look_clears_that_shots_change(env, drawn):  # noqa: F811
+    """Finding 21: for one shot the changes are compared with the member as that shot shows it."""
+    from clipfoundry.makers import shorts
+
+    project = _make(env, SCRIPT)
+    member_id = shorts.cast_add(_fresh(project["id"]), dict(MIA))
+    _run(env)
+    third = _scenes(project["id"])[2]
+    shorts.cast_apply(_fresh(project["id"]), member_id, {"clothing": "a red raincoat"}, third["id"])
+    _run(env)
+    assert shorts.view(_fresh(project["id"]))["scenes"][2]["overrides"] == {member_id: {"clothing": "a red raincoat"}}
+    n = len(drawn.asked)
+    done = shorts.cast_apply(_fresh(project["id"]), member_id, {"clothing": MIA["clothing"]}, third["id"])
+    assert done == {"changed": ["clothing"], "kept": []}
+    _run(env)
+    assert shorts.view(_fresh(project["id"]))["scenes"][2]["overrides"] == {}
+    assert len(drawn.asked) == n + 1 and "wearing a yellow raincoat" in drawn.asked[-1]["prompt"]
+    # the same again changes nothing, and says so
+    assert shorts.cast_apply(_fresh(project["id"]), member_id, {"clothing": MIA["clothing"]}, third["id"]) == \
+        {"changed": [], "kept": []}
+
+
+def test_a_dissolve_is_fitted_again_when_a_scene_gets_shorter(env):  # noqa: F811
+    """Finding 22: shortening a scene's words after a dissolve was chosen never fails the build."""
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import engine, video_flow
+
+    project = _make(env, SCRIPT)
+    shorts.set_options(_fresh(project["id"]), {"transition": "dissolve"})
+    _run(env)
+    assert _plan(project["id"])["transition"] == {"type": "dissolve", "ms": shorts.TRANSITION_MS}
+    first = _scenes(project["id"])[0]
+    shorts.update_scene(_fresh(project["id"]), first["id"], {"narration": "Rain."})  # about 0.55 s on screen
+    jobs = _run(env)
+    assert jobs and all(j["status"] == "done" for j in jobs), [j["error"] for j in jobs]
+    project = _fresh(project["id"])
+    plan = _plan(project["id"])
+    shortest = min(c["out_ms"] - c["in_ms"] for c in plan["clips"])
+    assert plan["transition"]["type"] in ("dissolve", "cut") and plan["transition"]["ms"] * 2 < shortest
+    assert project["short"].get("stage") != "failed"
+    assert engine.validate(plan, video_flow._assets(project, plan)) == []  # noqa: SLF001
+
+
+def test_a_good_reference_picture_can_be_removed_while_another_is_missing(env):  # noqa: F811
+    """Finding 24: only reference pictures new to the member are checked."""
+    from clipfoundry.makers import cast
+
+    a = _picture_file(env, "a.png", "#ffcc00")
+    b = _picture_file(env, "b.png", "#00ccff")
+    rex = cast.library_add("local", {"name": "Rex", "appearance": "a small brown dog", "refs": [a["id"], b["id"]]})
+    Path(b["path"]).unlink()  # B is missing now (the page shows it as Missing)
+    got = cast.library_change("local", rex["id"], {"refs": [b["id"]]})  # remove A
+    assert [r["asset_id"] for r in got["refs"]] == [b["id"]] and got["refs"][0]["ok"] is False
+    with pytest.raises(cast.CastError):  # a missing picture cannot be added anew
+        cast.library_change("local", rex["id"], {"refs": [b["id"], "as-nope"]})
+
+
+def test_the_library_list_can_delete_a_character(env):  # noqa: F811
+    """Finding 23: the page's library list offers Delete (the privacy page promises it)."""
+    page = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "components" / "ShortCast.tsx").read_text()
+    assert "shorts.libraryDelete(" in page and "from your library" in page

@@ -144,9 +144,16 @@ function ChangeInWords({ m, v, s, opts, writer, off, run, onClose }: {
   const apply = async (sceneId?: string) => {
     if (!proposal) return;
     const where = sceneId ? `shot ${s.scenes.find((x) => x.id === sceneId)?.n}` : "every shot";
-    const got = await run(() => shorts.castApply(v.id, m.id, proposal.changes, sceneId),
-      `${m.name} changed in ${where}. ClipForge makes those pictures again.`);
-    if (got) onClose();
+    let changed = true;
+    const got = await run(async () => {
+      const r = await shorts.castApply(v.id, m.id, proposal.changes, sceneId);
+      changed = r.applied.changed.length > 0;
+      return r;
+    });
+    if (!got) return;
+    toast(changed ? `${m.name} changed in ${where}. ClipForge makes those pictures again.`
+      : `Nothing changed: ${m.name} already looks like that in ${where}.`);
+    onClose();
   };
   if (!writer.configured) {
     return (
@@ -331,6 +338,7 @@ export function CastPanel({ v, s, opts, off, run }: {
   const [library, setLibrary] = useState<CastMember[] | null>(null);
   const [problem, setProblem] = useState("");
   const [busy, setBusy] = useState(false);
+  const [forgetting, setForgetting] = useState<CastMember | null>(null);
   const cast = s.cast ?? [];
   useEffect(() => {
     if (adding !== "library") return;
@@ -403,11 +411,27 @@ export function CastPanel({ v, s, opts, off, run }: {
                     onClick={() => void run(() => shorts.castAdd(v.id, { library_id: m.id }),
                       `${m.name} is in the short.`).then((got) => got && setAdding(""))}>
                     {inShort.has(m.id) ? "In this short" : "Add"}</button>
+                  <button type="button" className="btn btn-small btn-quiet btn-icon" disabled={off}
+                    aria-label={`Delete ${m.name} from your library`} title="Delete from your library"
+                    onClick={() => setForgetting(m)}><Icon name="trash" /></button>
                 </li>
               ))}
             </ul>
           )}
         </div>
+      )}
+      {forgetting && (
+        <ConfirmDialog title={`Delete ${forgetting.name} from your library?`} confirmLabel="Delete" danger
+          onClose={() => setForgetting(null)}
+          onConfirm={async () => {
+            await shorts.libraryDelete(forgetting.id);
+            setLibrary((list) => (list ?? []).filter((x) => x.id !== forgetting.id));
+            toast(`${forgetting.name} was deleted from your library.`);
+          }}>
+          <p className="muted">{forgetting.name}'s details go from your library. Shorts that already
+            have {forgetting.kind === "place" ? "it" : "them"} keep their own copy. The reference pictures are no
+            longer kept for the library: a short or video that uses them keeps them until you delete it.</p>
+        </ConfirmDialog>
       )}
     </section>
   );

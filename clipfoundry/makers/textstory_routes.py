@@ -177,22 +177,28 @@ PREVIEW_TEXT = "So this happened last week, and I still can't believe it. Here's
 @router.post("/api/studio/voices/preview")
 def voice_preview(body: VoicePreview) -> FileResponse:
     """A few seconds of a voice at this speed and tone (with the page's own words when it sends some, at most a
-    sentence or two). Kept by voice, speed, tone and words, so playing it again is instant."""
+    sentence or two). The usual sample sentence is kept by voice, speed and tone, so playing it again is instant; a
+    sample of the page's own words (a story's first sentences) is sent once and deleted, so none of a story's text
+    stays behind in voices/previews."""
     from . import voice
 
-    words = " ".join(body.text.split())[:220] or PREVIEW_TEXT
+    own = " ".join(body.text.split())[:220]
     try:
-        path, note = textstory_preview(body.voice, body.speed, body.tone, words)
+        path, note, kept = textstory_preview(body.voice, body.speed, body.tone, own or PREVIEW_TEXT, keep=not own)
     except (voice.VoiceError, voice_styles.VoiceStyleError) as exc:
         raise HTTPException(422, str(exc)) from exc
-    if not note:
-        return FileResponse(path, media_type="audio/wav")
-    return FileResponse(path, media_type="audio/wav", headers={"X-ClipForge-Note": quote(note[:300])},
+    headers = {"X-ClipForge-Note": quote(note[:300])} if note else None
+    if kept:
+        return FileResponse(path, media_type="audio/wav", headers=headers)
+    return FileResponse(path, media_type="audio/wav", headers=headers,
                         background=BackgroundTask(path.unlink, missing_ok=True))
 
 
-def textstory_preview(voice_id: str, speed: float, tone: float, words: str) -> tuple[Path, str]:
-    from . import voice
+def textstory_preview(voice_id: str, speed: float, tone: float, words: str, *,
+                      keep: bool = True) -> tuple[Path, str, bool]:
+    """(the sample, a note when another voice read it, whether the file is kept). A sample is kept only when `keep`
+    and the asked voice read it; otherwise the caller sends it once and deletes it."""
+    from . import local_engines, voice
 
     v = voice_styles.clean_voice({"voice": voice_id or "auto", "speed": speed, "tone": tone})
     chosen = v["voice"]
@@ -201,18 +207,21 @@ def textstory_preview(voice_id: str, speed: float, tone: float, words: str) -> t
     folder = config.data_dir() / "voices" / "previews"
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / f"{textstory._hash('preview', chosen, v['speed'], v['tone'], words)}.wav"  # noqa: SLF001
-    if out.is_file():
-        return out, ""
+    if keep and out.is_file():
+        return out, "", True
     fd, name = tempfile.mkstemp(dir=folder, suffix=".part.wav")
     os.close(fd)
     tmp = Path(name)
     try:
         got = voice.speak(words, tmp, voice=chosen, speed=v["speed"])
+        local_engines.discard_made(got.get("original"))  # the voice engine's own copy of the words goes
         voice_styles.shape(tmp, tmp, v["tone"])
         if got.get("fallback") or (chosen != "auto" and got.get("voice_id") and got["voice_id"] != chosen):
-            return tmp, str(got.get("fallback") or "Another voice read this preview.")
+            return tmp, str(got.get("fallback") or "Another voice read this preview."), False
+        if not keep:
+            return tmp, "", False
         tmp.replace(out)
-        return out, ""
+        return out, "", True
     except Exception:
         tmp.unlink(missing_ok=True)
         raise

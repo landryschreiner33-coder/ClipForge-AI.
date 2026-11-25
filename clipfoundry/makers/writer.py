@@ -430,6 +430,7 @@ def write_story(topic: str, *, tone: str, length: str, settings: dict, workspace
     {"title", "script", "notes", "model", "local", "memories", "knowhow"}. Raises WriterError (Cancelled when
     stopped)."""
     from ..pipeline import llm
+    from .textstory import MAX_WORDS  # what one video holds: a longer story could never be saved
 
     topic, change = _text(topic, 300), _text(change, 400)
     revising = bool(current and (current.get("script") or "").strip())
@@ -458,6 +459,7 @@ def write_story(topic: str, *, tone: str, length: str, settings: dict, workspace
     best: tuple[str, str] | None = None
     prompt = ask
     notes: list[str] = []
+    too_long = 0
     for attempt in range(2):
         try:
             got = _parse(_ask_story(settings, prompt, cancel, beat, message))
@@ -470,6 +472,9 @@ def write_story(topic: str, *, tone: str, length: str, settings: dict, workspace
             notes.append("A closing line asking people to follow or comment was taken off.")
         script = "\n\n".join(kept)
         count = len(script.split())
+        if count > MAX_WORDS:
+            too_long = count
+            script = ""  # never kept: it is more than one video can hold
         fits = lo * LENGTH_SLACK[0] <= count <= hi * LENGTH_SLACK[1] or (revising and count >= 30)
         if script and (best is None or fits):
             best = (title, script)
@@ -478,10 +483,14 @@ def write_story(topic: str, *, tone: str, length: str, settings: dict, workspace
         if attempt == 0:
             prompt = ask + "\n\nYour last answer could not be used: " + (
                 f"the script had {count} words, and it needs {lo}-{hi}." if script else
+                f"the script had {count} words; one video holds at most {MAX_WORDS}." if too_long else
                 "it was not the JSON object asked for, or it had no script.") + " Write it again."
             if beat:
                 beat(message)
     if best is None:
+        if too_long:
+            raise WriterError(f"ClipForge AI wrote {too_long} words, more than one video holds ({MAX_WORDS}). Try "
+                              "again, ask for a shorter story, or write the script yourself.")
         raise WriterError("ClipForge AI's answer could not be used. Try again, or write the script yourself.")
     title, script = best
     count = len(script.split())

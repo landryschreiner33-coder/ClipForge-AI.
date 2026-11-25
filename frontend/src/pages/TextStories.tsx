@@ -432,12 +432,12 @@ function VoicePicker({ story, opts, locked, audio, sample, onChange, onRules, on
   const [rules, setRules] = useState(story.pronunciations);
   useEffect(() => setRules(story.pronunciations), [story.pronunciations]);
   const words = sample.split(/\s+/).slice(0, 24).join(" ");
-  const favourite = async (scope: string, on: boolean) => {
+  const favourite = async (scope: string, on: boolean, voiceId = v.voice, quiet = false) => {
     try {
-      const keep = { voice: v.voice, speed: v.speed, tone: v.tone, style: v.style };
+      const keep = { voice: voiceId, speed: v.speed, tone: v.tone, style: v.style };
       const r = await textStories.setFavourite(scope, on ? keep : null);
       onOpts({ ...opts, favourites: r.favourites });
-      toast(on ? "Saved as a favourite." : "Favourite removed.");
+      if (!quiet) toast(on ? "Saved as a favourite." : "Favourite removed.");
     } catch (e) {
       toast(errorText(e), true);
     }
@@ -445,9 +445,12 @@ function VoicePicker({ story, opts, locked, audio, sample, onChange, onRules, on
   const styleFav = opts.favourites[`style:${v.style}`];
   const storyFav = opts.favourites[`project:${story.id}`];
   const styleName = opts.styles.find((s) => s.id === v.style)?.name || "this style";
-  const pickStyle = (style: string) => {
-    const fav = opts.favourites[`style:${style}`];
-    onChange(fav ? { style, voice: fav.voice, speed: fav.speed, tone: fav.tone } : { style });
+  // the style alone: ClipForge keeps this story's voice when "Keep this voice for this story" is on, else brings the
+  // style's favourite voice (voice_styles.for_style)
+  const pickStyle = (style: string) => onChange({ style });
+  const pickVoice = (voiceId: string) => {
+    onChange({ voice: voiceId });
+    if (storyFav) void favourite(`project:${story.id}`, true, voiceId, true); // the kept voice follows your choice
   };
   return (
     <div className="stack-4">
@@ -470,7 +473,7 @@ function VoicePicker({ story, opts, locked, audio, sample, onChange, onRules, on
       </div>
       <div className="story-rows">
         <label className="story-row-pick"><span className="label">Voice</span>
-          <select value={v.voice} disabled={locked} onChange={(e) => onChange({ voice: e.target.value })}>
+          <select value={v.voice} disabled={locked} onChange={(e) => pickVoice(e.target.value)}>
             {opts.voices.map((x) => (
               <option key={x.id} value={x.id}>{x.about ? `${x.name} · ${x.about}` : x.name}</option>
             ))}
@@ -495,6 +498,8 @@ function VoicePicker({ story, opts, locked, audio, sample, onChange, onRules, on
           onChange={(e) => void favourite(`project:${story.id}`, e.target.checked)} />
           <span>Keep this voice for this story</span></label>
       </div>
+      <p className="small muted">{storyFav ? "This story keeps its voice when you pick another style; the style still "
+        + "sets the speed and tone." : "Picking a style brings its favourite voice when it has one."}</p>
       <p className="small muted">Tone moves the voice higher or lower and works with every voice. Only voices ClipForge
         may use are listed: the voices of this computer and the voice engine you set up.</p>
       <details>

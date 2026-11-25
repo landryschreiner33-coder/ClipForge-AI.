@@ -351,3 +351,318 @@ def test_the_export_opens_in_the_editor_as_a_new_video(env):
     assert c.get("/api/studio/text-stories/backgrounds").json()["videos"] == []
     c.delete(url)
     assert c.get(url).status_code == 404 and project["id"]
+
+
+# ------------------------------------------------------------------ batch 4 review fixes (findings 7-19)
+LONGER = ("Every Friday a package went missing from my porch, and every Friday my neighbour waved at me a little too "
+          "cheerfully. So I mailed myself a box of glitter and waited by the window.")
+
+
+def _ready_story(env, script: str = SCRIPT, title: str = TITLE, backgrounds: list | None = None) -> tuple[dict, str]:
+    c = env["client"]
+    story = c.post("/api/studio/text-stories", json={"title": title, "script": script}).json()
+    url = f"/api/studio/text-stories/{story['id']}"
+    c.patch(url, json={"voice": {"voice": _espeak()}})
+    if backgrounds is None:
+        c.post(f"{url}/backgrounds/auto")
+    else:
+        c.patch(url, json={"backgrounds": backgrounds})
+    return story, url
+
+
+def test_a_worker_that_takes_the_job_at_once_still_finds_it_is_the_storys_work(env, monkeypatch):
+    """Finding 7: the story names its job before the worker can see it (the worker here runs it at once)."""
+    from clipfoundry.jobs import worker
+    from clipfoundry.studio import jobs as studio_jobs
+
+    monkeypatch.setattr(worker, "submit_studio", lambda job_id: studio_jobs.run(job_id))
+    c = env["client"]
+    story, url = _ready_story(env)
+    c.post(f"{url}/preview")
+    got = c.get(url).json()
+    assert got["status"] == "ready" and not got["working"] and got["made"]["preview"]["current"]
+
+
+def test_stop_settles_a_story_whose_job_already_ended(env):
+    """Finding 7: a story left working by a job that ended (here: done without saying so) can be stopped."""
+    from clipfoundry import db
+
+    c = env["client"]
+    story, url = _ready_story(env)
+    c.post(f"{url}/preview")
+    job_id = db.fetch("text_stories", story["id"])["job_id"]
+    db.update("studio_jobs", job_id, status="done")  # what a skipped job used to leave
+    env["queued"].clear()
+    got = c.post(f"{url}/stop").json()
+    assert not got["working"] and got["status"] in ("draft", "failed")
+    assert c.patch(url, json={"title": "Fine again"}).status_code == 200
+
+
+def test_a_story_too_long_for_one_video_fails_the_writing_and_says_why(env, monkeypatch):
+    """Finding 8: an AI story over 650 words is refused in the writer, and the story never stays 'writing'."""
+    from clipfoundry.makers import textstory, writer
+
+    c = env["client"]
+    story = c.post("/api/studio/text-stories", json={}).json()
+    url = f"/api/studio/text-stories/{story['id']}"
+    monkeypatch.setattr(writer, "_usable", lambda settings: True)
+    monkeypatch.setattr(writer, "_ask_story", lambda *a, **k: json.dumps(
+        {"title": "Too long", "script": " ".join(["word"] * (textstory.MAX_WORDS + 50))}))
+    c.post(f"{url}/write", json={"topic": "a very long tale", "length": "long"})
+    assert [j["status"] for j in _run(env)] == ["failed"]
+    got = c.get(url).json()
+    assert got["status"] == "failed" and not got["working"] and str(textstory.MAX_WORDS) in got["error"]
+    assert got["script"] == ""  # nothing half-written was kept
+    assert c.post(f"{url}/write", json={"topic": "a short tale"}).status_code == 200  # can try again
+
+
+def test_a_stop_pressed_as_the_voice_finishes_is_never_written_back_to_working(env, monkeypatch):
+    """Finding 9: Stop lands after the narration's last check; the render step must not set 'rendering' again."""
+    from clipfoundry import db
+    from clipfoundry.makers import textstory
+
+    c = env["client"]
+    story, url = _ready_story(env)
+    real = textstory.make_narration
+
+    def narrate_then_stop(s, lease=None):
+        got = real(s, lease)
+        textstory.stop(db.fetch("text_stories", s["id"]))  # the owner presses Stop right now
+        return got
+
+    monkeypatch.setattr(textstory, "make_narration", narrate_then_stop)
+    c.post(f"{url}/preview")
+    assert [j["status"] for j in _run(env)] == ["canceled"]
+    got = c.get(url).json()
+    assert got["status"] == "draft" and not got["working"] and "Stopped" in got["message"]
+    assert not got["made"]["preview"]["ready"]
+    assert not list(textstory.folder(story["id"]).glob("preview*"))  # no video, no captions file was kept
+
+
+def test_a_pronunciation_of_several_title_words_keeps_the_first_story_word_in_the_captions(env):
+    """Finding 10: "New York" said as two words counts as one title word, and no rule spans title and script."""
+    from clipfoundry import db
+    from clipfoundry.makers import textstory
+
+    c = env["client"]
+    story, url = _ready_story(env, script="It was loud and bright.", title="Moving to New York")
+    c.patch(url, json={"pronunciations": [{"word": "New York", "say": "Noo Yawk"}]})
+    narration = textstory.make_narration(db.fetch("text_stories", story["id"]))
+    words = [w["w"] for w in narration["words"]]
+    assert narration["title_words"] == 3 and words[:4] == ["Moving", "to", "New York.", "It"]
+    ass = textstory.story_ass(db.fetch("text_stories", story["id"]), narration, 1080, 1920)
+    assert ass.split("Title,,0,0,0,,", 1)[0].count("It") >= 1  # "It" is a caption, not part of the title card
+    # a rule never joins the title's last word with the script's first
+    other, url2 = _ready_story(env, script="York pizza is great.", title="I love New")
+    c.patch(url2, json={"pronunciations": [{"word": "New York", "say": "Noo Yawk"}]})
+    narration = textstory.make_narration(db.fetch("text_stories", other["id"]))
+    assert narration["title_words"] == 3 and [w["w"] for w in narration["words"]][3] == "York"
+
+
+def test_open_in_the_editor_follows_the_current_export_and_a_deleted_editor_video(env):
+    """Finding 11: the editor link belongs to the export it was made from, and only while that video exists."""
+    from clipfoundry import db
+
+    c = env["client"]
+    story, url = _ready_story(env, script="Just a few words here.", title="Short one")
+    c.post(f"{url}/export")
+    _run(env)
+    first = c.post(f"{url}/open-in-editor").json()["video_id"]
+    assert c.get(url).json()["project_id"] == first
+    c.patch(url, json={"script": "Just a few other words here."})
+    c.post(f"{url}/export")
+    _run(env)
+    assert c.get(url).json()["project_id"] == ""  # a new export: the button makes a new editor video
+    second = c.post(f"{url}/open-in-editor").json()["video_id"]
+    assert second != first and c.get(url).json()["project_id"] == second
+    db.execute("DELETE FROM studio_projects WHERE id = ?", (second,))
+    assert c.get(url).json()["project_id"] == ""  # deleted: no link to a missing video
+
+
+def test_story_videos_sent_to_the_editor_are_never_backgrounds_after_a_new_export_or_deletion(env):
+    """Finding 12: the exports' fingerprints outlive the export dict and the story."""
+    c = env["client"]
+    story, url = _ready_story(env, script=LONGER, title="Glitter")
+    c.post(f"{url}/export")
+    _run(env)
+    c.post(f"{url}/open-in-editor")
+    assert c.get("/api/studio/text-stories/backgrounds").json()["videos"] == []
+    c.patch(url, json={"script": LONGER + " The end."})
+    c.post(f"{url}/export")
+    _run(env)
+    assert c.get("/api/studio/text-stories/backgrounds").json()["videos"] == []  # still left out after a re-export
+    c.delete(url)
+    assert c.get("/api/studio/text-stories/backgrounds").json()["videos"] == []  # and after the story is gone
+
+
+def test_a_linked_video_that_was_moved_or_deleted_is_not_offered_or_picked(env):
+    """Finding 13: linked files are checked on disk like stored ones."""
+    import time as _time
+
+    from clipfoundry import db
+    from clipfoundry.studio import uploads
+
+    c = env["client"]
+    gone = env["tmp"] / "gone gameplay.mp4"
+    db.insert("assets", {"id": "as-linked-gone", "workspace_id": "local", "kind": "video",
+                         "filename": "gone gameplay.mp4", "sha256": uploads.LINK_PREFIX + "abc", "size": 1000,
+                         "path": str(gone), "probe": {"duration": 60.0, "width": 1080, "height": 1920},
+                         "created_at": _time.time(), "updated_at": _time.time()})
+    assert c.get("/api/studio/text-stories/backgrounds").json()["videos"] == []
+    story = c.post("/api/studio/text-stories", json={"script": SCRIPT}).json()
+    got = c.post(f"/api/studio/text-stories/{story['id']}/backgrounds/auto").json()
+    assert got["backgrounds"][0].get("builtin")  # ClipForge draws one instead of picking the missing file
+
+
+def test_the_story_voice_is_kept_when_a_style_is_picked_and_a_style_brings_its_favourite(env):
+    """Finding 14: "Keep this voice for this story" changes what picking a style does."""
+    c = env["client"]
+    story = c.post("/api/studio/text-stories", json={}).json()
+    url = f"/api/studio/text-stories/{story['id']}"
+    c.put("/api/studio/voices/favourites", json={"scope": "style:dramatic",
+                                                 "voice": {"voice": "espeak:en-gb", "speed": 0.8, "tone": -3}})
+    got = c.patch(url, json={"voice": {"style": "dramatic"}}).json()["voice"]
+    assert (got["voice"], got["speed"], got["tone"]) == ("espeak:en-gb", 0.8, -3.0)  # the style's favourite
+    c.patch(url, json={"voice": {"style": "casual", "voice": "espeak:en-us"}})
+    c.put("/api/studio/voices/favourites", json={"scope": f"project:{story['id']}",
+                                                 "voice": {"voice": "espeak:en-us"}})
+    got = c.patch(url, json={"voice": {"style": "dramatic"}}).json()["voice"]
+    assert (got["voice"], got["speed"], got["tone"]) == ("espeak:en-us", 0.9, -2.0)  # kept voice, style's pace
+    got = c.patch(url, json={"voice": {"style": "meme"}}).json()["voice"]
+    assert (got["voice"], got["speed"]) == ("espeak:en-us", 1.3)
+
+
+def test_deleting_a_story_forgets_what_clipforge_ai_remembered_about_it(env, monkeypatch):
+    """Finding 15: the Brain note kept for the story goes with it."""
+    from clipfoundry import db
+    from clipfoundry.makers import writer
+
+    c = env["client"]
+    story = c.post("/api/studio/text-stories", json={}).json()
+    url = f"/api/studio/text-stories/{story['id']}"
+    monkeypatch.setattr(writer, "_usable", lambda settings: True)
+    monkeypatch.setattr(writer, "_ask_story", lambda *a, **k: json.dumps(
+        {"title": "The secret title", "script": " ".join(["word"] * 200)}))
+    c.post(f"{url}/write", json={"topic": "a secret"})
+    _run(env)
+    scope = f"project:{story['id']}"
+    assert db.scalar("SELECT COUNT(*) FROM brain_memories WHERE scope = ?", (scope,)) >= 1
+    c.delete(url)
+    assert db.scalar("SELECT COUNT(*) FROM brain_memories WHERE scope = ?", (scope,)) == 0
+    assert not db.scalar("SELECT COUNT(*) FROM brain_memories WHERE text LIKE '%secret title%'")
+
+
+def test_hear_samples_of_the_storys_words_and_the_engines_copy_are_not_left_behind(env, monkeypatch):
+    """Finding 16: a sample of the page's own words is not kept; the voice engine's copy goes with the story."""
+    from clipfoundry import config, db
+    from clipfoundry.makers import textstory, voice
+
+    c = env["client"]
+    previews = config.data_dir() / "voices" / "previews"
+    r = c.post("/api/studio/voices/preview", json={"voice": _espeak(), "text": "My neighbour stole my packages."})
+    assert r.status_code == 200 and len(r.content) > 1000
+    assert not list(previews.glob("*.wav"))  # sent once, then deleted
+    c.post("/api/studio/voices/preview", json={"voice": _espeak()})
+    assert len(list(previews.glob("*.wav"))) == 1  # the usual sample sentence is kept
+    made = config.data_dir() / "engines" / "made"
+    made.mkdir(parents=True, exist_ok=True)
+    real = voice.speak
+
+    def speak_with_an_original(text, out, **kw):
+        got = real(text, out, **kw)
+        original = made / "engine-take.wav"
+        original.write_bytes(Path(out).read_bytes())
+        original.with_suffix(".json").write_text(json.dumps({"text": text}))
+        return {**got, "original": str(original)}
+
+    monkeypatch.setattr(voice, "speak", speak_with_an_original)
+    story, url = _ready_story(env)
+    textstory.make_narration(db.fetch("text_stories", story["id"]))
+    assert not list(made.iterdir())
+    kept = textstory.folder(story["id"])
+    assert (kept / "voice-original.wav").is_file() and (kept / "voice-original.json").is_file()
+    c.delete(url)
+    assert not kept.exists()
+
+
+def test_a_failed_or_stopped_render_leaves_no_partial_video_or_captions_file(env, monkeypatch):
+    """Finding 17: the partial export and its .ass file go when FFmpeg fails (or Stop ends it)."""
+    from clipfoundry import db
+    from clipfoundry.makers import textstory
+    from clipfoundry.pipeline import ffmpeg_utils
+
+    c = env["client"]
+    story, url = _ready_story(env)
+    c.post(f"{url}/preview")
+    assert [j["status"] for j in _run(env)] == ["done"]
+
+    def broken(args, **kw):
+        Path(args[-1]).write_bytes(b"half a video")
+        raise ffmpeg_utils.FFmpegError("the encoder stopped")
+
+    monkeypatch.setattr(ffmpeg_utils, "run", broken)
+    c.post(f"{url}/export")
+    assert [j["status"] for j in _run(env)] == ["failed"]
+    folder = textstory.folder(story["id"])
+    assert not list(folder.glob("export*")) and not list(folder.glob("*.ass"))
+    assert db.fetch("text_stories", story["id"])["status"] == "failed"
+    assert list(folder.glob("preview-*.mp4"))  # the earlier preview stays
+
+
+def test_pronunciations_of_words_with_their_own_punctuation_are_used():
+    """Finding 18: "Dr." and "C++" match as written; "C" alone is not "C++"."""
+    from clipfoundry.makers import voice_styles as vs
+
+    rules = vs.clean_rules([{"word": "Dr.", "say": "Doctor"}, {"word": "C++", "say": "see plus plus"}])
+    said, counts = vs.pronounce("Ask (Dr. Lee) about C++, not C.", rules)
+    assert said == "Ask (Doctor Lee) about see plus plus, not C."
+    assert counts == [1, 1, 1, 1, 3, 1, 1]
+    assert vs.pronounce("Dr Lee", rules)[0] == "Dr Lee"  # without the rule's own full stop it is another word
+
+
+def test_a_short_looping_background_loops_to_the_end_of_a_long_story(env):
+    """Finding 19: a 1 s loop covers a story of any length (it used to freeze after 80 plays)."""
+    from clipfoundry.makers import textstory
+
+    plays = textstory.pieces([{"asset_id": "a", "in_s": 0.0, "out_s": 1.0, "loop": True}], 250.0)
+    assert abs(sum(p["length"] for p in plays) - 250.0) < 0.01
+    runs = textstory._runs(plays)  # noqa: SLF001
+    assert len(runs) == 1 and runs[0]["times"] == 250 and runs[0]["play"] == 1.0
+
+
+def test_a_trimmed_looping_clip_repeats_exactly_its_part(env):
+    """Finding 19: the looped part is the trimmed part (green then blue), made once and looped by FFmpeg."""
+    from clipfoundry import db
+    from clipfoundry.makers import textstory
+    from clipfoundry.studio import uploads
+
+    parts = []
+    for colour in ("red", "green", "blue"):
+        parts.append(_video(env["tmp"] / f"{colour}.mp4", 0.5, "640x360", colour))
+    joined = env["tmp"] / "rgb.mp4"
+    listing = env["tmp"] / "list.txt"
+    listing.write_text("".join(f"file '{p}'\n" for p in parts))
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy",
+                    str(joined)], check=True)
+    clip = uploads.store_file("local", joined, "rgb.mp4")
+    story, url = _ready_story(env, script="One two three four five six seven eight nine ten.", title="",
+                              backgrounds=[{"asset_id": clip["id"], "in_s": 0.5, "out_s": 1.5, "loop": True}])
+    env["client"].post(f"{url}/preview")
+    assert [j["status"] for j in _run(env)] == ["done"]
+    row = db.fetch("text_stories", story["id"])
+    path = textstory.file_for(row, "preview")
+    total = float(_probe(path)["format"]["duration"])
+    assert total > 2.5
+
+    def corner(t: float) -> tuple[int, int, int]:
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", str(path), "-frames:v", "1", "-vf",
+                              "crop=8:8:0:0", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True,
+                             check=True).stdout
+        return raw[0], raw[1], raw[2]
+
+    def name(rgb) -> str:
+        r, g, b = rgb
+        return "green" if g > 100 and g > r + 50 and g > b + 50 else "blue" if b > 100 and b > r + 50 else "other"
+
+    assert [name(corner(t)) for t in (0.25, 0.75, 1.25, 1.75, 2.25)] == ["green", "blue", "green", "blue", "green"]
+    assert not list(textstory.folder(story["id"]).glob("preview-loop*"))  # the looped part is not kept

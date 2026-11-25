@@ -45,8 +45,11 @@ This document is the design and the contract between the parts. The user-facing 
    check** compares it with the members' colours (and, with the built-in model's Eyes on, asks it to look). A shot
    that may have lost a detail says so, with **Make again** (only that shot) and **Looks right** (kept for that
    picture). A change to a member makes again only the pictures it is in.
-10. **Timing and transitions**: each scene's **Stays after the words** (0 to 3 s) and the short's **Between scenes**
-   (cut, dissolve, fade) change the plan only; pictures and voices are not made again.
+10. **Timing and transitions**: the short's **Between scenes** (cut, dissolve, fade) changes the plan only; a dissolve
+   or fade is kept shorter than a third of the shortest scene, and is fitted again whenever a scene gets shorter (a cut
+   when a scene is too short for one). A scene's **Stays after the words** (0 to 3 s) makes that scene's clip again
+   (longer or shorter), and with **Animate the pictures** the video maker runs again for it; its picture and voice are
+   not made again.
 
 With **Let me check the script first**, ClipForge stops after writing the script so the owner can change lines;
 **Make the short** then makes the voice and the pictures.

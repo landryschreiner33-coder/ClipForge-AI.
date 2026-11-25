@@ -482,9 +482,18 @@
   asked to write, with its notes. Favourite voices are kept for each voice style and each story. When ClipForge picks
   the backgrounds, it looks only at your own videos in ClipForge (their names, lengths and shapes); when you have
   none, it draws a moving colour background itself. Clips you upload as backgrounds are kept with your other uploads
-  (section 7). Deleting a story deletes its row, its favourite voices, its narration, preview and export files
-  (<code>text_stories/&lt;id&gt;</code>); a video made from its export in the editor stays until you delete that
-  video. The voice, the captions and the video are made on this computer.
+  (section 7). With the local voice engine, the engine's own copy of the narration and its note (which holds the words
+  read) are moved into the story's folder. Deleting a story deletes its row, its favourite voices, its narration,
+  preview and export files and that copy (<code>text_stories/&lt;id&gt;</code>), and what ClipForge AI remembered
+  about writing it (its Brain memories kept for that story); a video made from its export in the editor stays until
+  you delete that video. When you open an export in the editor, ClipForge keeps a fingerprint of that video (a hash
+  of its bytes, not the video), also after the story is deleted, so a copy of it is never offered back as a
+  background. The voice, the captions and the video are made on this computer.
+</p>
+<p>
+  The Hear buttons play a sample made on this computer. The usual sample sentence is kept in
+  <code>voices/previews</code> for each voice, speed and tone, so it plays at once next time; a sample of your own
+  story's first words is sent to the page once and deleted, and is not kept.
 </p>
 <p>
   Write it for me and Revise send your topic (or the story's title and script with the change you typed), the tone

@@ -103,11 +103,25 @@ def _core(token: str) -> tuple[str, str, str]:
     return (m.group(1), m.group(2), m.group(3)) if m else ("", token, "")
 
 
+def _around(token: str, word: str) -> tuple[str, str] | None:
+    """(what is before, what is after) when the written `token` is the rule's `word` (lower case) with only
+    punctuation around it: "gif," is "gif", "(Dr.," is "dr." and "C++" is "c++", but "C" is not "c++" and "gifs" is
+    not "gif". None when it is not."""
+    low = token.lower()
+    at = low.find(word) if word else -1
+    while at >= 0:
+        before, after = token[:at], token[at + len(word):]
+        if not re.search(r"\w", before) and not re.search(r"\w", after):
+            return before, after
+        at = low.find(word, at + 1)
+    return None
+
+
 def pronounce(text: str, rules: list[dict]) -> tuple[str, list[int]]:
     """The words as the voice should read them, and for each written word how many spoken words stand for it (so
     `words_back` can give the captions the written words). A rule matches whole words, any case, and may cover
-    several written words ("New York"); the longest rule wins. Punctuation around the words stays (the voice pauses
-    at it)."""
+    several written words ("New York"); the longest rule wins. A rule's own punctuation is part of its word ("Dr.",
+    "C++"); punctuation around the words stays (the voice pauses at it)."""
     tokens = text.split()
     ordered = sorted(({"words": r["word"].lower().split(), "say": r["say"].split()} for r in rules if r["say"].split()),
                      key=lambda r: -len(r["words"]))
@@ -117,10 +131,13 @@ def pronounce(text: str, rules: list[dict]) -> tuple[str, list[int]]:
     while i < len(tokens):
         for r in ordered:
             n = len(r["words"])
-            if i + n <= len(tokens) and [_core(t)[1].lower() for t in tokens[i:i + n]] == r["words"]:
+            if i + n > len(tokens):
+                continue
+            edges = [_around(t, w) for t, w in zip(tokens[i:i + n], r["words"])]
+            if all(e is not None for e in edges):
                 parts = list(r["say"])
-                parts[0] = _core(tokens[i])[0] + parts[0]
-                parts[-1] = parts[-1] + _core(tokens[i + n - 1])[2]
+                parts[0] = edges[0][0] + parts[0]  # type: ignore[index]
+                parts[-1] = parts[-1] + edges[-1][1]  # type: ignore[index]
                 spoken.extend(parts)
                 counts.extend([len(parts)] + [0] * (n - 1))
                 i += n
@@ -186,6 +203,20 @@ def set_favourite(workspace_id: str, scope: str, voice: dict | None) -> dict:
                "speed = excluded.speed, tone = excluded.tone, style = excluded.style, updated_at = excluded.updated_at",
                (workspace_id, scope, v["voice"], v["speed"], v["tone"], v["style"], time.time()))
     return favourites(workspace_id)
+
+
+def for_style(workspace_id: str, project_id: str, style: str) -> dict:
+    """What picking `style` changes besides the style's own speed and tone: the story's kept voice ("Keep this voice
+    for this story": the narrator stays, the style still sets speed and tone), else the style's favourite (its voice,
+    speed and tone), else nothing."""
+    fav = favourites(workspace_id)
+    mine = fav.get(f"project:{project_id}") if project_id else None
+    if mine:
+        return {"voice": mine["voice"]}
+    theirs = fav.get(f"style:{style}")
+    if theirs:
+        return {"voice": theirs["voice"], "speed": theirs["speed"], "tone": theirs["tone"]}
+    return {}
 
 
 def favourite_for(workspace_id: str, project_id: str = "", style: str = "") -> dict | None:

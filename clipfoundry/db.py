@@ -588,6 +588,12 @@ CREATE TABLE IF NOT EXISTS text_stories (       -- Text Stories: a script read o
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_text_stories_ws ON text_stories (workspace_id, updated_at);
+CREATE TABLE IF NOT EXISTS text_story_exports ( -- fingerprints of story videos sent to the editor (never backgrounds)
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    sha256 TEXT NOT NULL,                      -- the stored copy's content hash (assets.sha256)
+    created_at REAL NOT NULL,
+    PRIMARY KEY (workspace_id, sha256)
+);
 CREATE TABLE IF NOT EXISTS voice_favorites (    -- a favourite voice for a style ("style:<id>") or a project
     workspace_id TEXT NOT NULL DEFAULT 'local',
     scope TEXT NOT NULL,
@@ -1339,6 +1345,7 @@ JSON_FIELDS = {
     "text_stories": {"voice", "pronunciations", "captions", "backgrounds", "narration", "preview", "export",
                      "writer"},
     "voice_favorites": set(),
+    "text_story_exports": set(),
     "cast_library": {"locked", "refs"},
     "cloud_runs": {"estimate", "info"},
     "taste_models": set(),

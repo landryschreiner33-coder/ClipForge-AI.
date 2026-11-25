@@ -127,8 +127,11 @@ def clean(raw: dict, workspace_id: str, base: dict | None = None) -> dict:
         refs = list(dict.fromkeys(refs))
         if len(refs) > MAX_REFS:
             raise CastError(f"A character keeps at most {MAX_REFS} reference pictures.")
+        had = set((base or {}).get("refs") or [])
         for r in refs:
-            if _image_ok(r, workspace_id) is None:
+            # only pictures new to this member are checked: one it already had may be missing now (the page shows
+            # it as Missing), and removing another picture must not fail because of it
+            if r not in had and _image_ok(r, workspace_id) is None:
                 raise CastError("A reference picture must be one of your pictures (PNG, JPEG or WebP).", 404)
         out["refs"] = refs
     if not out.get("name"):
