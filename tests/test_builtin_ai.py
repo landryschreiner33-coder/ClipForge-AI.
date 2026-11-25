@@ -582,3 +582,33 @@ def test_the_background_load_waits_for_the_graphics_card(hub, monkeypatch):
     assert builtin_ai.server.warm(settings) is False
     warmed()
     assert holders == ["local AI model"] and builtin_ai.server.running()
+
+
+def test_the_engine_counts_as_running_until_its_process_has_ended(hub, monkeypatch):
+    """Stopping waits for the engine to end; until it has, it still holds the model in memory, so running() must say
+    so (other heavy work checks it before using the graphics card, and the status view shows it)."""
+    import threading
+
+    from clipfoundry import builtin_ai
+
+    _install()
+    builtin_ai.chat({"builtin_ai_level": "basic"}, "S", "hi")
+    proc = builtin_ai.server.proc
+    real_terminate = proc.terminate
+    ending = threading.Event()
+
+    def slow_terminate():
+        ending.set()  # a busy computer: the engine only ends a while after being asked to
+        threading.Timer(0.4, real_terminate).start()
+
+    monkeypatch.setattr(proc, "terminate", slow_terminate)
+    seen = []
+    stopper = threading.Thread(target=builtin_ai.server.stop)
+    stopper.start()
+    assert ending.wait(5)
+    while stopper.is_alive():
+        seen.append((builtin_ai.server.running(), proc.poll() is None))
+        time.sleep(0.02)
+    stopper.join()
+    assert seen and all(running or not alive for running, alive in seen)  # never "stopped" while it still runs
+    assert not builtin_ai.server.running() and proc.poll() is not None

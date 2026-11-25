@@ -51,6 +51,45 @@ def test_semantic_embeddings_see_one_topic_versus_several():
     assert after["context_dependency"] < semantic.features(emb, 7, 9)["context_dependency"]
 
 
+def _any_right_eigh(seed):
+    """np.linalg.eigh, but where strengths tie, the directions turned some other equally right way (as another
+    machine's math library may return them)."""
+    usual, rng = np.linalg.eigh, np.random.default_rng(seed)
+
+    def eigh(a):
+        vals, vecs = usual(a)
+        vecs, top, i = vecs.copy(), max(float(abs(vals).max()), 1e-12), 0
+        while i < len(vals):
+            j = i + 1
+            while j < len(vals) and abs(vals[j] - vals[i]) <= 1e-9 * top:
+                j += 1
+            if j - i > 1:
+                vecs[:, i:j] = vecs[:, i:j] @ np.linalg.qr(rng.standard_normal((j - i, j - i)))[0]
+            i = j
+        return vals, vecs
+    return eigh
+
+
+def test_what_sentences_mean_does_not_depend_on_which_of_two_equal_directions_the_math_library_picks(monkeypatch):
+    """Sixteen lines that share no word: every latent topic is as strong as the others, and which come "first" is
+    the math library's arbitrary pick. The meaning vectors used to keep the first four, so how alike two lines were
+    changed from one computer to the next (another stream's clips on GitHub). Now a tie is kept whole or not at all."""
+    lines = ["Morning everyone, welcome back.", "Coffee first, obviously.", "Rain outside again today.",
+             "Chat is lively already.", "Grab snacks now.", "Volume okay for you?", "Mic sounds crisp.",
+             "Lights look warm.", "Shoutout new followers.", "Weekend plans maybe?", "Pizza tonight probably.",
+             "Cats sleeping nearby.", "Keyboard feels clicky.", "Monitor brightness lowered.", "Stretch those legs.",
+             "Hydrate please friends."]
+    usual = semantic.embed_texts(lines, opts={"meaning_model": False})
+    alike = np.asarray(usual) @ np.asarray(usual).T
+    for seed in range(5):
+        monkeypatch.setattr(semantic.np.linalg, "eigh", _any_right_eigh(seed))
+        other = np.asarray(semantic.embed_texts(lines, opts={"meaning_model": False}))
+        assert np.allclose(other @ other.T, alike, atol=1e-5)
+    assert semantic.whole_groups(np.array([3.0, 2.0, 1.0, 1.0, 1.0, 0.5]), 3) == 2   # never splits the three 1.0s
+    assert semantic.whole_groups(np.array([3.0, 2.0, 1.0, 1.0, 1.0, 0.5]), 5) == 5   # the whole group fits
+    assert semantic.whole_groups(np.ones(6), 4) == 0                                 # nothing stands out
+
+
 def test_long_videos_use_the_fast_embedding_path():
     lines = [f"Topic {i % 7} is about {w} and {w}s today." for i, w in enumerate(["cats", "dogs", "cars", "trains",
                                                                                "money", "music", "food"] * 80)]

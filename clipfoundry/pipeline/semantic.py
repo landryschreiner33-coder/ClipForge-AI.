@@ -105,10 +105,12 @@ def _lexical(texts: list[str], dim: int = DIM) -> np.ndarray:
         emb = m
     elif n <= 400:
         # exact: eigen-decomposition of the small sentences x sentences Gram matrix
-        vals, vecs = np.linalg.eigh((m @ m.T).astype(np.float64))
-        order = np.argsort(vals)[::-1][:k]
+        m64 = m.astype(np.float64)
+        vals, vecs = np.linalg.eigh(m64 @ m64.T)
+        order = np.argsort(vals)[::-1]
         vals, vecs = np.clip(vals[order], 0, None), vecs[:, order]
-        emb = (vecs * np.sqrt(vals)).astype(np.float32)
+        k = whole_groups(vals, k)
+        emb = (vecs[:, :k] * np.sqrt(vals[:k])).astype(np.float32) if k else m
     else:
         # long videos: randomized SVD (two power iterations), a few hundred milliseconds for hours of speech
         rng = np.random.default_rng(0)
@@ -116,13 +118,30 @@ def _lexical(texts: list[str], dim: int = DIM) -> np.ndarray:
         for _ in range(2):
             q, _ = np.linalg.qr(m @ (m.T @ q))
         u, s, _ = np.linalg.svd(q.T @ m, full_matrices=False)
-        emb = ((q @ u[:, :k]) * s[:k]).astype(np.float32)
+        k = whole_groups(s.astype(np.float64) ** 2, k)
+        emb = ((q @ u[:, :k]) * s[:k]).astype(np.float32) if k else m
     lsa = _unit(emb)
     # Blend with the words themselves (a random projection keeps the vectors small): cosine similarity becomes
     # 60% shared words + 40% latent topics, which stays sensible for short transcripts where LSA alone is noisy.
     proj = np.random.default_rng(7).standard_normal((len(vocab), RAW_DIM)).astype(np.float32) / np.sqrt(RAW_DIM)
     raw = _unit(m @ proj)
     return _unit(np.hstack([np.sqrt(0.6) * raw, np.sqrt(0.4) * lsa]))
+
+
+TIED = 1e-4  # strengths this close (a share of the strongest) are the same strength
+
+
+def whole_groups(strengths: np.ndarray, k: int) -> int:
+    """How many of the strongest latent topics (`strengths` sorted, strongest first) to keep, at most k, so that a
+    group of equally strong topics is kept whole or not at all. Which of several equally strong directions comes
+    "first" is the math library's arbitrary pick: it differed between machines (a stream whose first minute had no
+    two sentences sharing a word gave other clips on GitHub's computers). Keeping only some of them made what the
+    sentences mean depend on that pick; a whole group, or none, does not. 0 means no latent topics stand out: the
+    words themselves are used."""
+    top = float(strengths[0]) if len(strengths) else 0.0
+    while 0 < k < len(strengths) and strengths[k - 1] - strengths[k] <= TIED * top:
+        k -= 1
+    return k
 
 
 def _unit(x: np.ndarray) -> np.ndarray:

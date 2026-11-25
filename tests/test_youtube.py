@@ -352,6 +352,29 @@ def test_cancel_after_the_last_part_when_youtube_forgot_the_session_keeps_the_ho
     assert _publish(app_client, c["id"]).status_code == 409  # never a second upload while it may exist
 
 
+def test_cancel_keeps_what_the_upload_wrote_at_the_same_moment(clip, monkeypatch):
+    """Cancel upload read the post, the upload then wrote the outcome of its last part, and Cancel wrote the whole
+    info it had read back: "outcome_unknown" was lost and the post stayed in processing without saying why (seen in
+    the full suite as a KeyError in the test above). Cancel now only adds its mark."""
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    c, _ = clip
+    pub = db.create_publication(c["id"], "youtube", status="uploading", info={"final_chunk_at": 1.0})
+    real = db.get_publication
+
+    def read_then_the_upload_writes(pub_id):
+        row = real(pub_id)
+        db.update_publication(pub_id, status="processing", info={**(row["info"] or {}), "outcome_unknown": True})
+        return row
+
+    with monkeypatch.context() as here:
+        here.setattr(db, "get_publication", read_then_the_upload_writes)
+        jobs.PublishWorker().cancel(pub["id"])
+    info = db.get_publication(pub["id"])["info"]
+    assert info["outcome_unknown"] is True and info["cancel_requested_at"] > 0 and info["final_chunk_at"] == 1.0
+
+
 def test_cancel_a_queued_upload_behind_another_ends_it_at_once_and_a_retry_uploads_once(app_client, google, clip,
                                                                                          tmp_path):
     """Release check: a long upload is running, the next one waits; canceling the waiting one ends it right away,

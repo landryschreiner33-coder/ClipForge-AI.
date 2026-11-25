@@ -44,6 +44,12 @@ the release line at `cf51120` (batch 1 merged). What is a platform rule, what is
   tutorial, read by espeak-ng), runs two versions' real clip finder on them and writes a before/after report:
   [docs/clipforge/benchmarks/clip-quality-2026-11-25.md](docs/clipforge/benchmarks/clip-quality-2026-11-25.md).
 - **Privacy page:** the face cam box and the camera recording copy are listed under "Your videos and clips".
+- **Fixed after the GitHub check (three root causes):** the meaning vectors kept part of a group of equally strong
+  directions, and which part a maths library returns differs between computers, so clip picks differed on GitHub
+  (`semantic.whole_groups` keeps a tied group whole or not at all); Cancel on a post wrote back a stale copy of the
+  post's info and could lose what the upload wrote at the same moment (`db.merge_publication_info`); stopping the
+  built-in AI said it had stopped before its process ended (`builtin_ai.Server.stop` now lets go after the wait).
+  Each has a test that fails on the old code.
 
 ## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code)
 

@@ -2175,6 +2175,14 @@ def update_publication(pub_id: str, **fields: Any) -> None:
     _update("publications", pub_id, fields)
 
 
+def merge_publication_info(pub_id: str, patch: dict[str, Any]) -> None:
+    """Add keys to a publication's `info` in one statement. Reading the row and writing its whole `info` back loses
+    what the upload worker wrote in between (Cancel upload once wiped "outcome_unknown" that way)."""
+    with connect() as conn:
+        conn.execute("UPDATE publications SET info = json_patch(CASE WHEN json_valid(info) THEN info ELSE '{}' END, ?),"
+                     " updated_at = ? WHERE id = ?", (json.dumps(patch), time.time(), pub_id))
+
+
 # ---------------------------------------------------------------- performance (real platform metrics only)
 METRICS = ("views", "likes", "comments", "shares", "watch_time_minutes", "avg_view_duration_s", "avg_view_percentage")
 
