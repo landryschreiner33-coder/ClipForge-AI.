@@ -47,7 +47,23 @@ def heard(folder: str | Path, words: list[dict], start: float, end: float) -> li
     from .audio import Loudness
     from .virality import wordless_loud
 
-    return wordless_loud(words, Loudness(env), start, end)
+    runs = wordless_loud(words, Loudness(env), start, end)
+    sounds = Path(folder) / "sounds.json"
+    if sounds.is_file():  # what ClipForge AI heard there too (listen.py): a quiet laugh is not a pause either
+        from . import listen
+        from .virality import HEARD_REACTIONS
+
+        got = listen.load(sounds)
+        if got is not None:
+            runs = sorted(runs + got.reaction_runs(start, end, words, kinds=HEARD_REACTIONS))
+            merged: list[tuple[float, float]] = []
+            for a, b in runs:
+                if merged and a <= merged[-1][1]:
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+                else:
+                    merged.append((a, b))
+            runs = merged
+    return runs
 
 
 def keep_segments(words: list[dict], start: float, end: float, mode: str, fps: float,

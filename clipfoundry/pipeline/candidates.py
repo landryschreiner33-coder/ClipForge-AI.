@@ -374,21 +374,157 @@ def refine_bounds(cand: dict, sentences: list[dict], video_duration: float,
     return max(0.0, round(start, 3)), min(video_duration, round(end, 3))
 
 
-def fallback_windows(loud: Loudness, duration: float, opts: dict, pool_size: int) -> list[dict]:
-    """No speech found: pick the most energetic, non-overlapping stretches."""
+SENSE_BONUS = 0.10          # stage-1 bonus for a moment built around what was seen or heard (at full strength)
+SENSE_LEAD = 0.75           # a clip around an action keeps this share of its length before it, the rest after
+
+
+SNAP_CUT = 3.0              # a time window's edge moves to a shot cut this close
+
+
+def around(a: dict, length: float, duration: float) -> tuple[float, float]:
+    """The stretch of `length` seconds that holds anchor `a`: ending just after a reaction (its cause comes before
+    it), or with SENSE_LEAD of its length before an action and the rest after it."""
+    at, until = float(a["at"]), float(a.get("until") or a["at"])
+    start = until + 0.5 - length if a.get("end_after") else at - SENSE_LEAD * length
+    start = max(0.0, min(max(0.0, duration - length), start))
+    return start, min(duration, start + length)
+
+
+def _snap(start: float, end: float, senses, words: list[dict], min_d: float, max_d: float) -> tuple[float, float]:
+    """Move a time window's edges to the nearest shot cuts (when watched) and never through a word."""
+    cuts = list(senses.watched.cuts) if senses is not None and senses.watched is not None else []
+
+    def near(t: float) -> float:
+        c = min(cuts, key=lambda x: abs(x - t), default=None)
+        return c if c is not None and abs(c - t) <= SNAP_CUT else t
+
+    a, b = near(start), near(end)
+    if not min_d <= b - a <= max_d:
+        a, b = start, end
+    for w in words:
+        if w["start"] < a < w["end"]:
+            a = w["start"]
+        if w["start"] < b < w["end"]:
+            b = w["end"]
+    return round(max(0.0, a), 3), round(b, 3)
+
+
+def from_senses(sentences: list[dict], feats: list[dict], loud: Loudness, opts: dict, senses, found: list[dict],
+                words: list[dict] | None = None, duration: float | None = None) -> list[dict]:
+    """New candidate clips built around what ClipForge AI saw and heard (senses.Senses.anchors): a clip that ends
+    just after a laugh, a cheer or applause (its cause is the lines before it), or one that holds an explosion, a
+    crash or a burst of action with its lead-up. Each is snapped to whole sentences and scored like any other
+    window. Where no line is near the moment (a fight, a chase, a goal with nobody talking), the clip is a stretch
+    of time around it instead, its edges on shot cuts, scored on what was seen and heard (virality.no_speech). One
+    that repeats a candidate already found (overlap above 60%) marks that one instead (`sense`) and raises its
+    stage-1 score. Nothing is trusted on its own: every candidate still passes every stage."""
+    if senses is None or not sentences:
+        return []
+    anchors = senses.anchors()
+    if not anchors:
+        return []
+    target = float(opts.get("target_duration", 45))
+    max_d, min_d = float(opts["max_duration"]), float(opts["min_duration"])
+    top = common_words(sentences)
+    duration = float(duration or max([sentences[-1]["end"]] + [x.duration for x in (senses.heard, senses.watched)
+                                                               if x is not None]))
+    added: list[dict] = []
+    base = senses.base_action()
+
+    def keep(w: dict, a: dict) -> None:
+        note = {"kind": a["kind"], "why": a["why"], "at": round(float(a["at"]), 2)}
+        bonus = SENSE_BONUS * max(0.0, min(1.0, float(a["strength"])))
+        twin = max(found + added, key=lambda c: _overlap(w, c), default=None)
+        if twin is not None and _overlap(w, twin) > 0.6:
+            if "sense" not in twin:
+                twin["sense"] = note
+                twin["stage1"] = twin["stage1"] + bonus
+            return
+        w["sense"] = note
+        w["stage1"] += bonus
+        added.append(w)
+
+    for a in anchors:
+        at, until = float(a["at"]), float(a.get("until") or a["at"])
+        if a.get("end_after"):
+            # the line the reaction answers: the last sentence that starts before the reaction does
+            j = max((k for k, s in enumerate(sentences) if s["start"] < at - 0.2), default=-1)
+            stop = until
+        else:
+            stop = until + (1 - SENSE_LEAD) * target
+            j = max((k for k, s in enumerate(sentences) if s["start"] <= stop), default=-1)
+        if j < 0:
+            added_time = _time_window(a, words or [], senses, opts, duration, base)
+            if added_time is not None:
+                keep(added_time, a)
+            continue
+        i = j
+        while i > 0 and sentences[j]["end"] - sentences[i - 1]["start"] <= min(max_d, max(target, min_d)):
+            i -= 1
+        while j + 1 < len(sentences) and sentences[j]["end"] - sentences[i]["start"] < min_d \
+                and sentences[j + 1]["end"] - sentences[i]["start"] <= max_d:
+            j += 1
+        if not sentences[i]["start"] - 1.0 <= at <= sentences[j]["end"] + 3.0:
+            # no line near the moment (a reaction long after the last words, a fight nobody talks over)
+            added_time = _time_window(a, words or [], senses, opts, duration, base)
+            if added_time is not None:
+                keep(added_time, a)
+            continue
+        keep(window(sentences, feats, i, j, loud, opts, top), a)
+    return added
+
+
+def _time_window(a: dict, words: list[dict], senses, opts: dict, duration: float, base: float | None = None
+                 ) -> dict | None:
+    """A stretch of time around anchor `a` that is mostly not talk (under half of it), as a candidate without
+    sentences (s0 = -1, scored by virality.no_speech on how much happens in it: senses.show)."""
+    target = float(opts.get("target_duration", 45))
+    min_d, max_d = float(opts["min_duration"]), float(opts["max_duration"])
+    length = max(min_d, min(target, max_d, duration))
+    if duration < min_d:
+        return None
+    start, end = _snap(*around(a, length, duration), senses, words, min_d, max_d)
+    talk = sum(max(0.0, min(end, w["end"]) - max(start, w["start"])) for w in words) / max(0.1, end - start)
+    if talk >= 0.5 or not start <= float(a["at"]) <= end:
+        return None   # mostly talk: the sentence windows cover it
+    e = (senses.show(senses.features(start, end), base) or 40.0) / 100.0
+    text = " ".join(w["w"] for w in words if start <= w["start"] < end)
+    return {"start": start, "end": end, "dur": round(end - start, 3), "s0": -1, "s1": -1, "text": text,
+            "stage1": 0.3 + 0.3 * e,
+            "criteria": {"hook": 0.3, "engagement": e, "payoff": 0.3, "standalone": 0.5, "context": 0.3,
+                         "density": 0.0, "length": 1.0},
+            "signals": {"seen_and_heard": round(e, 2), "talk": round(talk, 2)}}
+
+
+def fallback_windows(loud: Loudness, duration: float, opts: dict, pool_size: int, senses=None) -> list[dict]:
+    """No speech found: pick the most energetic, non-overlapping stretches; when ClipForge AI watched and listened,
+    the stretches where most happens (what it heard and saw counts for more than loudness)."""
     length = min(opts["target_duration"], max(5.0, duration))
     step = max(2.0, length / 2)
     wins = []
+    starts = []
     t = 0.0
     while t + length <= duration + 0.01:
+        starts.append(t)
+        t += step
+    if senses is not None and senses.any():
+        for a in senses.anchors():  # windows that hold each strong moment with its lead-up
+            s0 = around(a, length, duration)[0]
+            if all(abs(s0 - x) >= 1.0 for x in starts):
+                starts.append(s0)
+    for t in sorted(starts):
         mean_z, std_z = loud.stats(t, t + length)
         e = _sig(1.2 * mean_z)
+        signals = {"energy_z": round(mean_z, 2)}
+        if senses is not None and senses.any():
+            seen_heard = senses.interest(t, t + length)
+            e = 0.35 * e + 0.65 * seen_heard
+            signals["seen_and_heard"] = round(seen_heard, 2)
         wins.append({"start": t, "end": t + length, "dur": length, "s0": -1, "s1": -1, "text": "",
                      "stage1": 0.3 + 0.3 * e,
                      "criteria": {"hook": 0.3, "engagement": e, "payoff": 0.3, "standalone": 0.5,
                                   "context": 0.3, "density": 0.0, "length": 1.0},
-                     "signals": {"energy_z": round(mean_z, 2)}})
-        t += step
+                     "signals": signals})
     wins.sort(key=lambda w: w["stage1"], reverse=True)
     picked: list[dict] = []
     for w in wins:

@@ -299,6 +299,14 @@ def ai_meaning_view() -> dict:
     return embedder.status(db.get_settings())
 
 
+@app.get("/api/ai/senses")
+def ai_senses_view() -> dict:
+    """Watching and listening (pipeline/senses.py): which senses are on and whether the sound model runs here."""
+    from .pipeline.senses import Senses
+
+    return Senses.status(db.get_settings())
+
+
 @app.post("/api/ai/meaning/install")
 def ai_meaning_install() -> dict:
     try:

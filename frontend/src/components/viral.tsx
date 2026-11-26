@@ -138,7 +138,8 @@ export function AiNotes({ a }: { a: Partial<NonNullable<Clip["analysis"]>> }) {
   const seen = a.deep?.seen;
   const voice = a.deep?.prosody;
   const brain = a.brain && (a.brain.why.length || a.brain.avoid) ? a.brain : null;
-  const any = a.scout || a.judge || seen || voice || a.taste || brain || a.brain_length;
+  const sensed = a.senses && (a.senses.seen?.length || a.senses.heard?.length || a.senses.picture) ? a.senses : null;
+  const any = a.scout || a.judge || seen || voice || a.taste || brain || a.brain_length || sensed || a.sense;
   const explanation = a.explanation || [];
   if (!any && !explanation.length) return null;
   return (
@@ -148,6 +149,10 @@ export function AiNotes({ a }: { a: Partial<NonNullable<Clip["analysis"]>> }) {
           {a.scout && <li className="info"><b>ClipForge AI picked this while reading the whole video</b> ({kindWord(a.scout.kind)}): {a.scout.why}</li>}
           {a.judge && <li className={a.judge.verdict === "red" ? "warn" : "info"}>
             <b>ClipForge AI ranked it {a.judge.rank} of {a.judge.of}{a.judge.verdict ? ` (${a.judge.verdict})` : ""}.</b> {a.judge.note}</li>}
+          {a.sense && <li className="info"><b>Built around a moment:</b> {a.sense.why}{a.sense.why.startsWith("ClipForge AI") ? "" : " (ClipForge AI watched it)"}</li>}
+          {sensed?.seen && sensed.seen.length > 0 && <li className="info"><b>What happens:</b> {sensed.seen.join(" · ")}</li>}
+          {sensed?.heard && sensed.heard.length > 0 && <li className="info"><b>What is heard:</b> {sensed.heard.join(" · ")}</li>}
+          {sensed?.picture && <li className="info"><b>The picture:</b> {sensed.picture}</li>}
           {seen && <li className="info"><b>ClipForge AI saw:</b> {seen.description || kindWord(seen.kind)}
             {seen.text_on_screen ? ` · on screen: “${seen.text_on_screen}”` : ""} (picture appeal {seen.appeal}/10{seen.problem ? `; ${seen.problem}` : ""})</li>}
           {voice && <li className="info"><b>The voice:</b> {voice.monotone ? "stays flat here" : `${voice.pitch_variation >= 0.5 ? "lively" : "steady"}, ${voice.emphasis_per_30s} emphasis moments per 30 s`}

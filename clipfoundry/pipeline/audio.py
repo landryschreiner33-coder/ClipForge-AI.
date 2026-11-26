@@ -99,6 +99,7 @@ class Loudness:
 
     def __init__(self, env: dict):
         self.hop = float(env.get("hop", HOP))
+        self.heard = None  # listen.Heard: the named sounds, when ClipForge AI listened (process.prepare)
         db = np.asarray(env.get("db") or [-60.0], dtype=np.float64)
         self.db = db
         speech = db[db > -45.0]

@@ -8,14 +8,16 @@ from pathlib import Path
 
 from .. import db, gpu
 from . import candidates as cand_mod
-from . import blueprint, postpack, render, scoring, scout, transcribe, virality
+from . import blueprint, eyes, postpack, render, scoring, scout, transcribe, virality
 from .audio import Loudness, loudness_envelope
 from .common import Cancelled, JobContext, log, read_json, write_json
+from .senses import Senses
 from .ffmpeg_utils import extract_audio, make_silent_wav, probe, thumbnail
 from .text_utils import build_sentences
 
 # Overall progress budget per stage
 P_PROBE, P_AUDIO, P_TRANSCRIBE, P_ANALYZE, P_SCORE, P_RENDER = 0.02, 0.07, 0.45, 0.50, 0.58, 1.0
+P_LISTEN, P_WATCH = 0.455, 0.47   # listening and watching run between the transcript and the candidates
 
 
 def _duration(project: dict) -> float | None:
@@ -98,6 +100,7 @@ class Prepared:
     loud: Loudness
     t_start: float = field(default_factory=time.time)
     _brief: object = None
+    senses: Senses = field(default_factory=Senses)   # what ClipForge AI heard and watched (WATCH_AND_LISTEN.md)
 
     @property
     def brief(self):
@@ -197,9 +200,61 @@ def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) ->
     if not env:
         env = loudness_envelope(wav)
         write_json(env_path, env)
+    loud = Loudness(env)
+    senses = sense(src, wav, meta, pdir, settings, info, ctx, stage)
+    loud.heard = senses.heard  # reactions are named sounds now, not loudness guesses (virality, deep, render)
     # Topic-scoped examples need the spoken subject before the candidate pool chooses its window lengths.
     return Prepared(project, settings, _options(project, settings, words=words), pdir, meta, info, words,
-                    build_sentences(words), Loudness(env), t_start)
+                    build_sentences(words), loud, t_start, senses=senses)
+
+
+def sense(src: Path, wav: Path, meta: dict, pdir: Path, settings: dict, info: dict, ctx: JobContext,
+          stage=None) -> Senses:
+    """Listen to the whole sound track and watch the whole video frame by frame (docs/clipforge/WATCH_AND_LISTEN.md).
+    Both are kept in the project folder (sounds.json, watch.json), so a second run only reads them back. Each one
+    is optional: off in Settings, a missing model or a failure leaves it out and clip picking goes on without it."""
+    from . import listen, watch
+
+    files = Senses.files(pdir)
+    ctx_report = ctx._report  # noqa: SLF001
+    heard = watched = None
+    took: dict = {}
+    if meta.get("has_audio", True) and listen.enabled(settings):
+        if stage:
+            stage("listen", P_TRANSCRIBE, "Listening to the sound")
+        t0 = time.monotonic()
+        try:
+            heard = listen.analyze(wav, ctx, files["heard"], settings=settings,
+                                   progress=lambda f: ctx_report(P_TRANSCRIBE + (P_LISTEN - P_TRANSCRIBE) * f,
+                                                                 "Listening to the sound"))
+        except Cancelled:
+            raise
+        except Exception:  # noqa: BLE001 - clips are still made by ear-less rules
+            log.exception("listening failed")
+        took["listen_s"] = round(time.monotonic() - t0, 1)
+        if heard is None and listen.problem():
+            took["listen_problem"] = listen.problem()
+    ctx.check()
+    if meta.get("width") and meta.get("has_video", True) and watch.enabled(settings):
+        if stage:
+            stage("watch", P_LISTEN, "Watching the video")
+        t0 = time.monotonic()
+        try:
+            watched = watch.scan(src, meta, ctx, files["watched"], settings=settings,
+                                 progress=lambda f: ctx_report(P_LISTEN + (P_WATCH - P_LISTEN) * f,
+                                                               "Watching the video frame by frame"))
+        except Cancelled:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("watching failed")
+        took["watch_s"] = round(time.monotonic() - t0, 1)
+    ctx.check()
+    seen = (read_json(files["seen"], {}) or {}).get("parts") if files["seen"].is_file() else None
+    got = Senses(heard, watched, [x for x in seen or [] if isinstance(x, dict)])
+    info["senses"] = {**took, "heard": heard is not None, "watched": watched is not None,
+                      **({"sounds": [n for n, _ in heard.top_sounds(0, heard.duration, 6)]} if heard else {}),
+                      **({"shots": len(watched.shots()), "frames": watched.n} if watched else {})}
+    return got
 
 
 def load_prepared(project_id: str) -> Prepared | None:
@@ -216,9 +271,11 @@ def load_prepared(project_id: str) -> Prepared | None:
     words = transcribe.flatten_words(transcript)
     info = project.get("info") or {}
     meta = {k: info.get(k, project.get(k)) for k in ("duration", "width", "height", "fps", "has_audio", "has_video")}
+    senses = Senses.load(pdir)
+    loud = Loudness(env)
+    loud.heard = senses.heard
     return Prepared(project, settings, _options(project, settings, words=words), pdir, meta, info, words,
-                    build_sentences(words),
-                    Loudness(env))
+                    build_sentences(words), loud, senses=senses)
 
 
 def candidate_pool(p: Prepared, ctx: JobContext) -> list[dict]:
@@ -227,17 +284,31 @@ def candidate_pool(p: Prepared, ctx: JobContext) -> list[dict]:
     deep_on = bool(p.opts.get("deep_analysis"))
     pool = int(p.opts.get("pool_size") or 0) or (min(40, max(p.opts["clip_count"] * 4, 24)) if deep_on
                                                 else min(24, max(p.opts["clip_count"] * 2 + 2, 8)))
+    senses = p.senses if p.senses.any() else None
     if p.sentences:
         overlap = 0.5 if deep_on else 0.15  # a broad pool; overlaps are resolved later
         cands = cand_mod.find_candidates(p.words, p.sentences, p.loud, p.opts, pool_size=pool, max_overlap=overlap)
     else:
-        cands = cand_mod.fallback_windows(p.loud, p.meta["duration"], p.opts, pool)
+        cands = cand_mod.fallback_windows(p.loud, p.meta["duration"], p.opts, pool, senses=senses)
+    mid = P_WATCH + (P_ANALYZE - P_WATCH) * 0.5
+    if senses is not None and senses.watched is not None and eyes.describe_configured(p.opts, p.meta):
+        # ClipForge AI watches the video itself: what happens in each part, the likeliest parts first
+        p.stage("candidates", P_WATCH, "ClipForge AI is watching the video")
+        senses.seen, senses.seen_notes = describe(p, cands, ctx, P_WATCH, mid)
+        p.info["seen"] = senses.seen_notes
+    feats = cand_mod.sentence_features(p.sentences, p.words) if p.sentences else []
+    if senses is not None and p.sentences:
+        # moments built around what was seen and heard: a clip that ends on the laugh, contains the crash
+        added = cand_mod.from_senses(p.sentences, feats, p.loud, p.opts, senses, cands, p.words,
+                                     float(p.meta.get("duration") or 0) or None)
+        cands += added
+        p.info["senses"] = {**(p.info.get("senses") or {}), "anchors": len(senses.anchors()),
+                            "added": len(added), "marked": sum(1 for c in cands if c.get("sense")) - len(added)}
     if p.sentences and deep_on and scout.configured(p.opts):
         # ClipForge AI reads the whole video and names moments the word lists may have missed
-        p.stage("candidates", P_TRANSCRIBE, "ClipForge AI is reading the video")
-        feats = cand_mod.sentence_features(p.sentences, p.words)
+        p.stage("candidates", mid, "ClipForge AI is reading the video")
         added, notes = scout.nominate(p.sentences, feats, p.loud, p.opts, ctx, cands, p.brief,
-                                      lo=P_TRANSCRIBE, hi=P_ANALYZE)
+                                      lo=mid, hi=P_ANALYZE, senses=senses)
         cands += added
         p.info["scout"] = notes
     for k, c in enumerate(cands):
@@ -246,6 +317,35 @@ def candidate_pool(p: Prepared, ctx: JobContext) -> list[dict]:
     p.info["candidates_found"] = len(cands)
     ctx.check()
     return cands
+
+
+def describe(p: Prepared, cands: list[dict], ctx: JobContext, lo: float, hi: float) -> tuple[list[dict], dict]:
+    """The built-in model says what happens in each part of the video (eyes.describe_video), the parts most likely
+    to hold a clip first: where the candidates found so far are strongest and where the most happens."""
+    senses = p.senses
+    strength: list[tuple[float, float, float]] = [(c["start"], c["end"], float(c.get("stage1", 0))) for c in cands]
+
+    def priority(a: float, b: float) -> float:
+        best = max((w for s, e, w in strength if e > a and s < b), default=0.0)
+        return 2.0 * best + senses.interest(a, b)
+
+    def said(a: float, b: float) -> str:
+        return " ".join(w["w"] for w in p.words if a <= w["start"] < b)[:300]
+
+    def heard(a: float, b: float) -> str:
+        return senses.heard.note(a, b) if senses.heard is not None else ""
+
+    try:
+        got = eyes.describe_video(p.project["source_path"], senses.watched, p.opts, ctx,
+                                  cache=Senses.files(p.pdir)["seen"], said=said, heard=heard, priority=priority,
+                                  lo=lo, hi=hi)
+    except Cancelled:
+        raise
+    except Exception as exc:  # noqa: BLE001 - what the model would say is a bonus, never a blocker
+        log.exception("watching with the model failed")
+        return senses.seen, {"problems": [str(exc)[:200]]}
+    parts = got.pop("parts")
+    return parts, got
 
 
 def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywords: list[str] | None = None,
@@ -259,7 +359,8 @@ def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywo
         chosen, results, notes = deep.evaluate_select(
             p.sentences, p.words, p.loud, p.opts, ctx, p.project["name"], cands,
             video_path=p.project.get("source_path", ""), meta=p.meta, lo=P_ANALYZE, hi=P_SCORE,
-            trend_keywords=trend_keywords, prior=prior, brief=p.brief, wav_path=p.pdir / "audio.wav")
+            trend_keywords=trend_keywords, prior=prior, brief=p.brief, wav_path=p.pdir / "audio.wav",
+            senses=p.senses)
         if notes.get("judge"):
             p.info["judge"] = notes.pop("judge")
         report = scoring.quality_report(results, chosen, p.opts["clip_count"], min_score)
@@ -285,6 +386,14 @@ def _deep_summary(d: dict) -> dict:
         out["prosody"]["emphasis_times"] = list(d["prosody"].get("emphasis_times") or [])[:12]
     if d.get("seen"):
         out["seen"] = d["seen"]
+    if d.get("senses"):
+        f = d["senses"]
+        out["senses"] = {"adjust": f.get("adjust", 0.0), "why": list(f.get("why") or [])[:4],
+                         "talk": f.get("talk"), "show": f.get("show"), "show_adjust": f.get("show_adjust", 0.0),
+                         "heard": {k: v for k, v in (f.get("heard") or {}).items()
+                                   if k in ("speech", "music", "reactions", "ends_on_reaction", "exciting")},
+                         "watched": {k: v for k, v in (f.get("watched") or {}).items()
+                                     if k in ("shots", "action", "face_share", "still_share")}}
     return out
 
 
@@ -339,6 +448,8 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
                                         **({"judge": r["judge"]} if r.get("judge") else {}),
                                         **({"taste": r["taste"]} if r.get("taste") else {}),
                                         **({"scout": r["scout"]} if r.get("scout") else {}),
+                                        **({"sense": r["sense"]} if r.get("sense") else {}),
+                                        **({"senses": p.senses.summary(start, end)} if p.senses.any() else {}),
                                         **({"clip_score": r["clip_score"], "explanation": r.get("explanation") or []}
                                            if r.get("clip_score") is not None else {}),
                                         **({"deep": _deep_summary(r["deep"])} if r.get("deep") else {})},

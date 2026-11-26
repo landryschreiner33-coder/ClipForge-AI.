@@ -1,5 +1,27 @@
 # AI changelog
 
+## ClipForge AI watches and listens — 2026-11-26 (Claude Code)
+
+Landry: "Make it so it can actually watch the videos frame by frame and listen to the audio or piece of media, so it
+doesn't guess what's in a clip and the clips are better." Design and numbers: `docs/clipforge/WATCH_AND_LISTEN.md`.
+
+- **Listening** (`pipeline/listen.py`): YAMNet (Google, Apache-2.0, 521 sounds) ships inside ClipForge as
+  `assets/models/yamnet.onnx` (7.5 MB, built from Google's weights by `scripts/export_yamnet.py`, same answers as
+  TensorFlow within 0.003) and names every sound of the whole track on the CPU: laughter, applause, cheering,
+  screaming, a gasp, music, explosions, crashes... A "reaction" is now a reaction heard, not any loud stretch.
+- **Watching** (`pipeline/watch.py`): every video decoded once at 2 frames a second (VideoToolbox on a Mac) and
+  every frame measured: movement, hard cuts, faces, light, sharpness, a tiny thumbnail. Shots, action, still parts.
+- **Seeing** (`eyes.describe_video`): the built-in model is shown every part of the video (4 frames, the words, the
+  sounds) and says what happens, most promising parts first, within a time budget; answers are kept.
+- **Clip picking** (`pipeline/senses.py`, `candidates.from_senses`, `deep.py`, `scout.py`): new candidates built
+  around laughs, cheers, explosions and bursts of action (also where nobody talks: a time window on shot cuts); what
+  was seen and heard counts in every ranking and in the Clip Score (at most ±9, explained, plus up to ±12 toward
+  what happens for clips with little talk); the scout and judge read ⟨seen/heard⟩ notes.
+- **Where you see it:** each clip's Why ("What happens", "What is heard", "The picture"), ClipForge AI's `clip`
+  tool and a new `watch` tool, and Settings → ClipForge AI → Watching and listening (`ai_listen`, `ai_watch`,
+  `ai_watch_budget_s`).
+- Tests: `tests/test_watch_and_listen.py`; real machines: `.github/workflows/watch-listen-check.yml`.
+
 ## The Taser gets Landry's picture, the Missions logo, and bigger zaps — 2026-11-26 (Claude Code)
 
 Landry sent two pictures: "Use this as the tazer design and the other as the missions logo and improve the getting

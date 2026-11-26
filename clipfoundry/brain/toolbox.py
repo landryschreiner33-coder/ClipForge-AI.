@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from .. import db
 from ..pipeline.text_utils import STOPWORDS
@@ -327,6 +328,13 @@ def _clip(ctx: Ctx, args: dict) -> Result:
         why = [one_line(c["reason"], 240)]
     if why:
         lines.append("Why it was picked: " + " ".join(why))
+    sensed = analysis.get("senses") if isinstance(analysis.get("senses"), dict) else {}
+    if sensed.get("seen"):  # what ClipForge AI watched and heard in it (pipeline/senses.py), times inside the clip
+        lines.append("What is seen (ClipForge AI watched it): " + one_line(" | ".join(map(str, sensed["seen"])), 300))
+    if sensed.get("heard"):
+        lines.append("What is heard: " + one_line(", ".join(map(str, sensed["heard"])), 200))
+    if sensed.get("picture"):
+        lines.append("The picture: " + one_line(sensed["picture"], 120))
     said = one_line(c.get("caption_text") or "", 10 ** 6)
     head = "\n".join(lines)
     room = max(200, MAX_CLIP_TEXT - len(head) - 40)
@@ -334,6 +342,73 @@ def _clip(ctx: Ctx, args: dict) -> Result:
                                                                          "transcribed)"))
     return Result("\n".join(lines), f"Read clip {n} of “{p['name']}”",
                   {"links": [{"label": f"Open clip {n}", "href": f"#/clip/{c['id']}"}]})
+
+
+_AT = re.compile(r"^\s*(?:(\d{1,2}):)?(\d{1,3}):(\d{2})(?:\.\d+)?\s*$|^\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds)?\s*$")
+WATCH_AROUND = 6.0   # a moment ("at 1:23") is looked at this many seconds either side
+
+
+def _seconds(text: str) -> float | None:
+    """ "1:23", "1:02:03", "83", "83 s" -> seconds."""
+    m = _AT.match(str(text or ""))
+    if not m:
+        return None
+    if m.group(4) is not None:
+        return float(m.group(4))
+    return int(m.group(1) or 0) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+
+
+def _watch(ctx: Ctx, args: dict) -> Result:
+    """What ClipForge AI saw and heard in a video, one clip or one moment, from its own watching and listening
+    (pipeline/senses.py: every sound named, every frame measured, each part described by the built-in model). With a
+    question and the built-in model, it also looks at the frames again to answer it."""
+    from ..pipeline import eyes, listen
+    from ..pipeline.senses import Senses
+
+    if str(args.get("clip") or "").strip():
+        p, c, n = _find_clip(ctx.ws, args.get("project", ""), args["clip"], ctx.project_id)
+        t0, t1, what, rel = float(c["start"]), float(c["end"]), f"clip {n} of “{p['name']}”", True
+        row = db.get_project(p["id"]) or {}
+    else:
+        p = find(ctx.ws, args.get("project", ""), ctx.project_id, "clips")
+        if p["kind"] != "clips":
+            raise ToolError(f"“{p['name']}” is a YouTube video you are making: ClipForge AI watches the videos you "
+                            "make clips from.")
+        row = db.get_project(p["id"]) or {}
+        duration = float(row.get("duration") or 0)
+        at = _seconds(args.get("at", ""))
+        if str(args.get("at") or "").strip() and at is None:
+            raise ToolError("Say the moment as minutes:seconds, like 1:23.")
+        if at is not None:
+            t0, t1 = max(0.0, at - WATCH_AROUND), (min(duration, at + WATCH_AROUND) if duration else at + WATCH_AROUND)
+            what = f"“{p['name']}” around {listen.stamp(at)}"
+        else:
+            t0, t1 = 0.0, duration
+            what = f"“{p['name']}”"
+        rel = False
+    src = Path(str(row.get("source_path") or ""))
+    senses = Senses.load(src.parent) if row.get("source_path") else Senses()
+    if not senses.any():
+        raise ToolError(f"ClipForge AI has not watched or listened to {what} yet: it does when clips are made "
+                        "(Settings → ClipForge AI → Watching and listening).")
+    if t1 <= t0:
+        t1 = t0 + (senses.watched.duration if senses.watched is not None else
+                   senses.heard.duration if senses.heard is not None else 0.0)
+    lines = [f"What ClipForge AI saw and heard in {what}"
+             + (" (times inside the clip)" if rel else "") + ":"]
+    lines += senses.describe(t0, t1, rel) or ["Nothing stands out: no part described, no sound named, no change "
+                                              "in the picture."]
+    question = str(args.get("question") or "").strip()
+    settings = db.get_settings()
+    if question and senses.watched is not None and src.is_file():
+        times = senses.watched.keyframes(t0, t1, 4)
+        context = "; ".join(senses.describe(t0, t1, False))[:500]
+        answer = eyes.answer_about(str(src), times, question, settings, context=context, timeout=60.0)
+        if answer:
+            lines.append(f"Looking again at {len(times)} frames: {answer}")
+        elif settings.get("ai_provider") != "builtin":
+            lines.append("(Looking again at the frames needs the built-in model.)")
+    return Result(clip("\n".join(lines), MAX_CLIP_TEXT), f"Watched {what}")
 
 
 def _app_status(ctx: Ctx, args: dict) -> Result:
@@ -786,6 +861,11 @@ register(Tool("clip", "one clip in words (what is said in it, title, hook, post 
               "was picked); read it before you write a title or post text for a clip. clip: its number (1 is the "
               "best) or words from its title",
               {"type": "object", "properties": {"project": TEXT, "clip": TEXT}}, _clip, "look", "Read a clip"))
+register(Tool("watch", "what is seen and heard in a video, one clip or one moment (ClipForge AI watched every frame "
+              "and listened to every sound when it made the clips): what happens, people, laughter, applause, music, "
+              "the picture. clip: its number or title words; at: a moment like 1:23; question: what to look for",
+              {"type": "object", "properties": {"project": TEXT, "clip": TEXT, "at": {"type": "string", "maxLength": 12},
+                                                "question": TEXT}}, _watch, "look", "Watched it"))
 register(Tool("settings", "the owner's choices in Settings: clip length and count, captions, framing, sound, the "
               "AI model", {"type": "object", "properties": {}}, _settings, "look", "Looked at your settings"))
 register(Tool("go_to", "show the owner a button that opens a page or a project",

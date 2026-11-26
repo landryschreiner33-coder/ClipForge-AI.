@@ -1,5 +1,23 @@
 # AI handoff
 
+## ClipForge AI watches and listens — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** before picking clips ClipForge now listens to every sound (a sound model that ships with
+it), watches every frame, and with the built-in model says what happens in each part; clips are picked and scored on
+that too, and ClipForge AI can answer what is seen and heard in a clip or at a moment.
+
+- **Where things are:** `pipeline/listen.py` (YAMNet features and events, `Heard`), `pipeline/watch.py` (`Watched`,
+  `scan`), `pipeline/eyes.py` (`describe_video`, `answer_about`), `pipeline/senses.py` (`Senses`: anchors, adjust,
+  show, judge_clip, summary), `candidates.from_senses` / `_time_window`, `process.sense` and `process.describe`,
+  `deep.evaluate_select(senses=...)`, `scout` notes, `brain/toolbox._watch`. Caches: `sounds.json`, `watch.json`,
+  `seen.json` in the project folder (keyed by file size and time, model, version).
+- **Worth knowing:** the sound model's SHA-256 is checked before loading (`listen.MODEL_SHA256`); change the file,
+  change the hash. `listen.GROUPS` must name classes that exist (a test checks). `virality.wordless_loud` reads
+  `loud.heard` when it is set, so every reaction check follows the sound model; `render.heard` keeps the union.
+  The Clip Score's senses part is `adjust` (±9) plus `show_adjust` (±12, only when under half the clip is talk).
+  `ai_eyes` off also stops the describing. The appguide has no section for this on purpose: any new section shifts
+  the guide search's tuned results (tests/test_assistant_library.py).
+
 ## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** in full videos the sound now flows across cuts: the next room is heard a few frames early

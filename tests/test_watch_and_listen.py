@@ -1,0 +1,401 @@
+"""ClipForge AI watches and listens (docs/clipforge/WATCH_AND_LISTEN.md): the built-in sound model, the frame-by-frame
+watch, the model's words for each part of the video, and how all three feed clip picking and ClipForge AI's answers."""
+from __future__ import annotations
+
+import json
+import subprocess
+import wave
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from clipfoundry import db
+from clipfoundry.pipeline import candidates as cand_mod
+from clipfoundry.pipeline import deep, eyes, listen, scout, virality, watch
+from clipfoundry.pipeline.audio import Loudness
+from clipfoundry.pipeline.common import JobContext
+from clipfoundry.pipeline.senses import Senses
+from clipfoundry.pipeline.text_utils import build_sentences
+from synthetic_media import make_video, needs_ffmpeg
+
+
+# ------------------------------------------------------------------ helpers
+def heard_with(duration: float, **runs: list[tuple[float, float, float]]) -> listen.Heard:
+    """A Heard whose kinds are `value` over [start, end) seconds (runs={"laughter": [(10, 12, 0.7)]})."""
+    n = listen.patch_count(int(duration * listen.SR))
+    groups = {g: np.zeros(n, np.float32) for g in listen.GROUPS}
+    mid = np.arange(n) * listen.HOP + listen.SPAN / 2
+    for kind, spans in runs.items():
+        for a, b, v in spans:
+            groups[kind][(mid >= a) & (mid < b)] = v
+    return listen.Heard(duration, groups, np.zeros((n, listen.TOP), np.int32), np.zeros((n, listen.TOP), np.float32))
+
+
+def watched_with(duration: float, fps: float = 2.0, busy: tuple[float, float] | None = None,
+                 cuts: list[float] | None = None, faces: bool = True) -> watch.Watched:
+    n = int(duration * fps)
+    t = np.arange(n) / fps
+    motion = np.full(n, 0.3, np.float32)
+    if busy:
+        motion[(t >= busy[0]) & (t < busy[1])] = 25.0
+    return watch.Watched(fps, duration, motion, np.full(n, 0.5, np.float32), np.full(n, 0.6, np.float32),
+                         np.full(n, 0.4, np.float32), np.full(n, 1 if faces else 0, np.int32),
+                         np.full(n, 0.3 if faces else 0.0, np.float32), np.zeros((n, 64), np.uint8), cuts or [])
+
+
+def talk(n_sentences: int = 30, words_each: int = 8, gap: float = 1.0) -> list[dict]:
+    """A transcript of short sentences (0.3 s words, 0.4 s apart) with a `gap` second pause after each one."""
+    out, t = [], 0.5
+    for s in range(n_sentences):
+        for k in range(words_each):
+            w = f"word{s}x{k}" + ("." if k == words_each - 1 else "")
+            out.append({"w": w, "start": round(t, 3), "end": round(t + 0.3, 3)})
+            t += 0.4
+        t += gap
+    return out
+
+
+def opts(**kw) -> dict:
+    return {"min_duration": 10.0, "max_duration": 40.0, "target_duration": 20.0, "clip_count": 3, **kw}
+
+
+def write_wav(path: Path, x: np.ndarray) -> Path:
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(listen.SR)
+        wf.writeframes((np.clip(x, -1, 1) * 32767).astype(np.int16).tobytes())
+    return path
+
+
+# ------------------------------------------------------------------ listening
+def test_the_sound_model_ships_and_loads():
+    listen.reset_for_tests()
+    assert listen.MODEL.is_file() and listen.MODEL.stat().st_size < 9_000_000
+    assert len(listen.class_names()) == 521
+    assert listen.usable({}) and listen.problem() == ""
+    assert not listen.usable({"ai_listen": False})
+    # every class a kind is read from exists in the model's own list (a typo would silently hear nothing)
+    names = set(listen.class_names())
+    for kind, members in listen.GROUPS.items():
+        assert set(members) <= names, (kind, set(members) - names)
+
+
+def test_features_match_yamnet_framing():
+    assert listen.patch_count(listen.SR) == 2                    # 1 s: two 0.96 s windows, 0.48 s apart
+    assert listen.patch_count(listen.PATCH_SAMPLES) == 1
+    x = np.random.default_rng(1).normal(0, 0.1, listen.SR * 3).astype(np.float32)
+    p = listen.patches(x, 0, listen.patch_count(len(x)))
+    assert p.shape == (listen.patch_count(len(x)), 96, 64)
+    lm = listen.log_mel(x)
+    assert np.allclose(p[1], lm[48:144])                          # window k starts 48 log-mel frames after k-1
+    m = listen.mel_matrix()
+    assert m.shape == (257, 64) and not m[0].any()                # the DC bin is left out, as in TensorFlow
+
+
+def test_it_hears_a_tone_and_silence(tmp_path):
+    t = np.arange(listen.SR * 4) / listen.SR
+    x = np.concatenate([0.5 * np.sin(2 * np.pi * 1000 * t), np.zeros(listen.SR * 4)]).astype(np.float32)
+    heard = listen.analyze(write_wav(tmp_path / "a.wav", x), cache=tmp_path / "sounds.json")
+    assert heard is not None and abs(heard.duration - 8.0) < 0.01
+    tone = [n for n, _ in heard.top_sounds(0.5, 3.0, 3)]
+    assert {"Sine wave", "Beep, bleep"} & set(tone), tone
+    assert heard.share("silence", 5.0, 7.5) > 0.8
+    assert heard.share("speech", 0, 8) == 0.0
+
+
+def test_listening_is_kept_and_read_back(tmp_path, monkeypatch):
+    x = (0.2 * np.sin(2 * np.pi * 440 * np.arange(listen.SR * 3) / listen.SR)).astype(np.float32)
+    wav = write_wav(tmp_path / "a.wav", x)
+    first = listen.analyze(wav, cache=tmp_path / "sounds.json")
+    calls = []
+    monkeypatch.setattr(listen._Model, "run", lambda self, p: calls.append(1) or np.zeros((len(p), 521)))
+    again = listen.analyze(wav, cache=tmp_path / "sounds.json")
+    assert not calls and again is not None and again.n == first.n
+    assert np.allclose(again.groups["music"], first.groups["music"], atol=1 / 255)
+    assert listen.analyze(wav, settings={"ai_listen": False}) is None
+
+
+def test_events_and_reactions_leave_out_the_words():
+    h = heard_with(30, laughter=[(10.0, 13.0, 0.7)], music=[(0, 30, 0.8)], speech=[(0, 10, 0.9)])
+    kinds = [e["kind"] for e in h.events]
+    assert "laughter" in kinds and "music" in kinds
+    laugh = next(e for e in h.events if e["kind"] == "laughter")
+    assert 9.0 <= laugh["start"] <= 10.5 and 12.5 <= laugh["end"] <= 14.0
+    # somebody talks over the first second of the laugh: only the wordless rest counts
+    words = [{"w": "yes", "start": laugh["start"], "end": laugh["start"] + 1.0}]
+    runs = h.reaction_runs(0, 30, words)
+    assert len(runs) == 1 and runs[0][0] >= laugh["start"] + 1.0
+    assert h.reaction_runs(0, 30, words, kinds=("crash",)) == []       # music is never a reaction
+    f = h.features(0.0, 11.0)
+    assert f["ends_on_reaction"] and f["reactions"] == 1 and f["music"] > 0.9
+    assert "laughter" in h.note(8, 12) and "music" in h.note(8, 12)
+    back = listen.Heard.from_json(json.loads(json.dumps(h.to_json())))
+    assert back is not None and back.events == h.events
+
+
+def test_a_song_is_no_longer_a_reaction_but_a_laugh_is():
+    """Before, any loud stretch without words passed for a reaction; with the sound named, music does not."""
+    loud = Loudness({"hop": 0.1, "db": [-30.0] * 100 + [-8.0] * 50 + [-30.0] * 150})   # loud 10-15 s, no words
+    assert virality.wordless_loud([], loud, 0, 30)                    # loudness alone: "a reaction"
+    loud.heard = heard_with(30, music=[(10, 15, 0.9)])
+    assert virality.wordless_loud([], loud, 0, 30) == []               # it was a song
+    loud.heard = heard_with(30, laughter=[(10, 12, 0.6)])
+    assert virality.wordless_loud([], loud, 0, 30)
+
+
+# ------------------------------------------------------------------ watching
+@needs_ffmpeg
+def test_watching_a_video_finds_its_cuts_and_movement(tmp_path):
+    a = make_video(tmp_path / "a.mp4", 6.0, size="320x180", audio=False)                     # moving pattern
+    b = make_video(tmp_path / "b.mp4", 6.0, size="320x180", audio=False, frozen=True)        # a grey still
+    lst = tmp_path / "list.txt"
+    lst.write_text(f"file '{a}'\nfile '{b}'\n")
+    src = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i",
+                    str(lst), "-c", "copy", str(src)], check=True)
+    meta = {"duration": 12.0, "width": 320, "height": 180, "has_video": True}
+    w = watch.scan(src, meta, JobContext(), tmp_path / "watch.json")
+    assert w is not None and w.fps == 2.0 and abs(w.n - 24) <= 2
+    assert any(5.0 <= c <= 7.0 for c in w.cuts), w.cuts
+    assert w.motion[2:10].mean() > 3 * max(0.1, w.motion[14:].mean())
+    assert w.features(0, 6)["action"] > w.features(6.5, 12)["action"]
+    assert w.keyframes(0, 12, 4) == sorted(w.keyframes(0, 12, 4)) and len(w.keyframes(0, 12, 4)) == 4
+    parts = w.segments()
+    assert parts[0]["start"] == 0.0 and parts[-1]["end"] == 12.0
+    assert all(p["end"] - p["start"] <= watch.SEGMENT_MAX + 1e-6 for p in parts)
+    again = watch.scan(src, meta, JobContext(), tmp_path / "watch.json")      # read back, not decoded again
+    assert again is not None and again.cuts == w.cuts and np.allclose(again.motion, w.motion, atol=0.25)
+    assert watch.scan(src, meta, settings={"ai_watch": False}) is None
+
+
+def test_still_parts_take_the_words_of_the_part_before():
+    w = watched_with(40, busy=(30, 34), cuts=[20.0])
+    parts = w.segments()
+    assert [round(p["start"]) for p in parts] == [0, 7, 13, 20, 27, 33]
+    assert parts[1]["same_as_before"] and not parts[4]["same_as_before"]   # the burst of movement is new
+    assert max(w.moments(), key=lambda m: m["action"])["at"] >= 28
+
+
+# ------------------------------------------------------------------ the model says what happens
+def test_describing_asks_about_the_likeliest_parts_first_and_keeps_answers(tmp_path):
+    video = make_video(tmp_path / "v.mp4", 40.0, size="160x90", fps=5, audio=False) if _ffmpeg() else None
+    if video is None:
+        pytest.skip("ffmpeg is needed")
+    w = watched_with(40, busy=(30, 34), cuts=[20.0])
+    asked: list[str] = []
+
+    def fake(opts, prompt, **kw):
+        asked.append(prompt.split(" of a video")[0].split("from ")[1])
+        assert kw["images"] and kw["json_schema"] == eyes.DESCRIBE_SCHEMA
+        return json.dumps({"what": f"a man juggles fire ({prompt[:30]})", "tags": ["fall or crash", "made-up tag"],
+                           "people": 1, "action": 8, "text_on_screen": ""})
+
+    o = {"ai_provider": "builtin", "ai_eyes": True}
+    got = eyes.describe_video(str(video), w, o, JobContext(), cache=tmp_path / "seen.json",
+                              priority=lambda a, b: 5.0 if a >= 27 else 0.0, complete=fake, budget=60)
+    assert asked[0].startswith("0:27") or asked[0].startswith("0:33")
+    assert got["answered"] == len(asked) < len(w.segments())          # still parts copied the part before
+    assert any(p.get("same") for p in got["parts"]) and got["coverage"] == 1.0
+    assert all(p["tags"] == ["fall or crash"] for p in got["parts"])  # only known tags are kept
+    again = eyes.describe_video(str(video), w, o, JobContext(), cache=tmp_path / "seen.json",
+                                complete=lambda *a, **k: pytest.fail("asked again"), budget=60)
+    assert again["asked"] == 0 and len(again["parts"]) == len(got["parts"])
+
+
+def test_describing_stops_when_the_time_is_up(tmp_path):
+    if not _ffmpeg():
+        pytest.skip("ffmpeg is needed")
+    video = make_video(tmp_path / "v.mp4", 4.0, size="160x90", audio=False)
+    w = watched_with(200, busy=(30, 34), cuts=[float(c) for c in range(10, 200, 10)])
+    got = eyes.describe_video(str(video), w, {"ai_provider": "builtin"}, None, budget=0.0,
+                              complete=lambda *a, **k: pytest.fail("no time to ask"))
+    assert got["asked"] == 0 and any("Out of time" in p for p in got["problems"])
+
+
+def _ffmpeg() -> bool:
+    import shutil
+
+    return bool(shutil.which("ffmpeg"))
+
+
+# ------------------------------------------------------------------ what clip picking does with it
+def test_senses_anchor_new_clips_and_explain_their_points():
+    words = talk(30)
+    sentences = build_sentences(words)
+    pause = sentences[12]["end"] + 0.2                                    # a laugh in the pause after sentence 12
+    s = Senses(heard_with(sentences[-1]["end"] + 5, laughter=[(pause, pause + 1.5, 0.8)]),
+               watched_with(sentences[-1]["end"] + 5))
+    anchors = s.anchors()
+    assert anchors and anchors[0]["kind"] == "laughter" and anchors[0]["end_after"]
+    loud = Loudness({"hop": 0.1, "db": [-20.0] * int(10 * (sentences[-1]["end"] + 5))})
+    loud.heard = s.heard
+    feats = cand_mod.sentence_features(sentences, words)
+    added = cand_mod.from_senses(sentences, feats, loud, opts(), s, [])
+    assert added and added[0]["s1"] == 12 and added[0]["sense"]["kind"] == "laughter"
+    assert 10.0 <= added[0]["dur"] <= 40.0
+    # the cut keeps the laugh after the last word
+    start, end = cand_mod.refine_bounds(added[0], sentences, sentences[-1]["end"] + 5, loud)
+    assert end >= pause + 0.4
+    # the same moment found by the word rules is marked instead of added twice
+    found = [dict(added[0], sense=None)]
+    found[0].pop("sense")
+    again = cand_mod.from_senses(sentences, feats, loud, opts(), s, found)
+    assert again == [] and found[0]["sense"]["kind"] == "laughter"
+    pts, why = s.adjust(s.features(added[0]["start"], added[0]["end"]), s.base_action())
+    assert 0 < pts <= 9 and any("heard laughter at the end" in w for w in why)
+
+
+def test_the_senses_never_move_a_score_more_than_nine_points():
+    s = Senses(heard_with(60, laughter=[(5, 8, 0.9), (15, 18, 0.9), (25, 28, 0.9)], boom=[(20, 22, 0.9)],
+                          cheering=[(28, 31, 0.9)]),
+               watched_with(60, busy=(0, 30)),
+               [{"start": 0, "end": 30, "what": "a fight breaks out", "tags": ["fight", "fall or crash"],
+                 "action": 10, "people": 3, "text": ""}])
+    pts, why = s.adjust(s.features(0, 30), 0.1)
+    assert 7.0 <= pts <= 9.0 and len(why) >= 2
+    most = {"heard": {"ends_on_reaction": True, "exciting": 5, "speech": 1.0,
+                      "moments": [{"kind": "laughter"}] * 5},
+            "watched": {"action": 1.0, "opening_action": 1.0},
+            "seen": {"coverage": 1.0, "action_mean": 10, "exciting": ["fight", "fall or crash"], "nothing": 0,
+                     "lines": []}}
+    pts, why = Senses().adjust(most, 0.0)
+    assert pts == 9.0 and [w.split()[0] for w in why] == ["+5.0", "+3.0", "+4.0"]   # each within its own bound
+    dull = Senses(heard_with(60, silence=[(0, 60, 0.9)]), watched_with(60, faces=False),
+                  [{"start": 0, "end": 60, "what": "an empty room", "tags": ["nothing happens"], "action": 0,
+                    "people": 0, "text": ""}])
+    pts, why = dull.adjust(dull.features(0, 30), dull.base_action())
+    assert -9.0 <= pts < -3 and why
+    assert 0.0 <= s.interest(0, 30) <= 1.0 and s.interest(0, 30) > dull.interest(0, 30)
+    assert Senses().adjust(Senses().features(0, 30)) == (0.0, [])
+
+
+def test_clip_score_counts_and_explains_what_was_seen_and_heard():
+    base = {"extras": {}, "audio": {"score": 0.5}, "semantic": {"score": 0.5}}
+    r = {"score": 60.0, "deep": {**base, "senses": {"adjust": 4.5, "why": ["+4.5 ClipForge AI heard laughter"]}}}
+    with_senses, why = deep.clip_score(r)
+    without, _ = deep.clip_score({"score": 60.0, "deep": base})
+    assert with_senses == pytest.approx(without + 4.5, abs=0.11)
+    assert "+4.5 ClipForge AI heard laughter" in why
+
+
+def test_the_scout_and_the_judge_read_what_was_seen_and_heard():
+    words = talk(6)
+    sentences = build_sentences(words)
+    pause = sentences[2]["end"] + 0.2
+    s = Senses(heard_with(40, laughter=[(pause, pause + 1.5, 0.8)]), None,
+               [{"start": 0, "end": 40, "what": "two hosts at a desk", "tags": ["conversation"], "action": 3,
+                 "people": 2, "text": ""}])
+    b = scout.Brief("Show", 10, 40, 20)
+    notes = scout._sense_notes(s, sentences, 0, len(sentences) - 1)
+    text = scout.scout_prompt(b, sentences, 0, len(sentences) - 1, 1, 1, notes)
+    assert "⟨seen: two hosts at a desk" in text and "heard: laughter" in text
+    assert text.count("seen: two hosts") == 1                            # said once, not on every line
+    plain = scout.scout_prompt(b, sentences, 0, len(sentences) - 1, 1, 1)
+    assert "⟨" not in plain                                              # without the senses: as before
+    finalists = [{"s0": 0, "s1": 2, "start": sentences[0]["start"], "end": sentences[2]["end"]},
+                 {"s0": 3, "s1": 5, "start": sentences[3]["start"], "end": sentences[5]["end"]}]
+    judged = scout.judge_prompt(b, finalists, sentences, s)
+    assert "Seen: 0:00 two hosts at a desk" in judged and "Heard: " in judged
+    assert scout.windows(sentences, notes=notes)[0] == (0, len(sentences) - 1)
+
+
+def test_finalists_get_their_points_in_the_deep_stage(monkeypatch):
+    words = talk(40)
+    sentences = build_sentences(words)
+    end = sentences[-1]["end"] + 5
+    pause = sentences[20]["end"] + 0.2
+    s = Senses(heard_with(end, laughter=[(pause, pause + 1.5, 0.8)]), watched_with(end))
+    loud = Loudness({"hop": 0.1, "db": [-20.0] * int(10 * end)})
+    loud.heard = s.heard
+    o = {**opts(), "ai_provider": "heuristic", "deep_analysis": True, "min_score": 0}
+    cands = cand_mod.find_candidates(words, sentences, loud, o, pool_size=12, max_overlap=0.5)
+    cands += cand_mod.from_senses(sentences, cand_mod.sentence_features(sentences, words), loud, o, s, cands)
+    for k, c in enumerate(cands):
+        c["cid"] = k
+    chosen, results, notes = deep.evaluate_select(sentences, words, loud, o, JobContext(), "Show", cands,
+                                                  senses=s)
+    assert notes["stages"]["sensed"] >= 1
+    assert all("senses" in r["deep"] for r in results)
+    laughs = [r for r in results if r["start"] < pause < r["end"] + 3.0 and r["deep"]["senses"]["adjust"] > 0]
+    assert laughs and any(any("heard laughter" in w for w in r["explanation"]) for r in laughs)
+
+
+# ------------------------------------------------------------------ answers about a clip
+def test_chat_answers_what_is_seen_and_heard(tmp_path):
+    from clipfoundry.brain import toolbox
+    from clipfoundry.brain.tools import Ctx, ToolError
+
+    pdir = tmp_path / "proj"
+    pdir.mkdir()
+    (pdir / "source.mp4").write_bytes(b"0")
+    project = db.create_project("Late night show", duration=60, source_path=str(pdir / "source.mp4"))
+    heard = heard_with(60, laughter=[(20, 22, 0.8)], applause=[(40, 43, 0.7)])
+    (pdir / "sounds.json").write_text(json.dumps({"key": {}, "heard": heard.to_json()}))
+    (pdir / "seen.json").write_text(json.dumps({"key": {}, "parts": [
+        {"id": "a", "start": 15, "end": 25, "what": "the host trips over a cable", "tags": ["fall or crash"],
+         "people": 1, "action": 8, "text": ""}]}))
+    s = Senses.load(pdir)
+    db.create_clip(project["id"], rank=0, start=12.0, end=24.0, title="Cable trip", hook="", hooks_alt=[],
+                   caption_text="watch this", hashtags=[], category="funny", score=80, scores={},
+                   score_source="local", reason="", analysis={"senses": s.summary(12.0, 24.0)}, post={},
+                   edit={}, status="ready", duration=12.0)
+    ctx = Ctx(ws=project.get("workspace_id") or "local", project_id=project["id"])
+    text = toolbox._clip(ctx, {"clip": "1"}).text
+    assert "What is seen (ClipForge AI watched it): 0:03 the host trips over a cable" in text
+    assert "What is heard: 0:07 laughter" in text
+    got = toolbox._watch(ctx, {"at": "0:41"}).text
+    assert "applause" in got and "around 0:41" in got
+    whole = toolbox._watch(ctx, {}).text
+    assert "laughter" in whole and "applause" in whole and "trips over a cable" in whole
+    with pytest.raises(ToolError):
+        toolbox._watch(ctx, {"at": "soon"})
+    empty = db.create_project("Not watched", duration=10, source_path=str(tmp_path / "none" / "s.mp4"))
+    with pytest.raises(ToolError, match="has not watched"):
+        toolbox._watch(Ctx(ws=empty.get("workspace_id") or "local", project_id=empty["id"]), {})
+
+
+def test_settings_say_what_is_on():
+    st = Senses.status({"ai_provider": "heuristic"})
+    assert st["listen"]["on"] and st["listen"]["usable"] and st["listen"]["classes"] == 521
+    assert st["watch"]["on"] and not st["describe"]["on"] and not st["describe"]["builtin"]
+    off = Senses.status({"ai_listen": False, "ai_watch": False, "ai_provider": "builtin"})
+    assert not off["listen"]["on"] and not off["watch"]["on"] and not off["describe"]["on"]
+    assert Senses.status({"ai_provider": "builtin"})["describe"]["on"]
+
+
+def test_a_moment_nobody_talks_over_becomes_a_clip_of_its_own():
+    """A fight two minutes after the last line: no sentence window can hold it, so a stretch of time around it does,
+    its edges on shot cuts, and it is judged more on what happens than on its (few) words."""
+    words = talk(6)                                                   # about 25 s of talk, then nothing
+    sentences = build_sentences(words)
+    end = 200.0
+    w = watched_with(end, busy=(150, 158), cuts=[140.0, 162.0, 175.0])
+    s = Senses(heard_with(end, boom=[(154, 155.5, 0.9)]), w)
+    loud = Loudness({"hop": 0.1, "db": [-20.0] * int(10 * end)})
+    o = opts()
+    added = cand_mod.from_senses(sentences, cand_mod.sentence_features(sentences, words), loud, o, s, [], words, end)
+    timed = [c for c in added if c["s0"] == -1]
+    assert timed, added
+    c = timed[0]
+    assert c["start"] <= 154 <= c["end"] and o["min_duration"] <= c["dur"] <= o["max_duration"]
+    assert 140.0 in (c["start"], c["end"]) or 162.0 in (c["start"], c["end"]) or 175.0 in (c["start"], c["end"])
+    assert c["criteria"]["engagement"] > 0.3 and c["signals"]["talk"] == 0.0
+    r = virality.no_speech(c)
+    judged = s.judge_clip(c["start"], c["end"], words, r["viral_potential"], s.base_action())
+    assert judged["talk"] == 0.0 and judged["show"] > r["viral_potential"]
+    assert 0 < judged["show_adjust"] <= 12.0 and "little is said here (0% of the time)" in judged["show_why"]
+    # this window's score already comes from what happens in it, so the deep stage does not move it there twice
+    assert deep._timed(r) and not deep._timed({"s0": -1, "signals": {"seen_and_heard": 0.5}})
+    once = s.judge_clip(c["start"], c["end"], words, r["viral_potential"], s.base_action(), blend=False)
+    assert once["show_adjust"] == 0.0 and "show_why" not in once and once["adjust"] == judged["adjust"]
+    # a clip that is talked through keeps its words' score
+    busy_talk = s.judge_clip(sentences[0]["start"], sentences[-1]["end"], words, 60.0, s.base_action())
+    assert busy_talk["talk"] > 0.5 and busy_talk["show_adjust"] == 0.0 and "show_why" not in busy_talk
+
+
+def test_the_time_window_never_cuts_through_a_word():
+    words = [{"w": "hey", "start": 99.8, "end": 100.4}]
+    a, b = cand_mod._snap(100.0, 125.0, None, words, 10.0, 40.0)
+    assert a == 99.8 and b == 125.0
