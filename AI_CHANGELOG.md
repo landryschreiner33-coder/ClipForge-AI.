@@ -21,6 +21,15 @@ from `claude/project-thread-c3hbwh` on the release line at c89e5bb. Details:
   keeps `color`; `color_grade` is now a real edit.
 - **How:** `pipeline/grade.py` bakes everything for a recording into one 33³ `.cube` applied by `lut3d` (in every
   FFmpeg build, including the Mac one without zscale); the grade's hash is part of the engine's piece key.
+- **Full Cloud** jobs carry the colour choices (`worker_api.SETTING_KEYS`), and the Mac desktop check asserts the
+  bundled FFmpeg has `lut3d`, `atadenoise` and `fftdnoiz` and that a render reports its colour step.
+- **Review fixes** (an independent six-area review before the PR): full-range video (many Android phones, OBS,
+  drones) and JPEG photos keep their blacks in both renderers, in previews and in the "fit" layout; untagged HD is
+  measured the way it is rendered; HDR10 peaks are read; a cancelled or failed measurement is never cached; grain
+  cleanup follows the size shown; colour words inside other requests are left alone; under "auto", finals whose
+  colour step does something stay on the built-in engine (FilmCraft does not run it).
+- **Tests:** `tests/test_grade.py` (25, fast) and `tests/test_grade_render.py` (2, slow); see the test log in
+  `docs/IMPLEMENTATION_STATUS.md`. Not verified: real phone HDR footage and low-light grain, the Mac itself.
 
 ## ClipForge AI reads your results; the ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code)
 

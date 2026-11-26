@@ -361,10 +361,13 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str) -> tuple[list
             return ops, "; ".join(said) + ".", "captions"
         if said:
             raise _Explain("; ".join(said) + ".")
-    # colour and look
-    found = _color_rule(t, plan)
-    if found:
-        return found
+    # colour and look (never a request to move or remove a part whose words name a colour: "the vintage car")
+    rm = REMOVE_RE.fullmatch(t)
+    looks_only = bool(rm and re.fullmatch(LOOK_THINGS, rm.group("x")))  # "remove the look" is never a clip
+    if not MOVE_RE.fullmatch(t) and not (rm and not looks_only and _match(rm.group("x"), rows)[0]):
+        found = _color_rule(t, plan)
+        if found:
+            return found
     # transitions
     m = re.search(r"\b(?:use|switch to|change to|go with) (?:only )?(?:hard |straight |simple )?(dissolves?|crossfades?|"
                   r"fades?(?: to black)?|cuts)\b", t) or \
@@ -374,8 +377,7 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str) -> tuple[list
         value = "dissolve" if kind.startswith(("dissol", "cross")) else "fade" if kind.startswith("fade") else "cut"
         return [{"op": "set", "field": "transition", "value": value}], f"Use {value} transitions between clips.", ""
     # moving a part
-    m = re.fullmatch(r"(?:please )?(?:move|put|place|bring) (?P<x>.+?) (?P<rel>before|after|ahead of|in front of|"
-                     r"behind|to the (?:start|beginning|end))(?: (?P<y>.+))?", t)
+    m = MOVE_RE.fullmatch(t)
     if m:
         rel = m.group("rel")
         if rel.startswith("to the"):
@@ -398,66 +400,100 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str) -> tuple[list
         ops += [{"op": "move", "clip_id": r["id"], "after": prev["id"]} for prev, r in itertools.pairwise(group)]
         return ops, f"Move {_describe(group)} {'before' if before else 'after'} {_describe(target_group)}.", ""
     # removing a part
-    m = re.fullmatch(r"(?:please )?(?:remove|cut|delete|drop|take out|get rid of) (?P<x>.+?)(?: from the video)?", t)
-    if m and not re.search(r"\b(silence|pause|music|captions?|subtitles?)\b", t):
+    m = REMOVE_RE.fullmatch(t)
+    if m and not re.search(r"\b(silence|pause|music|captions?|subtitles?|noise|hum|hiss|echo)\b", t):
         group = _span(m.group("x"), rows, "Remove", "")
         return ([{"op": "remove", "clip_id": r["id"]} for r in group], f"Remove {_describe(group)}.", "")
     raise LookupError(clause)
 
 
+MOVE_RE = re.compile(r"(?:please )?(?:move|put|place|bring) (?P<x>.+?) (?P<rel>before|after|ahead of|in front of|"
+                     r"behind|to the (?:start|beginning|end))(?: (?P<y>.+))?")
+REMOVE_RE = re.compile(r"(?:please )?(?:remove|cut|delete|drop|take out|get rid of) (?P<x>.+?)(?: from the video)?")
 LOOK_PHRASES = (  # (pattern, look); the first that matches wins
-    (r"\b(black and white|black & white|b ?& ?w|monochrome|grayscale|greyscale|no colou?r)\b", "mono"),
+    (r"\b(black and white|black & white|b ?& ?w|monochrome|grayscale|greyscale)\b", "mono"),
     (r"\bteal (and|&) orange\b", "teal_orange"),
     (r"\b(vintage|retro|old[- ]school|faded|old film|throwback)\b", "vintage"),
     (r"\b(cinematic|filmic|film look|like a (film|movie))\b", "film"),
     (r"\b(moody|dark(er)? look|darker and moodier|gloomy)\b", "moody"),
-    (r"\b(warmer|warm look|golden|more orange|less blue|cozier|cosier)\b", "warm"),
-    (r"\b(cooler|colder|cool look|cold look|bluer|less orange|less yellow)\b", "cool"),
+    (r"\b(warmer|warm look|golden|more orange|more yellow|less blue|cozier|cosier)\b", "warm"),
+    (r"\b(cooler|colder|cool look|cold look|bluer|more blue|less orange|less yellow)\b", "cool"),
     (r"\b(brighter|bright look|airy|clean and bright|more vibrant|punchier colou?rs?)\b", "bright"),
     (r"\b(natural colou?rs?|normal colou?rs?|no look|remove the look|without a look|plain colou?rs?)\b", "natural"),
 )
+# what "remove ..." names when it is the picture's colour, not a part of the video
+LOOK_THINGS = r"(?:the |this |that )?(?:[a-z]+ )?(?:look|grade|grading|colou?r grading|filter|grain|tint)"
+# "don't ...", "stop ...": the request asks for the opposite of what its words name
+NEGATED = (r"\b(don'?t|do not|never|stop|undo|turn off|switch off|disable|without|no (more )?(colou?r|grading|"
+           r"grade|correction|changes|look|filter|matching|cleanup))\b")
+# a part of the video: a look is for the whole video, so "make the ending cooler" is left to the AI service
+A_PART = r"\b(ending|intro|outro|opening|beginning|start|end|middle|first|last|clip|part|shot|scene|section|moment)\b"
+SOUND_NOISE = r"\b(background|wind|hum|hiss|buzz|static|traffic|echo|room|mic|microphone|crowd|fan)\b"
 
 
 def _color_rule(t: str, plan: dict) -> tuple[list[dict], str, str] | None:
-    """A request about the picture's colour: a look, its strength, automatic correction, matching or noise."""
+    """A request about the picture's colour: a look, its strength, automatic correction, matching or grain."""
     if re.search(r"\b(music|sound|audio|voice|captions?|subtitles?|title)\b", t):
+        return None
+    if re.search(A_PART, t) and not re.search(r"\b(whole|entire|all|every|everything|video)\b", t):
         return None
     c = plan.get("color") or {"auto": False, "match": False, "look": "natural", "strength": 100, "clean": False}
     colour = re.search(r"\b(colou?rs?|colou?r grad(e|ing)|white balance|grade|look|tint|picture|image|footage)\b", t)
-    off = re.search(r"\b(turn off|switch off|stop|no|don't|do not|without|disable|remove|keep the original|"
-                    r"leave the)\b", t)
+    neg = bool(re.search(NEGATED, t))
+    # picture grain: said as grain or speckles, or noise said of the picture (noise alone is usually the sound)
+    if re.search(r"\b(noise|noisy)\b", t) and (re.search(SOUND_NOISE, t) or
+                                                not re.search(r"\b(picture|image|video|footage|visual)\b", t)):
+        return None
     if re.search(r"\b(noise|noisy|grain|grainy|speckles?)\b", t):
-        want = not re.search(r"\b(keep|leave|add|more)\b", t)
+        want = not (neg or re.search(r"\b(keep|leave|add)\b", t))
         if bool(c.get("clean")) == want:
-            raise _Explain(f"Picture noise cleanup is already {'on' if want else 'off'}.")
+            raise _Explain(f"Picture grain cleanup is already {'on' if want else 'off'}.")
         return ([{"op": "set", "field": "clean_picture", "value": want}],
-                "Clean up picture noise." if want else "Leave the picture's grain as it is.", "")
-    if colour and re.search(r"\b(match|same|consistent|even out)\b", t):
+                "Clean up the picture's grain." if want else "Leave the picture's grain as it is.", "")
+    if colour and re.search(r"\b(match|matching|consistent|even out)\b", t):
+        if neg:
+            if not c.get("match"):
+                raise _Explain("The recordings' colours are not matched to each other.")
+            return ([{"op": "set", "field": "match_color", "value": False}],
+                    "Keep each recording's colours without matching them to each other.", "")
         if c.get("match") and c.get("auto"):
             raise _Explain("The recordings' colours are already matched to each other.")
         ops = [{"op": "set", "field": "match_color", "value": True}]
         ops += [] if c.get("auto") else [{"op": "set", "field": "auto_color", "value": True}]
         return ops, "Match the recordings' colours to each other.", ""
-    if colour and re.search(r"\b(fix|correct|correction|balance|auto|improve|better|off|wrong|weird|orange|yellow|"
-                            r"blue|green|original|untouched)\b", t) and not re.search(r"\b(look|style|teal)\b", t):
-        want = not off or bool(re.search(r"\b(fix|correct|improve)\b", t) and not re.search(r"\bcorrection\b", t))
+    shade = re.search(r"\b(more|less|too)\s+(orange|yellow|blue|warm|cool|cold)\b", t)
+    if colour and not (shade and shade.group(1) != "too") and \
+            re.search(r"\b(fix|correct|correction|balance|auto|automatic|improve|better|off|wrong|weird|too|"
+                      r"original|untouched|as (they|it) (are|is)|grading|changes?)\b", t) and \
+            not re.search(r"\b(look|style|teal)\b", t):
+        keep = re.search(r"\b(keep|leave)\b.*\b(original|untouched|as (they|it) (are|is)|same)\b|"
+                         r"\b(original|untouched) colou?rs?\b", t)
+        want = not (neg or keep)
         if bool(c.get("auto")) == want:
             raise _Explain(f"Automatic colour correction is already {'on' if want else 'off'}.")
         return ([{"op": "set", "field": "auto_color", "value": want}],
                 ("Correct each recording's white balance, exposure and contrast." if want else
                  "Keep each recording's original colours."), "")
-    if re.search(r"\b(subtler|softer|lighter|less|weaker|tone (it )?down|more|stronger|heavier|push)\b", t) and \
-            re.search(r"\b(look|grade|style|effect|filter)\b", t):
+    if re.search(r"\b(subtle|subtler|softer|lighter|gentler|less|weaker|tone (it )?down|more|stronger|heavier|push)"
+                 r"\b", t) and re.search(r"\b(look|grade|style|filter)\b", t) and \
+            not re.search(r"\b(zoom|punch|transition|shake|cut|speed)\b", t) and not neg:
         if c.get("look", "natural") == "natural":
             raise _Explain("There is no look on this video yet. Choose one first, for example “make it cinematic”.")
-        step = -25 if re.search(r"\b(subtler|softer|lighter|less|weaker|tone)\b", t) else 25
+        soften = re.search(r"\b(subtle|subtler|softer|lighter|gentler|natural|less|weaker|tone)\b", t)
+        step = -25 if soften else 25
         new = max(0, min(100, int(c.get("strength", 100)) + step))
         if new == c.get("strength", 100):
             raise _Explain(f"The look is already at {new} %.")
         return ([{"op": "set", "field": "look_strength", "value": new}],
                 f"Set the look's strength to {new} % (was {c.get('strength', 100)} %).", "")
+    undo = neg or re.search(r"\b(remove|take off|get rid of)\b", t)
     for pattern, look in LOOK_PHRASES:
         if re.search(pattern, t):
+            if undo and look != "natural":  # "undo the black and white look", "don't make it vintage"
+                if c.get("look", "natural") != look:
+                    raise _Explain(f"The look is not {grade.LOOKS[look]}, so there is nothing to undo.")
+                return ([{"op": "set", "field": "look", "value": "natural"}],
+                        f"Remove the {grade.LOOKS[look]} look (natural colours).", "")
             if c.get("look") == look and c.get("strength", 100) == 100:
                 raise _Explain(f"The look is already {grade.LOOKS[look]}.")
             ops = [{"op": "set", "field": "look", "value": look}]

@@ -52,6 +52,7 @@ from typing import Callable
 import numpy as np
 
 from .. import config
+from .common import Cancelled
 from .ffmpeg_utils import NO_WINDOW, ffmpeg_bin, ffprobe_bin, run_process
 
 VERSION = 1
@@ -152,7 +153,10 @@ def source_colour(path: str | Path) -> dict:
                            "-show_entries", "stream=color_transfer,color_primaries,color_space,color_range,pix_fmt,"
                            "width,height:stream_side_data=max_content", str(p)], timeout=30.0)
         data = json.loads(res.stdout or b"{}")
-        s = (data.get("streams") or [{}])[0]
+        streams = data.get("streams") or []
+        if res.returncode != 0 or not streams:
+            return out  # not cached: a timeout or a file still being written is read again next time
+        s = streams[0]
         out.update({"transfer": s.get("color_transfer") or "", "primaries": s.get("color_primaries") or "",
                     "matrix": s.get("color_space") or "", "range": s.get("color_range") or "",
                     "pix_fmt": s.get("pix_fmt") or "", "width": int(s.get("width") or 0),
@@ -160,11 +164,36 @@ def source_colour(path: str | Path) -> dict:
         for sd in s.get("side_data_list") or []:
             if sd.get("max_content"):
                 out["max_cll"] = float(sd["max_content"])
+        if out["transfer"] == "smpte2084" and not out["max_cll"]:
+            out["max_cll"] = _frame_peak(p)
     except Exception:  # noqa: BLE001 - an unreadable file is graded as untagged SDR (and fails later if broken)
-        pass
+        return out
     with _probe_lock:
         _probe_cache[key] = dict(out)
     return out
+
+
+def _frame_peak(p: Path) -> float:
+    """A PQ file's brightest pixel in nits from its first frame (HEVC HDR10 keeps MaxCLL and the mastering display
+    there, not on the stream): MaxCLL, else the mastering display's peak, else 0 (1000 nits is assumed)."""
+    try:
+        res = run_process([ffprobe_bin(), "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1",
+                           "-print_format", "json", "-show_entries", "frame_side_data=max_content,max_luminance",
+                           str(p)], timeout=30.0)
+        frames = json.loads(res.stdout or b"{}").get("frames") or []
+    except Exception:  # noqa: BLE001
+        return 0.0
+    cll = lum = 0.0
+    for sd in (frames[0].get("side_data_list") or []) if frames else []:
+        if sd.get("max_content"):
+            cll = float(sd["max_content"])
+        if sd.get("max_luminance"):
+            num, _, den = str(sd["max_luminance"]).partition("/")
+            try:
+                lum = float(num) / float(den or 1)
+            except (ValueError, ZeroDivisionError):
+                pass
+    return cll or lum
 
 
 def hdr_kind(colour: dict | None) -> str | None:
@@ -412,8 +441,8 @@ class Grade:
                 "notes": list(self.notes)}
 
 
-def _levels(v: np.ndarray, g: Grade) -> np.ndarray:
-    v = np.clip((v - g.black) * g.gain, 0.0, None)
+def _levels(v: np.ndarray, g: Grade, black: float | None = None) -> np.ndarray:
+    v = np.clip((v - (g.black if black is None else black)) * g.gain, 0.0, None)
     if abs(g.gamma - 1) > 1e-6:
         v = v ** g.gamma
     if g.s_curve > 0:
@@ -422,12 +451,17 @@ def _levels(v: np.ndarray, g: Grade) -> np.ndarray:
 
 
 def _tone(x: np.ndarray, g: Grade) -> np.ndarray:
-    """Levels on brightness only: every colour keeps its saturation (the same curve on each channel would turn a
-    contrast boost into a colour boost too). Near black, where a ratio is unstable, the channels are curved alike."""
+    """Levels. A black offset (haze, a lifted black) comes off each channel alike, the inverse of how it got there:
+    taken off brightness alone it would crush saturated colours whose brightness is low (a deep blue). Gain,
+    mid-tones and contrast then change brightness only, so every colour keeps its saturation (the same curve on each
+    channel would turn a contrast boost into a colour boost too). Near black, where a ratio is unstable, the
+    channels are curved alike."""
+    if g.black > 0:
+        x = np.clip(x - g.black, 0.0, None)
     y = np.clip(x @ W709, 0.0, None)
-    ratio = np.minimum(_levels(y, g) / np.maximum(y, 1e-4), 4.0)
+    ratio = np.minimum(_levels(y, g, 0.0) / np.maximum(y, 1e-4), 4.0)
     near_black = np.clip(y / 0.05, 0.0, 1.0)[..., None]
-    return near_black * (x * ratio[..., None]) + (1.0 - near_black) * _levels(x, g)
+    return near_black * (x * ratio[..., None]) + (1.0 - near_black) * _levels(x, g, 0.0)
 
 
 def apply(x: np.ndarray, g: Grade) -> np.ndarray:
@@ -485,7 +519,7 @@ def lut_file(g: Grade) -> Path:
 # ---------------------------------------------------------------- measuring a recording
 def _frame_cmd(path: str, t: float, colour: dict, w: int, h: int, *, crop: tuple[int, int] | None = None,
                gray: bool = False) -> list[str]:
-    m, rng = input_matrix(colour, h), input_range(colour)
+    m, rng = input_matrix(colour), input_range(colour)  # the source's height decides untagged HD, not the sample's
     if crop:
         vf = f"crop={crop[0]}:{crop[1]}:(iw-{crop[0]})/2:(ih-{crop[1]})/2,format=gray"
         fmt = "gray"
@@ -734,11 +768,13 @@ def denoise_filter(sigma: float | None) -> str:
     return f"fftdnoiz=sigma={s:.1f}:amount=0.9"
 
 
-def denoise_for(stats: dict | None, opts: dict) -> str:
-    """The denoise step for footage measured as `stats`, unless "Clean up noise" is off."""
-    if opts.get("clean_picture") is False or not stats:
+def denoise_for(stats: dict | None, opts: dict, scale: float = 1.0) -> str:
+    """The denoise step for footage measured as `stats`, unless "Clean up noise" is off. `scale`: the size the
+    picture is cleaned at, as a share of the size the noise was measured at (full size); grain mostly averages away
+    when a picture is made smaller (a 360p preview, a 4K recording), so it is cleaned less."""
+    if opts.get("clean_picture") is False or not stats or stats.get("noise") is None:
         return ""
-    return denoise_filter(stats.get("noise"))
+    return denoise_filter(float(stats["noise"]) * max(0.0, min(1.0, scale)))
 
 
 # ---------------------------------------------------------------- choices and the filter text
@@ -777,6 +813,8 @@ def for_footage(path: str, ranges: list[tuple[float, float]], opts: dict, *, cac
             stats = saved.get("stats")
         else:
             frames, crops = sample(path, times, colour, cancelled)
+            if cancelled is not None and cancelled():
+                raise Cancelled()  # what was read so far is not this footage's measurement
             stats = measure(frames, crops)
             if cache is not None and stats is not None:
                 try:
@@ -810,20 +848,22 @@ def yuv_filters(colour: dict, g: Grade, denoise: str, cwd: Path, height: int = 0
     """The same for a picture that stays YCbCr (the full-video engine): back to BT.709 limited range 4:2:0 and
     tagged as such, so an HDR source never leaves HDR tags on normal video."""
     lut = lut_filter(g, cwd)
-    m, rng = input_matrix(colour, height), input_range(colour)
+    read = to_rgb_chain(colour, height)  # the matrix; the range is each frame's own (see to_rgb_chain)
     parts = [denoise] if denoise else []
     if lut:
-        parts += [f"scale=in_color_matrix={m}:in_range={rng},format=gbrp16le", lut,
-                  "scale=out_color_matrix=bt709:out_range=tv"]
+        parts += [f"scale={read},format=gbrp16le", lut, "scale=out_color_matrix=bt709:out_range=tv"]
     else:
-        parts.append(f"scale=in_color_matrix={m}:in_range={rng}:out_color_matrix=bt709:out_range=tv")
+        parts.append(f"scale={read}:out_color_matrix=bt709:out_range=tv")
     parts += ["format=yuv420p", "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv"]
     return ",".join(parts)
 
 
 def to_rgb_chain(colour: dict, height: int = 0) -> str:
-    """Filter options that read a file's YCbCr correctly (for the `scale` filter that turns it into RGB)."""
-    return f"in_color_matrix={input_matrix(colour, height)}:in_range={input_range(colour)}"
+    """Filter options that read a file's YCbCr correctly (for the `scale` filter that turns it into RGB). The matrix
+    is given (FFmpeg reads untagged HD as BT.601); the range is left to each frame's own tag, because a scale or an
+    overlay earlier in the chain may already have turned full-range video into limited range and re-tagged it, and
+    a preview proxy is limited range whatever its original was."""
+    return f"in_color_matrix={input_matrix(colour, height)}"
 
 
 def lut_filter(g: Grade, cwd: Path) -> str:

@@ -166,10 +166,14 @@ def test_washed_out_flat_and_dark_pictures_get_levels_contrast_and_at_most_half_
     g = G.correction(flat)
     assert g.black > 0 and g.gain > 1 and g.s_curve > 0 and g.vibrance > 0
     assert g.black <= G.BLACK_MAX and g.gain <= G.WHITE_GAIN_MAX
-    # levels change brightness, not colourfulness: a stretched colour keeps its saturation
+    # a lifted black comes off each channel (the inverse of haze); gain and contrast then change brightness, not
+    # colourfulness: a stretched colour keeps the saturation it has without the haze
     orange = np.array([[0.6, 0.4, 0.25]])
     out = G.apply(orange, G.Grade(black=0.05, gain=1.2, s_curve=0.15))[0]
-    assert abs(out[0] / out[2] - 0.6 / 0.25) < 0.05 * 0.6 / 0.25
+    assert abs(out[0] / out[2] - 0.55 / 0.20) < 0.05 * 0.55 / 0.20
+    # a deep blue (little brightness) is not crushed by the black offset
+    blue = G.apply(np.array([[0.05, 0.05, 0.95]]), G.Grade(black=0.05, gain=1.0556))[0]
+    assert blue[2] > 0.9 and blue[0] < 0.02
     good = {"usable": 0.5, "skin": 0.0, "p005": 0.03, "p05": 0.08, "p50": 0.45, "p95": 0.85, "p995": 0.95,
             "chroma": 0.1}
     assert not G.correction(good).corrects() and not G.correction(good).notes  # nothing to fix: nothing changes
@@ -286,6 +290,8 @@ def test_settings_editor_and_engine_check_the_colour_choices():
     s = config.validate_settings({"look": "laser", "look_strength": 180, "auto_color": False})
     assert "look" not in s and s["look_strength"] == 100 and s["auto_color"] is False
     assert config.DEFAULT_SETTINGS["auto_color"] is True and config.DEFAULT_SETTINGS["look"] == "natural"
+    from clipfoundry.fullcloud import worker_api  # a Full Cloud job carries the owner's colour choices
+    assert {"auto_color", "look", "look_strength", "clean_picture"} <= set(worker_api.SETTING_KEYS)
     assert engine.default_color({"look": "film", "look_strength": 40, "clean_picture": False}) == {
         "auto": True, "match": True, "look": "film", "strength": 40, "clean": False}
     old = engine.color_options({})  # a plan made before colour existed: only phone HDR is converted
@@ -325,3 +331,201 @@ def test_edit_requests_understand_colour_in_plain_words():
     assert ops("use dissolves")["operations"][0]["field"] == "transition"
     old, new = {"color": plan["color"]}, {"color": {**plan["color"], "look": "mono", "auto": False}}
     assert er.changes(old, new) == ["Look: Natural → Black and white", "Automatic colour off"]
+
+
+# ---------------------------------------------------------------- review fixes (2026-11-26)
+TRUTH = {"grey": (31, 31, 31), "red": (190, 45, 31)}
+
+
+def _full_range(path: Path, ten_bit: bool, size: tuple[int, int] = (640, 360)) -> Path:
+    """A full-range recording (what many Android phones, OBS and drones write): grey on the left, red on the
+    right, BT.709, tagged pc."""
+    w, h = size
+    img = np.zeros((h, w, 3), np.uint8)
+    img[:, : w // 2] = TRUTH["grey"]
+    img[:, w // 2:] = TRUTH["red"]
+    fmt = "yuv420p10le" if ten_bit else "yuvj420p"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", "10",
+                    "-i", "-", "-vf", f"scale=out_color_matrix=bt709:out_range=pc,format={fmt}", "-c:v", "libx264",
+                    "-crf", "4", "-pix_fmt", fmt, "-color_range", "pc", "-color_primaries", "bt709", "-color_trc",
+                    "bt709", "-colorspace", "bt709", str(path)], input=img.tobytes() * 10, check=True)
+    return path
+
+
+def _patches(raw: bytes, w: int, h: int) -> dict:
+    px = np.frombuffer(raw, np.uint8).reshape(h, w, 3).astype(float)
+    return {"grey": px[h // 3: 2 * h // 3, w // 8: w // 3].reshape(-1, 3).mean(axis=0),
+            "red": px[h // 3: 2 * h // 3, 2 * w // 3: 7 * w // 8].reshape(-1, 3).mean(axis=0)}
+
+
+def _engine_frame(src: Path, colour: dict, layout: str, size: tuple[int, int], tmp: Path) -> dict:
+    from clipfoundry.studio import engine
+
+    w, h = size
+    e = {"kind": "video", "path": str(src), "src_in_ms": 0, "clip": {"layout": layout}, "colour": colour,
+         "grade": {"grade": G.Grade(), "denoise": ""}}
+    args, lines = engine._video_input(e, 0, 5, 10, w, h, 0, "[v0]", layout, tmp)
+    lines = [*lines, "[v0]scale=in_color_matrix=bt709:in_range=tv,format=rgb24[v]"]
+    out = subprocess.run(["ffmpeg", "-v", "error", *args, "-filter_complex", ";".join(lines), "-map", "[v]",
+                          "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         check=True, capture_output=True, cwd=tmp).stdout
+    return _patches(out, w, h)
+
+
+@pytest.mark.parametrize("ten_bit", [False, True])
+def test_full_range_video_keeps_its_blacks_in_both_renderers_and_in_previews(tmp_path, ten_bit):
+    src = _full_range(tmp_path / "full.mp4", ten_bit)
+    colour = G.source_colour(src)
+    assert G.input_range(colour) == "pc"
+    # the full-video engine, both layouts, final size and preview size
+    for layout in ("fill", "fit"):
+        for size in ((1280, 720), (640, 360)):
+            got = _engine_frame(src, colour, layout, size, tmp_path)
+            for name, want in TRUTH.items():
+                assert np.abs(got[name] - want).max() < 5, (layout, size, name, got[name])
+    # the clip renderer's decoder chain: resize, then the colour step
+    vf = f"fps=10,scale=320:180:flags=bicubic,{G.rgb_filters(colour, G.Grade(), '', tmp_path, 360)}"
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(src), "-frames:v", "1", "-vf", vf, "-f", "rawvideo",
+                          "-pix_fmt", "rgb24", "-"], check=True, capture_output=True, cwd=tmp_path).stdout
+    got = _patches(raw, 320, 180)
+    for name, want in TRUTH.items():
+        assert np.abs(got[name] - want).max() < 5, (name, got[name])
+
+
+def test_a_preview_proxy_of_a_full_range_recording_reads_right(tmp_path):
+    """A proxy is limited range whatever its original was; it is read with the original's matrix and its own
+    range."""
+    src = _full_range(tmp_path / "full.mp4", False)
+    proxy = tmp_path / "proxy.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-vf", "scale=640:-2", "-c:v", "libx264", "-crf",
+                    "10", "-pix_fmt", "yuv420p", str(proxy)], check=True)  # what studio/proxies.make_proxy runs
+    got = _engine_frame(proxy, G.source_colour(src), "fill", (640, 360), tmp_path)
+    for name, want in TRUTH.items():
+        assert np.abs(got[name] - want).max() < 5, (name, got[name])
+
+
+def test_the_measurement_reads_untagged_hd_like_the_render(tmp_path):
+    colour = {"matrix": "", "primaries": "", "transfer": "", "range": "", "width": 1920, "height": 1080}
+    cmd = " ".join(G._frame_cmd("x.mp4", 1.0, colour, 256, 144))
+    assert "in_color_matrix=bt709" in cmd and G.to_rgb_chain(colour, 1080) == "in_color_matrix=bt709"
+    sd = {**colour, "width": 640, "height": 480}
+    assert "in_color_matrix=bt601" in " ".join(G._frame_cmd("x.mp4", 1.0, sd, 256, 192))
+
+
+def test_a_cancelled_measurement_is_never_kept(tmp_path):
+    from clipfoundry.pipeline.common import Cancelled
+
+    src = _encode(_scene((0.85, 1.0, 1.2)), tmp_path / "blue.mp4")
+    cache = tmp_path / "grade.json"
+    asked = []
+
+    def cancelled() -> bool:
+        asked.append(1)
+        return len(asked) > 4
+    with pytest.raises(Cancelled):
+        G.for_footage(str(src), [(0, 1)], {}, cache=cache, cancelled=cancelled)
+    assert not cache.exists()
+    g, stats = G.for_footage(str(src), [(0, 1)], {}, cache=cache)
+    assert cache.is_file() and stats["pixels"] > 0
+
+
+def test_a_failed_probe_is_not_remembered_and_hdr10_peaks_are_read_from_the_first_frame(tmp_path, monkeypatch):
+    pq = tmp_path / "pq.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=size={W}x{H}:rate=10:d=0.5",
+                    "-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-x265-params",
+                    "log-level=error:hdr10=1:max-cll=4000,400:master-display=G(13250,34500)B(7500,3000)"
+                    "R(34000,16000)WP(15635,16450)L(40000000,50):colorprim=bt2020:transfer=smpte2084:"
+                    "colormatrix=bt2020nc", "-color_primaries", "bt2020", "-color_trc", "smpte2084",
+                    "-colorspace", "bt2020nc", "-tag:v", "hvc1", str(pq)], check=True)
+    real = G.run_process
+    calls = []
+
+    def failing(*a, **k):
+        calls.append(1)
+        raise G.FFmpegError("busy") if hasattr(G, "FFmpegError") else RuntimeError("busy")
+    monkeypatch.setattr(G, "run_process", failing)
+    assert G.source_colour(pq)["transfer"] == ""
+    monkeypatch.setattr(G, "run_process", real)
+    colour = G.source_colour(pq)
+    assert colour["transfer"] == "smpte2084" and colour["max_cll"] == 4000.0
+
+
+def test_grain_is_cleaned_for_the_size_the_picture_is_shown_at():
+    from clipfoundry.studio import engine
+
+    stats = {"noise": 3.0}
+    assert G.denoise_for(stats, {}).startswith("atadenoise")
+    assert G.denoise_for(stats, {}, 1 / 3) == ""  # a 360p preview of a 1080p recording: the grain is mostly gone
+    heavy = {"noise": 6.0}
+    look = {"grade": G.Grade(), "stats": heavy, "denoise": G.denoise_for(heavy, {})}
+    assert "sigma=6.0" in look["denoise"]
+    shown = engine._shown_at(look, {"width": 1920, "height": 1080}, 640, 360)
+    assert shown["denoise"].startswith("atadenoise") and look["denoise"].startswith("fftdnoiz")
+    assert engine._shown_at(look, {"width": 1920, "height": 1080}, 1920, 1080) == look
+
+
+def test_filmcraft_keeps_finals_whose_colour_step_does_something_on_the_built_in_engine(tmp_path):
+    from clipfoundry.studio import engine
+
+    sdr = _encode(_scene(), tmp_path / "a.mp4")
+    assets = {"a": {"kind": "video", "path": str(sdr)}}
+    plan = {"clips": [{"asset_id": "a", "include": True}], "color": engine.default_color({})}
+    assert engine.colour_in_use(plan, assets)
+    assert not engine.colour_in_use({"clips": plan["clips"]}, assets)  # an old plan of normal video: nothing to do
+    assert engine.colour_in_use({"clips": plan["clips"], "color": {"auto": False, "clean": False, "look": "mono",
+                                                                   "strength": 60}}, assets)
+    # measured as the render would: a clean picture with only grain cleanup on has nothing to do
+    plan2 = {"clips": [{"asset_id": "a", "include": True, "in_ms": 0, "out_ms": 1000}],
+             "color": {"auto": False, "match": False, "look": "natural", "strength": 100, "clean": True}}
+    assert engine.colour_in_use(plan2, assets) and not engine.colour_in_use(plan2, assets, tmp_path / "pieces")
+    plan2["color"]["auto"] = True  # this test picture is washed out: the correction is real
+    assert engine.colour_in_use(plan2, assets, tmp_path / "pieces")
+    hlg = _hlg_clip(tmp_path / "h.mp4")
+    assert engine.colour_in_use({"clips": [{"asset_id": "h", "include": True}]},
+                                {"h": {"kind": "video", "path": str(hlg)}})  # phone HDR is always converted
+
+
+def test_a_full_range_photo_shown_whole_keeps_its_blacks(tmp_path):
+    """JPEG photos are full range too; the "fit" layout (blurred copy behind) used to lift their blacks."""
+    from clipfoundry.studio import engine
+
+    src = _full_range(tmp_path / "full.mp4", False)
+    photo = tmp_path / "photo.jpg"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-frames:v", "1", "-q:v", "1", str(photo)],
+                   check=True)
+    for size in ((1280, 720), (640, 360)):
+        e = {"kind": "image", "path": str(photo), "clip": {"layout": "fit"}}
+        args, lines = engine._video_input(e, 0, 5, 10, *size, 0, "[v0]", "fit", tmp_path)
+        lines = [*lines, "[v0]scale=in_color_matrix=bt709:in_range=tv,format=rgb24[v]"]
+        raw = subprocess.run(["ffmpeg", "-v", "error", *args, "-filter_complex", ";".join(lines), "-map", "[v]",
+                              "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                             check=True, capture_output=True, cwd=tmp_path).stdout
+        got = _patches(raw, *size)
+        assert np.abs(got["grey"] - TRUTH["grey"]).max() < 5, (size, got)
+
+
+def test_colour_words_inside_other_requests_are_not_taken_for_colour():
+    from clipfoundry.studio import edit_requests as er
+
+    plan = {"color": {"auto": True, "match": True, "look": "vintage", "strength": 100, "clean": True},
+            "clips": [], "captions": {}}
+    rows = [{"n": k + 1, "id": f"c{k + 1}", "kind": "video", "label": label, "included": True, "in_ms": 0,
+             "out_ms": 3000, "out": [k * 3000, k * 3000 + 3000], "summary": "", "words": []}
+            for k, label in enumerate(("Black and white intro", "Vintage car", "Interview"))]
+
+    def ops(text):
+        return er.by_rules(text, plan, rows)
+
+    removed = ops("remove the black and white intro")["operations"]
+    assert removed and all(o.get("clip_id") == "c1" for o in removed) and removed[0]["op"] != "set"
+    moved = ops("move the vintage car to the end")["operations"]
+    assert moved and moved[0].get("clip_id") == "c2" and moved[0]["op"] != "set"
+    assert ops("make the ending cooler") is None              # a part of the video: the AI, not the whole look
+    for sound in ("remove the background noise", "clean up the hiss", "less noise in the audio"):
+        r = ops(sound)
+        assert r is None or all(o.get("field") != "clean_picture" for o in r.get("operations") or []), sound
+    assert ops("remove the look")["operations"] == [{"op": "set", "field": "look", "value": "natural"}]
+    assert ops("remove the vintage look")["operations"] == [{"op": "set", "field": "look", "value": "natural"}]
+    assert ops("don't clean up the grain")["operations"] == [{"op": "set", "field": "clean_picture", "value": False}]
+    assert ops("don't match the clips' colours")["operations"] == [{"op": "set", "field": "match_color",
+                                                                    "value": False}]

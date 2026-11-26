@@ -516,7 +516,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     colour = grade.source_colour(src)
     look, look_stats = grade.for_footage(src, [(start, end)], opts, cache=clip_dir / "grade.json",
                                         screen=plan.faces_found == 0, cancelled=ctx.cancelled)
-    denoise = grade.denoise_for(look_stats, opts)
+    dw, dh = _decode_size(src_w, src_h)
+    # the grain is measured at full size and cleaned at the decoding size (smaller for 4K sources)
+    denoise = grade.denoise_for(look_stats, opts, max(dw, dh) / max(src_w, src_h, 1))
 
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
     ctx.progress(0.03, CAPTIONS_STEP)
@@ -528,7 +530,6 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
             words_out[i] = {**words_out[i], "em": True}
     hook_text = opts.get("hook") if opts.get("hook") is not None else clip.get("hook", "")
     # where the picture sits: captions "above" it need its top edge (fit keeps the whole frame, centred)
-    dw, dh = _decode_size(src_w, src_h)
     fit_scale = min(OUTPUT_W / dw, OUTPUT_H / dh)
     picture_top = (OUTPUT_H - dh * fit_scale) / 2 if layout == "fit" else None
     rendered_game = (clip.get("render_info") or {}).get("split_game")

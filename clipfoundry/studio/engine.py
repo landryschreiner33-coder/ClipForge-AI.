@@ -697,6 +697,14 @@ def _check(cancelled: Callable[[], bool] | None) -> None:
         raise Cancelled()
 
 
+# FFmpeg's overlay mixes up full-range pictures (phone or OBS video, JPEG photos): it hands on limited-range values
+# still tagged as full range, so the blacks come out grey. Both halves of a "fit" picture are made limited range first
+# (nothing happens to a picture that already is), into a format that cannot mean full range (the old "yuvj" ones
+# do, whatever the tag says); 10-bit stays 10-bit for the colour step.
+EVEN_RANGE = ("scale=out_range=tv,format=yuv420p|yuv422p|yuv444p|yuv420p10le|yuv422p10le|yuv444p10le|gbrp|rgb24|"
+              "rgba|yuva420p")
+
+
 def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, height: int, idx: int, label: str,
                  layout: str, cwd: Path) -> tuple[list[str], list[str]]:
     """(input arguments, filter lines) producing normalised frames of element `e` from `rel_frame` on (the last
@@ -725,7 +733,7 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
     if layout == "fill":
         chain = f"{src}scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
     else:
-        lines.append(f"{src}split[bgs{idx}][fgs{idx}]")
+        lines.append(f"{src}{EVEN_RANGE},split[bgs{idx}][fgs{idx}]")
         lines.append(f"[bgs{idx}]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
                      f"boxblur=20:2[bg{idx}]")
         lines.append(f"[fgs{idx}]scale={width}:{height}:force_original_aspect_ratio=decrease[fg{idx}]")
@@ -755,7 +763,7 @@ def _overlay_input(ov: dict, frames: int, fps: int, width: int, height: int, idx
     lines = []
     src = f"[{idx}:v]"
     if ov["fit"] == "fit":
-        lines.append(f"{src}split[obs{idx}][ofs{idx}]")
+        lines.append(f"{src}{EVEN_RANGE},split[obs{idx}][ofs{idx}]")
         lines.append(f"[obs{idx}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=20:2[obg{idx}]")
         lines.append(f"[ofs{idx}]scale={w}:{h}:force_original_aspect_ratio=decrease[ofg{idx}]")
         chain = f"[obg{idx}][ofg{idx}]overlay=(W-w)/2:(H-h)/2"
@@ -787,6 +795,40 @@ def _encode_args(preview: bool, settings: dict | None, fps: int = 30) -> list[st
     return ["-c:v", "libx264", "-preset", "ultrafast" if preview else (settings or {}).get("video_preset")
             or "veryfast", "-crf", "30" if preview else "20", "-bf", "0", "-g", str(max(1, round(fps / 2))),
             "-pix_fmt", "yuv420p"]
+
+
+def _shown_at(look: dict | None, colour: dict, width: int, height: int) -> dict | None:
+    """A recording's grade with its grain cleanup set for the size it is shown at: grain measured at full size
+    mostly averages away when the picture is made smaller (a 360p preview, a 4K recording), so it is cleaned less."""
+    if not look or not look.get("denoise"):
+        return look
+    big = max(int(colour.get("width") or 0), int(colour.get("height") or 0))
+    scale = min(1.0, max(width, height) / big) if big else 1.0
+    return {**look, "denoise": grade.denoise_for(look.get("stats"), {}, scale)}
+
+
+def colour_in_use(plan: dict, assets: dict[str, dict], cache: Path | None = None, cancelled=None) -> bool:
+    """Whether the plan's colour step changes the picture: a look, a phone HDR recording (always converted), or a
+    correction or cleanup that the recordings really need. With `cache` (the render's pieces folder) the recordings
+    are measured as the render would (a few frames each, kept), so a well-shot video with automatic colour on
+    counts as unchanged; without it, automatic colour and cleanup count as in use."""
+    o = color_options(plan)
+    try:
+        if o["look"] != "natural" and float(o["look_strength"] or 0) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    used = {c.get("asset_id") for c in plan.get("clips") or [] if c.get("include", True)}
+    used |= {ov.get("asset_id") for ov in plan.get("overlays") or []}
+    if any(grade.hdr_kind(grade.source_colour(a["path"])) for aid, a in assets.items()
+           if aid in used and a.get("kind") == "video" and a.get("path")):
+        return True
+    if not (o["auto_color"] or o["clean_picture"]):
+        return False
+    if cache is None:
+        return True
+    cache.mkdir(parents=True, exist_ok=True)
+    return any(r["grade"].active() or r["denoise"] for r in grades(plan, assets, cache, cancelled).values())
 
 
 def _grade_key(item: dict) -> dict:
@@ -1086,9 +1128,10 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
     looks = grades(plan, assets, cache, cancelled)
     for item in [e for e in els if e["kind"] == "video"] + [o for items in overlays.values() for o in items
                                                              if o["kind"] == "video"]:
-        # the original's colour tags: a proxy is a smaller copy of the same picture and keeps them
+        # the original's colour tags: a proxy is a smaller copy of the same picture and keeps its matrix and
+        # transfer (its range is limited whatever the original's: the filters read the range from each frame)
         item["colour"] = grade.source_colour(assets[item["asset_id"]]["path"])
-        item["grade"] = looks.get(item["asset_id"])
+        item["grade"] = _shown_at(looks.get(item["asset_id"]), item["colour"], width, height)
     for aid in [e["asset_id"] for e in els if e.get("src") == "proxy"] + \
             [o["asset_id"] for items in overlays.values() for o in items if o["src"] == "proxy"]:
         if aid not in proxied:

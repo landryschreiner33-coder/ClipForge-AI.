@@ -21,6 +21,16 @@ Batches 2-5 (shorts, long videos, range, quality checks) are planned in
   `format=gbrp16le` (swscale's packed-RGB path upsamples colour edges differently, up to 100 codes on test patterns).
   The skin mask is broad (yellow and grass count), so it only protects, it never steers the white balance. ClipForge
   AI's own commands (brain/operations.py) do not offer the colour choices yet; the AI thread owns that file.
+- **Review fixes (same PR):** the range is read from each frame's own tag (a scale or proxy before the colour step
+  turns full range into limited and re-tags it), and a "fit" picture is made limited range before FFmpeg's overlay
+  (`engine.EVEN_RANGE`: overlay in FFmpeg 6.1 hands on limited values tagged full, lifting blacks of phone/OBS video
+  and JPEG photos); the measurement reads untagged HD as BT.709 like the render; a cancelled measurement is never
+  cached and a failed probe is not remembered; HDR10 peaks come from the first frame's MaxCLL/mastering data; grain
+  cleanup is scaled to the size the picture is shown at (`engine._shown_at`, previews); levels subtract each
+  channel's own black. **FilmCraft routing:** under "auto", a final whose colour step does something
+  (`engine.colour_in_use`) stays on the built-in engine, because FilmCraft does not run the colour step; the review
+  page says so. Plain-word requests: a colour word inside a part's name ("remove the black and white intro"), a part
+  of the video ("make the ending cooler") or a sound ("remove the noise") is never taken as a colour change.
 
 ## ClipForge AI reads your results; ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code, cloud session)
 

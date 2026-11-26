@@ -64,8 +64,8 @@ function ColourPanel({ v, plan, edit, busy }: { v: Video; plan: Plan; edit: Edit
   return (
     <section className="panel" aria-labelledby="vr-colour">
       <h2 id="vr-colour">Colour</h2>
-      {!plan.color && <p className="small muted">This video was made before colour choices existed: only phone HDR
-        video is converted. Any choice below applies from now on.</p>}
+      {!plan.color && !v.short && <p className="small muted">This video was made before colour choices existed: only
+        phone HDR video is converted. Any choice below applies from now on.</p>}
       <div className="row wrap top">
         <label className="field"><span>Look</span>
           <select value={c.look} disabled={busy} onChange={(e) => set("look", e.target.value)}>

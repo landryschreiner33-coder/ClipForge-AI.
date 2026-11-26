@@ -43,7 +43,7 @@ SETTING_KEYS = ("language", "clip_count", "min_duration", "max_duration", "targe
                 "ai_max_candidates", "deep_analysis", "caption_style", "caption_position", "highlight_words",
                 "tracking", "layout", "split_view", "split_game", "silence", "remove_fillers", "auto_zoom",
                 "caption_emphasis", "hook_overlay", "hook_seconds", "normalize_audio", "clean_sound", "crf",
-                "x264_preset", "max_fps")
+                "x264_preset", "max_fps", "auto_color", "look", "look_strength", "clean_picture")
 OPTION_KEYS = ("clip_count", "min_duration", "max_duration", "target_duration", "caption_style", "tracking", "layout",
                "silence", "auto_zoom", "hook_overlay", "caption_position", "highlight_words", "remove_fillers",
                "caption_emphasis", "story_split")
