@@ -1,5 +1,21 @@
 # AI changelog
 
+## ClipForge AI reads your results; the ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code)
+
+Thread "Make ClipForge AI and agents smarter" (Landry: "make the AI way smarter and more useful same with the agents"),
+branch `claude/project-thread-st8tpc` from the release line at c89e5bb.
+
+- **`results` tool** (`brain/insights.py`): totals per platform as Publishing → Results counts them, the 5 best and 3
+  weakest posts read fairly at 48 hours (`autopilot/compare.posts`, the owner's own views left out, posts under 48
+  hours "too new to compare"), comparisons by format, channel, niche or length (`compare.compare`), and the lessons
+  learned from results. YouTube numbers only after Google's approval for derived metrics (`learner.usable`).
+  Without a model, "how are my clips doing?" reads the same summary.
+- **Ready-made helpers** got the tools their jobs need: the Hook and title writer, Editor, Critic and Thumbnail
+  planner read the clip (`clip`); the Growth coach reads `results` and `posts` first; the Researcher reads results;
+  the Script writer opens the project. Helpers added before and left unchanged are upgraded once
+  (`agents.EARLIER`, `_upgrade`); whatever the owner changed stays.
+- The chat's "Sent over the internet" line and the privacy page name the results an online model may read.
+
 ## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code)
 
 A check of the batch 4 head against Landry's updated list of Nov 26 found what had not shipped yet; this batch

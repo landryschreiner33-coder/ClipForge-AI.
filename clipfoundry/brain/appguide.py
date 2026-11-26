@@ -333,7 +333,7 @@ SECTIONS: tuple[Section, ...] = (
          "problems", "wrong", "bug", "crash", "slow", "help", "fix", "trouble", "why did"), "studio"),
     Section("me", "What ClipForge AI can do in this chat", (
         "I answer questions about editing, going viral and ClipForge; find, open, rename and delete projects "
-        "(deleting asks first); remember and forget what you teach me; and open any page.",
+        "(deleting asks first); remember and forget what you teach me; read how your posts did; open any page.",
         "When you ask, I do it: move, cancel, retry, edit, approve or post posts; trim a clip or change its captions, "
         "speed or sound; make clips from a link; add to Missions; write a Text Story; run Autopilot; change editing "
         "choices and posting rules.",

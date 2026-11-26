@@ -36,30 +36,30 @@ TEMPLATES: list[dict] = [
                      "their past projects covered, what the know-how says. Give a short list of facts and angles, "
                      "each with where it came from, then the open questions. Say clearly when something is not known "
                      "here; you cannot browse the internet.",
-     "tools": ["recall", "knowhow", "find_projects", "open_project"], "helps_plans": True},
+     "tools": ["recall", "knowhow", "find_projects", "open_project", "results"], "helps_plans": True},
     {"template": "script_writer", "name": "Script writer", "icon": "✍️",
      "role": "writes scripts, voice-overs and outlines in your voice",
      "instructions": "Write in the owner's own voice: short spoken sentences, one idea each. Open with a hook in the "
                      "first line, keep a clear thread, end on the payoff. Mark sections with short headings and give "
                      "a rough length in seconds. Use what the owner told ClipForge about their channel and style.",
-     "tools": ["recall", "knowhow"], "helps_plans": True},
+     "tools": ["recall", "knowhow", "open_project"], "helps_plans": True},
     {"template": "hook_writer", "name": "Hook and title writer", "icon": "🪝",
      "role": "writes opening lines, titles, captions and hashtags that stop the scroll",
      "instructions": "Give 5 options unless asked otherwise, each under 12 words, plain words, with a curiosity gap "
                      "or a clear payoff. Mark your favourite and say why in one line. For titles, put the key word "
-                     "first.",
-     "tools": ["recall", "knowhow"], "helps_plans": False},
+                     "first. For a clip, read it first (clip) and write from what is said in it.",
+     "tools": ["recall", "knowhow", "clip", "results"], "helps_plans": False},
     {"template": "editor", "name": "Editor", "icon": "✂️",
      "role": "studies a video's cut and proposes changes you apply or discard",
      "instructions": "Look at the video's parts first. Suggest the few changes that matter most for pacing, the "
                      "opening and the ending, each with the reason. When asked to change the cut, propose it with "
                      "propose_change; nothing changes until the owner applies it.",
-     "tools": ["open_project", "knowhow", "recall", "propose_change"], "helps_plans": True},
+     "tools": ["open_project", "clip", "knowhow", "recall", "propose_change"], "helps_plans": True},
     {"template": "critic", "name": "Critic", "icon": "🧐",
      "role": "reviews a plan, script or cut honestly and says what would make it better",
      "instructions": "Be kind and honest. Name the strongest part first, then the three biggest problems in order of "
                      "impact, each with a concrete fix. No vague praise.",
-     "tools": ["open_project", "knowhow", "recall"], "helps_plans": True},
+     "tools": ["open_project", "clip", "knowhow", "recall"], "helps_plans": True},
     {"template": "sound_advisor", "name": "Sound and music advisor", "icon": "🎵",
      "role": "suggests music moods, sound effects and mix levels for a video",
      "instructions": "Suggest music by mood and tempo for each part, the sound effects that earn their place, and the "
@@ -69,14 +69,36 @@ TEMPLATES: list[dict] = [
      "role": "plans thumbnails: the picture, the words on it and why it gets the click",
      "instructions": "Give 3 thumbnail ideas: what is in the frame, at most 4 big words, the colours and the emotion "
                      "on the face. Say which frame or moment of the video to use when you know it.",
-     "tools": ["open_project", "recall", "knowhow"], "helps_plans": False},
+     "tools": ["open_project", "clip", "recall", "knowhow"], "helps_plans": False},
     {"template": "growth_coach", "name": "Growth coach", "icon": "📈",
      "role": "thinks about your channel: what to post next, when, and for whom",
-     "instructions": "Base advice on the owner's projects and what they told ClipForge about their channel and "
-                     "audience. Give a short plan with the next three videos or clips and the reason for each.",
-     "tools": ["find_projects", "recall", "knowhow"], "helps_plans": False},
+     "instructions": "Read the owner's results first (results: what did best and worst, and what ClipForge learned "
+                     "from them), then their projects and what they told ClipForge about their channel and "
+                     "audience. Give a short plan with the next three videos or clips and the reason for each, "
+                     "naming the numbers it stands on. With too few results, say so and suggest what to test.",
+     "tools": ["results", "posts", "find_projects", "recall", "knowhow"], "helps_plans": False},
 ]
 BY_TEMPLATE = {t["template"]: t for t in TEMPLATES}
+
+# What the ready-made helpers had before (Nov 26, 2026: they got the tools their jobs need, such as the clip a title is
+# for and the owner's results). A helper the owner added from one of them and left as it was gets the new tools and
+# words (`_upgrade`); whatever the owner changed stays theirs.
+EARLIER = {
+    "researcher": {"tools": ["recall", "knowhow", "find_projects", "open_project"]},
+    "script_writer": {"tools": ["recall", "knowhow"]},
+    "hook_writer": {"tools": ["recall", "knowhow"],
+                    "instructions": "Give 5 options unless asked otherwise, each under 12 words, plain words, with a "
+                                    "curiosity gap or a clear payoff. Mark your favourite and say why in one line. For "
+                                    "titles, put the key word first."},
+    "editor": {"tools": ["open_project", "knowhow", "recall", "propose_change"]},
+    "critic": {"tools": ["open_project", "knowhow", "recall"]},
+    "thumbnail_designer": {"tools": ["open_project", "recall", "knowhow"]},
+    "growth_coach": {"tools": ["find_projects", "recall", "knowhow"],
+                     "instructions": "Base advice on the owner's projects and what they told ClipForge about their "
+                                     "channel and audience. Give a short plan with the next three videos or clips and "
+                                     "the reason for each."},
+}
+_upgraded: set[str] = set()
 
 
 class AgentError(ValueError):
@@ -111,7 +133,31 @@ def _tool_names(value: object) -> list[str]:
     return list(dict.fromkeys(str(n) for n in names if str(n) in allowed))
 
 
+def _upgrade(ws: str) -> None:
+    """Helpers added from a ready-made one and left as they were get what that one has now (EARLIER): its tools when
+    the helper's tools are still the old set, its words when they are still the old words. Once per workspace each
+    time ClipForge starts; nothing the owner changed is touched."""
+    from .. import config
+
+    key = f"{config.db_path()}|{ws}"
+    if key in _upgraded:
+        return
+    _upgraded.add(key)
+    for row in db.select("brain_agents", "workspace_id = ?", (ws,)):
+        old, now = EARLIER.get(row.get("template") or ""), BY_TEMPLATE.get(row.get("template") or "")
+        if not old or not now:
+            continue
+        patch: dict = {}
+        if sorted(row.get("tools") or []) == sorted(old["tools"]):
+            patch["tools"] = _tool_names(now["tools"])
+        if "instructions" in old and (row.get("instructions") or "").strip() == old["instructions"]:
+            patch["instructions"] = now["instructions"]
+        if patch:
+            db.update("brain_agents", row["id"], **patch)
+
+
 def list_(ws: str, *, enabled_only: bool = False) -> list[dict]:
+    _upgrade(ws)
     rows = db.select("brain_agents", "workspace_id = ?", (ws,), "position ASC, created_at ASC")
     return [_view(r) for r in rows if r.get("enabled", 1) or not enabled_only]
 
