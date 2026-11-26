@@ -745,3 +745,17 @@ def test_an_older_stop_never_stops_a_newer_job(env):
     textstory.stop(seen)
     now = db.fetch("text_stories", story["id"])
     assert now["status"] == newer["status"] and now["job_id"] == newer["job_id"]
+
+
+def test_text_stories_are_made_from_the_make_menu_not_a_side_bar_entry():
+    """Landry (Nov 26): "make sure the text stories is in the make tab like the rest not on the side bar as its own".
+    Make → Make a text story (and the Studio's tile) open it; the side bar has no entry of its own, and a story's
+    pages light up the Studio, as the other makers do."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "frontend/src"
+    app = (src / "App.tsx").read_text(encoding="utf-8")
+    assert 'NavLink href="#/stories"' not in app and 'label="Text Stories"' not in app
+    assert '<a role="menuitem" href="#/stories" onClick={() => setMakeOpen(false)}><b>Make a text story</b>' in app
+    assert 'stories: "studio"' in app and 'create: "studio"' in app
+    assert '{ href: "#/stories", icon: "story", title: "Make a text story"' in (src / "pages/Studio.tsx").read_text()
