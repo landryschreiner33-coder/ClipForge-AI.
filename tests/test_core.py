@@ -167,10 +167,12 @@ def test_keep_segments_and_timeline():
 
 
 def test_zoom_curve_bounds():
+    from clipfoundry.pipeline import moves
+
     words = [{"start": i * 1.0, "end": i * 1.0 + 0.8, "w": "word." if i % 4 == 3 else "word"} for i in range(30)]
-    z = render.zoom_curve(words, 30 * 25, 25.0, 0.07)
+    z = moves.punch_curve(words, [], 30 * 25, 25.0, 0.07)
     assert z.min() >= 0.999 and z.max() <= 1.0701
-    assert np.abs(np.diff(z)).max() < 0.02  # eased, no jumps
+    assert np.abs(np.diff(z)).max() < 0.02  # no cuts: eased, no jumps
 
 
 @pytest.mark.parametrize("style", config.CAPTION_STYLES)

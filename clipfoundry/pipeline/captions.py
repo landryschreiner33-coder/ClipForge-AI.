@@ -6,18 +6,19 @@ import re
 
 from ..config import OUTPUT_H, OUTPUT_W
 
+# "pop": the size (%) a new caption page starts at before it grows to full size in 90 ms (0: no pop)
 STYLE_PRESETS = {
     "clean": {"font": "Poppins SemiBold", "size": 76, "upper": False, "max_words": 5, "max_chars": 26,
-              "outline": 5, "shadow": 1, "highlight": "#FFD23F", "pop": False, "word_scale": 100,
+              "outline": 5, "shadow": 1, "highlight": "#FFD23F", "pop": 92, "word_scale": 100,
               "emphasis": "#5CE1E6"},
     "bold": {"font": "Poppins ExtraBold", "size": 92, "upper": True, "max_words": 3, "max_chars": 18,
-             "outline": 7, "shadow": 3, "highlight": "#FFE500", "pop": False, "word_scale": 100,
+             "outline": 7, "shadow": 3, "highlight": "#FFE500", "pop": 90, "word_scale": 100,
              "emphasis": "#FF5E5B"},
     "high_energy": {"font": "Anton", "size": 132, "upper": True, "max_words": 2, "max_chars": 14,
-                    "outline": 8, "shadow": 4, "highlight": "#3CFF6B", "pop": True, "word_scale": 112,
+                    "outline": 8, "shadow": 4, "highlight": "#3CFF6B", "pop": 80, "word_scale": 112,
                     "emphasis": "#FFE500"},
     "minimal": {"font": "Poppins Medium", "size": 62, "upper": False, "max_words": 7, "max_chars": 34,
-                "outline": 0, "shadow": 2, "highlight": "#FFFFFF", "pop": False, "word_scale": 100,
+                "outline": 0, "shadow": 2, "highlight": "#FFFFFF", "pop": 0, "word_scale": 100,
                 "emphasis": ""},
 }
 
@@ -25,6 +26,12 @@ STYLE_PRESETS = {
 # "bottom" sits just above the buttons and the description, "top" just below the top bar, and "middle" is the
 # 45-55% band the platforms leave clear.
 POSITIONS = {"bottom": (2, 0.36), "middle": (5, 0.0), "top": (8, 0.16)}
+# Left and right margins of the captions: the like/comment/share buttons on TikTok, Shorts and Reels sit in the
+# right-most 110-120 pixels from about the middle down, so caption lines stay between x 150 and 930 (centred).
+SIDE_MARGIN = 150
+# A word lights up this long before it is heard (sound after picture is noticed from about 45 ms, a highlight a
+# frame early is not): research in docs/clipforge/EDITING_CRAFT_RESEARCH.md
+WORD_LEAD = 0.04
 HOOK_TOP = 0.15                                   # the headline starts below the apps' top bar
 HOOK_SIZES = ((36, 68), (60, 58), (10 ** 9, 50))  # (up to this many characters, font size): one to three lines
 HOOK_MARGIN = 110                                 # the headline's left and right margins
@@ -118,17 +125,20 @@ def _escape(text: str) -> str:
 _FILLER = re.compile(r"^(um+|uh+|erm|hmm+|mm+)[,.]?$", re.I)
 
 
-def chunk_words(words: list[dict], style: str) -> list[list[dict]]:
-    """Split timed words (output timeline) into short caption groups."""
+def chunk_words(words: list[dict], style: str, breaks: list[float] | None = None) -> list[list[dict]]:
+    """Split timed words (output timeline) into short caption groups. `breaks` (output seconds, the jump cuts) start
+    a new page when the page already has two words, so the words change with the picture."""
     p = STYLE_PRESETS.get(style, STYLE_PRESETS["bold"])
     words = [w for w in words if not _FILLER.match(w["w"].strip())]
+    breaks = sorted(breaks or [])
     chunks: list[list[dict]] = []
     cur: list[dict] = []
     chars = 0
     for i, w in enumerate(words):
         text = w["w"].strip()
+        cut_between = bool(cur) and len(cur) >= 2 and any(cur[-1]["start"] < b <= w["start"] + 1e-6 for b in breaks)
         if cur and (len(cur) >= p["max_words"] or chars + len(text) + 1 > p["max_chars"]
-                    or w["start"] - cur[-1]["end"] > 0.6):
+                    or w["start"] - cur[-1]["end"] > 0.6 or cut_between):
             chunks.append(cur)
             cur, chars = [], 0
         cur.append(w)
@@ -143,6 +153,7 @@ def chunk_words(words: list[dict], style: str) -> list[list[dict]]:
 
 def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "") -> str:
     """`words` are already on the output timeline (seconds from clip start)."""
+    words = [{**w, "start": max(0.0, w["start"] - WORD_LEAD), "end": max(0.0, w["end"] - WORD_LEAD)} for w in words]
     style = opts.get("caption_style", "bold")
     p = dict(STYLE_PRESETS.get(style, STYLE_PRESETS["bold"]))
     scale = float(opts.get("caption_size", 1.0) or 1.0)
@@ -192,7 +203,7 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
         "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding",
         f"Style: Caption,{p['font']},{size},{primary},{highlight},{outline_col},{back},{bold_flag},0,0,0,100,100,"
-        f"1,0,1,{p['outline']},{p['shadow']},{align},90,90,{margin_v},1",
+        f"1,0,1,{p['outline']},{p['shadow']},{align},{SIDE_MARGIN},{SIDE_MARGIN},{margin_v},1",
         f"Style: Hook,Poppins ExtraBold,{hook_px},&H00FFFFFF,&H00FFFFFF,&H00000000,&H28161616,-1,0,0,0,100,100,0,0,3,"
         f"18,0,8,{HOOK_MARGIN},{HOOK_MARGIN},{int(OUTPUT_H * HOOK_TOP) if hook_top is None else hook_top},1",
         "",
@@ -218,7 +229,8 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
 
     if opts.get("captions_enabled", True):
         highlight_on = bool(opts.get("highlight_words", True)) and style != "minimal"
-        chunks = chunk_words(words, style)
+        # the cuts move with the words (lit WORD_LEAD early), so a word heard just after a cut stays on its page
+        chunks = chunk_words(words, style, [b - WORD_LEAD for b in opts.get("page_breaks") or []])
         for ci, chunk in enumerate(chunks):
             c_start = chunk[0]["start"]
             next_start = chunks[ci + 1][0]["start"] if ci + 1 < len(chunks) else duration
@@ -232,7 +244,7 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
             if emph:  # key words keep their own color (and a slight size bump) for the whole chunk
                 texts = [f"{{\\c{emph}\\fscx108\\fscy108}}{t}{{\\r}}" if w.get("em") else t
                          for t, w in zip(texts, chunk)]
-            pop = "{\\fscx80\\fscy80\\t(0,90,\\fscx100\\fscy100)}" if p["pop"] else ""
+            pop = f"{{\\fscx{p['pop']}\\fscy{p['pop']}\\t(0,90,\\fscx100\\fscy100)}}" if p["pop"] else ""
             if not highlight_on:
                 lines.append(f"Dialogue: 1,{_ass_time(c_start)},{_ass_time(c_end)},{caption_at(c_start)}{pop}"
                              + " ".join(texts))

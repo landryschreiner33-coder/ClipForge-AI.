@@ -70,7 +70,7 @@ Much of the sound chain already exists (Clean up the sound, `pipeline/cleanup.py
 | Batch | What | State |
 | --- | --- | --- |
 | 1 | Colour: phone HDR, automatic correction, matching, looks, grain ([COLOUR.md](COLOUR.md)) | built 2026-11-26 |
-| 2 | Short clips: punch-in alternation and emphasis, caption pop and safe box, effects from edit events, a visual-change scheduler, loop endings | planned |
+| 2 | Short clips: punch-in alternation and emphasis, caption pop and safe box, effects from edit events, a visual-change scheduler ([SHORTS_EDITING.md](SHORTS_EDITING.md)); loop endings moved to batch 4 | built 2026-11-26 |
 | 3 | Long videos: J and L cuts, room tone under cuts, transitions with meaning, music back-timed on bars, wide/tight alternation | planned |
-| 4 | Range: speed ramps and freeze frames, keyframes, picture in picture, multicam with active speaker, stabilising, all reachable from edit requests and ClipForge AI | planned |
+| 4 | Range: loop endings for shorts, speed ramps and freeze frames, keyframes, picture in picture, multicam with active speaker, stabilising, all reachable from edit requests and ClipForge AI | planned |
 | 5 | Automatic quality check after every render (scopes and loudness) with a back-off | planned |

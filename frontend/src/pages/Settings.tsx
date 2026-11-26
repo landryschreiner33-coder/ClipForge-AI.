@@ -600,7 +600,10 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
         <SettingRow label="Extras" group>
           <div className="stack" style={{ gap: 0 }}>
             <Check k="highlight_words" c={c}>Highlight each word as it's spoken</Check>
-            <Check k="auto_zoom" c={c}>Auto-zoom on emphasized sentences</Check>
+            <Check k="auto_zoom" c={c}>Punch-ins on cuts and a push-in on key words</Check>
+            <Check k="sound_effects" c={c}>
+              Sound effects that follow the edit: whooshes and pops in clips and full videos
+            </Check>
             <Check k="remove_fillers" c={c}>Cut filler words (with silence cleanup)</Check>
             <Check k="caption_emphasis" c={c}>Emphasize key words in their own color</Check>
             <Check k="hook_overlay" c={c}>Hook on screen at the start</Check>

@@ -256,7 +256,7 @@ _SETTINGS_WORDS = (
     ("caption_style", "Caption style"), ("caption_position", "Caption position"),
     ("highlight_words", "Highlight each word as it is spoken"), ("caption_emphasis", "Key words in their own colour"),
     ("hook_overlay", "On-screen hook"), ("hook_seconds", "Seconds the hook shows"),
-    ("tracking", "Framing follows"), ("layout", "Layout"), ("auto_zoom", "Subtle push-ins"),
+    ("tracking", "Framing follows"), ("layout", "Layout"), ("auto_zoom", "Punch-ins on cuts"),
     ("silence", "Pauses cut"), ("remove_fillers", "“um” and “uh” cut"), ("normalize_audio", "Loudness evened out"),
     ("clean_sound", "Sound cleanup"))
 

@@ -11,6 +11,30 @@ them back), and a helper that still only promises gets one more round with its j
 planner asks it; in the check on that (run 45798706829) the Script writer wrote its hook. Details:
 docs/clipforge/CLIPFORGE_AI.md, "After the sixth check".
 
+## Editing quality, batch 2: short clips (punch-ins on cuts, sound effects, caption timing) — 2026-11-26 (Claude Code)
+
+Batch 2 of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 1 (colour). Details:
+[docs/clipforge/SHORTS_EDITING.md](docs/clipforge/SHORTS_EDITING.md).
+
+- **Punch-ins on jump cuts:** where a pause or filler was cut out, the shot size switches 1.00/1.10 on the cut's
+  own frame (1.06 for sources under 1080 lines), centred on the face; never within 0.6 s of the last change.
+- **A change every few seconds:** no framing held over 5 s; long stretches get an eased change at a pause.
+- **Push-in on key words:** rationed (one per 6 s), landing on the word; with a cut in the way it comes in on the cut.
+- **Sound effects from the edit:** a soft whoosh with each push-in, a light pop on each coloured key word, made by the
+  app (no files), 18-20 dB under the speech, following its real loudness and the clip's volume; one Settings choice
+  for clips and full videos.
+- **Captions:** a new page on a jump cut, words lit 40 ms early, lines kept clear of the apps' buttons, a gentle pop.
+- **Where:** Settings → Clips → Extras, the clip editor (Layout and Audio, with what the last render did), skills,
+  styles, Brain notes and Full Cloud (`sound_effects`). The old sentence-level `render.zoom_curve` is gone.
+- **Review fixes before the PR** (10 confirmed): the zoom switch lands on the first frame of the new shot at any
+  speed (`render.Timeline.cut_frames`), no eased push across a cut or one-frame spike after one, caption pages turn
+  with the cut despite the 40 ms lead, effects follow the speech level and the clip volume, no pops for Minimal
+  captions, two `sound_effects` fields merged into one, the effects track deleted after the encode, the app rebuilt.
+- **Tests:** `tests/test_moves.py` (14 fast, 1 real render); fast suite 3,447 passed, slow suite 38 passed (1 caption
+  test updated for the new side margins). Not verified: how it feels on real talking-head footage.
+
 ## Editing quality, batch 1: colour (phone HDR, automatic correction, matching, looks) — 2026-11-26 (Claude Code)
 
 Landry asked for deep research on how videos are edited and for much better editing. The research and the five-batch

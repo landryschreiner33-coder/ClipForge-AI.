@@ -29,7 +29,7 @@ add("defaults", {
   target_duration: "Ideal clip length", caption_style: "Caption style", caption_position: "Caption position",
   highlight_words: "Word highlight", tracking: "Framing", layout: "Layout", split_view: "Split view",
   split_game: "Under the face cam", silence: "Silence cleanup",
-  auto_zoom: "Auto-zoom", remove_fillers: "Cut filler words", caption_emphasis: "Emphasize key words",
+  auto_zoom: "Punch-ins", sound_effects: "Sound effects", remove_fillers: "Cut filler words", caption_emphasis: "Emphasize key words",
   hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", clean_sound: "Clean up the sound",
   auto_color: "Automatic colour", look: "Look", look_strength: "Look strength", clean_picture: "Clean up grainy footage",
   autopilot_daily_target: "Daily clip cap",
