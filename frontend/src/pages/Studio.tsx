@@ -383,7 +383,7 @@ const MAKE_CHOICES: { href: string; icon: IconName; title: string; words: string
   { href: "#/create/clips", icon: "scissors", title: "Make clips", words: "The best moments, or whole stories" },
   { href: "#/create/video", icon: "video", title: "Make a YouTube video", words: "Your files and your idea" },
   { href: "#/create/short", icon: "spark", title: "Make an animated short", words: "Moving pictures and a voice-over" },
-  { href: "#/stories", icon: "story", title: "Make a text story", words: "A story read over a background" },
+  { href: "#/stories", icon: "story", title: "Make a text story", words: "A text chat or a story, read aloud" },
   { href: "#/missions/live", icon: "live", title: "Clip a live stream", words: "Clips while it is still live" },
 ];
 

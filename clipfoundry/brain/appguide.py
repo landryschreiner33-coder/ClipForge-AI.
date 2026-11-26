@@ -184,14 +184,18 @@ SECTIONS: tuple[Section, ...] = (
         ("animated", "animation", "short", "faceless", "voice over", "voiceover", "ai video", "ai pictures",
          "story short", "script", "narration", "scenes", "cartoon"), "make_short"),
     Section("text_stories", "Making a text story", (
-        "Text Stories in the main menu: a story read aloud over background video with a title card and big "
-        "captions. Steps: Script, Voice, Background, On-screen text, Preview, Export.",
-        "Paste the story, or ClipForge AI writes one from a topic and revises it (Make the ending scarier).",
-        "Voice styles (Energetic storyteller, Casual commentary, Dramatic suspense, Fast meme narration) with Hear; "
-        "speed, tone, pronunciations; a favourite voice per style or per story.",
-        "Backgrounds: upload clips (trim, loop, move, replace), pick from your videos, or Let ClipForge pick. "
-        "Export makes 1080 × 1920 with Download and Open in the editor."),
+        "+ Make → Make a text story: a text-message story (a phone chat whose bubbles pop up one at a time over "
+        "satisfying or gameplay video, each message read aloud in its sender's voice) or a narrated story (title "
+        "card, big captions). Up to 10 minutes.",
+        "Chat: one message a line, Name: message; Me is whose phone it is (blue, right). Then People and voices, "
+        "Background, Look and sound (dark, light, green; pace; pop sounds), Preview, Export.",
+        "Paste it, or ClipForge AI writes it from a topic and revises it. Voices: Hear, speed, tone, pronunciations, "
+        "a favourite voice per style.",
+        "Backgrounds: upload, your videos, free footage or Let ClipForge pick. Export: 1080 × 1920, Download, Open "
+        "in the editor."),
         ("text story", "text stories", "reddit story", "story video", "narrated story", "gameplay background",
+         "text message story", "text messages", "imessage", "chat story", "fake text", "texting story", "bubbles",
+         "cooking background", "satisfying cutting",
          "minecraft parkour", "subway surfers", "satisfying", "voice style", "pronunciation", "tts", "background "
          "video"), "text_stories"),
     Section("projects", "Projects, downloads and deleting", (

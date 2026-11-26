@@ -18,6 +18,34 @@ that too, and ClipForge AI can answer what is seen and heard in a clip or at a m
   `ai_eyes` off also stops the describing. The appguide has no section for this on purpose: any new section shifts
   the guide search's tuned results (tests/test_assistant_library.py).
 
+## Text-message stories, up to ten minutes — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** Text Stories can now be a text-message chat like the TikTok ones: a phone chat appears a
+bubble at a time over satisfying or gameplay footage and every message is read aloud in its sender's voice. Paste the
+chat or let ClipForge AI write it; chats and narrated stories run up to ten minutes.
+
+- **Where things are:** `makers/chatstory.py` (everything chat: script `parse`/`clean_script`/`resolve`, choices
+  `clean_chat`/`with_voices`, text runs and emoji fonts, the `Card` (header, bubbles, `layout` in pages, `state`), the
+  timing `timeline`/`estimate`, the voices `make_voices` (narration with `timing: "chat"`, `times`, `total`) and
+  `make_cards` (PNG states + ffconcat)); the chat branches in `makers/textstory.py` (`is_chat`, `KINDS`,
+  `total_seconds`, `render` overlays the cards, `view()["chat"]`); `writer.write_chat`, `_write_long_story`,
+  `_revise_long_story`; columns `text_stories.kind` and `text_stories.chat`; the page `ChatEditor` parts in
+  `frontend/src/pages/TextStories.tsx` (`ChatPreview`, `ChatPeople`, `ChatLook`).
+- **Worth knowing:** a chat video's length is the chat's own timing (`narration.total`, which already holds END_S),
+  never `duration + TAIL_S`. The narration key includes every message's text as shown (an emoji change re-renders)
+  and the render key adds the look (`look_key`). The card is drawn in the main thread only (FreeType fonts are not
+  shared between threads); PNG saving runs on a small pool. Colour emoji fonts only load at fixed sizes
+  (`EMOJI_SIZES`); with none, emoji are left out and the page says so (`platform_emoji_note`). The Inter files are
+  static 400/600 instances subset to Latin, Greek and Cyrillic; any other character is drawn with the first of
+  `OTHER_FONTS` that has it (`_path_for`, checked against the font's "missing" box), and a symbol the colour emoji
+  font lacks falls back the same way. eSpeak says nothing for "..." so messages without a letter or digit are not
+  read (they stay up for a reading time). Line breaks and pages come from `bubble_lines` at 1080 for every size, so
+  never break lines at the preview's size (a bubble's width also takes its words as drawn at its size: without raqm
+  small text comes out wider). The first bubble is capped at `first_lines` so it stays under the header. `lines/` keeps `<hash>.wav` + `<hash>.json` (voice id, licence rule) only for
+  lines the chosen voice read; a stand-in voice's line is used once. The card list carries `option framerate 30`
+  when the FFmpeg takes it (`_concat_takes_options`, probed once). Scripts the writer builds go through
+  `chatstory.write_line` (it round-trips `//` and `\` messages).
+
 ## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** in full videos the sound now flows across cuts: the next room is heard a few frames early
@@ -1304,6 +1332,7 @@ engines it still works: the computer's own voice and designed cards with each sc
   entry in [AI_CHANGELOG.md](AI_CHANGELOG.md)). New tests: `tests/test_studio_shorts_undo.py`, `_stops.py`,
   `_edits.py`. Still only on real machines: the engines, Landry's downloaded voices, a real model writing and the
   speech model's word times.
+
 ## Release 2026.11.07 published — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry said "publish the new changes". The smarter-AI work (PR #32) was merged into the
@@ -1446,6 +1475,7 @@ chatter, opens with the strongest line, and ClipForge AI reads the whole video i
   tried in the cloud; script matching is by words, not meaning (a paraphrased line counts as missing); the local
   browser was tried on Linux paths only; the look of the new panels is the UI thread's.
 - **Waiting on Landry:** review of the PR and a try with his own footage; the release (needs an explicit OK).
+
 ## Release ClipForge 2026.11.06 (ClipForge AI and FilmCraft inside the app) — 2026-11-06 (Claude Code, cloud session)
 
 Landry chose "Merge and release" for PR #28. It was merged into the release line `claude/project-thread-x72wkd` as
@@ -1935,6 +1965,7 @@ each checkpoint as it is reached.
   running upstream code (or run the harness on their own machine) before the integration can be evaluated.
 - **Baseline tests:** the fast suite is being run on the untouched starting commit in a separate worktree so the
   result is not affected by new edits; the result is recorded in the next checkpoint entry.
+
 ## Website redesign added to the Claude handoff — 2026-11-04 (America/Chicago)
 
 The owner asks to tell Claude to update the website and improve its appearance. Section 17 of
