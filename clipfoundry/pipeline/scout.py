@@ -53,8 +53,8 @@ FINALIST_CHARS = 700
 KINDS = ("story", "insight", "funny", "emotional", "controversial", "how_to")
 
 SYSTEM = ("You are a short-form video editor's assistant. You read transcripts of long videos and find the moments "
-          "that work as vertical short clips on their own. Use only the words given; never invent anything. Reply "
-          "with one JSON object and nothing else.")
+          "that work as vertical short clips on their own. Use only the words given and the notes in ⟨ ⟩ about what "
+          "is seen and heard; never invent anything. Reply with one JSON object and nothing else.")
 
 SCOUT_SCHEMA = {
     "type": "object",
@@ -199,12 +199,13 @@ def _clean(text: object, limit: int) -> str:
 
 
 # ------------------------------------------------------------------ 1. the scout
-def windows(sentences: list[dict], chars: int = WINDOW_CHARS) -> list[tuple[int, int]]:
-    """Sentence index ranges [first, last] that fit one request each."""
+def windows(sentences: list[dict], chars: int = WINDOW_CHARS, notes: dict[int, str] | None = None
+            ) -> list[tuple[int, int]]:
+    """Sentence index ranges [first, last] that fit one request each (with their ⟨ ⟩ notes, when there are any)."""
     out: list[list[int]] = []
     size = 0
     for k, s in enumerate(sentences):
-        line = len(s["text"][:240]) + 16
+        line = len(s["text"][:240]) + 16 + (len((notes or {}).get(k, "")) + 3 if notes and k in notes else 0)
         if not out or size + line > chars:
             out.append([k, k])
             size = 0
@@ -218,10 +219,32 @@ def _stamp(t: float) -> str:
     return f"{t // 3600}:{t % 3600 // 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60}:{t % 60:02d}"
 
 
-def scout_prompt(b: Brief, sentences: list[dict], first: int, last: int, part: int, parts: int) -> str:
-    lines = "\n".join(f'{k} [{_stamp(sentences[k]["start"])}] {sentences[k]["text"][:240]}' for k in range(first, last + 1))
+def _sense_notes(senses, sentences: list[dict], first: int, last: int) -> dict[int, str]:
+    """What was seen and heard next to each sentence (only when it says something new), as ⟨ ⟩ notes."""
+    if senses is None:
+        return {}
+    out: dict[int, str] = {}
+    last_seen = ""
+    for k in range(first, last + 1):
+        nxt = sentences[k + 1]["start"] if k + 1 < len(sentences) else sentences[k]["end"] + 1.5
+        note, last_seen = senses.note(sentences[k]["start"], max(sentences[k]["end"], min(nxt, sentences[k]["end"]
+                                                                                           + 1.5)), last_seen)
+        if note:
+            out[k] = note
+    return out
+
+
+def scout_prompt(b: Brief, sentences: list[dict], first: int, last: int, part: int, parts: int,
+                 notes: dict[int, str] | None = None) -> str:
+    """`notes`: what was seen and heard by sentence number (_sense_notes)."""
+    notes = {k: v for k, v in (notes or {}).items() if first <= k <= last}
+    lines = "\n".join(f'{k} [{_stamp(sentences[k]["start"])}] {sentences[k]["text"][:240]}'
+                      + (f" ⟨{notes[k]}⟩" if k in notes else "") for k in range(first, last + 1))
+    told = (" A note in ⟨ ⟩ after a line says what ClipForge AI saw in the picture and heard in the sound there "
+            "(laughter, applause, a crash...); a real reaction or something happening on screen is a strong sign of a "
+            "moment.") if notes else ""
     return (f"{b.text()}\n\nPart {part} of {parts} of the transcript. Each line is one sentence: its number, its start "
-            f"time, its words.\n\n{lines}\n\n"
+            f"time, its words.{told}\n\n{lines}\n\n"
             f"Name up to {MAX_PER_WINDOW} moments in this part that would work as a short clip on their own: a complete "
             f"thought or story with a strong first line and an ending that lands, {b.min_s:.0f} to {b.max_s:.0f} "
             "seconds long (use the start times). Skip greetings, sponsor reads, housekeeping and anything that needs "
@@ -253,7 +276,7 @@ def _fit(sentences: list[dict], first: int, last: int, lo: int, hi: int, min_s: 
 
 def nominate(sentences: list[dict], feats: list[dict], loud: Loudness, opts: dict, ctx: JobContext, found: list[dict],
              b: Brief, *, lo: float = 0.0, hi: float = 0.0, deadline: float | None = None,
-             complete: Callable[..., str] | None = None) -> tuple[list[dict], dict]:
+             complete: Callable[..., str] | None = None, senses=None) -> tuple[list[dict], dict]:
     """Read the transcript and return (new candidates, notes). A nominated moment that a found candidate already
     covers (overlap above 60%) marks that candidate instead (`scout`) and raises its stage-1 score a little."""
     notes = {"windows": 0, "read": 0, "asked": 0, "answered": 0, "nominated": 0, "added": 0, "confirmed": 0,
@@ -261,7 +284,8 @@ def nominate(sentences: list[dict], feats: list[dict], loud: Loudness, opts: dic
     if not sentences or not configured(opts):
         return [], notes
     deadline = deadline or (time.monotonic() + budget_s(opts) * 0.6)
-    wins = windows(sentences)
+    sense_notes = _sense_notes(senses, sentences, 0, len(sentences) - 1)
+    wins = windows(sentences, notes=sense_notes)
     notes["windows"] = len(wins)
     global_top = cand_mod.common_words(sentences)
     local = {**opts, "min_duration": float(opts.get("min_duration", 20))}
@@ -275,7 +299,7 @@ def nominate(sentences: list[dict], feats: list[dict], loud: Loudness, opts: dic
         beat = (lambda msg, f=frac: ctx.progress(f, msg))
         beat(f"ClipForge AI is reading part {n + 1} of {len(wins)}")
         notes["asked"] += 1
-        data = _ask(opts, scout_prompt(b, sentences, first, last, n + 1, len(wins)), SCOUT_SCHEMA,
+        data = _ask(opts, scout_prompt(b, sentences, first, last, n + 1, len(wins), sense_notes), SCOUT_SCHEMA,
                     f"part {n + 1} of {len(wins)}", ctx, beat, deadline, notes, complete, max_tokens=400)
         notes["read"] = n + 1
         if not data:
@@ -312,17 +336,30 @@ def nominate(sentences: list[dict], feats: list[dict], loud: Loudness, opts: dic
 
 
 # ------------------------------------------------------------------ 2. the judge
-def judge_prompt(b: Brief, finalists: list[dict], sentences: list[dict]) -> str:
+def judge_prompt(b: Brief, finalists: list[dict], sentences: list[dict], senses=None) -> str:
     rows = []
+    sensed = False
     for n, r in enumerate(finalists, 1):
         text = " ".join(sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)) if r.get("s0", -1) >= 0 \
             else (r.get("caption_text") or "")
         if len(text) > FINALIST_CHARS:
             text = text[:FINALIST_CHARS - 1].rsplit(" ", 1)[0] + "…"
-        rows.append(f'Finalist {n} ({r["end"] - r["start"]:.0f} s): "{text}"')
+        row = f'Finalist {n} ({r["end"] - r["start"]:.0f} s): "{text}"'
+        if senses is not None:
+            got = senses.summary(r["start"], r["end"])
+            if got.get("seen"):
+                row += "\n  Seen: " + " | ".join(got["seen"][:3])[:260]
+                sensed = True
+            if got.get("heard"):
+                row += "\n  Heard: " + "; ".join(got["heard"][:4])[:200]
+                sensed = True
+        rows.append(row)
     listed = "\n".join(rows)
+    told = (" Under some finalists, Seen says what ClipForge AI saw in the picture and Heard what it heard (with the "
+            "time inside the clip); a clip that ends on a real laugh or shows something happening is stronger than "
+            "one that only talks about it.") if sensed else ""
     return (f"{b.text()}\n\nThe {len(finalists)} finalists below are candidate clips from this video, each with its "
-            f"length and words (cut at {FINALIST_CHARS} characters).\n\n{listed}\n\n"
+            f"length and words (cut at {FINALIST_CHARS} characters).{told}\n\n{listed}\n\n"
             "Rank them from the one most likely to hold a viewer who has never seen this video to the least, and give "
             'each a verdict: "green" (works on its own), "yellow" (works, with a weakness), "red" (would not work as a '
             "clip: it needs what came before, has no ending, is a greeting or a sponsor read, or repeats another "
@@ -334,7 +371,7 @@ def judge_prompt(b: Brief, finalists: list[dict], sentences: list[dict]) -> str:
 
 def judge(results: list[dict], sentences: list[dict], opts: dict, ctx: JobContext, b: Brief | None, *,
           score_key: str = "clip_score", frac: float = 0.0, deadline: float | None = None,
-          complete: Callable[..., str] | None = None) -> dict:
+          complete: Callable[..., str] | None = None, senses=None) -> dict:
     """Rank the finalists side by side. Each gets `judge` = {rank, of, verdict, note, adjust}; the caller folds
     `adjust` into its score. Returns notes."""
     notes = {"asked": 0, "answered": 0, "finalists": 0, "problems": [], "provider": llm.provider_label(opts),
@@ -350,8 +387,8 @@ def judge(results: list[dict], sentences: list[dict], opts: dict, ctx: JobContex
     notes["asked"] = 1
     beat = (lambda msg: ctx.progress(frac, msg))
     beat(f"ClipForge AI is ranking the {n} finalists")
-    data = _ask(opts, judge_prompt(b, order, sentences), JUDGE_SCHEMA, "the finalists", ctx, beat, deadline, notes,
-                complete, max_tokens=700)
+    data = _ask(opts, judge_prompt(b, order, sentences, senses), JUDGE_SCHEMA, "the finalists", ctx, beat, deadline,
+                notes, complete, max_tokens=700)
     if not data:
         return notes
     ranking: list[int] = []

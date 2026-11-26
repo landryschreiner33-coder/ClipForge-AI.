@@ -18,6 +18,7 @@ import logging
 import re
 import subprocess
 import time
+from pathlib import Path
 from typing import Callable
 
 from . import llm
@@ -79,9 +80,10 @@ def frame_times(start: float, end: float, n: int = FRAMES) -> list[float]:
     return [round(start + dur * (k + 1) / (n + 1), 3) for k in range(n)]
 
 
-def prompt(first_words: str, n: int) -> str:
+def prompt(first_words: str, n: int, heard: str = "") -> str:
     return (f"These are {n} frames from one short clip, in time order"
             + (f'. The clip begins: "{first_words[:200]}"' if first_words else "")
+            + (f". Heard during the clip: {heard[:200]}" if heard else "")
             + ". Say what kind of footage this is (talking_head, interview, vlog, screen_recording, gameplay, slides, "
               "b_roll, other), how many people are visible, any readable text on screen (or \"\"), which frame (1-"
               f"{n}) would make the best thumbnail (a clear face or the most striking image), a one-line description "
@@ -98,9 +100,12 @@ def _clean(text: object, limit: int) -> str:
 
 def look(video: str, start: float, end: float, first_words: str, opts: dict, ctx: JobContext | None, *,
          deadline: float | None = None, beat: Callable[[str], None] | None = None,
-         complete: Callable[..., str] | None = None) -> dict | None:
-    """What the model sees in the clip, or None (no frames, no answer in time, an unreadable answer)."""
-    times = frame_times(start, end)
+         complete: Callable[..., str] | None = None, times: list[float] | None = None,
+         heard: str = "") -> dict | None:
+    """What the model sees in the clip, or None (no frames, no answer in time, an unreadable answer). `times`: the
+    frames to show (by default a quarter, half and three quarters of the way; the frame-by-frame watch passes the
+    frames that differ most); `heard`: what was heard in the clip (laughter, applause...), as context."""
+    times = sorted(times)[:FRAMES] if times else frame_times(start, end)
     urls = [u for u in (frame(video, t) for t in times) if u]
     if not urls:
         return None
@@ -108,7 +113,7 @@ def look(video: str, start: float, end: float, first_words: str, opts: dict, ctx
     timeout = min(120.0, max(20.0, float(opts.get("ai_edit_timeout_s", 60)) * 2))
     if deadline is not None:
         timeout = min(timeout, max(5.0, deadline - time.monotonic()))
-    call = _pool.submit(fn, opts, prompt(first_words, len(urls)), task="eyes", system=SYSTEM, json_object=True,
+    call = _pool.submit(fn, opts, prompt(first_words, len(urls), heard), task="eyes", system=SYSTEM, json_object=True,
                         json_schema=SCHEMA, timeout=timeout, max_tokens=300, images=urls)
     stop = time.monotonic() + timeout
     while True:
@@ -146,3 +151,205 @@ def look(video: str, start: float, end: float, first_words: str, opts: dict, ctx
             "description": _clean(data.get("description"), 160), "problem": _clean(data.get("problem"), 100),
             "appeal": appeal, "thumbnail_t": times[best - 1], "frames": len(urls),
             "adjust": round(max(-WEIGHT, min(WEIGHT, (appeal - 5) * 0.8)), 1), "provider": llm.provider_label(opts)}
+
+
+# ------------------------------------------------------------------ watching the whole video (WATCH_AND_LISTEN.md)
+DESCRIBE_VERSION = 1
+DESCRIBE_FRAMES = 4
+DESCRIBE_W = 320
+TAGS = ("talking to camera", "conversation", "crowd", "close-up face", "laughing", "shocked or surprised", "crying",
+        "angry or shouting", "fight", "fall or crash", "explosion or fire", "sports play", "celebration", "dancing",
+        "game footage", "screen or slides", "text on screen", "animal", "food", "vehicle", "weapon", "outdoors",
+        "dark", "nothing happens")
+EXCITING_TAGS = ("laughing", "shocked or surprised", "angry or shouting", "fight", "fall or crash",
+                 "explosion or fire", "sports play", "celebration", "dancing", "crying")
+DESCRIBE_SYSTEM = ("You watch short stretches of a video for a video editor and say what happens in them. Describe "
+                   "only what you can see in the frames; the words and sounds you are given are context, not "
+                   "something to describe. Reply with one JSON object and nothing else.")
+DESCRIBE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "what": {"type": "string", "maxLength": 140},
+        "tags": {"type": "array", "maxItems": 5, "items": {"type": "string", "enum": list(TAGS)}},
+        "people": {"type": "integer", "minimum": 0, "maximum": 20},
+        "action": {"type": "integer", "minimum": 0, "maximum": 10},
+        "text_on_screen": {"type": "string", "maxLength": 80}},
+    "required": ["what", "tags", "people", "action", "text_on_screen"]}
+
+
+def describe_configured(opts: dict, meta: dict | None = None) -> bool:
+    """The built-in model looks at the whole video: the same switch as the finalists' look (ai_eyes) plus the
+    frame-by-frame watch (ai_watch)."""
+    return configured(opts, meta) and bool(opts.get("ai_watch", True))
+
+
+def describe_budget_s(opts: dict, duration: float) -> float:
+    """How long the model may spend watching: 40% of the video's length, between 90 seconds and 10 minutes
+    (Settings: ai_watch_budget_s, 0 = this rule). Parts already described are kept, so a second run adds to them."""
+    own = float(opts.get("ai_watch_budget_s") or 0)
+    return own if own > 0 else min(600.0, max(90.0, 0.4 * duration))
+
+
+def _stamp(t: float) -> str:
+    t = int(max(0.0, t))
+    return f"{t // 3600}:{t % 3600 // 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60}:{t % 60:02d}"
+
+
+def describe_prompt(start: float, end: float, n: int, said: str, heard: str) -> str:
+    return (f"These are {n} frames from {_stamp(start)} to {_stamp(end)} of a video, in time order."
+            + (f' Said here: "{said[:300]}".' if said else "")
+            + (f" Heard here: {heard}." if heard else "")
+            + " In one short sentence say what happens or what is shown (who does what, where). Then pick up to 5 "
+              "tags from the list, count the people you can see, rate how much happens (action: 0 nothing moves, "
+              "3 someone talking, 6 people moving or a lively scene, 9 something dramatic or funny happens), and "
+              "copy any readable text on screen (or \"\").\n"
+            'Answer: {"what": "...", "tags": ["..."], "people": 1, "action": 3, "text_on_screen": ""}')
+
+
+def _read_answer(raw: str) -> dict | None:
+    m = re.search(r"\{.*\}", raw or "", re.S)
+    try:
+        data = json.loads(m.group(0)) if m else None
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not _clean(data.get("what"), 140):
+        return None
+    try:
+        people = max(0, min(20, int(data.get("people") or 0)))
+        action = max(0, min(10, int(data.get("action") or 0)))
+    except (TypeError, ValueError):
+        return None
+    # known tags only, each once (a small model pads the list with repeats: "fall or crash" five times)
+    tags = list(dict.fromkeys(t for t in data.get("tags") if t in TAGS))[:5] \
+        if isinstance(data.get("tags"), list) else []
+    return {"what": _clean(data.get("what"), 140), "tags": tags, "people": people, "action": action,
+            "text": _clean(data.get("text_on_screen"), 80)}
+
+
+def describe_video(video: str, watched, opts: dict, ctx: JobContext | None, *, cache: Path | None = None,
+                   said: Callable[[float, float], str] | None = None, heard: Callable[[float, float], str] | None = None,
+                   priority: Callable[[float, float], float] | None = None, lo: float = 0.0, hi: float = 0.0,
+                   complete: Callable[..., str] | None = None, budget: float | None = None) -> dict:
+    """Show the built-in model every part of the video (watch.Watched.segments) and keep what it says happens in
+    each, most promising parts first (`priority`), until the time budget is spent. A part that looks the same as
+    the one before it (the same still talking head) takes that part's words instead of a new question. Returns
+    {"parts": [{start, end, what, tags, people, action, text, same?}], "asked", "answered", "coverage",
+    "problems", "provider"}; the parts are kept in `cache`, so the next run only asks about the rest."""
+    from .common import read_json, write_json
+
+    label = llm.provider_label(opts)
+    segs = watched.segments() if watched is not None else []
+    key = {"version": DESCRIBE_VERSION, "model": label, "segments": len(segs),
+           "video": str(Path(video).stat().st_size) if video and Path(video).is_file() else ""}
+    saved = read_json(cache, {}) if cache is not None else {}
+    done: dict[str, dict] = {}
+    if isinstance(saved, dict) and saved.get("key") == key:
+        done = {p["id"]: p for p in saved.get("parts") or [] if isinstance(p, dict) and p.get("id")}
+    notes = {"asked": 0, "answered": 0, "segments": len(segs), "problems": [], "provider": label, "coverage": 0.0,
+             "kept": len(done)}
+    if not segs:
+        return {**notes, "parts": []}
+    ids = [f"{s['start']:.2f}-{s['end']:.2f}" for s in segs]
+    order = sorted(range(len(segs)), key=lambda i: -(priority(segs[i]["start"], segs[i]["end"]) if priority else 0.0)
+                   - segs[i]["action"] * 0.5)
+    fn = complete or llm.complete
+    budget = describe_budget_s(opts, watched.duration) if budget is None else budget
+    deadline = time.monotonic() + budget
+    timeout = min(90.0, max(20.0, float(opts.get("ai_edit_timeout_s", 60)) * 1.5))
+
+    def copy_before(i: int) -> bool:
+        if i > 0 and segs[i]["same_as_before"] and ids[i - 1] in done and not done[ids[i - 1]].get("problem"):
+            done[ids[i]] = {**done[ids[i - 1]], "id": ids[i], "start": segs[i]["start"], "end": segs[i]["end"],
+                            "same": True}
+            return True
+        return False
+
+    def keep() -> None:   # what was described so far, also when the job stops halfway (Cancelled)
+        if cache is not None:
+            try:
+                write_json(cache, {"key": key, "parts": sorted(done.values(), key=lambda p: p["start"])})
+            except OSError as exc:
+                log.warning("eyes: could not keep what was seen: %s", exc)
+
+    try:
+        for step, i in enumerate(order):
+            if ctx:
+                ctx.check()
+            if ids[i] in done or copy_before(i):
+                continue
+            if time.monotonic() > deadline:
+                notes["problems"].append(f"Out of time after {notes['answered']} parts; the rest is measured only.")
+                break
+            s, e = segs[i]["start"], segs[i]["end"]
+            times = watched.keyframes(s, e, DESCRIBE_FRAMES)
+            urls = [u for u in (frame(video, t, DESCRIBE_W) for t in times) if u]
+            if not urls:
+                continue
+            if ctx:
+                ctx.progress(lo + (hi - lo) * min(1.0, step / max(1, len(order))),
+                             f"ClipForge AI is watching part {step + 1} of {len(order)}")
+            notes["asked"] += 1
+            # the last question may end a little late
+            wait = max(5.0, min(timeout, deadline - time.monotonic() + 15.0))
+            call = _pool.submit(fn, opts, describe_prompt(s, e, len(urls), said(s, e) if said else "",
+                                                          heard(s, e) if heard else ""),
+                                task="eyes", system=DESCRIBE_SYSTEM, json_object=True, json_schema=DESCRIBE_SCHEMA,
+                                timeout=wait, max_tokens=160, images=urls)
+            raw = None
+            stop = time.monotonic() + wait
+            while True:
+                try:
+                    raw = call.result(timeout=1.0)
+                    break
+                except concurrent.futures.TimeoutError:
+                    if ctx:
+                        ctx.check()
+                    if time.monotonic() > stop:
+                        notes["problems"].append(f"{_stamp(s)}: no answer within {wait:.0f} s.")
+                        break
+                except Exception as exc:  # noqa: BLE001 - a part left undescribed, never a failed job
+                    notes["problems"].append(f"{_stamp(s)}: {str(exc)[:160] or exc.__class__.__name__}")
+                    break
+            got = _read_answer(raw or "") if raw else None
+            if got is None:
+                if raw is not None:
+                    notes["problems"].append(f"{_stamp(s)}: the answer was not readable.")
+                if len(notes["problems"]) >= 6 and notes["answered"] == 0:
+                    notes["problems"].append("Stopped: the model did not describe the first parts.")
+                    break
+                continue
+            notes["answered"] += 1
+            done[ids[i]] = {"id": ids[i], "start": s, "end": e, **got, "frames": len(urls)}
+    finally:
+        for i in range(len(segs)):  # parts that look like the one before take its words (in time order)
+            if ids[i] not in done:
+                copy_before(i)
+        keep()
+    parts = sorted(done.values(), key=lambda p: p["start"])
+    notes["coverage"] = round(sum(p["end"] - p["start"] for p in parts) / max(0.1, watched.duration), 3)
+    return {**notes, "parts": parts}
+
+
+def answer_about(video: str, times: list[float], question: str, opts: dict, *, context: str = "",
+                 complete: Callable[..., str] | None = None, timeout: float = 60.0) -> str | None:
+    """The built-in model looks at frames at `times` and answers a question about them in a few sentences (the chat's
+    `watch` tool). None without the model or frames."""
+    if opts.get("ai_provider") != "builtin":
+        return None
+    urls = [u for u in (frame(video, t, FRAME_W) for t in times[:6]) if u]
+    if not urls:
+        return None
+    prompt_text = (f"These are {len(urls)} frames from a video, in time order ("
+                   + ", ".join(_stamp(t) for t in times[:len(urls)]) + ")."
+                   + (f" {context[:600]}" if context else "")
+                   + f"\nQuestion: {question[:400]}\nAnswer in at most three short sentences, only from what you can "
+                     "see (say so when the frames do not show it).")
+    try:
+        raw = (complete or llm.complete)(opts, prompt_text, task="eyes", system=(
+            "You look at frames from a video and answer questions about what is on screen. Describe only what you "
+            "can see."), timeout=timeout, max_tokens=200, images=urls)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("eyes: %s", exc)
+        return None
+    text = " ".join(str(raw or "").split()).strip()
+    return text[:700] or None
