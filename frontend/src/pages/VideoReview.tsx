@@ -12,7 +12,7 @@ import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
 import { redirect } from "../router";
 import { colourLine, LOOKS, lookOf } from "../looks";
-import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, studio, TrackName, uploadIds, Video } from "../studio";
+import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, SoundJoins, studio, TrackName, uploadIds, Video } from "../studio";
 
 const PAGE = 60;  // sequence rows drawn at a time (the list stays light however long the project is)
 const ROLE_WORDS: Record<AudioRole, string> = { voiceover: "Voiceover", music: "Music", effect: "Sound effect" };
@@ -52,12 +52,31 @@ function Gain({ label, value, min, max, onCommit, disabled }: { label: string; v
 
 const STRENGTHS = [25, 50, 75, 100];
 
+/** The version shown in the preview (its render reports say what it did). */
+const shownVersion = (v: Video) =>
+  v.preview ? v.artifacts.find((a) => a.kind === "preview" && a.revision === v.preview!.revision) : undefined;
+
+/** One line on how the last render joined the sound, or "" when it did none of it. */
+function soundLine(j: SoundJoins | undefined): string {
+  const parts: string[] = [];
+  const splits = j?.split_edits?.length ?? 0;
+  if (splits) {
+    parts.push(`the sound leads or trails the picture by a few frames at ${splits} cut${splits === 1 ? "" : "s"}`
+      + " between recordings (J and L cuts)");
+  }
+  const tone = j?.room_tone_s ?? 0;
+  if (tone > 0) parts.push(`room sound under ${tone.toFixed(1)} s of titles and photos instead of silence`);
+  const backTimed = Object.values(j?.music_back_timed_s ?? {}).some((s) => s > 0);
+  if (backTimed) parts.push("the music timed to end on the last frame");
+  return parts.length ? `${parts.join("; ")}.` : "";
+}
+
 /** The picture's colour: automatic correction, matching the recordings, a look and grain cleanup (engine plan
  * "color"); the last render says what it changed in each recording. */
 function ColourPanel({ v, plan, edit, busy }: { v: Video; plan: Plan; edit: EditFn; busy: boolean }) {
   const c = plan.color ?? { auto: false, match: false, look: "natural", strength: 100, clean: false };
   const set = (field: string, value: unknown) => edit({ op: "set", field, value });
-  const shown = v.preview ? v.artifacts.find((a) => a.kind === "preview" && a.revision === v.preview!.revision) : undefined;
+  const shown = shownVersion(v);
   const reports = Object.entries(shown?.colour || {});
   const name = (id: string) => v.assets.find((a) => a.id === id)?.filename || "A recording";
   const strengths = STRENGTHS.includes(c.strength) ? STRENGTHS : [...STRENGTHS, c.strength].sort((a, b) => a - b);
@@ -308,7 +327,7 @@ function SmartPanel({ v, plan, busy, onStarted }: { v: Video; plan: Plan; busy: 
           {level !== "off" && <div className="stack-2">
             <label><input type="checkbox" checked={broll} onChange={(e) => setBroll(e.target.checked)} /> Show my images over the video while people talk</label>
             <label><input type="checkbox" checked={fx} onChange={(e) => setFx(e.target.checked)} /> Soft sound effects at scene changes and pictures</label>
-            <label><input type="checkbox" checked={punch ?? level === "tight"} onChange={(e) => setPunch(e.target.checked)} /> Zoom in a little on every other cut</label>
+            <label><input type="checkbox" checked={punch ?? (level === "smart" || level === "tight")} onChange={(e) => setPunch(e.target.checked)} /> Zoom in a little on every other cut</label>
             <label><input type="checkbox" checked={ai && !!helper?.configured} disabled={!helper?.configured} onChange={(e) => setAi(e.target.checked)} /> Let ClipForge AI help{helper?.configured ? ` (${helper.label}${helper.local ? ", on this computer" : ", online"})` : ""}</label>
             {!helper?.configured && <p className="small muted">ClipForge AI has no model yet; the built-in editor works without one. <a href="#/settings/ai">Set up a free model</a></p>}
           </div>}
@@ -559,6 +578,8 @@ export default function VideoReview({ id }: { id: string }) {
               </div> : <p className="small muted">Add voiceovers, music or sound effects under Your media, then place them here.</p>}
               {plan.audio.some((i) => i.duck) && <Gain label="Music and effects dip under speech by" value={-(plan.ducking?.depth_db ?? 12)} min={-30} max={0} disabled={busy}
                 onCommit={(x) => edit({ op: "set", field: "duck_depth_db", value: -x })} />}
+              {soundLine(shownVersion(v)?.sound_joins)
+                && <p className="small muted">Last render: {soundLine(shownVersion(v)?.sound_joins)}</p>}
             </section>
             <section className="panel" aria-labelledby="vr-media">
               <h2 id="vr-media">Your media ({bin.length})</h2>

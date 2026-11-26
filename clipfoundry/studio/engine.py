@@ -58,6 +58,7 @@ from typing import Callable
 
 from .. import config
 from ..pipeline import audio_timing, cleanup, grade
+from . import sound_joins
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
 from ..pipeline.common import Cancelled
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
@@ -927,9 +928,64 @@ def _fades(fade_in_ms: int, fade_out_ms: int, length_s: float) -> str:
 NORMALISE = "aresample=48000:async=1:first_pts=0,aformat=sample_fmts=flt:sample_rates=48000:channel_layouts=stereo"
 
 
+def _write_raw(samples, out: Path) -> Path:
+    """Float stereo samples (numpy, shape (n, 2)) as a raw f32le file like _raw_audio's."""
+    import numpy as np
+
+    np.asarray(samples, dtype="<f4").reshape(-1, 2).tofile(out)
+    return out
+
+
+def _room_tones(els: list[dict], own: list[bool], assets: dict[str, dict], words_by_asset: dict[str, list[dict]],
+                source_sound, tmp: Path, track_gain_db: float, cancelled=None) -> dict[int, "np.ndarray"]:
+    """{element index: room-tone sample} for each title card, photo or video without sound (not a muted clip: the
+    owner asked for silence there), taken from the nearest recording that has its own sound (sound_joins.py), at
+    the volume that recording plays at (its clip's and the source track's)."""
+    import numpy as np
+
+    samples: dict[str, "np.ndarray | None"] = {}
+
+    def sample(k: int) -> "np.ndarray | None":
+        e = els[k]
+        aid = e["asset_id"]
+        if aid in samples:
+            return samples[aid]
+        samples[aid] = None
+        words = words_by_asset.get(aid)
+        if words is None:
+            return None
+        best = None
+        for j, (a, b) in enumerate(sound_joins.tone_candidates(words, _length(assets[aid]) / 1000)):
+            _check(cancelled)
+            n = int((b - a) * SR)
+            path = _raw_audio(["-ss", f"{a:.6f}", "-t", f"{b - a + 0.5:.6f}", *source_sound(e, assets[aid])],
+                              NORMALISE, n, tmp / f"tone-{aid}-{j}.raw", cancelled)
+            x = np.fromfile(path, dtype="<f4").reshape(-1, 2)
+            path.unlink(missing_ok=True)
+            level = sound_joins.level_db(x)
+            if sound_joins.usable_tone(level) and (best is None or level < best[0]):
+                best = (level, x)
+        samples[aid] = best[1] if best else None
+        return samples[aid]
+    out = {}
+    for k, e in enumerate(els):
+        if own[k] or (e.get("clip") or {}).get("mute") or e["frames"] <= 0:
+            continue
+        near = sorted((i for i in range(len(els)) if own[i]), key=lambda i: (abs(i - k), i > k))
+        for i in near[:2]:
+            x = sample(i)
+            if x is not None:  # the level was judged as recorded; it plays as loud as that recording does
+                gain = float((els[i].get("clip") or {}).get("gain_db") or 0) + track_gain_db
+                out[k] = x * np.float32(10 ** (gain / 20))
+                break
+    return out
+
+
 def mix(total: int, parts: list[dict], out: Path, cancelled=None) -> None:
     """Sum raw stereo parts into one bus of `total` samples, block by block (each part: start, n, path and optional
-    linear ramp lengths at its edges, which make an exact crossfade with a neighbour's opposite ramp)."""
+    ramp lengths at its edges, which make an exact crossfade with a neighbour's opposite ramp: a straight line, or
+    equal power with `power_in`/`power_out`). A part may start before 0 or end after `total`: only what falls
+    inside is heard."""
     import numpy as np
 
     maps = [(p, np.memmap(p["path"], dtype=np.float32, mode="r", shape=(p["n"], 2))) for p in parts]
@@ -948,10 +1004,11 @@ def mix(total: int, parts: list[dict], out: Path, cancelled=None) -> None:
                     if p.get("ramp_in") or p.get("ramp_out"):
                         pos = np.arange(lo - s, hi - s, dtype=np.float64)
                         g = np.ones(hi - lo, dtype=np.float64)
-                        if p.get("ramp_in"):
-                            g = np.minimum(g, pos / p["ramp_in"])
-                        if p.get("ramp_out"):
-                            g = np.minimum(g, (p["n"] - pos) / p["ramp_out"])
+                        for key, x in (("in", pos / p["ramp_in"] if p.get("ramp_in") else None),
+                                       ("out", (p["n"] - pos) / p["ramp_out"] if p.get("ramp_out") else None)):
+                            if x is not None:  # equal power for two unrelated sounds, else a straight line
+                                x = np.clip(x, 0.0, 1.0)
+                                g = np.minimum(g, np.sin(x * (np.pi / 2)) if p.get(f"power_{key}") else x)
                         chunk = chunk * g.astype(np.float32)[:, None]
                     buf[lo - b0:hi - b0] += chunk
                 fh.write(buf.tobytes())
@@ -1198,23 +1255,78 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                                                      words_by_asset.get(aid) or [], clean_mode, cancelled=cancelled)
             r = cleaned[aid]
             return r.input_args() if r.path is not None else ["-i", sound]
-        for k, e in enumerate(els):
+        # which elements bring their own sound; the rest get the nearest recording's room tone (sound_joins.py)
+        own: list[bool] = []
+        for e in els:
             clip = e.get("clip") or {}
             a = assets.get(e["asset_id"]) if e["kind"] == "video" else None
-            if not a or not (a.get("probe") or {}).get("has_audio") or clip.get("mute") or src_track.get("mute"):
+            own.append(bool(a and (a.get("probe") or {}).get("has_audio") and not clip.get("mute")
+                            and not src_track.get("mute")))
+        lengths = {aid: _length(a) for aid, a in assets.items() if a.get("kind") == "video"}
+        splits = sound_joins.split_edits(els, own, words_by_asset, lengths, fps)
+        tones = _room_tones(els, own, assets, words_by_asset, source_sound, tmp, float(src_track.get("gain_db") or 0),
+                            cancelled) if not src_track.get("mute") else {}
+        heard = [own[k] or k in tones for k in range(len(els))]
+        xf = round(sound_joins.SCENE_XFADE_MS * SR / 1000)
+        # each straight cut between two different sounds (recordings, or room tone) gets an equal-power crossfade
+        # around its sound edit: (samples before it, samples after it, ramp length) for the cut into element k
+        xfades: dict[int, tuple[int, int, int]] = {}
+        for k in range(1, len(els)):
+            if els[k]["ov_in"] or not (heard[k - 1] and heard[k]) or \
+                    (own[k - 1] and own[k] and els[k - 1]["asset_id"] == els[k]["asset_id"]):
+                continue
+            lead, lag = splits.get(k, (0, 0))
+            shift = (lag - lead) / fps
+            p_e, q_e = els[k - 1], els[k]
+            # a side may reach past its own edge only into room sound (never a cut-out word); a split edit is
+            # clear of words by construction, room tone always
+            after = k in splits or not own[k - 1] or sound_joins.clear(
+                words_by_asset.get(p_e["asset_id"]), (p_e["src_in_ms"] + p_e["frames"] * 1000 / fps) / 1000 + shift,
+                xf / SR, lengths.get(p_e["asset_id"], 0) / 1000)
+            before = k in splits or not own[k] or sound_joins.clear(
+                words_by_asset.get(q_e["asset_id"]), q_e["src_in_ms"] / 1000 + shift - xf / SR, xf / SR,
+                lengths.get(q_e["asset_id"], 0) / 1000)
+            xfades[k] = (xf // 2, xf - xf // 2, xf) if before and after else (0, xf, xf) if after else \
+                (xf, 0, xf) if before else (0, 0, xf // 2)  # neither: a quick dip, like a jump cut's
+        for k, e in enumerate(els):
+            if not heard[k]:
                 continue
             _check(cancelled)
-            n = e["frames"] * spf
-            gain = float(clip.get("gain_db") or 0) + float(src_track.get("gain_db") or 0)
-            raw = _raw_audio(["-ss", f"{e['src_in_ms'] / 1000:.6f}", "-t", f"{n / SR + 0.5:.6f}", *source_sound(e, a)],
-                             f"{NORMALISE},volume={gain:.2f}dB" + _fades(int(clip.get("fade_in_ms") or 0),
-                                                                        int(clip.get("fade_out_ms") or 0), n / SR),
-                             n, tmp / f"el{k}.raw", cancelled)
-            speech.append({"start": e["start_f"] * spf, "n": n, "path": raw,
-                           "ramp_in": e["ov_in"] * spf,
-                           "ramp_out": (els[k + 1]["ov_in"] if k + 1 < len(els) else 0) * spf})
+            lead, lag = splits.get(k, (0, 0))              # this element's start: J lead or L lag (frames)
+            n_lead, n_lag = splits.get(k + 1, (0, 0))       # its end: the next one's J lead or L lag
+            x_in, x_out = xfades.get(k), xfades.get(k + 1)
+            start = (e["start_f"] - lead + lag) * spf - (x_in[0] if x_in else 0)
+            end = (e["end_f"] - n_lead + n_lag) * spf + (x_out[1] if x_out else 0)
+            n = end - start
+            if own[k]:
+                clip = e.get("clip") or {}
+                a = assets[e["asset_id"]]
+                gain = float(clip.get("gain_db") or 0) + float(src_track.get("gain_db") or 0)
+                src = e["src_in_ms"] * SR // 1000 + (start - e["start_f"] * spf)  # the source sample at `start`
+                skip = max(0, -src)  # before the file's start (a crossfade at its very first sample): silence
+                raw = _raw_audio(["-ss", f"{max(0, src) / SR:.6f}", "-t", f"{(n - skip) / SR + 0.5:.6f}",
+                                  *source_sound(e, a)],
+                                 f"{NORMALISE},volume={gain:.2f}dB" + (f",adelay={skip}S:all=1" if skip else "") +
+                                 _fades(int(clip.get("fade_in_ms") or 0), int(clip.get("fade_out_ms") or 0), n / SR),
+                                 n, tmp / f"el{k}.raw", cancelled)
+                bus = speech
+            else:
+                raw = _write_raw(sound_joins.loop_tone(tones[k], n, SR), tmp / f"tone{k}.raw")
+                bus = free  # never counted as speech (it would hold the music down)
+            bus.append({"start": start, "n": n, "path": raw,
+                        "ramp_in": x_in[2] if x_in else e["ov_in"] * spf, "power_in": bool(x_in),
+                        "ramp_out": x_out[2] if x_out else (els[k + 1]["ov_in"] if k + 1 < len(els) else 0) * spf,
+                        "power_out": bool(x_out)})
+            if not own[k] and k == 0:
+                bus[-1].update(ramp_in=xf, power_in=True)  # room tone under an opening title fades in
+            if not own[k] and k == len(els) - 1:
+                bus[-1].update(ramp_out=xf, power_out=True)
+        joins_report = {"split_edits": [{"at_s": round(els[k]["start_f"] / fps, 3), "j_frames": ld, "l_frames": lg}
+                                        for k, (ld, lg) in sorted(splits.items())],
+                        "room_tone_s": round(sum(els[k]["frames"] for k in tones) / fps, 2)}
         items = {i["id"]: i for i in plan.get("audio") or []}
         placed = audio_timeline(plan, segs, round(total_s * 1000))
+        back_timed: dict[str, float] = {}
         for k, place in enumerate(placed):
             item = items[place["audio_id"]]
             track = tracks[place["track"]]
@@ -1229,9 +1341,18 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             path = assets[item["asset_id"]]["path"]
             args = ["-stream_loop", "-1", "-i", path] if place["loop"] else \
                 ["-ss", f"{place['src_in_ms'] / 1000:.6f}", "-t", f"{n / SR + 0.5:.6f}", "-i", path]
-            raw = _raw_audio(args, f"{NORMALISE},volume={gain:.2f}dB" + _fades(
-                int(item.get("fade_in_ms") or 0), int(item.get("fade_out_ms") or 0), n / SR), n,
-                tmp / f"item{k}.raw", cancelled)
+            skip = 0
+            if place["loop"] and item["role"] == "music" and item.get("back_time", True):
+                # back-timed: started so its own end (a song's ending, a bed's last whole bar) lands on its last
+                # sample, here the video's last frame (sound_joins.py)
+                skip = sound_joins.back_time_offset(n, round(_length(assets[item["asset_id"]]) * SR / 1000))
+                back_timed[item["id"]] = round(skip / SR, 3)
+            fade_in = int(item.get("fade_in_ms") or 0)
+            if skip:  # it now starts inside the music: never on a hard edge
+                fade_in = max(fade_in, sound_joins.BACK_TIME_FADE_IN_MS)
+            raw = _raw_audio(args, f"{NORMALISE}" + (f",atrim=start_sample={skip},asetpts=PTS-STARTPTS" if skip else "")
+                             + f",volume={gain:.2f}dB" + _fades(fade_in, int(item.get("fade_out_ms") or 0), n / SR), n,
+                             tmp / f"item{k}.raw", cancelled)
             part = {"start": start, "n": n, "path": raw}
             if item["role"] == "voiceover":
                 speech.append(part)
@@ -1279,6 +1400,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             "duration": info["duration"], "expected_duration": round(total_s, 3), "fps": info["fps"],
             "has_audio": info["has_audio"], "audio_timing": timing, "normalization_gain_db": round(gain, 3),
             "timeline": segs, "audio_timeline": placed, "ducking": ducking, "words": words,
+            "sound_joins": {**joins_report, "music_back_timed_s": back_timed},
             "overlays": [{"overlay_id": o["id"], "start_f": o["start_f"], "end_f": o["end_f"]}
                          for k in sorted(overlays) for o in overlays[k]],
             "captions": bool(events), "clean_sound": {aid: r.report for aid, r in cleaned.items()},

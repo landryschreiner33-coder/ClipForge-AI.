@@ -159,12 +159,16 @@ export type Segment = { clip_id: string; asset_id: string; kind: string; src_in_
   out_start_ms: number; out_end_ms: number };
 export type Placed = { audio_id: string; asset_id: string; role: AudioRole; track: TrackName; out_start_ms: number;
   out_end_ms: number; src_in_ms: number; loop: boolean; cut_ms: number };
+export type SoundJoins = { split_edits?: { at_s: number; j_frames: number; l_frames: number }[]; room_tone_s?: number;
+  music_back_timed_s?: Record<string, number> };
 export type Video = { id: string; name: string; status: string; message: string; asset_ids: string[];
   brief: Record<string, unknown>; plan_revision: number; rendered_revision: number; guidance: Snapshot; plan: Plan | null;
   duration: number; assets: Asset[]; bin: string[]; timeline: Segment[]; audio_timeline: Placed[];
   artifacts: ({ id: string; revision: number; kind: string; sha256: string; duration: number; audio_ok: boolean;
     /** What the render did to each recording's colour, by asset id. */
-    colour?: Record<string, ColourReport> } & MadeWith)[];
+    colour?: Record<string, ColourReport>;
+    /** How the render joined the sound (engine sound_joins): split edits, room tone, back-timed music. */
+    sound_joins?: SoundJoins } & MadeWith)[];
   preview: { revision: number; stale: boolean } | null;
   jobs: { id: string; kind: string; revision: number; status: string; progress: number; message: string; error: string }[];
   revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];

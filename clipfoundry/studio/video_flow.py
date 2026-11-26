@@ -45,7 +45,10 @@ from ..pipeline.ffmpeg_utils import extract_audio
 from . import engine, guidance, prefs, styles, uploads
 from .jobs import Lease, enqueue, handler, on_stop
 
-FEEL_TRANSITIONS = {"calm": ("dissolve", 800), "balanced": ("dissolve", 400), "energetic": ("cut", 0)}
+# hard cuts are 95-99 % of an edit's joins (docs/clipforge/EDITING_CRAFT_RESEARCH.md): a dissolve says time passed
+# or the place changed, so only the calm, storytelling feel dissolves between recordings; the engine's split edits
+# and crossfades keep the hard cuts smooth to the ear (studio/sound_joins.py)
+FEEL_TRANSITIONS = {"calm": ("dissolve", 800), "balanced": ("cut", 0), "energetic": ("cut", 0)}
 IMAGE_MS = 4000
 BRIEF_FIELDS = {"video_type", "audience", "goal", "target_duration_s", "aspect_ratio", "feel", "captions", "music",
                 "music_asset_id", "must_keep", "avoid", "caption_style", "caption_position", "transition",
@@ -1811,6 +1814,7 @@ def view(project: dict) -> dict:
                            "duration": (a.get("info") or {}).get("duration"),
                            "audio_ok": ((a.get("info") or {}).get("audio_timing") or {}).get("valid"),
                            "colour": (a.get("info") or {}).get("colour") or {},
+                           "sound_joins": (a.get("info") or {}).get("sound_joins") or {},
                            **_made_with(a.get("info") or {})}
                           for a in arts],
             "preview": {"revision": shown["revision"], "stale": stale} if shown else None,

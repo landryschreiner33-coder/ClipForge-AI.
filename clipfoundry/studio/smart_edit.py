@@ -54,6 +54,7 @@ FILLER_GAP_S = 0.22          # an um/uh heard on its own is cut when it leaves a
 FILLER_PAD_S = 0.05
 FADE_MS = 10                 # sound fade at a jump cut (no click)
 PUNCH_IN = 1.1
+WHOOSH_GAP_MS = 15000        # whooshes at changes of recording at least this far apart
 OVERLAY_MS = {"calm": 4500, "balanced": 3500, "energetic": 2600}
 QUIET_DB = 30.0              # a pause is this far below the speaker's typical level
 FRAME_S = 0.01
@@ -114,7 +115,8 @@ def options(values: dict, brief: dict) -> dict:
     level = pick("smart_edit", "off")
     level = level if level in LEVEL_CHOICES else "off"
     return {"level": level, "cut_pauses": bool(pick("cut_pauses", True)), "cut_retakes": bool(pick("cut_retakes", True)),
-            "fit_length": bool(pick("fit_length", True)), "punch_in": bool(pick("punch_in", level == "tight")),
+            "fit_length": bool(pick("fit_length", True)),
+            "punch_in": bool(pick("punch_in", level in ("smart", "tight"))),  # wide/tight alternation at jump cuts
             "sound_effects": bool(pick("sound_effects", True)), "broll": bool(pick("broll_images", True)),
             "music": pick("music", "auto") if pick("music", "auto") in MUSIC_CHOICES else "auto",
             "ai": bool(pick("ai_edit", True)), "cold_open": bool(pick("cold_open", True))}
@@ -1152,12 +1154,17 @@ def _place_effects(plan: dict, library: dict, stats: dict) -> None:
     half = (t.get("ms") or 0) // 2 if t.get("type") != "cut" else 0
     prev = None
     whooshes = 0
+    starts = {s["clip_id"]: s["out_start_ms"] for s in engine.timeline(plan)}
+    last = -WHOOSH_GAP_MS
     for c in plan["clips"]:
         if not c.get("include", True):
             continue
         change = (prev is None and plan["title"]["enabled"]) or (prev is not None and c.get("join") != "cut" and
                                                                   prev["asset_id"] != c["asset_id"])
+        # rationed: a whoosh at every change of recording would stop meaning anything (and tire the ear)
+        change = change and starts.get(c["id"], 0) - last >= WHOOSH_GAP_MS
         if change and "whoosh" in library and whooshes < 30:
+            last = starts.get(c["id"], 0)
             item = _audio_item(f"a{len(plan['audio']) + 1}", library["whoosh"], "effect", gain_db=-14.0)
             item.update(anchor={"clip_id": c["id"], "offset_ms": half - 540}, auto=True, label="Whoosh (ClipForge)")
             plan["audio"].append(item)

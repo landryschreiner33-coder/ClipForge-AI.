@@ -225,8 +225,9 @@ def test_music_and_sound_effects_are_attached(env):
         [(song["id"], True, True, 1500, 2500)]
     fx = [i for i in plan["audio"] if i["role"] == "effect"]
     second = next(c for c in plan["clips"] if c["asset_id"] == b["id"])
-    # a whoosh after the title and one where the second recording starts, centred on the dissolve
-    assert sorted(i["anchor"]["clip_id"] for i in fx) == sorted([plan["clips"][0]["id"], second["id"]])
+    # a whoosh after the title; the second recording starts within 15 s of it, so none there (rationed)
+    assert second["id"] != plan["clips"][0]["id"]
+    assert [i["anchor"]["clip_id"] for i in fx] == [plan["clips"][0]["id"]]
     assert all(i["anchor"]["offset_ms"] == plan["transition"]["ms"] // 2 - 540 and i["gain_db"] == -14 for i in fx)
     assert engine.validate(plan, video_flow._assets(project, plan)) == []
     # without a music file of your own, ClipForge's free music in the video's mood

@@ -187,7 +187,9 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
     fade = 0.01
     if len(rel) == 1:
         a, b = rel[0]
-        parts.append(f"[clock]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS[ac]")
+        # 10 ms in and out, like every part of a cut clip: a clip that starts or stops mid-sound never clicks
+        parts.append(f"[clock]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS,afade=t=in:st=0:d={fade},"
+                     f"afade=t=out:st={max(0.0, b - a - fade):.4f}:d={fade}[ac]")
     else:
         labels = "".join(f"[s{i}]" for i in range(len(rel)))
         parts.append(f"[clock]asplit={len(rel)}{labels}")
