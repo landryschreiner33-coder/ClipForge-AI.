@@ -107,7 +107,7 @@ export interface WorkerRow {
   job_id: string;
   ref_type: string;
   ref_id: string;
-  heartbeat: number;
+  heartbeat?: number;   // missing for a worker that has never started
   last_error: string;
   stale: boolean;
   queue: Record<string, number>;
