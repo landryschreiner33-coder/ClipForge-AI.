@@ -506,9 +506,24 @@ _EDIT_FIELDS = {"tracking": ("framing", "mode"), "crop_x": ("framing", "crop_x")
                 "hook_seconds": ("hook", "seconds")}
 
 
+def _inside_trims(bp: Blueprint, edit: dict, s: float, e: float) -> list[Interval]:
+    """The plan's own intervals cut to [s, e] when every side of the range is a trim ClipForge made when the clip
+    was made (edit["auto_trims"], pipeline/process.auto_trim) and it stays inside the plan: the strategist's middle
+    cuts and scene-cut edges stay. [] for a range the owner set (it replaces the intervals, as it always has)."""
+    made = {t.get("side"): t.get("to") for t in edit.get("auto_trims") or [] if isinstance(t, dict)}
+    for side in ("start", "end"):
+        if side in edit and (made.get(side) is None or abs(float(edit[side]) - float(made[side])) > 0.005):
+            return []
+    if not (bp.intervals[0].start - 1e-6 <= s < e <= bp.intervals[-1].end + 1e-6):
+        return []
+    return [Interval(round(max(i.start, s), 3), round(min(i.end, e), 3)) for i in bp.intervals
+            if min(i.end, e) - max(i.start, s) >= MIN_INTERVAL]
+
+
 def with_edit(bp: Blueprint, edit: dict, origin: str = "edit") -> Blueprint:
     """The plan with the editor's (or a version's) changes applied. A trim replaces the intervals with the trimmed
-    range; everything else overrides the matching field. Returns `bp` itself when nothing changes."""
+    range (a trim ClipForge made itself only cuts the plan's intervals: _inside_trims); everything else overrides
+    the matching field. Returns `bp` itself when nothing changes."""
     edit = {k: v for k, v in (edit or {}).items() if v is not None}
     if not edit:
         return bp
@@ -516,8 +531,9 @@ def with_edit(bp: Blueprint, edit: dict, origin: str = "edit") -> Blueprint:
     changed = []
     if "start" in edit or "end" in edit:
         s, e = float(edit.get("start", bp.intervals[0].start)), float(edit.get("end", bp.intervals[-1].end))
-        new.intervals = [Interval(round(s, 3), round(e, 3))]
-        new.emphasis = [x for x in new.emphasis if s <= x["at"] <= e]
+        kept = _inside_trims(bp, edit, s, e)
+        new.intervals = kept or [Interval(round(s, 3), round(e, 3))]
+        new.emphasis = [x for x in new.emphasis if any(i.start <= x["at"] <= i.end for i in new.intervals)]
         changed.append("range")
     if "speed" in edit:
         new.speed = float(edit["speed"])

@@ -128,6 +128,8 @@ def grounding_problems(text: str, clip_text: str, allowed: set[str] | frozenset 
 def hashtag_problems(tag: str, clip_text: str, allowed: set[str] | frozenset = frozenset()) -> list[str]:
     """`allowed`: words the video's own name gives as its subject (subject_words), which a tag may use."""
     body = tag.lstrip("#")
+    if body and body.lower() in allowed:   # a tag the owner adds to every post (known_words), as a whole
+        return []
     parts = [p.lower() for p in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+", body)] or [body.lower()]
     _, known = _known(clip_text)
     missing = [p for p in parts if not p.isdigit() and not known(p, allowed)] + [p for p in parts if p.isdigit() and
@@ -140,6 +142,11 @@ def hashtag_problems(tag: str, clip_text: str, allowed: set[str] | frozenset = f
 # gameplay clip rarely says the game's name, so the name is where its main hashtag comes from. Only names (words
 # written with a capital in a name that is not all capitals) and words the clip also says are taken; file-name
 # filler is left out.
+SENTENCE_STARTS = set("""
+why how what when where who first last finally another every some today tonight yesterday almost always still just
+best worst top ultimate my our your his her their this these those here there try trying tried can can't don't
+i'm we're you're it's let's please stop guess check meet inside behind
+""".split())
 NAME_NOISE = set("""
 img vid mov mp4 mkv webm m4v avi final edit edited copy untitled export exported render rendered recording record
 recorded stream streamed streaming vod part episode pt raw new full official hd uhd fps compilation highlights
@@ -153,16 +160,30 @@ def _name_runs(name: str) -> list[list[str]]:
     words = [w for w in re.findall(r"[A-Za-z][A-Za-z'’]*", name) if w.lower() not in STOPWORDS]
     if not words or (len(words) >= 4 and all(w[0].isupper() for w in words)):
         return []   # "How I Beat The Hardest Boss Ever"; a short name ("Elden Ring") is a name
-    runs: list[list[str]] = []
+    runs: list[tuple[list[str], bool]] = []   # (the run, whether it starts a sentence)
     cur: list[str] = []
+    first = start = True
     for piece in re.findall(r"[A-Za-z][A-Za-z'’]*|[^\sA-Za-z]+", name):   # punctuation ends a run
         if piece[0].isalpha() and piece[0].isupper() and piece.lower() not in STOPWORDS:
+            if not cur:
+                start = first
             cur.append(piece)
+            first = False
             continue
         if cur:
-            runs.append(cur)
+            runs.append((cur, start))
         cur = []
-    return runs + ([cur] if cur else [])
+        first = not piece[0].isalpha() and bool(re.search(r"[:.!?|\-–—]", piece))   # a new sentence or part
+    if cur:
+        runs.append((cur, start))
+    # a sentence's own capital is not a name: "Trying the new crosshair", "Beating the boss", "Watch this"
+    return [run for run, at_start in runs if not (at_start and len(run) == 1 and _ordinary_word(run[0]))]
+
+
+def _ordinary_word(word: str) -> bool:
+    """A word that starts a sentence because it is a verb or a filler, not because it is a name."""
+    w = word.lower().replace("’", "'")
+    return (len(w) > 4 and w.endswith(("ing", "ed"))) or w in VAGUE_WORDS or w in LEANS_ON or w in SENTENCE_STARTS
 
 
 def _subject_word(w: str) -> bool:
@@ -226,8 +247,9 @@ def known_words(names: list[str], settings: dict | None = None) -> frozenset[str
     """Words a post about this video may use although the clip does not say them: every name in the video's
     names (subjects()) and the words of the owner's own hashtags."""
     words = set(subject_words(subjects_for(names, "", limit=12)))
-    for tag in owner_tags(settings):
-        words |= {p.lower() for p in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])", tag.lstrip("#"))}
+    for tag in owner_tags(settings):   # the whole tag too: "#cs2", "#GTA5", "#ゲーム" are the owner's own
+        body = tag.lstrip("#")
+        words |= {body.lower()} | {p.lower() for p in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])", body)}
     return frozenset(words)
 
 
@@ -564,6 +586,14 @@ def ensure_kinds(pkg: dict, sents: list[str], kws: list[str], keep: frozenset[st
     return pkg
 
 
+def kind_keywords(subject: list[str] | None, clip_text: str, global_df: Counter | None = None,
+                  n_docs: int = 1) -> list[str]:
+    """The words title_kind reads a title with: the subject's first words ("Elden Ring: ..." is a Searchable title),
+    then the clip's topics. The same everywhere a title's kind is told: the guide, Autopilot and what is learned."""
+    lead = [str(p).split()[0].lower() for p in subject or [] if str(p).split()]
+    return list(dict.fromkeys(lead + topics(clip_text, global_df, n_docs)))
+
+
 def title_guide(pkg: dict, kws: list[str] | None = None) -> dict:
     """The options labelled by kind, and the recommended one for each destination with a short reason.
     {"options": [{"kind", "label", "text"}], "youtube": {"recommended", "why"}, "tiktok": {"recommended", "why",
@@ -571,7 +601,7 @@ def title_guide(pkg: dict, kws: list[str] | None = None) -> dict:
     the caption with."""
     titles = list(pkg.get("titles") or [])
     clip_text = str(pkg.get("clip_text") or "")
-    kws = kws if kws is not None else topics(clip_text)
+    kws = kws if kws is not None else kind_keywords(pkg.get("subject"), clip_text)
     options = [{"kind": title_kind(t, kws), "label": KINDS[title_kind(t, kws)], "text": t} for t in titles]
     if not options:
         return {"options": [], "youtube": None, "tiktok": None}
@@ -797,8 +827,7 @@ def generate(sents: list[str], hook: str, hooks_alt: list[str], category: str, s
                 source = f"{llm.provider_label(settings)}, checked against the transcript"
         except llm.ProviderError as exc:
             log.warning("post package: AI provider failed (%s); using the extracted text", exc)
-    lead = [p.split()[0].lower() for p in subject]   # "Elden Ring: ..." is a Searchable title
-    kws = list(dict.fromkeys(lead + topics(clip_text, global_df, n_docs)))
+    kws = kind_keywords(subject, clip_text, global_df, n_docs)
     pkg = ensure_kinds(pkg, sents, kws, frozenset(t for t in pkg["titles"] if t not in extracted),  # a model's stay
                        subject)
     pkg["subject"], pkg["owner_tags"] = subject, owner
@@ -901,10 +930,21 @@ def for_clip(clip: dict, words: list[dict], settings: dict, use_ai: bool = True)
 MINE = ("title", "caption", "hashtags", "description", "cta", "hook")
 
 
+def mine_of(pkg: dict) -> list[str]:
+    """The fields of a post package the owner typed. A package edited before ClipForge recorded that: everything
+    that is not one of the offered options, so nothing typed is ever replaced."""
+    raw = pkg.get("mine")
+    if raw is None and pkg.get("edited"):
+        offered = {"title": list(pkg.get("titles") or []), "caption": list(pkg.get("captions") or [])}
+        raw = [k for k in MINE if k in pkg and pkg[k] not in offered.get(k, [])]
+    return [k for k in raw or [] if k in MINE]
+
+
 def keep_mine(old: dict, new: dict) -> dict:
     """New suggestions written for a clip whose post text the owner typed: what they typed stays (title, caption,
     hashtags, description, call to action, hook), the new options are there to pick from."""
-    mine = [k for k in (old or {}).get("mine") or [] if k in MINE and k in old]
+    old = old or {}
+    mine = [k for k in mine_of(old) if k in old]
     if not mine:
         return new
     out = {**new, **{k: old[k] for k in mine}, "mine": mine, "edited": True}
@@ -953,7 +993,7 @@ def apply_edit(pkg: dict, patch: dict) -> dict:
     offered = {"title": list(before.get("titles") or []), "caption": list(before.get("captions") or [])}
     typed = [k for k in MINE if k in patch and out.get(k) != before.get(k) and out.get(k) not in offered.get(k, [])]
     picked = [k for k in MINE if k in patch and out.get(k) in offered.get(k, [])]
-    out["mine"] = [k for k in MINE if k in typed or (k in (before.get("mine") or []) and k not in picked)]
+    out["mine"] = [k for k in MINE if k in typed or (k in mine_of(before) and k not in picked)]
     out["checks"] = checks(out, out.get("clip_text", ""))
     out["guide"] = title_guide(out)
     out["limits"] = field_problems(out)

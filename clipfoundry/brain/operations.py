@@ -456,16 +456,23 @@ def _tag_list(value, platform: str) -> list[str]:
 
 def _edit_post_fields(item: dict, args: dict) -> tuple[dict, list[str]]:
     fields, words = {}, []
+    tiktok = item["platform"] == "tiktok"
     if args.get("title") is not None and str(args["title"]).strip():
-        fields["title"] = str(args["title"]).strip()[:100 if item["platform"] == "youtube" else 150]
+        if tiktok:   # TikTok posts only the caption
+            raise ToolError("A TikTok post has no title of its own: change its caption (description) instead.")
+        fields["title"] = str(args["title"]).strip()[:100]
         words.append(f"title “{fields['title']}”")
     if args.get("description") is not None:
-        fields["description"] = str(args["description"]).strip()[:4000]
-        words.append("description “" + one_line(fields["description"], 80) + "”" if fields["description"]
-                     else "no description")
+        fields["description"] = str(args["description"]).strip()[:2200 if tiktok else 4000]
+        words.append(("caption “" if tiktok else "description “") + one_line(fields["description"], 80) + "”"
+                     if fields["description"] else "no description")
     if args.get("hashtags") is not None:
         fields["tags"] = _tag_list(args["hashtags"], item["platform"])
         words.append("hashtags " + (" ".join(("#" + t.lstrip("#")) for t in fields["tags"]) or "none"))
+        if tiktok:   # TikTok's hashtags are the ones in the caption it posts: they go at its end
+            caption = str(fields.get("description", item.get("description") or ""))
+            caption = re.sub(r"(\s*#\w+)+\s*$", "", caption, flags=re.UNICODE).rstrip()
+            fields["description"] = (caption + " " + " ".join(fields["tags"])).strip()[:2200]
     if not fields:
         raise ToolError("Say what to change: title, description or hashtags.")
     return fields, words
@@ -534,12 +541,16 @@ def _approve_problems(item: dict, settings: dict) -> list[str]:
 
 
 def _approve_preview(ctx: Ctx, args: dict) -> dict:
+    from ..autopilot.targets import item_account
+
     settings = _settings()
     now = bool(args.get("now"))
     item = find_post(args, ("awaiting_approval", "failed", *(("approved",) if now else ())), "waits for approval"
                      if not now else "can be approved or posted")
     platform = PLATFORM_NAMES.get(item["platform"], item["platform"])
-    problems = [] if item["status"] == "approved" else _approve_problems(item, settings)
+    # an approved post that goes out now is still checked when it is a TikTok post: ClipForge AI never posts there
+    problems = [] if item["status"] == "approved" and item["platform"] != "tiktok" \
+        else _approve_problems(item, settings)
     if now and settings.get("autopilot_publishing_paused"):
         problems.append("publishing is paused (Office → bottom bar)")
     tags = " ".join(("#" + t.lstrip("#")) for t in item.get("tags") or [])
@@ -553,7 +564,8 @@ def _approve_preview(ctx: Ctx, args: dict) -> dict:
     verb = "Post" if now and item["status"] == "approved" else "Approve and post" if now else "Approve"
     return {"label": f"{verb} “{_post_name(item)}” on {platform} ({_account(item)[1]})", "detail": detail,
             "blocked": ("To approve it: " + "; ".join(problems) + ".") if problems else "",
-            "args": {"post": item["id"], "now": now}}
+            # the account the card shows: approving checks the post still goes there (as the post page does)
+            "args": {"post": item["id"], "now": now, "account": item_account(item)}}
 
 
 def _approve(ctx: Ctx, args: dict) -> Result:
@@ -563,16 +575,22 @@ def _approve(ctx: Ctx, args: dict) -> Result:
     item = db.fetch("scheduled_publications", str(args.get("post") or ""))
     if not item:
         raise ToolError("That post is not there any more.")
-    problems = [] if item["status"] == "approved" else _approve_problems(item, _settings())
+    problems = [] if item["status"] == "approved" and item["platform"] != "tiktok" \
+        else _approve_problems(item, _settings())
     if problems:
         raise ToolError("To approve it: " + "; ".join(problems) + ".")
+    shown = str(args.get("account") or "")
+    if shown and shown != item_account(item):
+        raise ToolError("Another account is connected now than the one this was for. Check the post on its page.")
+    out = item
     try:
         if item["status"] != "approved":
             opts = item.get("options") or {}
             out = routes.approve_as(item["id"], routes.ApproveBody(
                 confirm=True, title=item.get("title"), description=item.get("description") or "",
                 tags=list(item.get("tags") or []), privacy=item.get("privacy"),
-                made_for_kids=opts.get("made_for_kids"), expected_account_id=item_account(item)), "ClipForge AI")
+                made_for_kids=opts.get("made_for_kids"), expected_account_id=shown or item_account(item)),
+                "ClipForge AI")
         if args.get("now"):
             out = routes.publish_now(item["id"])
     except HTTPException as exc:
@@ -747,10 +765,15 @@ def _restart_preview(ctx: Ctx, args: dict) -> dict:
         raise ToolError(f"{name[0].upper() + name[1:]} is finished. To change it, edit it or render a clip again.")
     what = ("Start making the clips of " + name + " again (the saved sound and transcript are reused)"
             if kind == "project" else "Render " + name + " again")
+    # making a project's clips again from the start replaces the clips it has (as Make clips again does): that
+    # deletes them, so it always waits for the OK
+    made = len(db.list_clips(row["id"])) if kind == "project" else 0
     return {"label": what[0].upper() + what[1:], "detail": [f"Now: {d['state']}: {d['why']}."]
             + (["It is stopped first; press OK again once it has stopped."] if d["state"] == "stalled"
-               and _queue()[0] == row["id"] else []),
-            "blocked": "", "args": {"kind": kind, "id": row["id"]}}
+               and _queue()[0] == row["id"] else [])
+            + ([f"The {made} clip{'s' if made != 1 else ''} it has now are replaced: their edits and versions are "
+                "lost. Posts already on YouTube or TikTok stay there."] if made else []),
+            "blocked": "", "ask": bool(made), "args": {"kind": kind, "id": row["id"]}}
 
 
 def _restart(ctx: Ctx, args: dict) -> Result:
@@ -1548,7 +1571,8 @@ register(Tool("edit_post", "change a planned post's own title, description or ha
 register(Tool("approve_post", "approve a post that waits for approval so it goes out at its time; now: true to post "
               "it right away (also an approved one). YouTube only: TikTok posts need the owner's OK on their page. "
               + POST_HELP,
-              {"type": "object", "properties": {**POST, "now": {"type": "boolean"}}},
+              {"type": "object", "properties": {**POST, "now": {"type": "boolean"},
+                                                "account": {"type": "string", "internal": True}}},
               _approve, "change", "Approve {post}", preview=_approve_preview, **ALONE))
 register(Tool("set_clip_text", "use the owner's own title, hashtags or hook for a clip (exactly their words)",
               {"type": "object", "properties": {**CLIP, "title": TEXT, "hashtags": TEXT, "hook": TEXT,

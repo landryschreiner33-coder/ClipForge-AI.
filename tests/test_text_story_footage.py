@@ -16,6 +16,9 @@ def test_the_background_step_can_find_free_footage_and_use_it():
     assert "studio.importMedia({ result_id: r.id })" in page and "studio.mediaImport(job.id)" in page
     assert "Free footage from ${r.provider_name} (${r.license_name})." in page and "Credit: ${r.credit}" in page
     assert "Settings → Media sources" in page
+    # the copy can take minutes: the footage joins the backgrounds as they are then, and a remount keeps working
+    assert "latestUse.current = onUse;" in page and "latestUse.current({ asset_id: job.asset_id" in page
+    assert "alive.current = true;" in page
 
 
 def test_an_imported_video_is_a_background_the_story_accepts(tmp_path, monkeypatch):

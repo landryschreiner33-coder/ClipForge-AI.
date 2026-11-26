@@ -386,7 +386,7 @@ def package(clip: dict, source: dict | None, platform: str, settings: dict) -> d
     from ..brain import learned
 
     want = learned.defaults(ws, settings).get("title_kind") if platform == "youtube" else None
-    kinds_kw = [p.split()[0].lower() for p in subject] + postpack.topics(clip_text)
+    kinds_kw = postpack.kind_keywords(subject, clip_text)
     for meta in cands:
         problems = validate(meta, clip_text, prior, [attribution], required_attribution=attribution, platform=platform,
                             known=known)

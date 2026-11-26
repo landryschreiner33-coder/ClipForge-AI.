@@ -33,9 +33,38 @@ def test_a_key_saved_under_the_old_name_moves_to_clipforge_and_still_opens(monke
         macos_secrets.SERVICE = real
     assert [k[0] for k in values] == ["ClipFoundry profile encryption"]
     assert secure.unseal(sealed) == "private-token"
-    assert [k[0] for k in values] == ["ClipForge profile encryption"]   # moved, then the old item removed
+    # copied under the new name; the old item stays for a copy of the app from before the rename
+    assert sorted(k[0] for k in values) == ["ClipForge profile encryption", "ClipFoundry profile encryption"]
+    assert len(set(values.values())) == 1
     assert secure.unseal(sealed) == "private-token"
     assert macos_secrets.SERVICE == "ClipForge profile encryption"
+
+
+def test_an_older_copy_of_the_app_still_opens_the_profile_and_both_keep_one_key(monkeypatch, tmp_path):
+    """The renamed app and a copy from before the rename (it reads only the old item) take turns on one profile."""
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path))
+    monkeypatch.setattr(secure.sys, "platform", "darwin")
+    values: dict = {}
+    monkeypatch.setattr(macos_secrets, "_backend", lambda: _keychain(values))
+    real, real_move = macos_secrets.SERVICE, macos_secrets._move_old
+
+    def old_app():   # the app before the rename: one name, no move
+        macos_secrets.SERVICE, macos_secrets._move_old = macos_secrets.OLD_SERVICE, lambda backend, ident: None
+
+    def new_app():
+        macos_secrets.SERVICE, macos_secrets._move_old = real, real_move
+
+    try:
+        new_app()
+        first = secure.seal("made by the new app")    # a new profile: the key is saved under both names
+        old_app()
+        assert secure.unseal(first) == "made by the new app"
+        second = secure.seal("made by the old app")
+        new_app()
+        assert secure.unseal(second) == "made by the old app"
+    finally:
+        new_app()
+    assert len(set(values.values())) == 1
 
 
 def test_the_old_keychain_item_stays_when_it_cannot_be_removed(monkeypatch, tmp_path):

@@ -283,3 +283,26 @@ def test_a_clip_with_its_weak_parts_cut_out_renders_captions_packages_and_passes
     assert rep["passed"], rep["blockers"]
     assert {c["name"]: c["status"] for c in rep["checks"]}["cuts"] == "pass"
     assert rep["bindings"]["blueprint"]["sha256"] == bp.sha256()
+
+
+def test_a_trim_clipforge_made_keeps_the_plans_cuts_and_an_owners_trim_replaces_them():
+    """A lead-in or outro ClipForge trimmed when it made the clip (pipeline/process.auto_trim) only shortens the plan:
+    the weak middle part it cut stays cut. A range the owner sets in the editor replaces the plan, as it always has."""
+    base = plan((10.0, 20.0), (23.0, 45.0))
+    auto = {"start": 11.5, "auto_trims": [{"id": "lead_in", "side": "start", "was": 10.0, "to": 11.5}]}
+    assert [(i.start, i.end) for i in bpm.with_edit(base, auto).intervals] == [(11.5, 20.0), (23.0, 45.0)]
+    outro = {"end": 40.0, "auto_trims": [{"id": "outro", "side": "end", "was": 45.0, "to": 40.0}]}
+    assert [(i.start, i.end) for i in bpm.with_edit(base, outro).intervals] == [(10.0, 20.0), (23.0, 40.0)]
+    owner = {**auto, "start": 12.0}   # the owner moved the start again: their range
+    assert [(i.start, i.end) for i in bpm.with_edit(base, owner).intervals] == [(12.0, 45.0)]
+    assert [(i.start, i.end) for i in bpm.with_edit(base, {"start": 11.5}).intervals] == [(11.5, 45.0)]
+
+
+def test_a_live_clips_learned_look_goes_over_its_plan():
+    """live.make_live_clip renders the plan with the clip's learned captions and pacing on top (as for_render)."""
+    base = plan((0.0, 20.0), captions=bpm.Captions(style="clean"))
+    look = {"caption_style": "bold", "silence": "light", "learned_keys": ["caption_style", "silence"]}
+    shown = bpm.render_options(bpm.with_edit(base, look, "edit"))
+    assert shown["caption_style"] == "bold" and shown["silence"] == "light"
+    src = (Path(__file__).resolve().parents[1] / "clipfoundry/autopilot/live.py").read_text()
+    assert 'blueprint.shifted(blueprint.with_edit(bp, look, "edit") if look else bp' in src

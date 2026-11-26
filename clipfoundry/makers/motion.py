@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 MOVES = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "push_left", "push_right", "still")
 # scene after scene, so every cut changes direction, and six scenes go by before a move comes back
 ORDER = ("zoom_in", "pan_right", "push_left", "zoom_out", "pan_left", "push_right")
+ORDER_V1 = ("zoom_in", "pan_right", "zoom_out", "pan_left")   # scenes made before Nov 26 2026 keep their moves
 PAN_TRAVEL = 1.5           # a pan travels at most this many times `strength` of the frame, however wide the picture
 EASE = 0.6                 # how much of a move eases in and out (0: the same speed throughout, 1: starts and stops dead)
 DRIFT = 0.9                # a push drifts this share of the way to the picture's edge as it closes in
@@ -42,9 +43,11 @@ class MotionError(RuntimeError):
     """The clip could not be made; the message says why in plain words."""
 
 
-def pick_move(index: int) -> str:
-    """The camera move for the scene at `index` when the owner left it on automatic."""
-    return ORDER[int(index or 0) % len(ORDER)]
+def pick_move(index: int, legacy: bool = False) -> str:
+    """The camera move for the scene at `index` when the owner left it on automatic (`legacy`: a scene made with
+    the first four moves keeps them, so its clip is not made again with a different move)."""
+    order = ORDER_V1 if legacy else ORDER
+    return order[int(index or 0) % len(order)]
 
 
 def _encode_args(fps: int, frames: int, duration: float) -> list[str]:
@@ -141,7 +144,7 @@ def _transform(move: str, p: float, w: int, h: int, size: tuple[int, int], cover
     x0, y0 = (w_out - w * s) / 2, (h_out - h * s) / 2   # centred
     if move in ("push_left", "push_right"):
         # closing in while drifting sideways: the drift never goes past the picture's edge
-        shift = (w * s - w_out) / 2 * DRIFT * p
+        shift = min((w * s - w_out) / 2 * DRIFT, w_out * strength * PAN_TRAVEL) * p   # as gentle as a pan
         return s, (x0 + shift if move == "push_left" else x0 - shift), y0
     if move in ("pan_left", "pan_right"):
         travel = min(w * s - w_out, w_out * strength * PAN_TRAVEL)

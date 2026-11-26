@@ -569,3 +569,21 @@ def test_camera_moves_ease_in_and_out_and_a_push_drifts_without_showing_an_edge(
             assert x <= 1e-6 and x + w * s >= 108 - 1e-6 and y <= 1e-6 and y + h * s >= 192 - 1e-6
     assert set(motion.ORDER) <= set(motion.MOVES)
     assert all(a != b for a, b in zip(motion.ORDER, motion.ORDER[1:] + motion.ORDER[:1]))
+
+
+def test_a_push_on_a_wide_picture_drifts_as_gently_as_a_pan_and_old_scenes_keep_their_moves():
+    from clipfoundry.makers import motion
+
+    size, w, h, strength = (1080, 1920), 1920, 1080, 0.08
+    cover = max(1080 / w, 1920 / h)
+    _, x0, _ = motion._transform("push_left", 0.0, w, h, size, cover, strength)
+    s1, x1, _ = motion._transform("push_left", 1.0, w, h, size, cover, strength)
+    centred = (1080 - w * s1) / 2
+    assert 0 < x1 - centred <= 1080 * strength * motion.PAN_TRAVEL + 1e-6   # not a whip across the photo
+    # scenes made before the six moves keep the first four, so their clips are not made again
+    assert [motion.pick_move(i, legacy=True) for i in range(5)] == ["zoom_in", "pan_right", "zoom_out", "pan_left",
+                                                                   "zoom_in"]
+    from clipfoundry.makers import shorts
+
+    assert shorts._move({"move": "auto", "info": {"seq": 2}}) == "zoom_out"                 # an older scene
+    assert shorts._move({"move": "auto", "info": {"seq": 2, "moves": 2}}) == "push_left"    # a new one

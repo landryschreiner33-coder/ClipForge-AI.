@@ -253,3 +253,88 @@ def test_a_trim_made_for_you_is_not_learned_as_your_habit(data):
     events = learned.observe(before, after, {"learn_from_edits": True})
     trim = [e for e in events if e["kind"] == "trim"]
     assert trim and trim[0]["data"] == {"start_shift": 0.0, "end_shift": -2.0}   # the start it moved is not yours
+
+
+# ------------------------------------------------------------------ review fixes (Nov 26)
+def test_a_sentences_own_capital_is_not_the_videos_subject():
+    from clipfoundry.pipeline import postpack
+
+    for name in ("Trying the new crosshair", "Beating the hardest boss in the game", "Testing my new mic setup",
+                 "Watch this clutch"):
+        assert postpack.subjects(name) == [], name
+    assert postpack.subjects("Valorant ranked grind") == ["Valorant"]
+    assert postpack.subjects("Watch this clutch - Valorant") == ["Valorant"]
+    assert postpack.subjects("Elden Ring: I finally beat Malenia") == ["Elden Ring", "Malenia"]
+
+
+def test_an_owner_tag_with_digits_or_other_letters_passes_every_check():
+    from clipfoundry import config
+    from clipfoundry.pipeline import postpack
+
+    saved = config.validate_settings({"post_always_hashtags": "#cs2 #GTA5 #ゲーム #MyShow"})["post_always_hashtags"]
+    known = postpack.known_words([], {"post_always_hashtags": saved})
+    for tag in ("#cs2", "#GTA5", "#ゲーム", "#MyShow"):
+        assert postpack.hashtag_problems(tag, "a clip about something else", known) == [], tag
+    assert postpack.hashtag_problems("#cs3", "a clip about something else", known)   # others are still checked
+
+
+def test_text_typed_before_the_upgrade_is_kept_when_new_suggestions_are_written():
+    from clipfoundry.pipeline import postpack
+
+    old = {"titles": ["Offered one", "Offered two"], "captions": ["An offered caption"], "title": "My own title",
+           "caption": "An offered caption", "hashtags": ["#mine"], "edited": True}   # no "mine": made before
+    new = {"titles": ["New one"], "captions": ["New caption"], "title": "New one", "caption": "New caption",
+           "hashtags": ["#new"], "clip_text": "words"}
+    out = postpack.keep_mine(old, new)
+    assert out["title"] == "My own title" and out["caption"] == "New caption" and out["hashtags"] == ["#mine"]
+    assert postpack.keep_mine({**old, "mine": []}, new)["title"] == "New one"   # recorded: nothing was typed
+
+
+def test_a_searchable_title_is_learned_as_searchable():
+    from clipfoundry.pipeline import postpack
+
+    title = "Valorant: I changed the crosshair to a tiny dot"
+    clip_text = "I changed the crosshair to a tiny dot and my aim got so much better."
+    assert postpack.title_kind(title, postpack.kind_keywords(["Valorant"], clip_text)) == "search"
+    guide = postpack.title_guide({"titles": [title], "clip_text": clip_text, "subject": ["Valorant"]})
+    assert guide["options"][0]["kind"] == "search"
+
+
+def test_a_trim_is_learned_from_clipforges_pick_where_a_learned_shift_is_applied(data):
+    from clipfoundry import db
+    from clipfoundry.brain import learned
+
+    project = db.create_project("p", status="ready")
+    edit = {"start": 11.5, "auto_trims": [{"id": "lead_in", "label": "x", "why": "", "side": "start", "was": 10.0,
+                                           "to": 11.5}]}
+    before = db.create_clip(project["id"], start=10.0, end=40.0, title="t", status="ready", edit=edit)
+
+    def shift(after_edit: dict) -> dict:
+        events = learned.observe(before, {**before, "edit": after_edit}, {"learn_from_edits": True})
+        return next(e for e in events if e["kind"] == "trim")["data"]
+
+    assert shift({**edit, "start": 10.0}) == {"start_shift": 0.0, "end_shift": 0.0}   # Put it back: the pick
+    assert shift({"auto_trims": edit["auto_trims"]}) == {"start_shift": 0.0, "end_shift": 0.0}   # cleared: the pick
+    assert shift({**edit, "start": 12.5}) == {"start_shift": 2.5, "end_shift": 0.0}   # past the trim, from the pick
+
+
+def test_picking_a_searchable_title_is_learned_as_searchable(data):
+    from clipfoundry import db
+    from clipfoundry.brain import learned
+
+    project = db.create_project("Valorant ranked grind", status="ready")
+    title = "Valorant: I changed the crosshair to a tiny dot"
+    clip_text = "I changed the crosshair to a tiny dot and my aim got so much better."
+    post = {"titles": ["My aim got so much better", title], "recommended_title": 0, "title": "My aim got so much better",
+            "clip_text": clip_text, "subject": ["Valorant"]}
+    before = db.create_clip(project["id"], start=0.0, end=20.0, title="t", status="ready", post=post)
+    events = learned.observe(before, {**before, "post": {**post, "title": title}}, {"learn_from_edits": True})
+    assert next(e for e in events if e["kind"] == "title")["data"]["title_kind"] == "search"
+
+
+def test_the_new_defaults_are_saved_by_the_settings_page():
+    from pathlib import Path
+
+    fields = (Path(__file__).resolve().parents[1] / "frontend/src/components/settingsFields.tsx").read_text()
+    defaults = fields[fields.index('add("defaults"'):fields.index('add("advanced"')]
+    assert "auto_trims:" in defaults and "post_always_hashtags:" in defaults   # in FIELDS: saved with the page

@@ -884,7 +884,9 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
         look = {k: v for k, v in (clip.get("edit") or {}).items() if k not in ("start", "end", "caption_words")}
         out = render.render_clip(proj, {**clip, "start": start - shift, "end": end - shift, "edit": look}, shifted,
                                  sess.settings, JobContext(None, job.cancelled),
-                                 blueprint=blueprint.shifted(bp, -shift))
+                                 # the learned look over the plan, as for_render does for every other render
+                                 blueprint=blueprint.shifted(blueprint.with_edit(bp, look, "edit") if look else bp,
+                                                             -shift))
         db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
     except (queue.Canceled, queue.Wait):
         raise

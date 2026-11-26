@@ -580,6 +580,8 @@ def test_without_characters_the_main_character_keeps_the_look_of_the_first_pictu
     assert [a["references"] for a in made[1:]] == [[str(Path(first["path"]))]] * 2
     view = shorts.view(_fresh(project["id"]))
     assert [s["picture"]["kept_from"] for s in view["scenes"]] == [0, 1, 1]
+    # the first scene's picture is not a character's reference picture: only "drawn with scene 1's picture" shows
+    assert all(s["picture"]["asked_references"] == 0 and s["picture"]["references"] == 0 for s in view["scenes"])
     # once characters are added, their own reference pictures (or their words) are used instead
     shorts.cast_add(_fresh(project["id"]), {**MIA})
     n = len(drawn.asked)

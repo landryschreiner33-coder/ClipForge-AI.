@@ -507,7 +507,10 @@ def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source
             continue
         # weak middle parts cut out; post text rewritten with the Brain's post text rules this run read
         mine = {k: p.opts[k] for k in ("post_style", "workspace_id") if k in p.opts}
-        heard = blueprint.heard_fields(bp, p.words, row, {**p.settings, **mine})
+        # what is heard after the trims ClipForge made when it made the clip (a lead-in, warm-up or outro)
+        heard = blueprint.heard_fields(blueprint.with_edit(bp, {k: v for k, v in (row.get("edit") or {}).items()
+                                                                if k in ("start", "end", "auto_trims")}),
+                                       p.words, row, {**p.settings, **mine})
         if heard:
             db.update_clip(row["id"], **heard)
             row = {**row, **heard}

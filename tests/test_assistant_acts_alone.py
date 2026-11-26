@@ -244,3 +244,91 @@ def test_a_long_chat_keeps_its_start(data):
         chat._add(c, "user", f"message {n}")  # noqa: SLF001
     assert db.fetch("brain_chat_messages", first["id"]) is not None
     assert len(chat.messages(WS, c["id"])) == 261 and chat.KEEP >= 5000
+
+
+# ------------------------------------------------------------------ review fixes (Nov 26)
+def test_an_approved_tiktok_post_is_never_posted_by_clipforge_ai(env):  # noqa: F811
+    """The owner approved it on its page for later; "post it now" still leaves it to the post page."""
+    from clipfoundry import db
+    from clipfoundry.brain.tools import ToolError
+
+    _g, _t, tmp = env
+    item = _youtube_post(tmp, "", "Tiny trout", status="approved", platform="tiktok")
+    card = tool("approve_post").preview(ctx(), {"post": "tiny trout", "now": True})
+    assert "TikTok's rules for apps need your own OK on every post" in card["blocked"]
+    with pytest.raises(ToolError, match="TikTok's rules"):
+        tool("approve_post").run(ctx(), {"post": item["id"], "now": True})
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "approved"
+    assert not db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
+
+
+def test_an_ok_checks_the_account_its_card_showed(env):  # noqa: F811
+    """Ask me first: the card says Fishing channel; another channel is the one it would go to when OK is pressed."""
+    from clipfoundry import db
+    from clipfoundry.brain import tools
+    from clipfoundry.brain.tools import ToolError
+
+    google, _tik, tmp = env
+    db.save_settings({"autopilot_enabled": True, "autopilot_youtube": True, "autopilot_min_gap_minutes": 0})
+    fish = add_channel(google, "UCfish", "Fishing channel")
+    other = add_channel(google, "UCother", "Other channel")
+    item = _youtube_post(tmp, fish["id"])
+    t = tool("approve_post")
+    card = t.preview(ctx(), tools.check_args(t, {"post": "bass first cast"}))
+    assert card["args"]["account"] == "UCfish" and "(Fishing channel)" in card["label"]
+    db.update("scheduled_publications", item["id"], connection_id=other["id"])
+    with pytest.raises(ToolError, match="Another account is connected now"):
+        t.run(ctx(), tools.check_args(t, card["args"], button=True))
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "awaiting_approval"
+    # the model cannot choose the account itself: it is the card's own
+    assert "account" not in tools.check_args(t, {"post": item["id"], "account": "UCother"})
+
+
+def test_ok_on_a_post_that_was_approved_meanwhile_says_so(env):  # noqa: F811
+    from clipfoundry import db
+    from clipfoundry.brain import tools
+
+    google, _tik, tmp = env
+    db.save_settings({"autopilot_enabled": True, "autopilot_youtube": True, "autopilot_min_gap_minutes": 0})
+    chan = add_channel(google, "UCfish", "Fishing channel")
+    item = _youtube_post(tmp, chan["id"])
+    t = tool("approve_post")
+    card = t.preview(ctx(), tools.check_args(t, {"post": "bass first cast"}))
+    t.run(ctx(), tools.check_args(t, card["args"], button=True))   # approved on its page, say
+    done = t.run(ctx(), tools.check_args(t, card["args"], button=True))   # then the card's OK
+    assert "is approved" in done.text and db.fetch("scheduled_publications", item["id"])["status"] == "approved"
+
+
+def test_a_tiktok_posts_hashtags_go_into_the_caption_it_posts(env):  # noqa: F811
+    from clipfoundry import db
+    from clipfoundry.brain.tools import ToolError
+
+    _g, _t, tmp = env
+    item = _youtube_post(tmp, "", "Tiny trout", platform="tiktok")
+    db.update("scheduled_publications", item["id"], description="Tiny trout on a fly rod #fishing #old")
+    card, done = press("edit_post", {"post": "tiny trout", "hashtags": "#trout #FlyFishing"})
+    row = db.fetch("scheduled_publications", item["id"])
+    assert row["description"] == "Tiny trout on a fly rod #trout #FlyFishing"   # TikTok posts this
+    assert row["tags"] == ["#trout", "#FlyFishing"]
+    with pytest.raises(ToolError, match="TikTok post has no title"):
+        tool("edit_post").preview(ctx(), {"post": "tiny trout", "title": "A new title"})
+
+
+def test_starting_a_project_with_clips_again_waits_for_the_ok(data, monkeypatch):
+    """Making the clips again from the start replaces the clips it has (a delete), so it is always a button."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat
+
+    source = data / "fish.mp4"
+    source.write_bytes(b"video")
+    p = db.create_project("Fishing stream", status="error", error="stopped", source_path=str(source))
+    db.create_clip(p["id"], start=0, end=20, title="Bass", status="ready", score=70.0)
+    card = tool("restart_work").preview(ctx(), {"project": "fishing stream"})
+    assert card["ask"] is True and "The 1 clip it has now are replaced" in " ".join(card["detail"])
+    install(monkeypatch, say("Starting it again.", ("restart_work", {"project": "fishing stream"})),
+            say("It waits for your OK."))
+    c = chat.open_chat(WS)
+    m = settled(c["id"], chat.send(WS, c["id"], "start the fishing stream again")["ai"]["id"])
+    act = m["data"]["pending"][0]
+    assert act["tool"] == "restart_work" and act["state"] == "waiting" and not act.get("alone")
+    assert len(db.list_clips(p["id"])) == 1 and db.get_project(p["id"])["status"] == "error"

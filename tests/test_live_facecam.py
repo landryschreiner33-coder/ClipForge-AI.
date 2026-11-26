@@ -12,12 +12,12 @@ from test_review_submitted_live import data  # noqa: F401 - isolated data folder
 from test_review_submitted_routes import H  # the app's own request header
 
 
-def _minute(path: Path, colour: str) -> None:
-    """A three-second stand-in for one recorded minute, in one colour."""
+def _minute(path: Path, colour: str, seconds: float = 3) -> None:
+    """A stand-in for one recorded minute (three seconds of one colour)."""
     from clipfoundry.pipeline.ffmpeg_utils import ffmpeg_bin
 
-    subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c={colour}:s=320x180:d=3:r=10",
-                    "-c:v", "mpeg4", str(path)], check=True)
+    subprocess.run([ffmpeg_bin(), "-y", "-v", "error", "-f", "lavfi", "-i",
+                    f"color=c={colour}:s=320x180:d={seconds}:r=10", "-c:v", "mpeg4", str(path)], check=True)
 
 
 def _live_project(minutes: int = 0) -> tuple[dict, Path]:
@@ -93,3 +93,24 @@ def test_live_rows_offer_to_draw_the_face_cam_while_recording():
     assert 'item.live.framing !== "off"' in rows   # without a split view there is no cam spot to fill
     assert "<FaceCamBox image" in rows
     assert "image ? <img" in (root / "components/faceCam.tsx").read_text()
+
+
+def test_a_short_last_minute_still_gives_its_own_picture_never_an_older_one(data):
+    """The recording started again: the newest whole minute is a second long. Its own picture comes back, and
+    when no picture can be read the old one is gone (409), never shown as new."""
+    from PIL import Image
+
+    from clipfoundry.api import app
+
+    project, pdir = _live_project(minutes=2)          # red, blue (blue still being written)
+    url = f"/api/autopilot/submissions/live/{project['id']}/frame"
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        assert client.get(url, headers=H).status_code == 200   # the red minute's picture is on disk now
+        _minute(pdir / "live" / "r002_00000.mkv", "blue", seconds=1)   # a new run: a one-second minute
+        _minute(pdir / "live" / "r002_00001.mkv", "green")             # being written
+        assert client.get(url, headers=H).status_code == 200
+        red, green, blue = Image.open(pdir / "live" / "facecam-frame.jpg").convert("RGB").getpixel((160, 90))
+        assert blue > 180 and red < 80                       # the one-second minute's own picture
+        (pdir / "live" / "r002_00000.mkv").write_bytes(b"not a video")
+        broken = client.get(url, headers=H)
+    assert broken.status_code == 409 and not (pdir / "live" / "facecam-frame.jpg").exists()

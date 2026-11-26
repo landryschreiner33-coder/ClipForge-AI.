@@ -114,9 +114,13 @@ def live_frame(project_id: str):
         raise HTTPException(404, "Nothing is recorded yet. Try again in a minute.")
     newest = minutes[-2] if len(minutes) > 1 else minutes[-1]   # the last one is still being written
     out = pdir / "live" / "facecam-frame.jpg"
-    done = run_process([ffmpeg_bin(), "-y", "-v", "error", "-ss", "2", "-i", str(newest), "-frames:v", "1",
-                        "-q:v", "3", str(out)], timeout=30)
-    if done.returncode != 0 or not out.is_file():
+    out.unlink(missing_ok=True)   # never an older picture: FFmpeg can finish without writing one
+    for seek in ("2", "0"):       # a minute cut short (the recording started again) may be under 2 seconds
+        done = run_process([ffmpeg_bin(), "-y", "-v", "error", "-ss", seek, "-i", str(newest), "-frames:v", "1",
+                            "-q:v", "3", str(out)], timeout=30)
+        if done.returncode == 0 and out.is_file() and out.stat().st_size > 0:
+            break
+    else:
         raise HTTPException(409, "No picture could be read from the newest minute yet. Try again in a minute.")
     return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 

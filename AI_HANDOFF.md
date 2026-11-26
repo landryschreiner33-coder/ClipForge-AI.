@@ -1,5 +1,27 @@
 # AI handoff
 
+## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** the gaps from Landry's Nov 26 list. ClipForge AI now acts without an OK (deletes and
+TikTok posts still ask), titles and hashtags follow Landry's research, automatic and live posts use what was learned,
+clips start on the point, the ClipForge name reaches the Keychain, videos folder and Mac download, more colours,
+Cancel upload everywhere, Full Cloud pictures, drawing the face cam while live, smoother short animations with the
+same main character, 30 voices, and free background footage for Text Stories.
+
+- **Where things are:** post text in `pipeline/postpack.py` (`subjects_for`, `video_names`, `owner_tags`,
+  `dedupe_tags`, `vague`, `said_at`, `recheck`, `keep_mine`); Autopilot post text in `autopilot/packaging.py`
+  (`known_words`, `LEARNED_KIND_BONUS`); live learning in `autopilot/live.py` (`_learned`, `_learned_look`); auto trims
+  in `pipeline/process.py` (`auto_trim`, `AUTO_TRIMS`); live face cam routes in `autopilot/routes.py`
+  (`/submissions/live/{id}/frame` and `/facecam`); motion in `makers/motion.py` (`ease`, `push_left/right`); the
+  main character's picture in `makers/shorts.py` (`main_character_picture`); voice variants in `makers/voice.py`
+  (`PITCHES`); free footage in `TextStories.tsx` (`FreeFootage`).
+- **Worth knowing:** a live project has no `source_path` while it records, so `process.project_dir()` (and the
+  video's own face cam route) points at "."; use `config.projects_dir() / project_id`, as `live.Session` does. An
+  automatic trim is stored in `edit["auto_trims"]`, and `learned._observe` measures the owner's change from the
+  trimmed bounds. `main_character_picture` only takes a picture whose key is the scene's current engine key, so a
+  new look never inherits an old look's picture; it is not part of any picture key. A pitch variant's word times
+  move by up to about 30 ms (atempo's window).
+
 ## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code, cloud session)
 
 **Plain-English summary:** the last batch of Landry's final-release prompt. The Studio's ship and camera now orbit

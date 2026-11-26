@@ -595,7 +595,9 @@ def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = 
     if any(p["tool"] == tool.name and tools.same_button(tool, p["args"], args) for p in out.pending):
         return f"{name}: already shown to the owner.", False
     blocked = str(pv.get("blocked") or "")
-    if not blocked and not why and tool.alone and not ctx.agent and tools.acts_alone(db.get_settings()):
+    # a preview that says "ask" (the step would delete something: clips made again) always waits for the OK
+    if not blocked and not why and not pv.get("ask") and tool.alone and not ctx.agent \
+            and tools.acts_alone(db.get_settings()):
         return _act(tool, args, ctx, out, name, pv)
     out.pending.append({"id": f"a{len(out.pending) + 1}", "tool": tool.name, "args": args, "risk": tool.risk,
                         "label": str(pv.get("label") or tool.words(args)),

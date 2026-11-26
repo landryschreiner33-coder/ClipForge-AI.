@@ -552,7 +552,13 @@ function FreeFootage({ title, onUse, close }: { title: string; onUse: (b: Partia
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState("");   // the result being copied in
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+  // the footage goes in with the backgrounds as they are when the copy finishes, not as they were at the click
+  const latestUse = useRef(onUse);
+  latestUse.current = onUse;
 
   const search = async (words = query) => {
     if (words.trim().length < 2) return;
@@ -580,7 +586,7 @@ function FreeFootage({ title, onUse, close }: { title: string; onUse: (b: Partia
       if (!alive.current) return;
       if (job.status !== "ready" || !job.asset_id) throw new Error(job.error || "The footage could not be copied in.");
       const credit = r.fits.credit_required && r.credit ? ` Credit: ${r.credit}` : "";
-      onUse({ asset_id: job.asset_id, in_s: 0, out_s: r.duration_s || 10, focus_x: 0.5, focus_y: 0.5,
+      latestUse.current({ asset_id: job.asset_id, in_s: 0, out_s: r.duration_s || 10, focus_x: 0.5, focus_y: 0.5,
         why: `Free footage from ${r.provider_name} (${r.license_name}).${credit}`.slice(0, 200) });
       toast(r.fits.credit_required ? "Added. Its license asks for a credit: put the credit line in your post."
         : "Added behind the story.");
