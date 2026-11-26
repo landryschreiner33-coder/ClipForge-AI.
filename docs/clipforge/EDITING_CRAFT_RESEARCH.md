@@ -73,6 +73,6 @@ Much of the sound chain already exists (Clean up the sound, `pipeline/cleanup.py
 | 2 | Short clips: punch-in alternation and emphasis, caption pop and safe box, effects from edit events, a visual-change scheduler ([SHORTS_EDITING.md](SHORTS_EDITING.md)); loop endings moved to batch 4 | built 2026-11-26 |
 | 3 | Long videos: J and L cuts, room tone, crossfades between recordings, hard cuts by default, music back-timed, wide/tight alternation ([LONG_EDITING.md](LONG_EDITING.md)) | built 2026-11-26 |
 | 4a | Range in full videos: speed changes and speed ramps (sound keeps its pitch), freeze frames, slow zooms and pans, from the editor and plain-words requests ([RANGE_EDITING.md](RANGE_EDITING.md)) | built 2026-11-26 |
-| 4b | Picture in picture, multicam with active speaker | planned |
+| 4b | Several cameras of one recording: lined up by their sound, switching to whoever speaks (or another angle at pauses), one camera or picture small in a corner, from the editor and plain-words requests ([MULTICAM.md](MULTICAM.md)) | built 2026-11-26 |
 | 4c | Loop endings for shorts, stabilising | planned |
 | 5 | Automatic quality check after every render (scopes and loudness) with a back-off | planned |

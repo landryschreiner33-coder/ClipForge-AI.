@@ -1733,3 +1733,15 @@ html[data-page-hidden="true"] .pulse, html[data-page-hidden="true"] .inline-spin
 .pr-stages li.on .icon { color: var(--good); }
 .pc-cloud .pc-log { max-height: 220px; overflow: auto; margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
 .pc-cloud .pc-log li { font-size: var(--fs-small); }
+
+/* several cameras of one recording: each camera's colour on the timeline and in the Cameras panel */
+.tl-seg.cam { cursor: default; }
+.cam-0 { background: var(--primary); }
+.cam-1 { background: var(--cyan); }
+.cam-2 { background: var(--violet); }
+.cam-3 { background: var(--orange); }
+.cam-4 { background: var(--mint); }
+.cam-5 { background: var(--magenta); }
+.tl-seg.cam.has-corner::after { content: ""; position: absolute; top: 2px; right: 3px; width: 6px; height: 6px; border-radius: 2px;
+  background: var(--text); opacity: 0.8; }
+.cam-dot { display: inline-block; width: 14px; height: 14px; border-radius: 4px; }

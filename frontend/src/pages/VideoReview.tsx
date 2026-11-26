@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { LayoutFlow } from "../components/AppearanceSettings";
 import { ClipForgeAI } from "../components/ClipForgeAI";
+import { CamerasPanel, CamerasRow, ClipCamera, CORNERS } from "../components/Cameras";
 import { FilmCraftPanel, MadeWithLine } from "../components/FilmCraft";
 import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
 import { LocalFiles } from "../components/LocalFiles";
@@ -130,6 +131,7 @@ function Timeline({ v, selected, onSelect }: { v: Video; selected: string; onSel
       {(v.overlay_timeline?.length ?? 0) > 0 && <div className="tl-row"><span className="tl-name">Pictures</span><div className="tl-lane">
         {v.overlay_timeline!.map((o) => <span key={o.overlay_id} className="tl-seg image"
           style={{ left: pct(o.out_start_ms), width: pct(o.out_end_ms - o.out_start_ms) }} />)}</div></div>}
+      <CamerasRow v={v} pct={pct} />
       {rows.map(([track, name]) => {
         const items = v.audio_timeline.filter((a) => a.track === track);
         const muted = v.plan?.tracks?.[track]?.mute;
@@ -221,6 +223,7 @@ function ClipInspector({ c, plan, v, edit, busy }: { c: PlanClip; plan: Plan; v:
           </select></label>
         <p className="small muted">Plays for {((playsFor(c, v) ?? 0) / 1000).toFixed(1)} s in the video. The voice keeps its pitch.</p>
       </div>}
+      {c.kind === "video" && <ClipCamera c={c} v={v} at={splitAt} edit={edit} busy={busy} />}
       {c.kind === "image" && <div className="grid-2">{move}</div>}
       {c.kind === "video" && asset?.has_audio !== false && <div className="grid-3">
         <Gain label="Sound" value={c.gain_db} min={-12} max={12} disabled={busy} onCommit={(x) => edit({ op: "set", clip_id: c.id, field: "gain_db", value: x })} />
@@ -441,6 +444,14 @@ function Pictures({ v, plan, edit, busy }: { v: Video; plan: Plan; edit: EditFn;
             <div className="row-actions wrap">
               <select value={o.motion} aria-label={`Motion of ${o.label}`} disabled={busy} onChange={(e) => edit({ op: "overlay_set", overlay_id: o.id, field: "motion", value: e.target.value })}>
                 <option value="zoom">Slow push in</option><option value="still">Still</option></select>
+              <select value={o.place || "full"} aria-label={`Where ${o.label} shows`} disabled={busy} onChange={(e) => edit({ op: "overlay_set", overlay_id: o.id, field: "place", value: e.target.value })}>
+                <option value="full">The whole picture</option>
+                {Object.entries(CORNERS).map(([k, t]) => <option key={k} value={k}>Small, {t.toLowerCase()}</option>)}</select>
+              {o.place && <select value={String(o.size || "")} aria-label={`Size of ${o.label}`} disabled={busy}
+                onChange={(e) => e.target.value && edit({ op: "overlay_set", overlay_id: o.id, field: "size", value: Number(e.target.value) })}>
+                {!o.size && <option value="">Usual size</option>}
+                {[0.2, 0.3, 0.4].map((z) => <option key={z} value={String(z)}>{Math.round(z * 100)}% wide</option>)}
+                {o.size && ![0.2, 0.3, 0.4].includes(o.size) && <option value={String(o.size)}>{Math.round(o.size * 100)}% wide</option>}</select>}
               <TimeField label="Shown for (s)" ms={o.length_ms} disabled={busy} onCommit={(ms) => edit({ op: "overlay_set", overlay_id: o.id, field: "length_ms", value: ms })} />
               <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "overlay_remove", overlay_id: o.id })}><Icon name="trash" />Remove</button>
             </div>
@@ -614,6 +625,7 @@ export default function VideoReview({ id }: { id: string }) {
               <ClipForgeAI projectId={v.id} v={v} busy={busy} onApplied={() => void load()} />
               {plan.notes.length > 0 && <ul className="small">{plan.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
             </section>
+            <CamerasPanel v={v} edit={edit} busy={busy} />
             <Pictures v={v} plan={plan} edit={edit} busy={busy} />
             <ColourPanel v={v} plan={plan} edit={edit} busy={busy} />
             <section className="panel" aria-labelledby="vr-audio">

@@ -1,5 +1,21 @@
 # Implementation status
 
+## Editing quality, batch 4b: several cameras and pictures in a corner — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 4a (PR #85). Full videos can use several cameras of one
+recording: lined up by their sound, switching to whoever speaks or to another angle at pauses, by hand per clip or at
+a moment, and one camera or picture small in a corner
+([docs/clipforge/MULTICAM.md](clipforge/MULTICAM.md)). Not released. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | `pytest tests/test_multicam.py` (fast and slow) | 27 passed (25 fast, 2 real renders) |
+| 2026-11-26 | `pytest tests/test_studio_edit_requests.py` | 51 passed |
+
+Not verified: real podcast footage with one microphone per person (the speaker test uses made-up levels), real
+cameras' clock drift, the Cameras panel in a browser beyond the demo.
+
 ## Editing quality, batch 4a: speed, ramps, freeze frames, camera moves — 2026-11-26 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on top of batch 3, PR #85. Full videos get per-clip speed, eased speed ramps,
