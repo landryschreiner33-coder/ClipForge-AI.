@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from .. import db
 from ..pipeline.text_utils import STOPWORDS
-from . import appguide, library, memories
+from . import appguide, intents, library, memories
 from .tools import AskFirst, Ctx, Result, Tool, ToolError, TryAgain, clip, one_line, register
 
 # The pages go_to can open: the main ones of the guide to ClipForge (every word of this list is read by the model
@@ -594,6 +594,9 @@ def _ask_agent(ctx: Ctx, args: dict) -> Result:
         data["remembered"] = saved
     text = f"{agent['name']} answered:\n{out['text']}" if out["ok"] else \
         f"{agent['name']} could not do it: {out['text']}"
+    if out["ok"] and intents.promise(out["text"]):  # even when asked once more (the real Basic model, Nov 26 2026)
+        text = (f"{agent['name']} only said what it would do and wrote nothing the owner can use: "
+                f"“{out['text']}”. Write it yourself now, in your answer.")
     return Result(clip(text, 2400), f"Asked {agent['name']}", data, ok=out["ok"])
 
 

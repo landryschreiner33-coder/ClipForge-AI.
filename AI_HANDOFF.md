@@ -19,6 +19,9 @@ promises is told to do the job.
   returns parts of the day too and reads the nearest date (ahead or gone); `_account_words` is the strict account
   rule for `find_post` and `find_posts`; `find_posts(..., every=True)` for approve; ratings only for
   `data.tool == "talk"`, and the rating route returns `learning`.
+- **After the second real-model check:** `assistant._NOTE` matches the card notes `_pending_note` writes and is
+  removed from every round's words (helpers too); `toolbox._ask_agent` tells ClipForge AI to write the job itself
+  when the helper's answer is only a promise (`intents.promise`).
 - **Worth knowing:** `data.guards` now also records a slip that was not nudged ("act" after a listing was found);
   `first:<tool>` names a look done before the model. A test that wants the model itself to call find_projects for
   "what projects do I have?" sees it done first; the model's own same call reads the same result.

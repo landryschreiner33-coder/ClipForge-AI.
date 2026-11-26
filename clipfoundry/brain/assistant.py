@@ -115,6 +115,10 @@ NUDGE_DO = ("You only said what you would do. Do it now, in this answer: write t
             "(the hook, the title, the plan, the review), or use a tool if you need one first.")
 NUDGES = {"echo": NUDGE_ECHO, "act": NUDGE_ACT, "short": NUDGE_SHORT, "empty": NUDGE_EMPTY}
 _BRACKET = re.compile(r"^\s*\[[^\]\n]{1,48}\]\s*")  # "[Script writer] …": a helper's mark, never ClipForge AI's
+# "[Waiting for the owner's OK: …]": the app's own note on a card (_pending_note), never part of an answer
+_NOTE = re.compile(r"\s*\[(?:Waiting for the owner's OK|You did it on your own|You tried it on your own but it failed|"
+                   r"The owner pressed OK and it was done|The owner pressed OK but it failed|The owner said no to|"
+                   r"Could not be offered):[^\]\n]*\]\s*")
 NEXT = ("Now reply to the owner using these results: give them what they asked for from the results (name the "
         "projects, say the facts). Do not repeat what you already said.")
 LAST = "Now reply to the owner. No more tools in this answer."
@@ -940,6 +944,8 @@ def _rounds(settings: dict, system: str, msgs: list[dict], tool_list: list[tools
         out.rounds += 1
         reply = parse_reply(raw)
         out.live = ""
+        # the model copied a card's note from the conversation (the real Basic model did, as a helper's whole answer)
+        reply["say"] = _NOTE.sub(" ", reply["say"]).strip() if _NOTE.search(reply["say"]) else reply["say"]
         if not ctx.agent:  # "[Script writer] …": the model imitated a helper's line in the conversation
             reply["say"] = _unbracket(reply["say"], ctx.ws)
         calls = [] if final else reply["do"]

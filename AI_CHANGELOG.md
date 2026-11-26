@@ -22,6 +22,11 @@ for a small model", "After the first real-model check".
   "15 pm" is no time; one post on "my cooking channel" never comes from "Fishing channel"; approve all offers the
   posts it can approve first. Thumbs: only a model's answers (never the video planner's), a short liked answer fits
   whole, the "Sent over the internet" line and the toast say when learning is off.
+- **After the second real-model check (run 45781339101 on d910464):** results read in one round, the delete card
+  shown, the planner's Script writer wrote its part. Two slips left, now caught: the app's own card notes ("[Waiting
+  for the owner's OK: …]") are removed from any answer (a helper answered with only that note), and a helper that
+  still only promises after being asked again reaches ClipForge AI as "… only said what it would do … Write it
+  yourself now".
 
 ## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code)
 

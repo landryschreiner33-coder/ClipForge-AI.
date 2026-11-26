@@ -1042,6 +1042,20 @@ A look the model asks for again with the same arguments in one answer is not run
   one) or a note of the conversation ("… wrote:"); "[0:42–1:10] The jump …" stays.
 - A listing found before a later round failed is still shown with the failure.
 
+**After the second real-model check** (run 45781339101 on d910464, Basic level): "How are my clips doing?" read the
+results in one round, "Delete the project Old gear review" showed its card, and the planner's Script writer wrote
+its part of the plan. Two slips were left, and are now caught too:
+
+- As the Script writer, the model answered only "[Waiting for the owner's OK: Delete the clips project “Old gear
+  review”]", the note the conversation holds for the card before. The app's own card notes ("[Waiting for the
+  owner's OK: …]", "[The owner said no to: …]", "[You did it on your own: …]" …) are removed from any answer,
+  ClipForge AI's or a helper's; an answer that was only such a note is empty and asked once more.
+- Asked through ClipForge AI for a title, the Script writer still only said what it would write after being asked
+  once more ("Got it. I'll write a two-line hook for your biking video."), and ClipForge AI ended with "I'll now
+  give you the result.". A helper's answer that only promises now reaches ClipForge AI as "… only said what it
+  would do and wrote nothing the owner can use: “…”. Write it yourself now, in your answer."; the helper's words
+  still show with its name.
+
 ## Thumbs on answers (2026-11-26)
 
 Every finished answer of ClipForge AI, and of a helper talked to with "@Name", has 👍 and 👎 under it

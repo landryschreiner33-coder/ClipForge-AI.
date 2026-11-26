@@ -419,3 +419,32 @@ def test_a_listing_found_before_a_later_round_failed_is_still_shown(data, monkey
     with pytest.raises(Exception):
         _think(_tools("find_projects"), said, fallback=intents.guess(said, {"find_projects"}), out=out)
     assert "“Hike day”" in out.text and "Let me look" not in out.text
+
+
+def test_a_cards_note_the_model_copies_is_never_the_answer(data, monkeypatch):
+    """The real Basic model, as the Script writer, answered only "[Waiting for the owner's OK: Delete the clips
+    project “Old gear review”]", the note the conversation holds for the card before (check on Nov 26 2026)."""
+    from clipfoundry.brain import agents, assistant
+
+    agents.add(WS, template="script_writer")
+    note = "[Waiting for the owner's OK: Delete the clips project “Old gear review”]"
+    fake = install(monkeypatch, say(note), say("“I almost didn't make it down.” / “Here's why.”"))
+    m, _c = _ask("@Script writer write a two-line hook about mountain biking")
+    assert m["role"] == "agent" and m["text"] == "“I almost didn't make it down.” / “Here's why.”"
+    assert fake.last_user(1) == assistant.NUDGE_EMPTY and m["data"]["guards"] == ["empty"]
+    install(monkeypatch, say(note + " You have 2 projects. [The owner said no to: Rename “Hike day”]"))
+    assert _think([], "how many projects do I have?").text == "You have 2 projects."
+
+
+def test_when_a_helper_only_promises_even_when_asked_again_clipforge_ai_writes_it(data, monkeypatch):
+    """As the real Basic model's Script writer did: "Got it. I'll write a two-line hook for your biking video." twice;
+    ClipForge AI is told so and writes the title itself, never "I'll now give you the result"."""
+    from clipfoundry.brain import agents
+
+    agents.add(WS, template="script_writer")
+    promise = "Got it. I'll write a title for your biking video."
+    fake = install(monkeypatch, say(promise), say(promise), say("Try “Ridge run at dawn”."))
+    m, _c = _ask("Ask the script writer for a title for my biking video")
+    assert m["text"] == "Try “Ridge run at dawn”." and m["data"]["helpers"][0]["text"] == promise
+    assert "Script writer only said what it would do" in fake.last_user(2) and "Write it yourself now" in \
+        fake.last_user(2)
