@@ -1,5 +1,20 @@
 # AI handoff
 
+## ClipForge AI reads your results; ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** ClipForge AI and its helpers can now see how your posts did: totals, the best and weakest
+posts (compared fairly at 48 hours), comparisons by format, channel, niche or length, and what ClipForge learned
+from them. "How are my clips doing?" works even without a model. The ready-made helpers got the tools their jobs
+need (the Growth coach reads your results first; the hook, edit, critic and thumbnail helpers read the clip).
+
+- **Where things are:** the `results` tool in `brain/insights.py` (`summary`); the chat's no-model rule in
+  `brain/chat.py` (`_RESULTS`, `_results`); helper tools and instructions in `brain/agents.py` (`TEMPLATES`,
+  `EARLIER`, `_upgrade`); docs in docs/clipforge/CLIPFORGE_AI.md, "Results".
+- **Worth knowing:** YouTube numbers stay out until the owner confirms Google's approval for derived metrics
+  (`learner.usable`). A helper added before this build is upgraded once only if its tools or instructions are still
+  the old ready-made ones; whatever the owner changed stays. The safety test's reading budget is now measured from
+  the system prompt's own length, because every new tool makes the prompt longer.
+
 ## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** the gaps from Landry's Nov 26 list. ClipForge AI now acts without an OK (deletes and

@@ -210,7 +210,7 @@ def test_an_agent_does_a_job_with_its_own_tools_and_the_conversation(data, monke
     first = fake.calls[0]
     assert first["system"].startswith("You are Researcher, one of the owner's helper agents in ClipForge")
     assert researcher["instructions"] in first["system"] and "- [rule] Never use clickbait" in first["system"]
-    assert fake.tools_offered(0) == ["find_projects", "open_project", "recall", "knowhow"]
+    assert fake.tools_offered(0) == ["find_projects", "open_project", "recall", "knowhow", "results"]
     assert first["messages"][:2] == [{"role": "user", "content": "I filmed a hike last week"},
                                      {"role": "assistant", "content": "Nice! Tell me more."}]
     assert first["messages"][-1] == {"role": "user", "content": "ClipForge AI asks you to do this for the owner:\n"
@@ -256,10 +256,10 @@ def test_an_agent_proposes_changes_only_in_a_videos_chat(env, monkeypatch):
                    say("Here is my note."))
     out = agents.run(WS, editor["id"], "Tighten the video", project_id=p["id"])
     assert out["ok"] and out["data"]["request_id"] and out["steps"][0]["tool"] == "propose_change"
-    assert fake.tools_offered(0) == ["open_project", "recall", "knowhow", "propose_change"]
+    assert fake.tools_offered(0) == ["open_project", "recall", "knowhow", "clip", "propose_change"]
     assert "This chat belongs to the YouTube video “Hike”" in fake.calls[0]["system"]
     agents.run(WS, editor["id"], "Tighten my videos")
-    assert fake.tools_offered(1) == ["open_project", "recall", "knowhow"]  # no video here: no proposal tool
+    assert fake.tools_offered(1) == ["open_project", "recall", "knowhow", "clip"]  # no video here: no proposal tool
 
 
 def test_consult_gives_one_short_note_from_each_agent_that_helps(data, monkeypatch):

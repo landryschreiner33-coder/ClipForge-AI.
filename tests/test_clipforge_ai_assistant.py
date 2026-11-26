@@ -879,7 +879,7 @@ def test_at_name_talks_to_a_helper_agent_with_its_own_persona_and_tools(data, mo
     assert call["system"].startswith("You are Hook and title writer, one of the owner's helper agents")
     assert writer["role"] in call["system"] and writer["instructions"] in call["system"]
     assert assistant.PERSONA not in call["system"] and "Owner: hi →" not in call["system"]
-    assert fake.tools_offered(0) == ["recall", "knowhow"]  # only its own tools
+    assert fake.tools_offered(0) == ["recall", "knowhow", "clip", "results"]  # only its own tools
     from clipfoundry import db
 
     assert call["max_tokens"] == assistant.budgets(db.get_settings())["max_tokens"] + 400
@@ -935,7 +935,7 @@ def test_clipforge_ai_hands_a_job_to_a_helper_agent(data, monkeypatch):
     assert "helper_live" not in m["data"]
     agent_call = fake.calls[1]
     assert agent_call["system"].startswith("You are Researcher, one of the owner's helper agents")
-    assert fake.tools_offered(1) == ["find_projects", "open_project", "recall", "knowhow"]
+    assert fake.tools_offered(1) == ["find_projects", "open_project", "recall", "knowhow", "results"]
     assert agent_call["messages"][0] == {"role": "user", "content": "what could my hike video be about?"}
     assert agent_call["messages"][-1] == {"role": "user", "content": "ClipForge AI asks you to do this for the "
                                                                      "owner:\nFind angles for my hike"}
