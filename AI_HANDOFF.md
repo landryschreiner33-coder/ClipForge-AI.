@@ -1,5 +1,21 @@
 # AI handoff
 
+## Editing quality, batch 2: short clips — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** short clips now punch in on every jump cut, change framing at least every 5 s, push in on
+key words, get quiet whooshes and pops that follow the edit, and turn caption pages with the cuts.
+
+- **Where things are:** `pipeline/moves.py` (constants at the top: punch, timings, effect levels; `punch_curve`,
+  `changes`, `pushes`, `effect_events`, the synthesised `whoosh`/`pop`, `effects_gain`); the clip renderer wires it
+  in `pipeline/render.py` (`cuts` from `Timeline.cut_frames`, the effects track mixed in `_audio_filter` after the
+  loudness gain and before `gain_db`); captions in `pipeline/captions.py` (`page_breaks`, `WORD_LEAD`,
+  `SIDE_MARGIN`, the style's `pop`).
+- **Worth knowing:** `Timeline.cut_frames` copies the frame loop's arithmetic (`written <= to_out(t) * fps + 0.5`);
+  change the loop and that must change too (a test compares them at four speeds). `sound_effects` is ONE field for
+  all modes (capabilities.FIELDS is a dict: two fields of one name silently hide one), so the Settings choice also
+  turns off the full-video editor's whooshes. With normalization off the audio is still measured once when a clip
+  has effects. Loop endings were planned for this batch and moved to batch 4.
+
 ## Editing quality, batch 1: colour — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** phone HDR video no longer comes out grey, each recording's white balance, brightness and

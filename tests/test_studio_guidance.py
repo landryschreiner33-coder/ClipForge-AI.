@@ -139,7 +139,7 @@ def test_a_hostile_skill_never_executes_and_only_its_editing_choice_applies(api,
     assert _decision(snap, "caption_style")["value"] == "bold"
     # Settings fill every field a skill could set (the colour ones too); the hostile file changed only its own two
     assert set(snap["values"]) <= {"caption_style", "caption_position", "caption_emphasis", "layout", "tracking",
-                                   "pacing", "auto_color", "look", "look_strength", "clean_picture"}
+                                   "pacing", "auto_color", "look", "look_strength", "clean_picture", "sound_effects"}
     assert {d["field"] for d in snap["decisions"] if d["from"]["level"] == "skill"} <= {
         "caption_style", "caption_position"}
     exported = api.get(f"/api/studio/skills/{skill['id']}/export").json()

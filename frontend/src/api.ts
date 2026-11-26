@@ -91,6 +91,8 @@ export interface ClipEdit {
   look_strength?: number;
   /** Clean up visible grain (low light) only. */
   clean_picture?: boolean;
+  /** A soft whoosh with each push-in and a pop with each coloured key word (pipeline/moves.py). */
+  sound_effects?: boolean;
   speed?: number;
   remove_fillers?: boolean;
   caption_emphasis?: boolean;

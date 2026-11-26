@@ -76,6 +76,9 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
     Field("look_strength", "Look strength", "number", ALL, minimum=0, maximum=100,
           applies="how strongly the look is applied (100 = as designed)"),
     Field("clean_picture", "Clean up noise", "bool", ALL, applies="grainy, low-light picture cleaned up"),
+    Field("sound_effects", "Sound effects", "bool", ALL,
+          applies="soft whooshes and pops that follow the edit: with push-ins and coloured key words in clips, at "
+                  "scene changes and as pictures appear in full videos"),
     Field("captions", "Captions", "bool", ("full_video",), applies="whether captions are burned in"),
     Field("pacing", "Pacing", "choice", ("highlights",), ("safe_cuts", "continuous"),
           applies="removal of weak middle sentences", words={"safe_cuts": "tighten when safe",
@@ -104,8 +107,6 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
     Field("smart_edit", "Editing", "choice", ("full_video",), ("off", "smart", "tight"),
           applies="how much the rough cut is edited: pauses, repeated takes and weak parts cut, length fitted",
           words={"off": "keep my clips as they are", "smart": "edit it for me", "tight": "fast-paced"}),
-    Field("sound_effects", "Sound effects", "bool", ("full_video",),
-          applies="soft whooshes at scene changes and as pictures appear"),
     Field("broll_images", "Pictures over the video", "bool", ("full_video",),
           applies="your images shown over the video while the talking goes on"),
     Field("punch_in", "Zoom on cuts", "bool", ("full_video",),

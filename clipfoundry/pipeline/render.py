@@ -20,12 +20,11 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, audio_timing, captions, cleanup, facecam, grade, reframe, trims
+from . import artifact, audio_timing, captions, cleanup, facecam, grade, moves, reframe, trims
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, FFmpegError, MediaWatchdog, delivery_args, ffmpeg_bin,
                            filter_path, run_process, thumbnail, video_encoder_args)
-from .text_utils import ends_sentence
 
 SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
 FILLER_WORD = re.compile(r"^(um+|uh+|erm+|hmm+|mm+|ah+)[,.!?]*$", re.I)
@@ -129,8 +128,21 @@ class Timeline:
     def contains(self, t: float) -> bool:
         return any(a - 1e-6 <= t < b - 1e-6 for a, b in self.segs)
 
+    def cut_frames(self, start: float, fps: float) -> list[float]:
+        """Output times (whole frames) at which render_clip's frame loop first shows each part after the first: the
+        frame after the last one the part before fills (the loop writes while `written <= to_out(t) * fps + 0.5`)."""
+        out = []
+        for _a, b in self.segs[:-1]:
+            k = math.ceil((b - 1e-6 - start) * fps) - 1  # the part's last source frame (start + k / fps < b - 1e-6)
+            while start + (k + 1) / fps < b - 1e-6:
+                k += 1
+            while k > 0 and not start + k / fps < b - 1e-6:
+                k -= 1
+            out.append((math.floor(self.to_out(start + k / fps) * fps + 0.5) + 1) / fps)
+        return out
 
-# ------------------------------------------------------------ zoom
+
+# ------------------------------------------------------------ emphasis (the zoom itself: moves.py)
 EMPHASIS_EXTRA = {"never", "always", "biggest", "worst", "best", "most", "only", "first", "last", "every", "nobody",
                   "everyone", "secret", "truth", "mistake", "wrong", "simple", "whole", "exactly"}
 
@@ -157,41 +169,6 @@ def emphasis_words(words_out: list[dict], keywords: set[str] | None = None, min_
     return set(picked)
 
 
-def zoom_curve(words_out: list[dict], n: int, fps: float, strength: float,
-               emphasis: set[int] | None = None) -> np.ndarray:
-    """Subtle, eased zoom. With `emphasis`, the camera pushes in on the sentences that carry an emphasized word and
-    eases back out for the rest; otherwise it alternates between sentences."""
-    z = np.ones(n)
-    if strength <= 0 or n < 2:
-        return z
-    boundaries = [0.0]
-    for i, w in enumerate(words_out[:-1]):
-        if ends_sentence(w["w"]) and words_out[i + 1]["start"] - boundaries[-1] >= 2.5:
-            boundaries.append(words_out[i + 1]["start"])
-    dur = n / fps
-    # never hold one zoom level for too long
-    filled = [boundaries[0]]
-    for b in boundaries[1:] + [dur]:
-        while b - filled[-1] > 7.0:
-            filled.append(filled[-1] + 5.0)
-        if b < dur:
-            filled.append(b)
-    levels = [1.0 + strength if k % 2 == 1 else 1.0 for k in range(len(filled))]
-    if emphasis:
-        spans = list(zip(filled, filled[1:] + [dur]))
-        marks = [any(a <= words_out[j]["start"] < b for j in emphasis) for a, b in spans]
-        if 0 < sum(marks) < len(marks):
-            levels = [1.0 + strength if m else 1.0 for m in marks]
-    for b, level in zip(filled, levels):
-        z[int(b * fps):] = level
-    win = max(3, int(0.35 * fps))
-    kernel = np.hanning(win + 2)[1:-1]
-    kernel /= kernel.sum()
-    pad = win // 2
-    zp = np.pad(z, (pad, win - 1 - pad), mode="edge")
-    return np.convolve(zp, kernel, mode="valid")[:n]
-
-
 # ------------------------------------------------------------ helpers
 def _decode_size(w: int, h: int) -> tuple[int, int]:
     s = min(1.0, 1920 / max(1, h), 3840 / max(1, w))
@@ -201,7 +178,8 @@ def _decode_size(w: int, h: int) -> tuple[int, int]:
 
 def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
                   normalization_gain_db: float | None = None, measure: bool = False,
-                  input_label: str = "1:a:0") -> str:
+                  input_label: str = "1:a:0", effects_label: str | None = None,
+                  effects_gain_db: float = 0.0) -> str:
     rel = [(a - start, b - start) for a, b in segs]
     # Input seeking resets the shared source clock, but the first audio packet may still arrive late. Rebuild
     # that clock before any trims: resetting PTS independently would move all speech earlier than the picture.
@@ -234,6 +212,14 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
             raise ValueError("Audio normalization requires a measured, finite gain")
         # One constant gain avoids single-pass loudnorm's excessive startup boost and slow volume pumping.
         post.append(f"volume={normalization_gain_db:.6f}dB:precision=double")
+    if effects_label:
+        # The sound effects (moves.py) are made for speech at -14 LUFS; `effects_gain_db` moves them with the
+        # speech's real loudness (normalization off or held back by peaks). They join after the loudness gain and
+        # before the owner's volume, so that volume turns the whole mix up or down, and share the limiter.
+        parts.append(chain + ",".join(post) + "[speech]")
+        parts.append(f"[{effects_label}]aformat=sample_fmts=dbl:sample_rates=48000:channel_layouts=stereo,"
+                     f"volume={effects_gain_db:.2f}dB[fx]")
+        chain, post = "[speech][fx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0", [""]
     gain = float(opts.get("gain_db", 0) or 0)
     if abs(gain) > 0.01:
         post.append(f"volume={gain:.2f}dB")
@@ -248,10 +234,12 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
 
 
 def _measure_audio(audio_in: list[str], segs: list[tuple[float, float]], start: float, opts: dict,
-                   duration: float, ctx: JobContext) -> dict:
-    """Measure the kept/downmixed/speed-adjusted audio once, without storing samples or touching the GPU."""
+                   duration: float, ctx: JobContext, always: bool = False) -> dict:
+    """Measure the kept/downmixed/speed-adjusted audio once, without storing samples or touching the GPU. With
+    normalization off it is measured only when `always` (the sound effects need the speech's loudness)."""
     base = {"version": 1, "normalization": "off", "normalization_gain_db": 0.0}
-    if not opts.get("normalize_audio", True):
+    normalize = bool(opts.get("normalize_audio", True))
+    if not normalize and not always:
         return base
     ctx.check()
     ctx.progress(0.03, "Measuring audio")
@@ -272,6 +260,8 @@ def _measure_audio(audio_in: list[str], segs: list[tuple[float, float]], start: 
             raise ValueError("invalid peak")
     except (IndexError, KeyError, TypeError, ValueError) as exc:
         raise FFmpegError("Audio measurement was incomplete. Try rendering the clip again.") from exc
+    if not normalize:
+        return {**base, "integrated_lufs": integrated if math.isfinite(integrated) else None}
     # Ungated/silent material has no usable integrated loudness; never amplify its background noise blindly.
     gain = min(-14.0 - integrated, -1.5 - peak, 24.0) if math.isfinite(integrated) else 0.0
     return {**base, "normalization": "measured_fixed_gain", "target_lufs": -14.0,
@@ -308,7 +298,7 @@ def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> lis
 def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
     keys = ["caption_style", "caption_position", "highlight_words", "tracking", "layout", "silence", "auto_zoom",
             "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis", "clean_sound",
-            "split_view", "split_game", "auto_color", "look", "look_strength", "clean_picture"]
+            "split_view", "split_game", "auto_color", "look", "look_strength", "clean_picture", "sound_effects"]
     opts = {k: settings.get(k) for k in keys}
     opts.update({k: v for k, v in (project_opts or {}).items() if k in keys and v is not None})
     opts.update({k: v for k, v in (edit or {}).items() if v is not None})
@@ -468,6 +458,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     if blueprint is not None:  # only words that are heard get captions (whole sentences may be cut out)
         words = [w for w in words if artifact.kept_fraction(max(start, w["start"]), min(end, w["end"]), segs) >= 0.5]
     words_out = _map_words(words, tl, start, end)
+    # where pauses and fillers were cut out (punch-ins, caption pages), on the frames that really show the new part
+    cuts = moves.jump_cuts(segs, tl.speed, tl.cut_frames(start, fps))
 
     # ---- framing plan (cached: expensive analysis is skipped on caption-only edits)
     mode = opts.get("tracking", "auto")
@@ -550,7 +542,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     ass = captions.build_ass(words_out, {**opts, "picture_top": picture_top,
                                          "picture_seam": view["seam"] / OUTPUT_H if two else None,
                                          "seam_hook_top": view.get("hook") if two else None,
-                                         "clear_top": view.get("clear_top")},
+                                         "clear_top": view.get("clear_top"), "page_breaks": [t for t, _ in cuts]},
                              tl.duration, hook_text or "")
     (out_dir / "captions.ass").write_text(ass, encoding="utf-8")
     (out_dir / "captions.srt").write_text(captions.build_srt(words_out, opts.get("caption_style", "clean")),
@@ -561,7 +553,17 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     base_w, base_h = cw_frac * dw, ch_frac * dh
     base_zoom = max(1.0, min(2.5, float(opts.get("zoom", 1.0) or 1.0)))
     n_out_frames = int(round(tl.duration * fps))
-    zc = zoom_curve(words_out, n_out_frames, fps, 0.07 if opts.get("auto_zoom") else 0.0, emphasis) * base_zoom
+    # punch-ins on the jump cuts, a change at least every 5 s, a push on rationed stressed words (moves.py)
+    punch = moves.punch_strength(src_h) if opts.get("auto_zoom") else 0.0
+    zc = moves.punch_curve(words_out, cuts, n_out_frames, fps, punch, emphasis) * base_zoom
+    framing_changes = moves.changes(words_out, cuts, tl.duration) if punch else []
+    pushed = moves.pushes(words_out, emphasis, tl.duration) if punch else []
+    # sound effects from the edit: a whoosh with each push, a pop with each key word the captions colour (a style
+    # without an emphasis colour, like Minimal, shows no key words, so it gets no pops)
+    coloured = opts.get("captions_enabled", True) and bool(captions.STYLE_PRESETS.get(
+        opts.get("caption_style", "bold"), captions.STYLE_PRESETS["bold"]).get("emphasis"))
+    effects = moves.effect_events(words_out if coloured else [], pushed, tl.duration) \
+        if opts.get("sound_effects", True) else []
 
     frame_bytes = dw * dh * 3
     n_src_frames = plan.n
@@ -604,15 +606,25 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         audio_in = ["-ss", f"{start:.3f}", "-t", f"{end - start + 0.2:.3f}", "-i", src]
     else:
         audio_in = ["-f", "lavfi", "-t", f"{end - start + 0.2:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
-    audio_processing = _measure_audio(audio_in, segs, start, opts, tl.duration, ctx)
+    audio_processing = _measure_audio(audio_in, segs, start, opts, tl.duration, ctx, always=bool(effects))
     if sound is not None:
         audio_processing["clean_sound"] = sound.report
+    effects_in: list[str] = []
+    fx_path = out_dir / "effects.wav"
+    fx_gain = 0.0
+    if effects:
+        moves.write_wav(moves.effects_track(effects, tl.duration), fx_path)
+        effects_in = ["-i", str(fx_path)]
+        fx_gain = moves.effects_gain(audio_processing.get("integrated_lufs"),
+                                     float(audio_processing.get("normalization_gain_db") or 0.0))
+        audio_processing["effects_gain_db"] = round(fx_gain, 2)
     fc = vf + ";" + _audio_filter(segs, start, opts,
-                                normalization_gain_db=audio_processing["normalization_gain_db"])
+                                normalization_gain_db=audio_processing["normalization_gain_db"],
+                                effects_label="2:a:0" if effects else None, effects_gain_db=fx_gain)
     tmp_out = out_dir / "render.tmp.mp4"
     enc_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", f"{fps}",
-               "-i", "pipe:0", *audio_in, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
+               "-i", "pipe:0", *audio_in, *effects_in, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
                *enc_args, *delivery_args(fps), "-r", f"{fps}", "-c:a", "aac", "-profile:a", "aac_low",
                "-b:a", AUDIO_BITRATE, "-ac", "2", "-ar", "48000",
                # The timeline already bounds both streams. FFmpeg's -shortest can stop consuming the raw
@@ -685,6 +697,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                 if proc is not None:
                     proc.kill()
                     proc.wait()
+            fx_path.unlink(missing_ok=True)  # only the encode reads it (and Full Cloud would download it)
     if rc != 0 or not tmp_out.exists():
         raise FFmpegError(f"Encoding failed: {_tail(log_path)}")
     audio_processing["packet_timing"] = audio_timing.require_valid(tmp_out, ctx.cancelled)
@@ -727,6 +740,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                         "fps": fps, "segments": len(segs),
                         "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),
                         "fillers_removed": fillers_cut, "speed": tl.speed, "emphasis_words": len(emphasis),
+                        "moves": {"punch": punch, "on_cuts": sum(1 for _, c in framing_changes if c),
+                                  "eased": sum(1 for _, c in framing_changes if not c), "pushes": len(pushed),
+                                  "effects": [e["kind"] for e in effects]},
                         "colour": {**look.summary(), "denoise": bool(denoise),
                                    "noise": round(float((look_stats or {}).get("noise") or 0), 2)},
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
