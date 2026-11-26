@@ -145,33 +145,96 @@ function Timeline({ v, selected, onSelect }: { v: Video; selected: string; onSel
   );
 }
 
+const SPEEDS: [string, string][] = [["0.25", "Very slow (25%)"], ["0.5", "Slow motion (50%)"], ["0.75", "A little slower (75%)"],
+  ["1", "Normal"], ["1.25", "A little faster (125%)"], ["1.5", "Faster (150%)"], ["2", "Twice as fast"], ["3", "Three times"], ["4", "Four times"]];
+const RAMPS: Record<string, string> = { slow_middle: "Slow motion in the middle", fast_slow_fast: "Fast, slow, fast",
+  slow_down: "Slow down to the end", speed_up: "Speed up to the end" };
+const MOVES_ON_CLIPS: Record<string, string> = { zoom_in: "Slow zoom in", zoom_out: "Slow zoom out", pan_left: "Pan left",
+  pan_right: "Pan right", pan_up: "Pan up", pan_down: "Pan down" };
+
+/** How long a clip plays in the video (ms): its place on the server's time line (speed and ramps counted there), or,
+ * for a removed clip, its file range at its speed (a ramp's length is only known to the server). */
+function playsFor(c: PlanClip, v: Video): number | null {
+  const seg = v.timeline.find((s) => s.clip_id === c.id);
+  if (seg) return seg.out_end_ms - seg.out_start_ms;
+  if (c.kind === "freeze") return c.hold_ms || 0;
+  if (c.speed_ramp) return null;
+  return (c.out_ms - c.in_ms) / (c.speed || 1);
+}
+
+function timingNote(c: PlanClip): string {
+  if (c.kind === "freeze") return " · freeze frame";
+  if (c.speed_ramp) return ` · ${(RAMPS[c.speed_ramp.preset || ""] || "speed ramp").toLowerCase()}`;
+  if (c.speed && c.speed !== 1) return ` · ${c.speed}×`;
+  return "";
+}
+
 function ClipInspector({ c, plan, v, edit, busy }: { c: PlanClip; plan: Plan; v: Video; edit: EditFn; busy: boolean }) {
   const [splitAt, setSplitAt] = useState(Math.round((c.in_ms + c.out_ms) / 2));
   const asset = v.assets.find((a) => a.id === c.asset_id);
   const swaps = v.assets.filter((a) => a.id !== c.asset_id && a.kind !== "audio");
   const [swap, setSwap] = useState("");
+  const ramps = v.capabilities?.speed_ramps || RAMPS;
+  const moves = v.capabilities?.motions || MOVES_ON_CLIPS;
+  const set = (field: string, value: unknown) => edit({ op: "set", clip_id: c.id, field, value });
+  const speed = c.speed || 1;
+  const move = <label className="field"><span>Camera move</span>
+    <select value={c.motion ? c.motion.preset || "custom" : ""} disabled={busy} onChange={(e) => set("motion", e.target.value || null)}>
+      <option value="">None</option>
+      {Object.entries(moves).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+      {c.motion && !c.motion.preset && <option value="custom">Your own move</option>}
+    </select></label>;
+  if (c.kind === "freeze") return (
+    <div className="inspector stack-3">
+      <div className="grid-3">
+        <div className="field"><span>Freeze frame</span><p className="small">The frame at {(c.in_ms / 1000).toFixed(2)} s of the file, held.</p></div>
+        <TimeField label="Holds for (s)" ms={c.hold_ms || 0} disabled={busy} onCommit={(ms) => set("hold_ms", ms)} />
+        {move}
+      </div>
+      <p className="small muted">A freeze frame has no sound of its own: the room's sound from the recording plays under it.</p>
+    </div>
+  );
   return (
     <div className="inspector stack-3">
       <div className="grid-3">
         <TimeField label="Starts at (s in the file)" ms={c.in_ms} disabled={busy} onCommit={(ms) => edit({ op: "trim", clip_id: c.id, in_ms: ms, out_ms: c.out_ms })} />
         <TimeField label="Ends at (s)" ms={c.out_ms} disabled={busy} onCommit={(ms) => edit({ op: "trim", clip_id: c.id, in_ms: c.in_ms, out_ms: ms })} />
-        <div className="field"><span>Split</span><div className="row-actions">
-          <TimeField label="At (s)" ms={splitAt} onCommit={setSplitAt} />
+        <div className="field"><span>Split or freeze</span><div className="row-actions">
+          <TimeField label="At (s in the file)" ms={splitAt} onCommit={setSplitAt} />
           <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "split", clip_id: c.id, at_ms: splitAt })}><Icon name="scissors" />Split</button>
+          {c.kind === "video" && <button type="button" className="btn btn-small" disabled={busy} title="Hold the frame at this moment for 2 s (the clip goes on after it)" onClick={() => edit({ op: "freeze", clip_id: c.id, at_ms: splitAt })}>Freeze here</button>}
+          {c.kind === "video" && <button type="button" className="btn btn-small" disabled={busy} title="Hold this clip's last frame for 2 s" onClick={() => edit({ op: "freeze", clip_id: c.id })}>Hold the last frame</button>}
         </div></div>
       </div>
+      {c.kind === "video" && <div className="grid-3">
+        <label className="field"><span>Speed</span>
+          <select value={c.speed_ramp ? "ramp" : String(speed)} disabled={busy} onChange={(e) => e.target.value !== "ramp" && set("speed", Number(e.target.value))}>
+            {c.speed_ramp && <option value="ramp">Set by the ramp</option>}
+            {SPEEDS.map(([s, t]) => <option key={s} value={s}>{t}</option>)}
+            {!c.speed_ramp && !SPEEDS.some(([s]) => Number(s) === speed) && <option value={String(speed)}>{speed}×</option>}
+          </select></label>
+        <label className="field"><span>Speed ramp</span>
+          <select value={c.speed_ramp ? c.speed_ramp.preset || "custom" : ""} disabled={busy} onChange={(e) => set("speed_ramp", e.target.value || null)}>
+            <option value="">None (one speed)</option>
+            {Object.entries(ramps).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+            {c.speed_ramp && !c.speed_ramp.preset && <option value="custom">Your own ramp</option>}
+          </select></label>
+        <p className="small muted">Plays for {((playsFor(c, v) ?? 0) / 1000).toFixed(1)} s in the video. The voice keeps its pitch.</p>
+      </div>}
+      {c.kind === "image" && <div className="grid-2">{move}</div>}
       {c.kind === "video" && asset?.has_audio !== false && <div className="grid-3">
         <Gain label="Sound" value={c.gain_db} min={-12} max={12} disabled={busy} onCommit={(x) => edit({ op: "set", clip_id: c.id, field: "gain_db", value: x })} />
         <TimeField label="Fade in (s)" ms={c.fade_in_ms || 0} disabled={busy} onCommit={(ms) => edit({ op: "set", clip_id: c.id, field: "fade_in_ms", value: ms })} />
         <TimeField label="Fade out (s)" ms={c.fade_out_ms || 0} disabled={busy} onCommit={(ms) => edit({ op: "set", clip_id: c.id, field: "fade_out_ms", value: ms })} />
         <label><input type="checkbox" checked={!!c.mute} disabled={busy} onChange={(e) => edit({ op: "set", clip_id: c.id, field: "mute", value: e.target.checked })} /> Mute this clip's sound</label>
       </div>}
-      {c.kind === "video" && <div className="grid-2">
+      {c.kind === "video" && <div className="grid-3">
         <label className="field"><span>Zoom</span>
           <select value={String(c.zoom || 1)} disabled={busy} onChange={(e) => edit({ op: "set", clip_id: c.id, field: "zoom", value: Number(e.target.value) })}>
             {[["1", "None"], ["1.1", "A little (110%)"], ["1.2", "More (120%)"], ["1.3", "Close (130%)"], ["1.5", "Very close (150%)"]].map(([z, t]) => <option key={z} value={z}>{t}</option>)}
             {c.zoom && ![1, 1.1, 1.2, 1.3, 1.5].includes(c.zoom) && <option value={String(c.zoom)}>{Math.round(c.zoom * 100)}%</option>}
           </select></label>
+        {move}
         {plan.clips[0]?.id !== c.id && <label className="field"><span>Join with the clip before</span>
           <select value={c.join || ""} disabled={busy} onChange={(e) => edit({ op: "set", clip_id: c.id, field: "join", value: e.target.value || null })}>
             <option value="">Like the rest of the video ({plan.transition.type === "cut" ? "straight cut" : plan.transition.type})</option>
@@ -212,8 +275,8 @@ function AudioRow({ item, v, edit, busy }: { item: AudioItem; v: Video; edit: Ed
       <Disclosure summary="Change">
         <div className="stack-3">
           <div className="grid-3">
-            {item.anchor ? <TimeField label="Starts after its clip (s)" ms={item.anchor.offset_ms} disabled={busy}
-              onCommit={(ms) => edit({ op: "audio_move", audio_id: item.id, clip_id: item.anchor!.clip_id, offset_ms: ms })} />
+            {item.anchor ? <TimeField label="Starts after its clip (s)" ms={v.anchor_ms?.[item.id] ?? placed?.clip_ms ?? item.anchor.offset_ms} disabled={busy}
+              onCommit={(ms) => edit({ op: "audio_move", audio_id: item.id, clip_id: item.anchor!.clip_id, out_offset_ms: ms })} />
               : <TimeField label="Starts at (s)" ms={item.start_ms} disabled={busy} onCommit={(ms) => edit({ op: "audio_move", audio_id: item.id, start_ms: ms })} />}
             {item.loop ? <TimeField label="Plays for (s, 0 = to the end)" ms={item.length_ms || 0} disabled={busy}
               onCommit={(ms) => edit({ op: "audio_trim", audio_id: item.id, length_ms: ms || null })} />
@@ -388,7 +451,7 @@ function Pictures({ v, plan, edit, busy }: { v: Video; plan: Plan; edit: EditFn;
         <select value={add.asset} aria-label="Picture to show" onChange={(e) => setAdd({ ...add, asset: e.target.value })}>
           <option value="">Show a picture…</option>{images.map((a) => <option key={a!.id} value={a!.id}>{a!.filename}</option>)}</select>
         <select value={add.clip} aria-label="Over which clip" onChange={(e) => setAdd({ ...add, clip: e.target.value })}>
-          <option value="">Over clip…</option>{clips.map((c) => <option key={c.id} value={c.id}>Clip {plan.clips.indexOf(c) + 1} ({c.label}, {((c.out_ms - c.in_ms) / 1000).toFixed(1)} s)</option>)}</select>
+          <option value="">Over clip…</option>{clips.map((c) => <option key={c.id} value={c.id}>Clip {plan.clips.indexOf(c) + 1} ({c.label}, {((playsFor(c, v) ?? c.out_ms - c.in_ms) / 1000).toFixed(1)} s)</option>)}</select>
         <button type="button" className="btn btn-small" disabled={busy || !add.asset || !add.clip}
           onClick={() => edit({ op: "overlay_add", asset_id: add.asset, clip_id: add.clip, offset_ms: 0, length_ms: 3500 })}><Icon name="plus" />Show</button>
       </div>}
@@ -523,7 +586,7 @@ export default function VideoReview({ id }: { id: string }) {
                       <span className="idx">{i + 1}</span>
                       <div className="break">
                         <b className="clamp-1">{c.label}{c.hook ? <> <span className="pill accent">Cold open</span></> : null}{c.take_of?.lines?.length ? <> <span className="pill plain small">{c.take_of.lines.length === 1 ? `Line ${c.take_of.lines[0]}` : `Lines ${c.take_of.lines[0]}–${c.take_of.lines[c.take_of.lines.length - 1]}`}</span></> : null}</b>
-                        <span className="block small muted">{fmtEdit(c.in_ms)}–{fmtEdit(c.out_ms)} · {((c.out_ms - c.in_ms) / 1000).toFixed(1)} s{c.mute ? " · muted" : ""}{o?.summary ? ` · “${o.summary}”` : ""}</span>
+                        <span className="block small muted">{c.kind === "freeze" ? `${fmtEdit(c.in_ms)} held` : `${fmtEdit(c.in_ms)}–${fmtEdit(c.out_ms)}`} · {playsFor(c, v) === null ? "ramp" : `${((playsFor(c, v) ?? 0) / 1000).toFixed(1)} s`}{timingNote(c)}{c.motion ? " · camera move" : ""}{c.mute ? " · muted" : ""}{o?.summary ? ` · “${o.summary}”` : ""}</span>
                         {c.must_keep?.length ? <span className="block small">Keeps: {c.must_keep.join(", ")}</span> : null}
                       </div>
                       <div className="row-actions">

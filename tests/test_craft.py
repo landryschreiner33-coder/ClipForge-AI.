@@ -638,6 +638,19 @@ def test_final_render_engine_choice_and_backup(env, monkeypatch):  # noqa: F811
     assert not engine.sound_joins_in_use(plain, assets, words)
     assert video_flow._craft_render(project, job, plain, assets, words, out, {"edit_engine": "auto"}, _Lease(),
                                     False) == ({"engine": "filmcraft"}, "")
+    # a clip at another speed (or a freeze frame, slow zoom or pan) is only played properly by the built-in engine:
+    # FilmCraft keeps one speed per clip, holds frames without room sound and leaves the camera still
+    from clipfoundry.studio import retime
+
+    for timed in ({"speed": 2.0}, {"motion": retime.motion_value("zoom_in", "smooth")},
+                  {"speed_ramp": retime.ramp_value("slow_middle")}):
+        moved = {**plain, "clips": [{**plain["clips"][0], **timed}]}
+        assert engine.retiming_in_use(moved) and not engine.retiming_in_use(plain)
+        assert video_flow._craft_render(project, job, moved, assets, words, out, {"edit_engine": "auto"}, _Lease(),
+                                        False) == (None, "")
+        made = video_flow._craft_render(project, job, moved, assets, words, out, {"edit_engine": "filmcraft"},
+                                        _Lease(), False)[0]
+        assert any("speed ramps" in t for t in made["craft_skipped"])
     # whether room tone was found (or the music moved) is only known by measuring, which the preview of the same
     # version did: a title over a recording whose pauses held no usable room sound goes to FilmCraft after all
     from clipfoundry import db

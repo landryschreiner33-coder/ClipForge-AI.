@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path
-from . import engine
+from . import engine, retime
 
 FORMAT = "clipforge.otio/v1"
 SR = 48000
@@ -80,11 +80,35 @@ def _external(url: str, name: str, available_frames: float | None, fps: int) -> 
             "available_image_bounds": None, "metadata": {}}
 
 
-def _clip(name: str, ref: dict, start: float, frames: int, fps: int, filmcraft: dict, clipforge: dict) -> dict:
+def _clip(name: str, ref: dict, start: float, frames: int, fps: int, filmcraft: dict, clipforge: dict,
+          effects: list[dict] | None = None) -> dict:
     return {"OTIO_SCHEMA": "Clip.2", "name": name, "source_range": _tr(start, frames, fps),
             "media_references": {"DEFAULT_MEDIA": ref}, "active_media_reference_key": "DEFAULT_MEDIA",
-            "effects": [], "markers": [], "enabled": True,
+            "effects": list(effects or []), "markers": [], "enabled": True,
             "metadata": {"filmcraft": filmcraft, "clipforge": clipforge}}
+
+
+def _time_effects(c: dict) -> list[dict]:
+    """OTIO's time effects for a clip's speed (a ramp as its average speed: OTIO has no ramp) or freeze frame. The
+    clip's length on the timeline stays its length in the video (OTIO time effects do not change it)."""
+    if not retime.retimed(c):
+        return []
+    if retime.is_freeze(c):
+        return [{"OTIO_SCHEMA": "FreezeFrame.1", "name": "Freeze frame", "effect_name": "FreezeFrame",
+                 "time_scalar": 0.0, "metadata": {}}]
+    span = int(c["out_ms"]) - int(c["in_ms"])
+    return [{"OTIO_SCHEMA": "LinearTimeWarp.1", "name": "Speed", "effect_name": "LinearTimeWarp",
+             "time_scalar": round(span / max(1e-9, retime.out_exact_ms(c)), 6), "metadata": {}}]
+
+
+def _retime_meta(c: dict) -> dict:
+    """ClipForge's own speed ramp and camera move, kept with the clip for a round trip."""
+    out = {}
+    if retime.ramp_points(c):
+        out["speed_ramp"] = c["speed_ramp"]
+    if retime.motion_keys(c):
+        out["motion"] = c["motion"]
+    return out
 
 
 def _track(name: str, kind: str, children: list[dict], filmcraft: dict | None = None) -> dict:
@@ -220,21 +244,27 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
         c = clips[e["clip_id"]]
         asset = assets[e["asset_id"]]
         label = c.get("label") or asset["filename"]
-        start = e["src_in_ms"] * fps / 1000 + into if e["kind"] == "video" else into
+        # the file frame where this clip's part starts (`into` is in video frames; at another speed the file moves
+        # at that speed); a freeze frame holds its one frame
+        start = (e["src_in_ms"] + retime.src_at(c, into * 1000 / fps)) * fps / 1000 \
+            if e["kind"] in ("video", "freeze") else into
         layout = c.get("layout") or plan.get("layout") or "fit"
         meta_cf = {"clip_id": c["id"], "asset_id": asset["id"], "kind": e["kind"], "layout": layout,
-                   "zoom": float(c.get("zoom") or 1.0), "cover": cover_ratio(asset, width, height)}
-        v1.append(_clip(label, ref(asset), start, frames, fps, {"scale_to_frame": True, "link": link}, meta_cf))
+                   "zoom": float(c.get("zoom") or 1.0), "cover": cover_ratio(asset, width, height),
+                   **_retime_meta(c)}
+        timing = _time_effects(c)
+        v1.append(_clip(label, ref(asset), start, frames, fps, {"scale_to_frame": True, "link": link}, meta_cf,
+                        timing))
         if layout not in ("fill", "follow") and meta_cf["cover"] > 1.01:  # bars beside a fitted picture
             bg_slots[k] = _clip(f"{label} (background)", ref(asset), start, frames, fps, {"scale_to_frame": True},
-                                {**meta_cf, "role": "background"})
+                                {**meta_cf, "role": "background"}, timing)
         audible = (e["kind"] == "video" and (asset.get("probe") or {}).get("has_audio") and not c.get("mute"))
         if audible:
             a1_slots.append(_clip(label, ref(asset), start, frames, fps,
                                   {"gain_db": float(c.get("gain_db") or 0.0), "link": link},
                                   {"clip_id": c["id"], "asset_id": asset["id"],
                                    "fade_in_ms": int(c.get("fade_in_ms") or 0),
-                                   "fade_out_ms": int(c.get("fade_out_ms") or 0)}))
+                                   "fade_out_ms": int(c.get("fade_out_ms") or 0)}, timing))
         else:
             a1_slots.append(_gap(frames, fps))
         sound_slots.append(bool(audible))
@@ -360,9 +390,10 @@ def chapter_marks(plan: dict) -> list[dict]:
     """Every chapter of the plan at its place in the output (ms), in order; unlike the YouTube description
     (smart_edit.chapter_times) none is dropped for being short or too close to another."""
     segs = {s["clip_id"]: s for s in engine.timeline(plan)}
+    clips = {c["id"]: c for c in plan.get("clips") or []}
     return sorted(({"title": str(c.get("title") or "Chapter")[:100],
-                    "ms": min(segs[c["clip_id"]]["out_end_ms"] - 1,
-                              segs[c["clip_id"]]["out_start_ms"] + int(c.get("offset_ms") or 0))}
+                    "ms": min(segs[c["clip_id"]]["out_end_ms"] - 1, segs[c["clip_id"]]["out_start_ms"]
+                              + engine.offset_out_ms(clips[c["clip_id"]], c.get("offset_ms")))}
                    for c in plan.get("chapters") or [] if c.get("clip_id") in segs), key=lambda r: r["ms"])
 
 
@@ -398,6 +429,14 @@ def not_carried(plan: dict, title_still: bool) -> list[str]:
         out.append("Sound fades on clips and audio items: add them as audio transitions or volume keyframes.")
     if any(float(c.get("zoom") or 1.0) > 1.001 for c in inc):
         out.append("Punch-in zooms on jump cuts: set Scale on those clips in Effect Controls.")
+    if any(retime.ramp_points(c) for c in inc):
+        out.append("Speed ramps: each ramped clip comes in at its average speed; add the ramp with Time Remapping.")
+    if any(retime.retimed(c) and not retime.is_freeze(c) for c in inc):
+        out.append("The voice of sped-up or slowed clips is time-stretched by FilmCraft, not by ClipForge.")
+    if any(retime.is_freeze(c) for c in inc):
+        out.append("The room sound under freeze frames: they come in silent.")
+    if any(retime.motion_keys(c) for c in inc):
+        out.append("Slow zooms and pans (camera moves): add Scale and Position keyframes in Effect Controls.")
     layouts = {c.get("layout") or plan.get("layout") or "fit" for c in inc if c.get("kind", "video") == "video"}
     if "fill" in layouts:
         out.append("“Fill the frame” framing: clips are scaled to fit the frame; raise Scale to crop them.")

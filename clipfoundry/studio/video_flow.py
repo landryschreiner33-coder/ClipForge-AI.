@@ -32,6 +32,7 @@ import logging
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
@@ -42,7 +43,7 @@ from typing import Callable
 from .. import config, db
 from ..pipeline import artifact, grade
 from ..pipeline.ffmpeg_utils import extract_audio
-from . import engine, guidance, prefs, styles, uploads
+from . import engine, guidance, prefs, retime, styles, uploads
 from .jobs import Lease, enqueue, handler, on_stop
 
 # hard cuts are 95-99 % of an edit's joins (docs/clipforge/EDITING_CRAFT_RESEARCH.md): a dissolve says time passed
@@ -929,7 +930,8 @@ def parse_request(text: str) -> dict:
     if re.search(r"\b(add|turn on) captions\b", t):
         return {"op": "set", "field": "captions", "value": True}
     raise VideoError("ClipForge cannot do that as a request yet. Use the controls: trim, move, keep or remove a "
-                     "clip, shorten the introduction, transitions, captions and music level.")
+                     "clip, its speed, a freeze frame or a slow zoom, shorten the introduction, transitions, captions "
+                     "and music level.")
 
 
 def _number(value, low: float, high: float, what: str) -> float:
@@ -966,8 +968,178 @@ def _bin_asset(assets: dict[str, dict], aid) -> dict:
     return a
 
 
+def _outline_length(p: dict, c: dict) -> None:
+    """The outline row of a clip shows how long it plays (in the video: its speed counts)."""
+    for o in p.get("outline") or []:
+        if o.get("clip_id") == c["id"]:
+            o["duration"] = round(engine._dur(c) / 1000, 1)  # noqa: SLF001
+
+
+def _timing_set(c: dict, field: str, value) -> str:
+    """A clip's speed, speed ramp, camera move or freeze length (studio/retime.py); what changed, in words."""
+    kind = c.get("kind", "video")
+    if field in ("speed", "speed_ramp") and kind != "video":
+        raise VideoError("Only a video clip can change speed." if kind == "image" else
+                         "A freeze frame holds one moment; change how long it holds instead.")
+    if field == "speed":
+        s = _number(value, *retime.SPEED_RANGE, "A clip's speed")
+        c.pop("speed_ramp", None)
+        if abs(s - 1) < 1e-9:
+            c.pop("speed", None)
+            return f"{c['label']} plays at normal speed"
+        c["speed"] = s
+        return f"{c['label']} plays at {s:g}× speed" + (" (slow motion)" if s < 1 else "")
+    if field == "speed_ramp":
+        if value is None:
+            c.pop("speed_ramp", None)
+            return f"{c['label']} plays at one speed again"
+        ramp = retime.ramp_value(value) if isinstance(value, str) and value in retime.RAMPS else value
+        c["speed_ramp"] = ramp
+        c.pop("speed", None)
+        said = retime.RAMPS[value][0] if isinstance(value, str) and value in retime.RAMPS else "Speed ramp"
+        return f"{said} on {c['label']}"
+    if field == "motion":
+        if value is None:
+            c.pop("motion", None)
+            return f"No camera move on {c['label']}"
+        c["motion"] = retime.motion_value(value) if isinstance(value, str) and value in retime.MOTIONS else value
+        c.pop("zoom", None)  # a move replaces a still punch-in
+        said = retime.MOTIONS[value][0] if isinstance(value, str) and value in retime.MOTIONS else "Camera move"
+        return f"{said} on {c['label']}"
+    if field == "hold_ms":
+        if kind != "freeze":
+            raise VideoError("Only a freeze frame has a hold length.")
+        c["hold_ms"] = round(_number(value, retime.FREEZE_MIN_MS, 60000, "A freeze frame's length (ms)"))
+        return f"{c['label']} holds for {c['hold_ms'] / 1000:g} s"
+    raise VideoError(f"“{field}” cannot be set to that.")
+
+
+def _split_clip(p: dict, c: dict, at: int) -> dict:
+    """Cut clip `c` in two at `at` (file time); returns the second half, placed right after it. A ramp and a camera
+    move go on across the cut: each half plays its own part of the same curve. Pictures, sounds and chapter marks
+    attached to the clip after that moment move to the second half (their offsets are file time from the in point),
+    so they still come with the moment they were placed at, also when a freeze frame is put between the halves."""
+    taken = {x["id"] for x in p["clips"]}
+    sid = c["id"] + "s"
+    while sid in taken:
+        sid += "s"
+    second = {**copy.deepcopy(c), "id": sid, "in_ms": at}
+    cut = at - c["in_ms"]
+    if retime.ramp_points(c):
+        c["speed_ramp"], second["speed_ramp"] = retime.split_ramp(c)
+    if retime.motion_keys(c):
+        out_share = retime.out_at(c, cut) / max(1.0, retime.out_exact_ms(c))
+        c["motion"], second["motion"] = retime.split_motion(c, out_share)
+    c["out_ms"] = at
+    p["clips"].insert(p["clips"].index(c) + 1, second)
+    for o in [*(p.get("overlays") or []), *(p.get("chapters") or [])]:
+        if o.get("clip_id") == c["id"] and int(o.get("offset_ms") or 0) >= cut:
+            o["clip_id"], o["offset_ms"] = sid, int(o.get("offset_ms") or 0) - cut
+    for item in p.get("audio") or []:
+        anchor = item.get("anchor") or {}
+        if anchor.get("clip_id") == c["id"] and int(anchor.get("offset_ms") or 0) >= cut:
+            item["anchor"] = {**anchor, "clip_id": sid, "offset_ms": int(anchor.get("offset_ms") or 0) - cut}
+    _outline_length(p, c)
+    return second
+
+
+def _not_freeze(c: dict) -> None:
+    if retime.is_freeze(c):
+        raise VideoError("A freeze frame holds one moment; change how long it holds instead.")
+
+
+def _freeze(p: dict, edit: dict, assets: dict[str, dict]) -> str:
+    """Hold one frame of a video clip for `length_ms` (default 2 s): `at_ms` is a time in the file (default: the
+    clip's last frame). At the clip's end the held frame follows it, at its start it comes first, inside it the clip
+    is split around the hold. The hold joins its clip with straight cuts and gets the room's sound (it has none).
+
+    Frames are found on the file's own frame grid (its frame rate), never past its picture's last frame (a file's
+    sound often runs on a little longer), and the held frame is one the clip shows: the clip goes on from it, and a
+    hold near the clip's end ends the clip on it rather than jumping back to it."""
+    c = _find(p, edit.get("clip_id"))
+    _not_freeze(c)
+    if c.get("kind", "video") != "video":
+        raise VideoError("A freeze frame holds a frame of a video; a photo already stands still.")
+    hold = round(_number(edit.get("length_ms", retime.FREEZE_DEFAULT_MS), retime.FREEZE_MIN_MS, 60000,
+                         "A freeze frame's length (ms)"))
+    a = assets.get(c["asset_id"])
+    fm = retime.frame_ms_of(a)
+    at = edit.get("at_ms")
+    at = c["out_ms"] - 1 if at is None else int(_ms(at, "The moment to freeze"))
+    if not c["in_ms"] <= at <= c["out_ms"]:
+        raise VideoError("Freeze a moment inside the clip.")
+    near_end, near_start = at >= c["out_ms"] - 500, at <= c["in_ms"] + 500
+    if near_end and near_start:  # a short clip: the nearer of its ends
+        where = "start" if at - c["in_ms"] < c["out_ms"] - at else "end"
+    else:
+        where = "end" if near_end else "start" if near_start else "inside"
+    if where == "start":  # the first frame the clip shows (a seek keeps the first frame starting at or after it)
+        start = math.ceil(c["in_ms"] / fm - 1e-6) * fm if not retime.retimed(c) else c["in_ms"]
+        start = retime.frame_start_ms(a, start)
+    else:  # the frame on screen at that moment
+        start = retime.frame_start_ms(a, min(at, c["out_ms"] - 1))
+    moment = min(int(math.ceil(start - 1e-6)), c["out_ms"])  # inside the held frame: the engine holds the frame there
+    trimmed = ""
+    new_out = int(math.ceil(start + fm - 1e-6))
+    if where == "end" and new_out < c["out_ms"] and engine._dur({**c, "out_ms": new_out}) >= 500:  # noqa: SLF001
+        # a moment just before the clip's end: the clip ends on the held frame (it never jumps back to it), as long
+        # as it still plays for half a second
+        c["out_ms"] = new_out
+        _outline_length(p, c)
+        trimmed = f"; {c['label']} now ends there"
+    taken = {x["id"] for x in p["clips"]}
+    fid = _new_id("f", taken)
+    held = {"id": fid, "asset_id": c["asset_id"], "kind": "freeze", "label": f"{c['label']} (freeze)",
+            "in_ms": moment, "out_ms": moment, "hold_ms": hold, "include": True, "gain_db": 0.0, "join": "cut",
+            **{k: c[k] for k in ("layout", "zoom") if k in c}}
+    pos = p["clips"].index(c)
+    if where == "inside":  # the clip goes on from the held frame with a straight cut
+        # where the second half starts so that its first frame is the held one: at normal speed a seek keeps the
+        # first frame starting at or after the cut, a sped-up or slowed half shows the frame on screen there
+        split = int(math.floor(start + 1e-6)) if not retime.retimed(c) else moment
+        # the moment is at least half a second inside; its frame may start up to a frame earlier
+        if not c["in_ms"] + 500 - fm <= split <= c["out_ms"] - 500:
+            raise VideoError("Freeze a moment at least half a second inside the clip, or at its start or end.")
+        share = retime.out_at(c, split - c["in_ms"]) / max(1.0, retime.out_exact_ms(c))
+        moving = retime.held_motion(c, share)
+        _split_clip(p, c, split)["join"] = "cut"
+        p["clips"].insert(pos + 1, held)
+    elif where == "end":
+        moving = retime.held_motion(c, 1.0)
+        p["clips"].insert(pos + 1, held)
+    else:  # the hold takes the clip's own way in, and the clip starts moving with a straight cut
+        moving = retime.held_motion(c, 0.0)
+        if c.get("join") != "cut":
+            held.pop("join")
+        c["join"] = "cut"
+        p["clips"].insert(pos, held)
+    if moving:  # a moving clip's framing of that moment, held still (not the whole picture between two framings)
+        held["motion"] = moving
+    rows = p.setdefault("outline", [])
+    near = next((i for i, o in enumerate(rows) if o.get("clip_id") == c["id"]), len(rows) - 1)
+    rows.insert(near + (0 if where == "start" else 1),
+                {"clip_id": fid, "label": held["label"], "duration": round(hold / 1000, 1),
+                 "summary": f"Freeze frame ({moment / 1000:.1f} s into the file)"})
+    places = {"end": "after", "start": "before", "inside": "in the middle of"}
+    return f"Held the frame at {moment / 1000:.1f} s for {hold / 1000:g} s {places[where]} {c['label']}{trimmed}"
+
+
 def _clip_set(p: dict, edit: dict, field: str, value) -> str:
     c = _find(p, edit.get("clip_id"))
+    if field in ("speed", "speed_ramp", "motion", "hold_ms"):
+        before = copy.deepcopy(c)
+        said = _timing_set(c, field, value)
+        wrong = retime.problems(c, None)
+        if wrong:
+            c.clear()
+            c.update(before)
+            raise VideoError(wrong[0])
+        if engine._dur(c) < 200:  # noqa: SLF001
+            c.clear()
+            c.update(before)
+            raise VideoError("At that speed the clip would be shorter than 0.2 s.")
+        _outline_length(p, c)
+        return said
     if field == "gain_db":
         c["gain_db"] = _number(value, -12, 12, "A clip's volume")
     elif field == "mute" and type(value) is bool:
@@ -978,6 +1150,8 @@ def _clip_set(p: dict, edit: dict, field: str, value) -> str:
         c["layout"] = value
     elif field == "zoom":
         c["zoom"] = _number(value, *engine.ZOOM_RANGE, "A clip's zoom")
+        if c["zoom"] > 1.001:
+            c.pop("motion", None)  # a still punch-in replaces a camera move
     elif field == "join" and value in (None, "cut"):
         if value is None:
             c.pop("join", None)
@@ -1062,8 +1236,17 @@ def _audio_edit(p: dict, edit: dict, assets: dict[str, dict]) -> str:
         return f"Removed {item['label']} from its track (the file stays in your media)"
     if op == "audio_move":
         if edit.get("clip_id"):
-            _find(p, edit["clip_id"])
-            item["anchor"] = {"clip_id": edit["clip_id"], "offset_ms": int(edit.get("offset_ms") or 0)}
+            c = _find(p, edit["clip_id"])
+            if edit.get("out_offset_ms") is not None:  # the editor's field: seconds after the clip starts in the video
+                v = edit["out_offset_ms"]
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or \
+                        v < -engine.LEAD_MAX_MS:
+                    raise VideoError(f"An attached sound starts at most {engine.LEAD_MAX_MS // 1000} s before its "
+                                     "clip.")
+                off = engine.offset_from_out_ms(c, v)
+            else:
+                off = int(edit.get("offset_ms") or 0)
+            item["anchor"] = {"clip_id": edit["clip_id"], "offset_ms": off}
         else:
             item["anchor"] = None
             item["start_ms"] = _ms(edit.get("start_ms"), "The start")
@@ -1138,17 +1321,22 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
         return p, f"Put back {c['label']}"
     if op == "trim":
         c = _find(p, edit["clip_id"])
+        _not_freeze(c)
         a, b = int(edit["in_ms"]), int(edit["out_ms"])
-        if b - a < 500:
+        if b <= a or engine._dur({**c, "in_ms": a, "out_ms": b}) < 500:  # noqa: SLF001 - in the video, at its speed
             raise VideoError("A clip must stay at least half a second long.")
         c["in_ms"], c["out_ms"] = a, b
+        _outline_length(p, c)
         return p, f"Trimmed {c['label']}"
     if op == "keep":  # keep only this section of a clip
         c = _find(p, edit["clip_id"])
+        _not_freeze(c)
         a, b = int(edit["in_ms"]), int(edit["out_ms"])
-        if not (c["in_ms"] <= a < b <= c["out_ms"]) or b - a < 500:
+        kept = engine._dur({**c, "in_ms": a, "out_ms": b}) if a < b else 0  # noqa: SLF001
+        if not (c["in_ms"] <= a < b <= c["out_ms"]) or kept < 500:
             raise VideoError("Choose a section inside the clip.")
         c["in_ms"], c["out_ms"] = a, b
+        _outline_length(p, c)
         return p, f"Kept only part of {c['label']}"
     if op == "move":
         c = _find(p, edit["clip_id"])
@@ -1158,17 +1346,14 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
         return p, f"Moved {c['label']}"
     if op == "split":
         c = _find(p, edit["clip_id"])
+        _not_freeze(c)
         at = int(edit["at_ms"])
         if not c["in_ms"] + 500 <= at <= c["out_ms"] - 500:
             raise VideoError("Split at least half a second inside the clip.")
-        taken = {x["id"] for x in p["clips"]}
-        sid = c["id"] + "s"
-        while sid in taken:
-            sid += "s"
-        second = {**copy.deepcopy(c), "id": sid, "in_ms": at}
-        c["out_ms"] = at
-        p["clips"].insert(p["clips"].index(c) + 1, second)
+        _split_clip(p, c, at)
         return p, f"Split {c['label']}"
+    if op == "freeze":  # hold one frame of a video clip: at its end, its start, or inside it (split around it)
+        return p, _freeze(p, edit, assets)
     if op == "insert":  # a file from the media bin, placed at a position of the sequence
         a = _bin_asset(assets, edit.get("asset_id"))
         clip = _place_clip(a, words, edit, _new_id("c", (x["id"] for x in p["clips"])))
@@ -1183,9 +1368,10 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
     if op == "replace":  # another file in the same place and (where it can) for the same length
         c = _find(p, edit["clip_id"])
         a = _bin_asset(assets, edit.get("asset_id"))
-        new = _place_clip(a, words, {"duration_ms": max(500, c["out_ms"] - c["in_ms"])} if a["kind"] == "image"
+        length = engine._dur(c)  # noqa: SLF001 - as long as it played in the video
+        new = _place_clip(a, words, {"duration_ms": max(500, length)} if a["kind"] == "image"
                           else {k: edit[k] for k in ("in_ms", "out_ms") if k in edit} or
-                          {"in_ms": 0, "out_ms": min(engine._length(a), c["out_ms"] - c["in_ms"])},  # noqa: SLF001
+                          {"in_ms": 0, "out_ms": min(engine._length(a), length)},  # noqa: SLF001
                           c["id"])
         old = c["label"]
         keep = {k: c[k] for k in ("include", "gain_db", "mute", "fade_in_ms", "fade_out_ms", "layout") if k in c}
@@ -1234,11 +1420,12 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
         # cut at a sentence start, never inside a word
         starts = [int(s["start"] * 1000) - 150 for s in _sentences(words.get(first["asset_id"]) or [])
                   if first["in_ms"] + 300 < s["start"] * 1000 < first["out_ms"] - 1000]
-        candidates = [s for s in starts if s - first["in_ms"] <= want + 1500]
+        # `want` is video time: at another speed the file time it covers differs
+        candidates = [s for s in starts if retime.out_at(first, s - first["in_ms"]) <= want + 1500]
         if not candidates:
             raise VideoError("The introduction has no sentence boundary to cut at within that length.")
         new_in = max(candidates)
-        removed = (new_in - first["in_ms"]) / 1000
+        removed = retime.out_at(first, new_in - first["in_ms"]) / 1000
         first["in_ms"] = new_in
         return p, f"Shortened the introduction by {removed:.1f} s (at a sentence start)"
     if op == "set":
@@ -1355,8 +1542,10 @@ def _use_take(p: dict, edit: dict) -> tuple[dict, str]:
     if at < pos:
         pos -= 1
     taken = {c["id"] for c in p["clips"]}
+    # a ramp and a camera move belong to the range they were made for, not to other takes or pieces
     base = {k: v for k, v in chain.items() if k not in ("id", "in_ms", "out_ms", "take_of", "zoom", "join",
-                                                          "fade_in_ms", "fade_out_ms", "asset_id", "label")}
+                                                        "fade_in_ms", "fade_out_ms", "asset_id", "label",
+                                                        "speed_ramp", "motion")}
     label_of = {o["clip_id"]: o for o in outline if o.get("clip_id") in (chain["id"], alt["id"])}
 
     def fresh() -> str:
@@ -1409,10 +1598,10 @@ def _use_take(p: dict, edit: dict) -> tuple[dict, str]:
         which = f"Line {ls[0]}" if len(ls) == 1 else f"Lines {ls[0]} to {ls[-1]}"
         said = alt_words.split("): ", 1)[-1] if piece is playing else chain_words.split(": ", 1)[-1]
         fresh_rows.append({"clip_id": piece["id"], "label": piece["label"],
-                           "duration": round((piece["out_ms"] - piece["in_ms"]) / 1000, 1),
+                           "duration": round(engine._dur(piece) / 1000, 1),  # noqa: SLF001
                            "summary": f"{which}: {said[:140]}"})
     fresh_rows.append({"clip_id": retired["id"], "label": retired["label"],
-                       "duration": round((old["out_ms"] - old["in_ms"]) / 1000, 1),
+                       "duration": round(engine._dur(retired) / 1000, 1),  # noqa: SLF001
                        "summary": f"Another take of line {n} (the one that played before): "
                                   f"{chain_words.split(': ', 1)[-1][:120]}"})
     rows[where:where] = fresh_rows
@@ -1646,6 +1835,10 @@ def _colour_skipped(info: dict, plan: dict, assets: dict, project: dict, words: 
         skipped.append("FilmCraft joined the sound without ClipForge's split edits, crossfades, room tone and music "
                        "timing, so it may differ from the preview. Choose the built-in editor in Settings, Editing "
                        "apps, to use them.")
+    if engine.retiming_in_use(plan):
+        skipped.append("FilmCraft played speed ramps at their average speed, freeze frames without room sound and "
+                       "no slow zooms or pans, so it may differ from the preview. Choose the built-in editor in "
+                       "Settings, Editing apps, to use them.")
     if skipped:
         info["craft_skipped"] = skipped
     return info
@@ -1679,6 +1872,9 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         # nor ClipForge's sound joins (studio/sound_joins.py: split edits, crossfades between recordings, room tone,
         # back-timed music): the built-in engine renders the final so it sounds like the approved preview (whose
         # own report says whether it found room tone or moved the music)
+        return None, ""
+    if not hand and choice == "auto" and engine.retiming_in_use(plan):
+        # nor ClipForge's speed ramps, freeze frames with room tone and camera moves (studio/retime.py)
         return None, ""
     if not apps.find_cli("filmcraft"):
         if hand:
@@ -1841,6 +2037,9 @@ def view(project: dict) -> dict:
             "duration": engine.duration_ms(plan) / 1000 if plan else 0,
             "timeline": engine.timeline(plan) if plan else [],
             "audio_timeline": engine.audio_timeline(plan) if plan else [],
+            # where each attached sound starts from its clip's start, in the video's time (also when it is muted,
+            # its clip is removed or it starts after the end): the editor's "Starts after its clip"
+            "anchor_ms": engine.anchor_times(plan) if plan else {},
             "assets": [uploads.asset_view(a) for a in assets.values()],
             "bin": [aid for aid in project["asset_ids"] if aid in assets],
             "artifacts": [{"id": a["id"], "revision": a["revision"], "kind": a["kind"], "sha256": a["sha256"],

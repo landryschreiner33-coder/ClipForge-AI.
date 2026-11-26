@@ -1259,7 +1259,7 @@ def _fit_transition(asked: dict, plan: dict) -> dict:
     kind = asked.get("type") or "cut"
     if kind == "cut":
         return {"type": "cut", "ms": 0}
-    shown = [int(c["out_ms"]) - int(c["in_ms"]) for c in plan.get("clips") or [] if c.get("include", True)]
+    shown = [engine._dur(c) for c in plan.get("clips") or [] if c.get("include", True)]  # noqa: SLF001 - in the video
     ms = min([int(asked.get("ms") or TRANSITION_MS), *(x // 3 for x in shown)])
     fitted = {"type": kind, "ms": ms}
     if ms < 120 or engine.transition_too_long({**plan, "transition": fitted}):
@@ -1269,7 +1269,7 @@ def _fit_transition(asked: dict, plan: dict) -> dict:
 
 def _fit_fades(c: dict) -> None:
     """Sound fades the owner set that no longer fit a clip that got shorter are shortened in proportion."""
-    length = max(0, int(c["out_ms"]) - int(c["in_ms"]))
+    length = max(0, engine._dur(c))  # noqa: SLF001 - fades are in video time (the clip's speed counts)
     fades = int(c.get("fade_in_ms") or 0), int(c.get("fade_out_ms") or 0)
     if sum(fades) > length:
         scale = length / sum(fades)
@@ -1464,7 +1464,7 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
         s = by_id.get(c.get("scene_id") or "")
         if s is not None:
             outline.append({"clip_id": c["id"], "label": c["label"], "summary": _norm(s["narration"])[:140],
-                            "duration": round((c["out_ms"] - c["in_ms"]) / 1000, 1)})
+                            "duration": round(engine._dur(c) / 1000, 1)})  # noqa: SLF001
         elif c["id"] in old_outline:
             outline.append(old_outline[c["id"]])
     plan["outline"] = outline

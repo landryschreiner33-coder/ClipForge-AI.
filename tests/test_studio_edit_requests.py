@@ -7,6 +7,7 @@ AI service stands in for every provider: nothing here leaves the machine.
 """
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import time
@@ -139,7 +140,7 @@ def test_the_handoffs_examples_work_without_any_ai_and_apply_as_undoable_revisio
     prop = r["proposal"]
     assert prop["format"] == "clipforge.edit-proposal/v1"
     assert prop["operations"] == [{"op": "trim", "clip_id": "c1", "in_ms": 2150, "out_ms": 10000}]
-    assert "Clip 1 “morning.mp4” starts 2.1 s later" in prop["changes"]
+    assert "Clip 1 “morning.mp4” starts 2.1 s later in the file" in prop["changes"]
     assert prop["duration_ms"][0] - prop["duration_ms"][1] == 2150
     before = db.fetch("studio_projects", pid)["plan_revision"]
     assert _plan(pid)["clips"][0]["in_ms"] == 0  # nothing changes until Apply
@@ -442,6 +443,131 @@ def test_the_ai_reads_the_owners_memories_and_the_outcome_is_remembered(env, mon
                for e in brain.list_("local", kind="episode"))
     r3 = er.ask(pid, "local", "remove clip 3")
     assert r3["source"] == "rules" and r3["memories"] == []
+
+
+def test_speed_slow_motion_ramps_freeze_frames_and_camera_moves_in_plain_words(env, monkeypatch):
+    """Editing upgrade batch 4 (studio/retime.py), with rules alone: each request becomes the editor's own edit,
+    checked like a manual one, and says how long the part plays before and after."""
+    from clipfoundry.studio import edit_requests as er
+    from clipfoundry.studio import engine
+
+    calls = _no_ai(monkeypatch)
+    pid = _project(env)["id"]
+
+    def ask(text: str) -> dict:
+        r = er.ask(pid, "local", text)
+        assert r["status"] == "ready" and r["source"] == "rules", (text, r)
+        return r["proposal"]
+
+    prop = ask("put clip 2 in slow motion")
+    assert prop["operations"] == [{"op": "clip_set", "clip_id": "c2", "field": "speed", "value": 0.5}]
+    assert "half speed (slow motion): 10.0 s → 20.0 s" in prop["summary"]
+    assert any("Clip 2 “lake.mp4”: 0.5× (was normal speed), 10.0 s → 20.0 s" == c for c in prop["changes"])
+    assert prop["duration_ms"][1] - prop["duration_ms"][0] == 10000
+    assert ask("speed up clip 3 by 2x")["operations"][0]["value"] == 2
+    assert ask("play clip 4 at 1.5x")["operations"][0]["value"] == 1.5
+    assert ask("slow down the summit to quarter speed")["operations"] == [
+        {"op": "clip_set", "clip_id": "c3", "field": "speed", "value": 0.25}]
+    prop = ask("add a speed ramp to clip 1")
+    assert prop["operations"][0]["value"] == "fast_slow_fast" and "fast, slow, fast" in prop["summary"]
+    prop = ask("freeze the last frame for 3 seconds")
+    # no moment: the editor finds the clip's last frame on the file's own frame grid
+    assert prop["operations"] == [{"op": "freeze", "clip_id": "c4", "length_ms": 3000}]
+    assert any(c.startswith("New freeze frame") for c in prop["changes"])
+    assert prop["duration_ms"][1] - prop["duration_ms"][0] == 3000
+    prop = ask("slowly zoom in on clip 2 and pan left on clip 3")
+    assert [o["value"] for o in prop["operations"]] == ["zoom_in", "pan_left"]
+    # two requests in one sentence; the speed applies through the same edit as the inspector
+    prop = ask("slow down clip 3 and speed up clip 4")
+    assert [o["value"] for o in prop["operations"]] == [0.5, 2.0]
+    done = er.apply(er.ask(pid, "local", "put clip 2 in slow motion")["id"], "local")
+    assert done["status"] == "applied"
+    plan = _plan(pid)
+    assert plan["clips"][1]["speed"] == 0.5 and engine.timeline(plan)[1]["speed"] == 0.5
+    assert ask("remove the slow motion")["operations"] == [
+        {"op": "clip_set", "clip_id": "c2", "field": "speed", "value": 1}]
+    # what cannot be done is explained, not guessed
+    r = er.ask(pid, "local", "play clip 2 at 9x")
+    assert r["status"] == "unsupported" and "0.25× (slow motion) to 4× speed" in r["message"]
+    r = er.ask(pid, "local", "remove the freeze frame")
+    assert r["status"] == "unsupported" and "no freeze frame" in r["message"]
+    assert calls == []
+
+
+def test_timing_rules_leave_other_requests_to_clipforge_ai_and_read_clips_by_place(monkeypatch):
+    """Review of batch 4a: the speed, freeze and camera-move rules take only phrases that name clips (by number,
+    place or words said in them, the intro, the ending, the photos); anything else goes to ClipForge AI. Undoing
+    slow motion leaves sped-up clips alone, and a photo is refused in words, never with a server error."""
+    from clipfoundry.studio import edit_requests as er
+    from clipfoundry.studio import video_flow as vf
+
+    def clip(cid, asset, a, b, **kw):
+        return {"id": cid, "asset_id": asset, "label": kw.pop("label", cid), "in_ms": a, "out_ms": b,
+                "include": True, "kind": "video", **kw}
+    plan = {"clips": [clip("c1", "A", 0, 5000, label="intro.mp4"), clip("c2", "B", 0, 10000, label="trail.mp4",
+                                                                        speed=0.5),
+                      clip("c3", "C", 0, 8000, label="summit.mp4", zoom=1.2),
+                      clip("c4", "D", 0, 10000, label="descent.mp4", speed=2),
+                      clip("c5", "E", 0, 3000, label="map.png", kind="image")],
+            "output": {"fps": 30}, "transition": {"type": "cut", "ms": 0}, "title": {"enabled": False, "ms": 2500},
+            "audio": [], "overlays": [],
+            "outline": [{"clip_id": "c2", "summary": "walking on the trail"},
+                        {"clip_id": "c4", "summary": "the trail"}]}
+    words = {"A": [{"w": "hello", "start": 0.5, "end": 0.9}], "B": [{"w": "trail", "start": 1.0, "end": 1.4}],
+             "C": [{"w": "summit", "start": 1.0, "end": 1.5}], "D": [{"w": "down", "start": 1.0, "end": 1.4}]}
+    rows = er.clip_rows(plan, words)
+
+    def rules(text):
+        return er.by_rules(text, plan, rows)
+
+    def ops(text):
+        r = rules(text)
+        assert r and "operations" in r, (text, r)
+        return [{k: v for k, v in o.items() if k != "op"} for o in r["operations"]]
+    for text in ("set the volume of clip 3 to 50%", "set the brightness of clip 2 to 150%", "make it faster",
+                 "zoom in on my face at 0:30", "speed up the video"):
+        assert rules(text) is None, text
+    q = rules("zoom in on the trail")
+    assert [c["request"] for c in q["choices"]] == ["zoom in on clip 2", "zoom in on clip 4"]
+    assert ops(q["choices"][0]["request"]) == ops("zoom in clip 2") == [
+        {"clip_id": "c2", "field": "motion", "value": "zoom_in"}]
+    assert ops("pan left clip 4")[0]["value"] == "pan_left"
+    assert ops("play the second clip at 2x") == [{"clip_id": "c2", "field": "speed", "value": 2.0}]
+    assert ops("speed up the third clip")[0]["clip_id"] == "c3" and ops("slow down clip two")[0]["clip_id"] == "c2"
+    assert ops("speed up the intro")[0]["clip_id"] == "c1"
+    # "3 seconds" is how long, not a clip; this video ends on a photo, which has no frame to hold
+    assert "ends on a photo (clip 5)" in rules("add a freeze frame for 3 seconds")["explain"]
+    assert ops("freeze the last frame of clip 4 for 3 seconds") == [{"clip_id": "c4", "length_ms": 3000}]
+    assert ops("freeze the intro") == [{"clip_id": "c1", "length_ms": 2000, "at_ms": 0}]
+    r = rules("remove the slow motion")
+    assert r["operations"] == [{"op": "clip_set", "clip_id": "c2", "field": "speed", "value": 1}]
+    assert "clip 2" in r["summary"] and "clip 4" not in r["summary"] and "2–4" not in r["summary"]
+    assert ops("remove the fast forward") == [{"clip_id": "c4", "field": "speed", "value": 1}]
+    assert ops("remove the zoom on clip 3") == [{"clip_id": "c3", "field": "zoom", "value": 1.0}]
+    assert "photo already stands still" in rules("speed up the photos")["explain"]
+    assert "no frame to freeze" in rules("freeze the photos")["explain"]
+    assert "There is no clip 12" in rules("speed up clip 12")["question"]
+    # "from the video" means every clip that has it; "from it" is ClipForge AI's (never "remove a part")
+    assert ops("remove the slow motion from the video") == [{"clip_id": "c2", "field": "speed", "value": 1}]
+    assert rules("remove the slow motion from it") is None and rules("drop the freeze frame from it") is None
+    assert "no frame to freeze" in rules("freeze the ending")["explain"]  # the video ends on a photo
+    # a clip named "intro" is the intro wherever it is; places count the clips still in the video
+    named = copy.deepcopy(plan)
+    named["clips"][2]["label"] = "intro.mp4"
+    named["clips"][0]["include"] = False
+    named_rows = er.clip_rows(named, words)
+    assert er.by_rules("speed up the intro", named, named_rows)["operations"][0]["clip_id"] == "c3"
+    assert er.by_rules("freeze the intro", named, named_rows)["operations"][0] == {
+        "op": "freeze", "clip_id": "c3", "length_ms": 2000, "at_ms": 0}
+    second = [er.by_rules(f"speed up the {w} clip", named, named_rows)["operations"][0]["clip_id"]
+              for w in ("2nd", "second")]
+    assert second == ["c3", "c3"]
+    assert "it has 4 clips in it now" in er.by_rules("speed up the fifth clip", named, named_rows)["question"]
+
+    def refuse(*_a):
+        raise vf.VideoError("Only a video clip can change speed.")
+    monkeypatch.setattr(er, "_length_change", refuse)  # a refusal deeper down is an answer, never a server error
+    assert rules("speed up clip 2") == {"explain": "Only a video clip can change speed."}
 
 
 def test_music_can_be_asked_to_end_on_the_last_frame(env, monkeypatch):
