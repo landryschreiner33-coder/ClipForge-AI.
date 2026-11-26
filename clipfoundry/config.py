@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +104,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # ClipForge AI makes its changes at once (moves, cancels, edits, approves and posts YouTube posts) instead of
     # showing an OK button first; deleting always asks, and TikTok posts always wait for your OK on their page
     "ai_acts_alone": True,
+    # hashtags put on every post first (a series, a channel, a game): "#valorant #MyShow"
+    "post_always_hashtags": "",
+    # new clips start on the first real word and stop before an outro (pipeline/process.auto_trim)
+    "auto_trims": True,
     # The built-in model (builtin_ai.py): llama.cpp and a free model, downloaded once from Settings → ClipForge AI
     "builtin_ai_level": "auto",          # auto (the best one installed) | basic | standard | pro
     "builtin_ai_idle_minutes": 10.0,     # the engine stops after this long without work, freeing its memory
@@ -388,6 +393,11 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
                 continue
         elif key == "processing_mode" and v not in PROCESSING_MODES:
             continue
+        elif key == "post_always_hashtags":  # at most five tags of letters, digits and _, each written with a #
+            tags = [t.lstrip("#") for t in re.split(r"[\s,]+", v) if t.strip("# ")]
+            if any(not re.fullmatch(r"\w{1,60}", t) for t in tags):
+                continue
+            v = " ".join(f"#{t}" for t in list(dict.fromkeys(tags))[:5])
         elif key in ("engines_picture", "engines_video", "engines_voice"):
             v = v[:80]
             if v and not all(c.isalnum() or c in "-._" for c in v):

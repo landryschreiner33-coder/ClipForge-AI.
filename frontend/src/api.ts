@@ -46,11 +46,22 @@ export interface Word {
   w: string;
 }
 
+export interface AutoTrim {
+  id: string;
+  label: string;
+  why: string;
+  side: "start" | "end";
+  was: number;
+  to: number;
+}
+
 export interface ClipEdit {
   start?: number;
   end?: number;
   /** values this clip started with because ClipForge learned them from your edits (Brain → Learned) */
   learned_keys?: string[];
+  /** trims ClipForge made on a new clip (pipeline/process.auto_trim), each can be put back */
+  auto_trims?: AutoTrim[];
   tracking?: string;
   layout?: string;
   split_game?: string;

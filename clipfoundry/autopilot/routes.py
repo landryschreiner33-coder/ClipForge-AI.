@@ -951,7 +951,8 @@ def approve_as(item_id: str, body: ApproveBody, who: str) -> dict:
         raise HTTPException(409, str(exc)) from exc
     clip = db.get_clip(item["clip_id"])
     heard = " ".join(packaging.clip_sentences(clip)[0]) if clip else ""  # what is said in the file to be published
-    warnings = packaging.validate({"title": out["title"], "caption": out["description"]}, heard)
+    warnings = packaging.validate({"title": out["title"], "caption": out["description"]}, heard,
+                                  known=packaging.known_words(clip) if clip else frozenset())
     return {**_public_item(out, db.get_settings()), "warnings": warnings}
 
 
@@ -983,7 +984,8 @@ def edit_item(item_id: str, body: EditBody) -> dict:
     clip = db.get_clip(item["clip_id"]) or {}
     return {**_public_item(out, db.get_settings()),
             "warnings": packaging.validate({"title": out["title"], "caption": out["description"]},
-                                           clip.get("caption_text") or "")}
+                                           clip.get("caption_text") or "",
+                                           known=packaging.known_words(clip) if clip else frozenset())}
 
 
 class RescheduleBody(BaseModel):

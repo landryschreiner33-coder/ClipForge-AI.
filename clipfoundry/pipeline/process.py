@@ -320,9 +320,15 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
                 continue
             stable = {"id": clip_id}
         ctx.progress(P_SCORE, f"Writing post package {rank - first_rank + 1} of {len(chosen)}")
-        sents = [p.sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
+        edit = auto_trim(p, start, end, learned_edit(p, start, end))
+        a, b = float(edit.get("start", start)), float(edit.get("end", end))
+        rows_in = [p.sentences[k] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
+        rows_in = [s for s in rows_in if float(s.get("end", b)) > a + 0.05
+                   and float(s.get("start", a)) < b - 0.05] or rows_in   # what is heard
+        sents = [s["text"] for s in rows_in]
         post = postpack.generate(sents, r["hook"], r["hooks_alt"], r["category"], p.opts, df,
-                                 max(1, len(p.sentences)))
+                                 max(1, len(p.sentences)), name=postpack.video_names(getattr(p, "project", None)),
+                                 starts=[max(0.0, float(s.get("start", a)) - a) for s in rows_in])
         rows.append(db.create_clip(
             p.id, rank=rank, start=start, end=end, title=post["title"] or r["title"], hook=r["hook"],
             hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=post["hashtags"] or r["hashtags"],
@@ -336,7 +342,7 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
                                         **({"clip_score": r["clip_score"], "explanation": r.get("explanation") or []}
                                            if r.get("clip_score") is not None else {}),
                                         **({"deep": _deep_summary(r["deep"])} if r.get("deep") else {})},
-            post=post, edit=learned_edit(p, start, end), status="queued",
+            post=post, edit=edit, status="queued",
             duration=round(end - start, 2), **stable,
         ))
     _count_brain_uses(p, chosen)
@@ -364,6 +370,46 @@ def learned_edit(p: Prepared, start: float, end: float) -> dict:
     if edit:
         edit["learned_keys"] = sorted(edit)
     return edit
+
+
+AUTO_TRIMS = ("lead_in", "warm_up", "outro")   # the clear wins among the editor's trim suggestions (trims.py)
+
+
+def auto_trim(p: Prepared, start: float, end: float, edit: dict) -> dict:
+    """A new clip starts on the point and stops on it: the editor's clearest trim suggestions are made for you
+    (start on the first real word instead of "so, um, okay", cut a warm-up line, cut an outro). Each one is listed
+    in edit["auto_trims"] with the time it moved, so the clip editor shows it and can put it back. A clip that
+    would get shorter than the shortest clip allowed keeps its length; Settings → auto_trims off turns it off."""
+    from . import trims
+
+    words = getattr(p, "words", None) or []
+    if not p.opts.get("auto_trims", True) or not words:
+        return edit
+    s0, e0 = float(edit.get("start", start)), float(edit.get("end", end))
+    try:
+        got = trims.suggest(words, s0, e0, all_words=words)["suggestions"]
+    except Exception:  # noqa: BLE001 - a clip is made as picked rather than not at all
+        log.exception("automatic trims failed")
+        return edit
+    ns, ne, done = s0, e0, []
+    for sug in got:
+        if sug["id"] not in AUTO_TRIMS:
+            continue
+        side = "start" if "start" in sug["edit"] else "end"
+        to = float(sug["edit"][side])
+        if side == "start" and to > ns:
+            ns = to
+        elif side == "end" and to < ne:
+            ne = to
+        else:
+            continue
+        done = [d for d in done if d["side"] != side] + [{"id": sug["id"], "label": sug["label"], "why": sug["why"],
+                                                         "side": side, "was": round(s0 if side == "start" else e0, 2),
+                                                         "to": round(to, 2)}]
+    if not done or ne - ns < float(p.opts.get("min_duration") or 5):
+        return edit
+    out = {**edit, **{d["side"]: d["to"] for d in done}, "auto_trims": done}
+    return out
 
 
 def _brain_length(opts: dict) -> dict:

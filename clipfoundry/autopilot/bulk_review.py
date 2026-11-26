@@ -104,7 +104,8 @@ def _inspect(item: dict, settings: dict, *, sha: str | None = None) -> tuple[dic
         raise ValueError("Add the required source credit in this post's individual review first.")
     heard = " ".join(packaging.clip_sentences(clip)[0])
     problems = packaging.validate({k: item.get(k) for k in ("title", "description", "tags")}, heard,
-                                  allowed_lines=[credit], required_attribution=credit, platform="youtube")
+                                  allowed_lines=[credit], required_attribution=credit, platform="youtube",
+                                  known=packaging.known_words(clip, settings))
     if problems:
         raise ValueError("Review this post's text first: " + "; ".join(problems[:2]))
     options = item.get("options") or {}

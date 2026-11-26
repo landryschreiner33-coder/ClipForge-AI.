@@ -130,6 +130,11 @@ def _observe(before: dict, after: dict, settings: dict) -> list[dict]:
 
     if any(be.get(k) != ae.get(k) for k in ("start", "end")):  # against ClipForge's own pick (the clip's start/end)
         start, end = float(after["start"]), float(after["end"])
+        for t in be.get("auto_trims") or []:   # a trim ClipForge made for you is where your own move starts from
+            if t.get("side") == "start":
+                start = float(t.get("to", start))
+            elif t.get("side") == "end":
+                end = float(t.get("to", end))
         add("trim", {"start_shift": round(float(ae.get("start", start)) - start, 2),
                      "end_shift": round(float(ae.get("end", end)) - end, 2)})
     for kind in ("framing", "captions", "pacing"):

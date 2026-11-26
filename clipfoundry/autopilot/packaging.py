@@ -39,6 +39,7 @@ DEBATE_CTA = "Agree or disagree? Tell me in the comments."
 YT_TITLE_IDEAL = (25, 70)
 TIKTOK_CAPTION_IDEAL = 150
 MAX_ATTEMPTS = 3
+LEARNED_KIND_BONUS = 6.0   # points for the kind of title the owner usually picks (Brain → Learned)
 DUPLICATE_TITLE = 0.8
 WEIGHTS = {"curiosity": 0.16, "emotion": 0.12, "clarity": 0.16, "natural": 0.12, "platform_fit": 0.12,
            "searchability": 0.12, "uniqueness": 0.12, "click": 0.08}
@@ -61,8 +62,10 @@ def repetition_problems(text: str) -> list[str]:
 
 
 def validate(meta: dict, clip_text: str, prior_titles: list[str] | None = None, allowed_lines: list[str] | None = None,
-             *, required_attribution: str = "", platform: str = "") -> list[str]:
-    """Everything wrong with a title/caption/description/tags set for this transcript (empty = publishable)."""
+             *, required_attribution: str = "", platform: str = "", known: frozenset[str] = frozenset()) -> list[str]:
+    """Everything wrong with a title/caption/description/tags set for this transcript (empty = publishable).
+    `known`: words the post may use although the clip does not say them (known_words: the video's subject from its
+    name, the owner's own hashtags)."""
     problems: list[str] = []
     credit_problem = attribution_problem(meta, platform, required_attribution)
     if credit_problem:
@@ -75,19 +78,26 @@ def validate(meta: dict, clip_text: str, prior_titles: list[str] | None = None, 
         body = re.sub(r"#\w+", " ", body).strip()
         if not body:
             continue
-        problems += [f"{field}: {p}" for p in postpack.grounding_problems(body, clip_text)]
+        problems += [f"{field}: {p}" for p in postpack.grounding_problems(body, clip_text, known)]
         for q in _quotes(body):
             if _norm(q) not in _norm(clip_text):
                 problems.append(f"{field}: the quote “{q[:60]}” is not what was said")
         problems += [f"{field}: {p}" for p in repetition_problems(body)]
     for tag in [*(meta.get("hashtags") or []), *[f"#{t}" for t in meta.get("tags") or []]]:
-        problems += postpack.hashtag_problems("#" + re.sub(r"\W", "", tag), clip_text)
+        problems += postpack.hashtag_problems("#" + re.sub(r"\W", "", tag), clip_text, known)
     title = str(meta.get("title") or "")
     for prior in prior_titles or []:
         if title and fingerprint.title_similarity(title, prior) >= DUPLICATE_TITLE:
             problems.append(f"title: nearly the same as an earlier title (“{prior[:60]}”)")
             break
     return list(dict.fromkeys(problems))
+
+
+def known_words(clip: dict, settings: dict | None = None) -> frozenset[str]:
+    """The words a post about this clip may use although the clip does not say them: its video's names (the game,
+    the show) and the owner's own hashtags. The same at packaging, at the final check and before posting."""
+    project = db.get_project(str(clip.get("project_id") or "")) or {}
+    return postpack.known_words(postpack.video_names(project), settings if settings is not None else db.get_settings())
 
 
 def attribution_problem(meta: dict, platform: str, attribution: str) -> str:
@@ -208,22 +218,26 @@ def build(platform: str, style: str, title: str, caption: str, hashtags: list[st
                 "description": "\n".join(parts).strip()[:4900], "caption": caption,
                 "tags": [t.lstrip("#") for t in hashtags] + [k for k in clip_keywords if f"#{k}" not in hashtags][:5],
                 "hashtags": hashtags}
-    text = " ".join(p for p in [caption, " ".join(hashtags)] if p)
+    text = " ".join(p for p in [caption, " ".join(hashtags[:postpack.TIKTOK_HASHTAGS])] if p)
     if attribution:
         text += f"\n{attribution}"
     return {"platform": platform, "style": style, "title": title[:postpack.TITLE_MAX], "caption": text[:2200],
-            "description": "", "tags": [], "hashtags": hashtags}
+            "description": "", "tags": [], "hashtags": hashtags[:postpack.TIKTOK_HASHTAGS]}
 
 
 def extracted_candidates(platform: str, sents: list[str], clip: dict, attribution: str, clip_keywords: list[str],
-                         hashtags: list[str], owner: dict | None = None) -> list[dict]:
+                         hashtags: list[str], owner: dict | None = None,
+                         known: frozenset[str] = frozenset()) -> list[dict]:
     lines = style_lines(sents, clip.get("hook") or "")
     post = clip.get("post") or {}
     cta = post.get("cta") or postpack.CTA_DEFAULT
     out, seen = [], []
     for style in STYLES:
-        pick = next(((line, _title(line)) for line in lines.get(style, [])
-                     if _title(line) and all(fingerprint.title_similarity(_title(line), t) < 0.8 for t in seen)), None)
+        usable = [line for line in lines.get(style, []) if _title(line) and postpack.stands_alone(_title(line))
+                  and all(fingerprint.title_similarity(_title(line), t) < 0.8 for t in seen)]
+        # a title read on its own: no "That's the one" pointing back, and one that names something goes first
+        usable.sort(key=lambda line: postpack.vague(_title(line), clip_keywords, known))
+        pick = next(((line, _title(line)) for line in usable), None)
         if not pick:
             continue
         line, title = pick
@@ -234,9 +248,16 @@ def extracted_candidates(platform: str, sents: list[str], clip: dict, attributio
     return out
 
 
-def _ai_prompt(platform: str, sents: list[str], feedback: list[str], read: str = "") -> str:
-    """`read`: the know-how, the owner's skills and the owner's rules for post text the model reads first."""
+def _ai_prompt(platform: str, sents: list[str], feedback: list[str], read: str = "",
+               subject: list[str] | None = None) -> str:
+    """`read`: the know-how, the owner's skills and the owner's rules for post text the model reads first;
+    `subject`: what the whole video is about (from its name), whose words may be used."""
+    from ..brain import knowhow
+
     numbered = "\n".join(f"- {s}" for s in sents)
+    read = " ".join(x for x in (knowhow.principles("post"), postpack.TITLE_ADVICE, read.strip()) if x)
+    if subject:
+        read = f"The whole video is about: {', '.join(subject)} (you may use these words). " + read
     extra = ("\nYour previous suggestions were rejected because: " + "; ".join(feedback[:8]) +
              ". Fix these problems.") if feedback else ""
     what = "YouTube Shorts titles (max 70 characters)" if platform == "youtube" else "TikTok captions (max 150 " \
@@ -250,7 +271,8 @@ def _ai_prompt(platform: str, sents: list[str], feedback: list[str], read: str =
 
 def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, attribution: str,
                   clip_keywords: list[str], hashtags: list[str], clip_text: str, prior: list[str],
-                  owner: dict | None = None) -> list[dict]:
+                  owner: dict | None = None, subject: list[str] | None = None,
+                  known: frozenset[str] = frozenset()) -> list[dict]:
     """AI suggestions that pass validation, regenerating up to MAX_ATTEMPTS times with the problems explained."""
     if settings.get("ai_provider", "heuristic") not in llm.PROVIDERS:
         return []
@@ -259,7 +281,7 @@ def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, a
     read = "\n".join(x for x in (postpack.advice(settings), poststyle.prompt(owner or {})) if x)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            text = llm.complete(settings, _ai_prompt(platform, sents, feedback, read), unattended=True,
+            text = llm.complete(settings, _ai_prompt(platform, sents, feedback, read, subject), unattended=True,
                                 task="packaging")
             m = re.search(r"\{.*\}", text or "", re.S)
             data = json.loads(m.group(0)) if m else {}
@@ -276,7 +298,7 @@ def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, a
             caption = line if platform != "youtube" else _caption(sents, sents[0] if sents else line)
             meta = {**build(platform, style, title, caption, hashtags, cta, attribution, clip_keywords, owner),
                     "origin": "ai", "attempt": attempt}
-            problems = validate(meta, clip_text, prior, [attribution])
+            problems = validate(meta, clip_text, prior, [attribution], known=known)
             if problems:
                 feedback += problems
             else:
@@ -287,13 +309,14 @@ def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, a
 
 
 def fallback(platform: str, sents: list[str], clip: dict, attribution: str, clip_keywords: list[str],
-             hashtags: list[str], clip_text: str, prior: list[str], owner: dict | None = None) -> dict:
+             hashtags: list[str], clip_text: str, prior: list[str], owner: dict | None = None,
+             known: frozenset[str] = frozenset()) -> dict:
     """Safe, transcript-extracted package: the clip's own lines, a fixed CTA, its own words as hashtags."""
     post = clip.get("post") or {}
     for t in [*(post.get("titles") or []), clip.get("title") or "", *(_title(s) for s in sents)]:
         meta = {**build(platform, "fallback", t, _caption(sents, sents[0] if sents else ""), hashtags,
                         postpack.CTA_DEFAULT, attribution, clip_keywords, owner), "origin": "fallback"}
-        if t and not validate(meta, clip_text, prior, [attribution]):
+        if t and not validate(meta, clip_text, prior, [attribution], known=known):
             return meta
     first = _title(sents[0]) if sents else (clip.get("title") or "Clip")
     return {**build(platform, "fallback", first, _caption(sents, sents[0] if sents else ""), [], postpack.CTA_DEFAULT,
@@ -336,30 +359,52 @@ def package(clip: dict, source: dict | None, platform: str, settings: dict) -> d
         "signal_id") else None
     trend_kw = (signal or {}).get("keywords") or []
     clip_kw = keywords(clip_text, top=6)
-    hashtags = [t for t in (clip.get("hashtags") or (clip.get("post") or {}).get("hashtags") or [])
-                if not postpack.hashtag_problems(t, clip_text)] or postpack.hashtags_for(clip_text)
+    project = db.get_project(str(clip.get("project_id") or "")) or {}
+    # what the whole video is about (the game, the show: from its names), and words a post may use for it
+    names = postpack.video_names(project) + ([str(source.get("title") or "")] if source else [])
+    subject = postpack.subjects_for(names, clip_text)
+    known = known_words(clip, settings)
+    mine = postpack.owner_tags(settings)
+    saved = [t for t in (clip.get("hashtags") or (clip.get("post") or {}).get("hashtags") or [])
+             if not postpack.hashtag_problems(t, clip_text, known)]
+    found = postpack.hashtags_for(clip_text, prefer=clip.get("title") or "", subject=subject, owner=mine)
+    # the owner's own and the video's subject lead, then the clip's saved tags, then its topic words
+    lead = mine + [t for t in found if t.lower().lstrip("#") in {postpack.tag_of(x).lower().lstrip("#")
+                                                                    for x in subject}]
+    hashtags = postpack.dedupe_tags(lead + saved + found)
     attribution = rights.current_attribution(source, settings)
     prior = prior_titles(clip["id"])
-    project = db.get_project(str(clip.get("project_id") or "")) or {}
     ws = str(project.get("workspace_id") or "local")
     settings = {**settings, "workspace_id": ws}
     # how the owner wants this platform's text to look: read from their Brain, applied to every candidate
     owner = poststyle.build(ws, str(project.get("id") or ""), platform)
-    cands = extracted_candidates(platform, sents, clip, attribution, clip_kw, hashtags, owner)
-    cands += ai_candidates(settings, platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior, owner)
+    cands = extracted_candidates(platform, sents, clip, attribution, clip_kw, hashtags, owner, known)
+    cands += ai_candidates(settings, platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior, owner,
+                           subject, known)
     db.execute("DELETE FROM metadata_candidates WHERE clip_id = ? AND platform = ?", (clip["id"], platform))
     scored = []
+    from ..brain import learned
+
+    want = learned.defaults(ws, settings).get("title_kind") if platform == "youtube" else None
+    kinds_kw = [p.split()[0].lower() for p in subject] + postpack.topics(clip_text)
     for meta in cands:
-        problems = validate(meta, clip_text, prior, [attribution], required_attribution=attribution, platform=platform)
+        problems = validate(meta, clip_text, prior, [attribution], required_attribution=attribution, platform=platform,
+                            known=known)
         sc = score(meta, platform, clip_text, clip_kw, trend_kw, prior, problems)
+        if want and sc["score"] and postpack.title_kind(meta["title"], kinds_kw) == want:
+            # the kind of title you usually pick (Brain → Learned) goes ahead of a close one of another kind
+            sc = {**sc, "score": round(min(100.0, sc["score"] + LEARNED_KIND_BONUS), 1),
+                  "note": (sc.get("note", "") + f"; +{LEARNED_KIND_BONUS:.0f}: the kind of title you usually pick"
+                           ).lstrip("; ")}
         scored.append((sc["score"], meta, sc, problems))
     passing = [x for x in scored if not x[3]]
     if owner and platform == "youtube":
         # a title that keeps the owner's rule (its length, a question) goes before a better-scoring one that does not
         passing = [x for x in passing if not poststyle.miss(owner, x[1]["title"])] or passing
     if not passing:
-        meta = fallback(platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior, owner)
-        problems = validate(meta, clip_text, prior, [attribution], required_attribution=attribution, platform=platform)
+        meta = fallback(platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior, owner, known)
+        problems = validate(meta, clip_text, prior, [attribution], required_attribution=attribution, platform=platform,
+                            known=known)
         sc = score(meta, platform, clip_text, clip_kw, trend_kw, prior, [])
         scored.append((sc["score"], meta, {**sc, "note": "safe fallback"}, problems))
         best = scored[-1]

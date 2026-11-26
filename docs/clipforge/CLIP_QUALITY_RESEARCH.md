@@ -81,6 +81,14 @@ Phrase lists are matched as whole words where a part of a word would mislead ("u
 | **New:** a title must make sense alone: not "That's the setting" or "If you upload in ten eighty" | Hypothesis | test_clip_selection_rules.py |
 | Title up to 100 characters, YouTube description up to 5000 bytes, TikTok caption up to 2200 characters, more than 60 hashtags makes YouTube ignore all, the first three show by the title; checked before posting | Rule | test_title_kinds.py (field checks) |
 | Three to five specific hashtags from the clip's own words | Hypothesis (YouTube: no unrelated hashtags; playbook "Post text and hashtags") | test_postpack.py |
+| **Nov 26 (Landry's title and hashtag research):** the video's subject comes from its name (a link's title, the file's name, an Autopilot source's title): names written with a capital ("Elden Ring"), not file-name filler. It leads the hashtags (#EldenRing, readable CamelCase) and the Searchable title ("Elden Ring: every attempt she healed off my hits"); its words count as known in every check, other names still do not | Hypothesis (research: one clear promise, subject or strongest detail early) | test_titles_hashtags.py |
+| Hashtags in the order your own (Settings → Defaults → Hashtags on every post), the subject, the clip's specific topic; tags that differ only in letter case are one tag; never #fyp, #foryou, #viral or #trending; YouTube shows the first 3, TikTok gets at most 4, at most 5 anywhere | Research (YouTube 1-3, TikTok 2-4, Reels at most 5) | test_titles_hashtags.py |
+| A title that names nothing ("Watch this", "It was crazy": fewer than two meaningful words and no topic word, number or name) goes last and is never recommended over one that does | Research (plain words, one concrete detail) | test_titles_hashtags.py |
+| The moment leads with a concrete detail (a number, a count) before the conclusion; the model is told not to give the ending away in a curiosity title | Research | test_titles_hashtags.py |
+| The recommended title says where the clip backs it ("The clip says it at 0:04") | Research (each recommendation with the timestamp that supports it) | test_titles_hashtags.py |
+| A trim that cuts out a title's or hashtag's line puts a note next to it; the text is not changed. Writing new suggestions keeps what you typed yourself (not a suggestion you picked) | Research | test_titles_hashtags.py |
+| Autopilot and Missions posts use the same subject, hashtag order, know-how and advice, skip titles that don't stand alone, and give the kind of title you usually pick (Brain → Learned) 6 points | Hypothesis | test_titles_hashtags.py |
+| Not done: trend data for hashtags (none is available without an outside service), the 12-pair pilot (search vs curiosity titles) needs real posts: Posts → Results → Compare can run it | — | — |
 
 ## Measuring what worked (Posts → Results → Compare)
 
