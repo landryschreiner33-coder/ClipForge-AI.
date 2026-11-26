@@ -3,6 +3,7 @@ stall"): a Text Story's background clip and a separate face cam recording. Check
 stops the transfer, and for chunked uploads the server is asked to delete what arrived."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "frontend" / "src"
@@ -10,7 +11,8 @@ SRC = Path(__file__).resolve().parents[1] / "frontend" / "src"
 
 def test_a_text_story_background_upload_can_be_canceled_and_the_server_drops_what_arrived():
     page = (SRC / "pages" / "TextStories.tsx").read_text()
-    assert "import { cancelUpload, uploadFile }" in page
+    imported = re.search(r"import \{([^}]*)\} from \"\.\./studio\";", page)
+    assert imported and {"cancelUpload", "uploadFile"} <= {n.strip() for n in imported.group(1).split(",")}
     assert "now.ctl.signal" in page and "now.ctl.abort()" in page   # the transfer stops
     assert "await cancelUpload(now.id, now.file)" in page             # and the server deletes the parts it has
     assert "Cancel upload</button>" in page
