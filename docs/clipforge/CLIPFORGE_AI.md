@@ -970,6 +970,148 @@ Without a model, "how are my clips doing?", "show me my results" or "which clip 
 (`chat._RESULTS`). An online model sees the titles and numbers only when it uses the tool (the chat's "Sent over the
 internet" line and the privacy page say so).
 
+## Guards for a small model (2026-11-26)
+
+The real-model check (`assistant-check.yml`, Basic level, run 45768349779 on c89e5bb) showed the 2B model's slips:
+it answered "Hi! How are you today?" with the same words, "What projects do I have?" with "Let me look. Here are your
+projects:" and no names (a JSON string cannot hold a raw line break, so the grammar ends it at the colon), "Delete the
+project Old gear review" with "Let me look." and no tool, and "Ask the script writer for a title" with
+"[Script writer] Ask for a title …" instead of handing the job over. `assistant.think` now guards each answer, reading
+only the owner's own words (`brain/intents.py`):
+
+- **A helper asked by name** ("ask the Script writer …", "get my Critic to …", "have the Researcher …"; one of the
+  owner's switched-on helpers, `intents.handoff`): the job goes to that helper before the model's first round, as if
+  the model had used `ask_agent` with the owner's own words as the task; the model then reviews the helper's work, as
+  its rules always said. "What would the Critic say?" is left to the model.
+- **A round that does nothing with the request** (no tool used yet in this answer, and the words only repeat the
+  owner, only say it will look, stop at a colon, or are empty; `assistant._slip`): when the request is phrased so
+  plainly that it has one reading (`intents.guess`: "how are my clips doing?" → `results`, "what projects do I have?"
+  → `find_projects`, "show me my posts", "is anything stuck?", "list my missions", "delete the project X",
+  "rename X to Y", a link with "make clips"; a short request of ten words or fewer, without commas, "?" for a
+  change, and a delete or rename only of a project named exactly), that tool call is made instead, and a change made
+  from such a guess always waits for the OK, even when ClipForge AI acts alone; otherwise the model is asked once more,
+  told what went wrong (`NUDGE_ECHO`, `NUDGE_ACT`, `NUDGE_SHORT`, `NUDGE_EMPTY`). The caught words are shown only if
+  nothing better comes (never an echo). A delete it reads still only shows its card: deleting always waits for the OK.
+- **A listing the answer leaves out** (`assistant._show`): a look tool's result carries what the owner should see
+  (`tools.Result.show`: the projects, posts, work, missions, memories or results it found, each name in “quotes”).
+  When the answer is missing, only an echo or a promise, or stops at a colon, or the owner plainly asked for that
+  listing and the answer names under half of it, the app's own lines are added under the step's name ("Looked at your
+  projects (3):"). A tool the model used for its own reasoning (memories it read for an answer) is never listed.
+- **"[Name] …"** at the start of ClipForge AI's own words (it imitated a helper's line in the conversation) is
+  removed.
+
+What a guard caught is saved with the message (`data.guards`, such as `["first:results", "act",
+"show:results"]`) and printed by the real-model check. The check gained turn 4, "How are my clips doing?".
+
+**After the first real-model check with the guards** (run 45777094657 on 24d73b8, Basic level): no more echo, the
+project list came complete, and "ask the script writer …" reached the helper. Three slips were left, and are now
+caught too:
+
+- "How are my clips doing?" was answered with "Let me check your clips." and a list of projects copied from earlier
+  in the chat, with no tool. A listing plainly asked for (`intents.guess` on a look tool: results, projects, posts,
+  work, missions) is now looked up **before** the model's first round (`first`, guard `first:<tool>`), so the model
+  answers from it, in one round; when its words only promise or stop at a colon, the app's own lines answer
+  (`_show`) without asking the model again.
+- "Delete the project Old gear review" was answered with three sentences of what it would do ("I'll delete the project
+  'Old gear review'. First, I'll check if it's ready for deletion. Let me look at it."). `intents.promise` now reads
+  sentence by sentence: every sentence only says what it will look at or do (check, look, delete, rename, write,
+  draft, make, think, plan, help…), or is a pleasantry ("Sure!", "Let me know if…"), and nothing comes after a colon.
+  And a change plainly asked for (delete, rename, make clips from a link) whose first round uses no tool shows its
+  card whatever the words say ("Done! I deleted it." with no tool is never shown): the card waits for the OK.
+- The Script writer answered "@Script writer write a two-line hook" with "I'll write a two-line hook… Let me think of
+  a strong opening line…", and, asked through ClipForge AI after looking up memories, with "I'm ready to help you
+  with that. Let me ask the script writer…". A round that only says what it will do is now caught also after
+  looking (only look tools so far), and a helper is told to do the job now (`NUDGE_DO`).
+
+A look the model asks for again with the same arguments in one answer is not run again: it reads the same result
+(`Outcome.looked`), so a listing looked up first never shows twice.
+
+**Where the guards stop** (a second review, each finding shown with a probe):
+
+- A sentence that goes on after "let me look" with a dash, a semicolon or a comma ("Let me see, your best clip is
+  “Rage quit” …") is the answer itself, never a promise.
+- A listing is read from the owner's words only when the whole short message asks for it ("what projects do I
+  have?", "… right now?"); "which videos do I have to finish first?" is for the model.
+- A rename is read only with a quoted new name (“Summit push”) or a plain one of six words or fewer without filler
+  ("please", "now", "a …", "the …", "whatever", "name", "title"); otherwise the model decides.
+- A helper is handed the job only for a request: never for a question about it ("Have the Critic's notes been
+  fixed?"), its possessive ("the Critic's …") or a "don't" ("let the Critic rest today"); "can you get my Script
+  writer to …?" still is.
+- A helper's answer that repeats its job, or the owner's words quoted in it, is an echo (`said` is the job it read).
+- "[…]" at the start of ClipForge AI's words is removed only when it names a helper (the owner's or a ready-made
+  one) or a note of the conversation ("… wrote:"); "[0:42–1:10] The jump …" stays.
+- A listing found before a later round failed is still shown with the failure.
+
+**After the second real-model check** (run 45781339101 on d910464, Basic level): "How are my clips doing?" read the
+results in one round, "Delete the project Old gear review" showed its card, and the planner's Script writer wrote
+its part of the plan. Two slips were left, and are now caught too:
+
+- As the Script writer, the model answered only "[Waiting for the owner's OK: Delete the clips project “Old gear
+  review”]", the note the conversation holds for the card before. The app's own card notes ("[Waiting for the
+  owner's OK: …]", "[The owner said no to: …]", "[You did it on your own: …]" …) are removed from any answer,
+  ClipForge AI's or a helper's; an answer that was only such a note is empty and asked once more.
+- Asked through ClipForge AI for a title, the Script writer still only said what it would write after being asked
+  once more ("Got it. I'll write a two-line hook for your biking video."), and ClipForge AI ended with "I'll now
+  give you the result.". A helper's answer that only promises now reaches ClipForge AI as "… only said what it
+  would do and wrote nothing the owner can use: “…”. Write it yourself now, in your answer."; the helper's words
+  still show with its name.
+
+**After the third real-model check** (run 45782892862 on c9506ad, a slower machine): with the note removed, the
+Script writer's "@Script writer write a two-line hook" answer was empty twice (`empty, empty`), and the answer failed.
+The cause was how the conversation reads to the model: an assistant turn was written as its own answer,
+`{"say": "[Waiting for the owner's OK: …]"}`, so the model took the note for words to write. Now:
+
+- In the conversation as the model reads it (`history(as_json=True)`), a helper's name and the notes stand beside the
+  words: `{"by": "Hook writer", "say": "…", "do": []}`, `{"say": "", "do": [], "notes": ["[Waiting for the owner's
+  OK: …]"]}`. The model's own answers can hold neither (`reply_schema`).
+- A helper whose answer still has no words (and did nothing but look) is asked once more with its job alone, without
+  the conversation (`assistant.alone_again`, guard `alone`), both when the owner asks it by name and when ClipForge
+  AI hands it a job. The planner's helpers, which never read the conversation, wrote their part in every check.
+
+**After the fourth real-model check** (run 45785137953 on 9279e9d): every must-check passed, and the Script writer
+answered "@Script writer …" instead of failing, but with "Got it: I'm ready to write a two-line hook about mountain
+biking." A pleasantry before a colon ("Got it:", "Sure:", "Okay:") now starts a sentence like one before a full stop,
+so that is a promise; "Got it: your channel is about mountain biking." is still an answer. In the fifth check (run
+45787376562 on 38fb7d1, every must-check passed) it added "I'll make sure it's sharp and engaging.": words about how
+it will be ("I'll make sure it…", "I'll keep it…") count like a pleasantry next to a promise, never as one alone.
+
+A small review of these last fixes (each finding shown with a probe) found, and now:
+
+- The conversation keeps an answer whose notes are long (helpers' work) when it does not fit whole: its words and its
+  notes are both shortened to their share of the room, never dropped.
+- A card note whose name holds brackets ("“Trip to Iceland [4K]”") is removed whole, and so is "[…, so nothing was
+  done: …]".
+- A helper that did the work with a tool (proposed a change, kept a memory) and said "Let me make that change." is
+  not reported as one that only promised; only a helper that did nothing but look is.
+- The round with the job alone is one round: no nudge after it (`think(nudge=False)`), so a silent helper costs at
+  most three requests.
+
+## Thumbs on answers (2026-11-26)
+
+Every finished answer of ClipForge AI, and of a helper talked to with "@Name", has 👍 and 👎 under it
+(`ClipForgeAI.tsx`, `Rate`). 👎 opens a short box, "What would have been better? (optional)". Pressing the same thumb
+again takes the rating back. `POST /api/brain/chats/{chat_id}/messages/{message_id}/rating` `{good: true|false|null,
+why?}` saves it in the answer's own message (`data.rating`: good, why, the owner's question it answered, when), so
+it goes with its chat: clearing or deleting the chat, or deleting its project, removes it too.
+
+`brain/ratings.py` (`taste`) adds to the system prompt, before "Right now", in at most `budgets()["ratings"]`
+characters (800 for the built-in and local models, 1,500 for the others), kept in this order:
+
+- a disliked answer to a question very like the new one (50% of all words), with "Answer differently";
+- the newest three reasons the owner gave for 👎 ("too long, give me three"), to avoid: always, whatever is asked,
+  so only the reasons themselves, never the question or the answer they were about;
+- the liked answer to the question most like the new one (at least two shared words and 30% of all words), as an
+  example of the way to answer, with the tools it used first ("You (after using find_projects): …") and a warning
+  never to copy its facts, which come from the app as it is now. It is shortened to fit, but never below 120
+  characters (a shorter answer fits whole or not at all).
+
+ClipForge AI's own answers teach ClipForge AI; a helper's teach that helper only. Only a model's answer
+(`data.tool == "talk"`) has thumbs: never the app's own replies (help, memories, results without a model) or the
+video planner's messages in a video's chat (Make a YouTube video). With learning off (`learn_from_edits`, the switch
+in Brain → Learned) no rating is read, the "Sent over the internet" line leaves them out, and the toast says so. A rating is written under
+`chat._decide_lock`, so an OK pressed on the same answer at the same moment keeps both. The chat's "Sent over the
+internet" line and the privacy page name the rated answers and the 👎 reasons an online model may read.
+
 ## Acting without asking, and the new commands (2026-11-26)
 
 Landry asked for an assistant that can "do anything in the app" and then, on Nov 26, "no i want it to be able to do it
@@ -1002,6 +1144,30 @@ on its own you dont have to say ok". So:
 - **Reviewing helpers:** after `ask_agent` the model always reads the helper's work before the answer ends, and its
   rules make it the reviewer (check, correct, then use it).
 - **Long chats** keep 5,000 messages (`chat.KEEP`, was 200); the page loads the newest 400 (`chat.SHOW`).
+- **Several posts at once** (added later on 2026-11-26): `cancel_post`, `retry_post` and `approve_post` take
+  `all: true` ("cancel all my posts for tomorrow", "retry every failed post", "approve all my YouTube posts").
+  `operations.find_posts` narrows them strictly: a post must hold every post word of three letters or more; state
+  words keep only posts in that state ("failed", "held", "waiting", "approved"…; "retry every failed post" never
+  takes a canceled one); days are read in the posting time zone ("today", "tomorrow", a weekday as its next one,
+  "Nov 28", "28 November", "Nov 28, 2026", "2026-11-28", "the 28th", "yesterday"; `scheduler._local`, so a
+  daylight-saving change never moves a day; a month is a whole word, never the start of "marketing" or "novice"; a
+  month and day without a year is the nearest one, so "Dec 30" said on Jan 2 is the one just gone; a weekday or "the
+  28th" is both the next one and the one just gone, which the states tell apart: only future posts are cancelled,
+  past ones retried), parts of the day ("morning" 5-12, "afternoon" 12-17, "evening" 17-22, "night"), and times
+  exactly ("2 pm" and "14:00" are 14:00; "4:00" never takes 14:00; "27 Nov 2 pm" is Nov 27 at 14:00; "15 pm" is no
+  time); another number must be in the
+  post's title, its clip's or its video's ("top 10"), never read from its time; otherwise it is a `ToolError` ("I
+  could not read “28” …"), never ignored. An account (`approve_post` calls it
+  `channel`, since `account` is its own approval name) must hold every word of three letters or more, for one post
+  as for several ("my cooking channel" never finds a post on "Fishing channel"). Upcoming posts
+  come first, soonest first, then past ones, newest first; at most `BULK_MAX` (50), and the card says "Only the first
+  50 of the N posts that fit" when more do. One card lists them (`_bulk_preview`, 12 lines then "…and N more", each
+  line with the post's state) and always waits for the owner's OK, in both modes, so a misread "all" never changes
+  many posts on its own; when only one post fits, it is the ordinary one-post card, and it still waits (`ask`).
+  `approve_post` checks every post that fits (up to 500) as the post page does, then offers the first 50 that can
+  be approved, so posts it can never approve (a TikTok post always: its own page) never hide the ones it can, and
+  lists what it leaves out and why; its result says "Posting now" only when `now: true` posted them. OK runs the one-post command for
+  each (`_bulk_run`); one that cannot change any more (it went out meanwhile) is named, and the others still change.
 
 ## API
 

@@ -166,7 +166,8 @@ def _results(ctx: Ctx, args: dict) -> Result:
         raise ToolError(f"results: by must be one of {', '.join(BY)}.")
     out = summary(ctx.ws, period=str(args.get("period") or "30"), platform=str(args.get("platform") or ""), by=by,
                   words=str(args.get("words") or ""))
-    return Result("\n".join(out["lines"]), f"Read your results ({out['posts']} posts)", {"links": list(LINKS)})
+    return Result("\n".join(out["lines"]), f"Read your results ({out['posts']} posts)", {"links": list(LINKS)},
+                  show="\n".join(out["lines"]))
 
 
 register(Tool("results", "how the owner's posts did: views, likes, % watched, the best and weakest posts (read "

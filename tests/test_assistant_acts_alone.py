@@ -228,7 +228,8 @@ def test_the_main_ai_reviews_a_helpers_work_before_it_answers(data, monkeypatch)
                    say("The hook is weak: it gives the ending away."),        # the Critic's work
                    say("The Critic is right about the ending; I would open on the fall instead."))
     c = chat.open_chat(WS)
-    m = settled(c["id"], chat.send(WS, c["id"], "ask the critic about my hook")["ai"]["id"])
+    # ("ask the critic …" is handed over before the model's first round: test_assistant_guards.py)
+    m = settled(c["id"], chat.send(WS, c["id"], "what would the critic say about my hook?")["ai"]["id"])
     assert len(fake.calls) == 3  # asked again after the helper's work, although it had already spoken
     assert m["text"].endswith("I would open on the fall instead.")
     assert "you are its reviewer" in fake.calls[0]["system"]

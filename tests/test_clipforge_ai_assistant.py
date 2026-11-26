@@ -241,7 +241,11 @@ def test_history_is_the_conversation_for_a_model(data):
     # the way the assistant answers, so a model keeps answering in that shape
     hj = assistant.history(c["id"], as_json=True)
     assert json.loads(hj[1]["content"]) == {"say": "Hello! What are we making today?", "do": []}
-    assert json.loads(hj[3]["content"])["say"] == "[Hook writer] 1. The view nobody films"
+    # a helper's name and the notes stand beside the words, never in them: a small model copied them as its answer
+    assert json.loads(hj[3]["content"]) == {"by": "Hook writer", "say": "1. The view nobody films", "do": []}
+    assert json.loads(hj[4]["content"]) == {"say": "I asked Researcher.", "do": [],
+                                            "notes": ["[Researcher wrote: Dawn is the best light.]"]}
+    assert json.loads(hj[6]["content"]) == {"say": "", "do": [], "notes": ["[Waiting for the owner's OK: Forget “x”]"]}
     assert hj[0] == h[0] and hj[-1] == h[-1]
 
     # only what was written before a message
@@ -1653,10 +1657,11 @@ def test_a_change_it_could_not_offer_is_in_the_next_turns_conversation(data, mon
         settled(c["id"], _say(c["id"], text)["id"])
     assert len(fake.calls) == 3
     note = f"[Could not delete Old talk, so nothing was done: {GONE}]"
-    turns = [(t["role"], json.loads(t["content"])["say"] if t["role"] == "assistant" else t["content"])
+    turns = [(t["role"], json.loads(t["content"]) if t["role"] == "assistant" else t["content"])
              for t in fake.calls[2]["messages"][:-1]]
-    assert turns == [("user", "delete Old talk"), ("assistant", note), ("user", "please delete Old talk"),
-                     ("assistant", "I'll delete Old talk for you.\n" + note)]
+    assert turns == [("user", "delete Old talk"), ("assistant", {"say": "", "do": [], "notes": [note]}),
+                     ("user", "please delete Old talk"),
+                     ("assistant", {"say": "I'll delete Old talk for you.", "do": [], "notes": [note]})]
     # a change whose arguments were wrong was read by the model in that answer: nothing more is added
     install(monkeypatch, say("", ("rename_project", {"project": "Old talk"})), say("What should I call it?"))
     m = settled(c["id"], _say(c["id"], "rename Old talk")["id"])

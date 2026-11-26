@@ -148,6 +148,11 @@ def _post_line(n: int, item: dict, settings: dict, clash: dict[str, dict]) -> st
     return text + "."
 
 
+def _account_words(said) -> set[str]:
+    """The words of an account's name said to narrow posts: three letters or more, not "my", "channel" or "account"."""
+    return {w for w in _said_words(str(said or "")) if len(w) > 2 and w not in _ACCOUNT_NOISE}
+
+
 def find_post(args: dict, statuses: tuple[str, ...], doing: str) -> dict:
     """The one post `args` names (post: words from its title, its video, its time like "18:30" or "Nov 26", or its
     id; platform; account: words from the account's name), among posts in `statuses`. Raises ToolError naming the
@@ -162,9 +167,9 @@ def find_post(args: dict, statuses: tuple[str, ...], doing: str) -> dict:
         return exact[0]
     if args.get("platform"):
         rows = [r for r in rows if r["platform"] == args["platform"]]
-    if args.get("account"):
-        who = set(_said_words(str(args["account"])))
-        rows = [r for r in rows if who & set(_said_words(_account(r)[1]))]
+    need = _account_words(args.get("account"))
+    if need:  # every word of the account's name that was said ("cooking channel": never "Fishing channel")
+        rows = [r for r in rows if need <= set(_said_words(_account(r)[1]))]
     if not rows:
         raise ToolError(f"There is no post that {doing}" + (" on that account or platform." if (
             args.get("platform") or args.get("account")) else ". Use posts to see them all."))
@@ -191,6 +196,241 @@ def _names(rows: list[dict], settings: dict) -> str:
                      f"{_label(r.get('planned_at'), settings)}" for r in rows[:6]) + ("; …" if len(rows) > 6 else "")
 
 
+BULK_MAX = 50  # posts one command changes at once ("all": true)
+BULK_SHOWN = 12  # of them, the lines its card shows
+BULK_CHECKED = 500  # posts approve_post with all: true checks, to offer the first BULK_MAX that can be approved
+_BULK_NOISE = frozenset("""all every each my the a an and of for on in at to from them these those post posts video
+videos clip clips planned scheduled upcoming approve retry again cancel please this next coming last""".split())
+# status words narrow the statuses ("retry every failed post": not the canceled ones)
+_STATUS_SAID = {"failed": ("failed",), "canceled": ("canceled",), "cancelled": ("canceled",),
+                "held": ("blocked", "action_needed"), "blocked": ("blocked",), "stuck": ("blocked", "action_needed"),
+                "waiting": ("awaiting_approval",), "awaiting": ("awaiting_approval",),
+                "approval": ("awaiting_approval",), "unapproved": ("awaiting_approval",), "approved": ("approved",)}
+_ACCOUNT_NOISE = frozenset({"my", "the", "channel", "channels", "account", "accounts", "page"})
+_MONTHS = {"jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3, "apr": 4, "april": 4, "may": 5,
+           "jun": 6, "june": 6, "jul": 7, "july": 7, "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9,
+           "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12}
+# a month as a whole word ("Nov", "November", "Nov."), never the start of "marketing", "novice" or "mario"
+_MONTH = r"(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\.?(?![a-z])"
+_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_PARTS = {"morning": (5, 12), "afternoon": (12, 17), "evening": (17, 22), "night": (20, 29)}  # hours, 29 = 5 am
+_RX = re.I | re.A  # ASCII only: "ſep" is no month
+_YEAR = r"(?:,?\s+(\d{4})\b)?"
+_DATE_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+# "27 Nov", "27th of November 2026" (never the "00" of "14:00 Nov 27")
+_DATE_DM = re.compile(r"(?<![\d:.])\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?" + _MONTH + _YEAR, _RX)
+# "Nov 27", "Nov 27, 2026" (never "Nov 2 pm": that 2 is an hour)
+_DATE_MD = re.compile(r"\b" + _MONTH + r"\s+(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*(?:[ap]\.?\s*m\b|[:.]\d))" + _YEAR, _RX)
+_DATE_TH = re.compile(r"\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b", _RX)
+_TIME = re.compile(r"\b(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?\s*m\b\.?|\b(\d{1,2}):(\d{2})\b", _RX)
+
+
+def _said_when(want: str, settings: dict) -> tuple[set, set[str], list[tuple[int, int]], str, list[str]]:
+    """The days (local dates), times ("HH:MM", 24-hour) and parts of the day (hour ranges) `want` names, what is
+    left of it, and the numbers left in it that are neither (a title's "Top 10", or a day said too briefly, "on
+    28"). Days: "Nov 28", "28 Nov", "Nov 28, 2026", "2026-11-28", "today", "tomorrow", "yesterday"; a month and day
+    without a year is the nearest such day (Jan 2 asking for "Dec 30" means the one just gone); "friday" and "the
+    28th" are both the nearest one ahead (today included) and the one just gone, since a command's states tell them
+    apart (only future posts are cancelled, past ones retried). Times: "18:30", "6 pm", "6:30pm", "6.30 pm"; parts:
+    "morning", "afternoon", "evening", "night". Raises ToolError for a date or time that cannot be ("Feb 30",
+    "25:00", "15 pm")."""
+    import datetime as dt
+
+    from ..autopilot import scheduler
+
+    today = scheduler._local(time.time(), settings).date()
+    days: set = set()
+    times: set[str] = set()
+
+    def month_of(word: str) -> int:
+        n = _MONTHS.get(word.lower().rstrip("."))
+        if n is None:
+            raise ToolError(f"“{word}” is not a month.")
+        return n
+
+    def day(year: int, month: int, d: int) -> None:
+        try:
+            days.add(dt.date(year, month, d))
+        except ValueError as exc:
+            raise ToolError(f"{d}/{month} is not a day of the calendar.") from exc
+
+    def near(month: int, d: int, year: str | None) -> None:  # without a year: the nearest such day, ahead or gone
+        if year:
+            return day(int(year), month, d)
+        found = []
+        for y in (today.year - 1, today.year, today.year + 1):
+            try:
+                found.append(dt.date(y, month, d))
+            except ValueError:
+                continue
+        if not found:
+            raise ToolError(f"{d}/{month} is not a day of the calendar.")
+        days.add(min(found, key=lambda x: abs((x - today).days)))
+
+    rest = want
+    for m in _DATE_ISO.finditer(rest):
+        day(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    rest = _DATE_ISO.sub(" ", rest)
+    for m in _DATE_DM.finditer(rest):
+        near(month_of(m.group(2)), int(m.group(1)), m.group(3))
+    rest = _DATE_DM.sub(" ", rest)
+    for m in _DATE_MD.finditer(rest):
+        near(month_of(m.group(1)), int(m.group(2)), m.group(3))
+    rest = _DATE_MD.sub(" ", rest)
+    for m in _DATE_TH.finditer(rest):  # "the 28th": the next one (this month's or next month's) and the one gone
+        d = int(m.group(1))
+        if not 1 <= d <= 31:
+            raise ToolError(f"“{m.group(0).strip()}” is not a day of the month.")
+        ahead, gone = [], []
+        for k in range(-2, 3):
+            y, mo = divmod(today.year * 12 + today.month - 1 + k, 12)
+            try:
+                x = dt.date(y, mo + 1, d)
+            except ValueError:
+                continue
+            (ahead if x >= today else gone).append(x)
+        days.update(([min(ahead)] if ahead else []) + ([max(gone)] if gone else []))
+    rest = _DATE_TH.sub(" ", rest)
+    for m in _TIME.finditer(rest):
+        if m.group(4):
+            h, mi = int(m.group(4)), int(m.group(5))
+        else:
+            h12, mi = int(m.group(1)), int(m.group(2) or 0)
+            if not 1 <= h12 <= 12:
+                raise ToolError(f"“{m.group(0).strip()}” is not a time of day.")
+            h = h12 % 12 + (12 if m.group(3).lower() == "p" else 0)
+        if h > 23 or mi > 59:
+            raise ToolError(f"“{m.group(0).strip()}” is not a time of day.")
+        times.add(f"{h:02d}:{mi:02d}")
+    rest = _TIME.sub(" ", rest)
+    words = _said_words(rest)
+    parts = [_PARTS[w] for w in words if w in _PARTS]
+    for w in words:
+        if w in ("today", "tonight"):
+            days.add(today)
+        elif w == "tomorrow":
+            days.add(today + dt.timedelta(days=1))
+        elif w == "yesterday":
+            days.add(today - dt.timedelta(days=1))
+        elif w in _WEEKDAYS:  # the next one (today included) and the one just gone
+            ahead = (_WEEKDAYS.index(w) - today.weekday()) % 7
+            days.update({today + dt.timedelta(days=ahead), today - dt.timedelta(days=(7 - ahead) if ahead else 7)})
+    if "tonight" in words:
+        parts.append(_PARTS["evening"])
+    left = re.findall(r"\d+", rest)
+    return days, times, parts, " ".join(w for w in words if w not in ("today", "tonight", "tomorrow", "yesterday",
+                                                                    *_WEEKDAYS, *_PARTS)), left
+
+
+def _title_numbers(item: dict) -> set[str]:
+    """The numbers in a post's own title, its clip's and its video's (never its time: "28" there is not a day)."""
+    clip = db.get_clip(item.get("clip_id") or "") or {}
+    project = db.get_project(clip.get("project_id") or "") or {}
+    return set(re.findall(r"\d+", " ".join(str(x or "") for x in (item.get("title"), clip.get("title"),
+                                                                     project.get("name")))))
+
+
+def find_posts(args: dict, statuses: tuple[str, ...], doing: str, *, every: bool = False) -> tuple[list[dict], int]:
+    """Every post `args` names among posts in `statuses`, for a command on several at once (all: true), and how many
+    fit in all. Narrowed strictly: status words keep only those statuses ("failed": not the canceled ones), a post
+    must hold every other post word of three letters or more ("lake swim": both), be on a day named ("Nov 28",
+    "tomorrow", "friday") and at a time named ("18:30", "6 pm"), on the platform, and on an account whose name
+    holds every account word. Upcoming posts first (soonest first), then past ones (newest first); at most BULK_MAX
+    (`every`: all of them, for a caller that leaves some out first). Raises ToolError when none fits."""
+    from ..autopilot import scheduler
+
+    settings = _settings()
+    want = str(args.get("post") or "").strip()
+    days, times, parts, rest, nums = _said_when(want, settings)
+    said = _said_words(rest)
+    named = {st for w in said for st in _STATUS_SAID.get(w, ())}
+    if named:
+        statuses = tuple(st for st in statuses if st in named)
+        if not statuses:
+            raise ToolError(f"No post that {doing} is in that state ({', '.join(sorted(named))}).")
+    words = {w for w in said if len(w) > 2 and w not in _BULK_NOISE and w not in _STATUS_SAID and w not in _MONTHS}
+    need = _account_words(args.get("account"))
+    marks = ",".join("?" * len(statuses))
+    rows = db.select("scheduled_publications", f"status IN ({marks})", tuple(statuses), "", 5000)
+    if args.get("platform"):
+        rows = [r for r in rows if r["platform"] == args["platform"]]
+    if need:
+        rows = [r for r in rows if need <= set(_said_words(_account(r)[1]))]
+
+    def fits(r: dict) -> bool:
+        local = scheduler._local(r["planned_at"], settings) if r.get("planned_at") else None
+        if (days or times or parts) and local is None:
+            return False
+        hour = local.hour if local else 0
+        return (not days or local.date() in days) and (not times or local.strftime("%H:%M") in times) and \
+            (not parts or any(a <= hour < b or a <= hour + 24 < b for a, b in parts)) and \
+            (not words or words <= set(_said_words(_post_words(r, settings)))) and \
+            (not nums or set(nums) <= _title_numbers(r))  # a number only as a title's ("Top 10")
+
+    rows = [r for r in rows if fits(r)]
+    if not rows and nums:
+        raise ToolError(f"I could not read “{nums[0]}” in “{one_line(want, 60)}” as a day, a time or a title's "
+                        "number: say a day like “Nov 28” or “tomorrow” and a time like “18:30”.")
+    if not rows:
+        raise ToolError(f"There is no post that {doing}" + (f" matching “{one_line(want, 60)}”" if want else "") +
+                        (" on that account or platform" if args.get("platform") or args.get("account") else "") +
+                        ". Use posts to see them all.")
+    now = time.time()
+    rows.sort(key=lambda r: (0, r["planned_at"]) if (r.get("planned_at") or 0) >= now else
+              (1, -(r.get("planned_at") or 0)))
+    return (rows if every else rows[:BULK_MAX]), len(rows)
+
+
+def _bulk_lines(rows: list[dict], settings: dict) -> list[str]:
+    """A card's lines for several posts, with the state each is in: one each, then how many more."""
+    lines = [f"“{_post_name(r)}” on {PLATFORM_NAMES.get(r['platform'], r['platform'])} ({_account(r)[1]}), "
+             f"{_label(r.get('planned_at'), settings)}: {STATUS_WORDS.get(r['status'], r['status'])}"
+             for r in rows[:BULK_SHOWN]]
+    return lines + ([f"…and {len(rows) - BULK_SHOWN} more."] if len(rows) > BULK_SHOWN else [])
+
+
+def _bulk_preview(rows: list[dict], total: int, label: str, settings: dict, *, left_out: list[str] | None = None,
+                  extra: dict | None = None) -> dict:
+    """The one card for a command on several posts: it lists them and always waits for the owner's OK ("ask"), in
+    both modes of Settings → ClipForge AI, so a misread "all" never changes many posts at once. `total`: how many
+    fit; more than BULK_MAX are named as left for another time."""
+    detail = _bulk_lines(rows, settings)
+    if total > len(rows):
+        detail.append(f"Only the first {len(rows)} of the {total} posts that fit: ask again for the rest, or name a "
+                      "day, platform or title.")
+    if left_out:
+        detail.append("Left out: " + "; ".join(left_out[:6]) + ("; …" if len(left_out) > 6 else "") + ".")
+    return {"label": label, "detail": detail, "blocked": "", "ask": True,
+            "args": {"posts": [r["id"] for r in rows], "all": True, **(extra or {})}}
+
+
+def _bulk_run(ctx: Ctx, args: dict, one, done: str, label: str) -> Result:
+    """Run the single-post command `one` for each post the card listed; what went wrong with one never stops the
+    others. `done`: what happened, as in "Took them off the schedule"; each post is named with the state it is in
+    now."""
+    ok, failed, work = [], [], []
+    for pid in args.get("posts") or []:
+        item = db.fetch("scheduled_publications", pid)
+        if not item:
+            failed.append("a post that is not there any more")
+            continue
+        try:
+            res = one(ctx, {**args, "post": pid, "posts": None, "all": None})
+        except ToolError as exc:
+            failed.append(f"“{_post_name(item)}”: {one_line(str(exc), 120)}")
+            continue
+        now = db.fetch("scheduled_publications", pid) or item
+        ok.append(f"“{_post_name(now)}” ({STATUS_WORDS.get(now['status'], now['status'])})")
+        work += res.data.get("work") or []
+    text = f"{done} ({len(ok)}): " + ", ".join(ok[:BULK_SHOWN]) + ("…" if len(ok) > BULK_SHOWN else "") + "." \
+        if ok else f"Nothing was done: none of the {len(failed)} post(s) could be."
+    if failed:
+        text += " Could not: " + "; ".join(failed[:6]) + ("; …" if len(failed) > 6 else "") + "."
+    links = [{"label": "Missions → Schedule", "href": "#/missions"}]
+    return Result(text, f"{label} ({len(ok)} of {len(ok) + len(failed)})", {"links": links, "work": work},
+                  ok=bool(ok))
+
+
 def _post_links(item: dict) -> list[dict]:
     return [{"label": f"Open “{_post_name(item)}”", "href": f"#/post/{item['id']}"},
             {"label": "Missions → Schedule", "href": "#/missions"}]
@@ -215,11 +455,12 @@ def _posts(ctx: Ctx, args: dict) -> Result:
     lines += [_post_line(i + 1, r, settings, clash) for i, r in enumerate(rows[:LIST_MAX])]
     if len(rows) > LIST_MAX:
         lines.append(f"…and {len(rows) - LIST_MAX} more.")
+    show = "\n".join(lines[1:])  # the owner's list, without the model's notes
     if clash and view != "published":
         lines.append(f"{len(clash)} post(s) are too close to another on the same account: fix_post_conflicts moves "
                      "them to the nearest free times.")
     return Result("\n".join(lines), f"Looked at your posts ({len(rows)})",
-                  {"links": [{"label": "Missions → Schedule", "href": "#/missions"}]})
+                  {"links": [{"label": "Missions → Schedule", "href": "#/missions"}]}, show=show)
 
 
 def _when_preview(item: dict, when: str, settings: dict) -> tuple[float, list[str]]:
@@ -399,16 +640,26 @@ def _cancel_upload(ctx: Ctx, args: dict) -> Result:
 
 def _cancel_post_preview(ctx: Ctx, args: dict) -> dict:
     settings = _settings()
+    if args.get("all"):
+        rows, total = find_posts(args, CANCELABLE, "is planned")
+        if total > 1:
+            pv = _bulk_preview(rows, total, f"Don't post these {len(rows)} posts", settings)
+            pv["detail"].append("They are taken off the schedule; their clips stay, and Try again plans them again.")
+            return pv
+        args = {**args, "post": rows[0]["id"]}
     item = find_post(args, CANCELABLE, "is planned")
     return {"label": f"Don't post “{_post_name(item)}” on {PLATFORM_NAMES.get(item['platform'], item['platform'])}",
             "detail": [f"Planned for {_label(item.get('planned_at'), settings)}. It is taken off the schedule; its "
                        "clip stays, and Try again on its page plans it again."],
-            "blocked": "", "args": {"post": item["id"]}}
+            "blocked": "", "args": {"post": item["id"]},
+            **({"ask": True} if args.get("all") else {})}  # "all" that found one: still a card to check
 
 
 def _cancel_post(ctx: Ctx, args: dict) -> Result:
     from ..autopilot import routes
 
+    if args.get("posts"):
+        return _bulk_run(ctx, args, _cancel_post, "Took them off the schedule", "Took posts off the schedule")
     try:
         out = routes.cancel_item(str(args.get("post") or ""))
     except HTTPException as exc:
@@ -418,17 +669,28 @@ def _cancel_post(ctx: Ctx, args: dict) -> Result:
 
 
 def _retry_preview(ctx: Ctx, args: dict) -> dict:
+    if args.get("all"):
+        rows, total = find_posts(args, RETRYABLE, "failed, is held or was canceled")
+        if total > 1:
+            pv = _bulk_preview(rows, total, f"Try these {len(rows)} posts again", _settings())
+            pv["detail"].append("Each gets a new time; one goes out only with a valid approval (otherwise it asks you "
+                                "again).")
+            return pv
+        args = {**args, "post": rows[0]["id"]}
     item = find_post(args, RETRYABLE, "failed, is held or was canceled")
     why = one_line(item.get("last_error") or item.get("status_note") or "", 160)
     return {"label": f"Try “{_post_name(item)}” again on {PLATFORM_NAMES.get(item['platform'], item['platform'])}",
             "detail": [*([f"Last time: {why}"] if why else []),
                        "It gets a new time; it goes out only with a valid approval (otherwise it asks you again)."],
-            "blocked": "", "args": {"post": item["id"]}}
+            "blocked": "", "args": {"post": item["id"]},
+            **({"ask": True} if args.get("all") else {})}  # "all" that found one: still a card to check
 
 
 def _retry(ctx: Ctx, args: dict) -> Result:
     from ..autopilot import routes
 
+    if args.get("posts"):
+        return _bulk_run(ctx, args, _retry, "Trying them again", "Tried posts again")
     try:
         out = routes.retry_item(str(args.get("post") or ""))
     except HTTPException as exc:
@@ -545,8 +807,39 @@ def _approve_preview(ctx: Ctx, args: dict) -> dict:
 
     settings = _settings()
     now = bool(args.get("now"))
-    item = find_post(args, ("awaiting_approval", "failed", *(("approved",) if now else ())), "waits for approval"
-                     if not now else "can be approved or posted")
+    statuses = ("awaiting_approval", "failed", *(("approved",) if now else ()))
+    doing = "waits for approval" if not now else "can be approved or posted"
+    look = {**args, "account": str(args.get("channel") or "")}  # the model's words for the channel
+    if args.get("all"):
+        # every post that fits is checked first, then the first BULK_MAX that can be approved are offered: posts that
+        # can never be approved here (TikTok's) never hide the ones that can
+        rows, total = find_posts(look, statuses, doing, every=True)
+        rows = rows[:BULK_CHECKED]
+        if total > 1:  # each is checked as the post page checks it; one that cannot be approved is left out
+            good, left = [], []
+            for r in rows:
+                problems = [] if r["status"] == "approved" and r["platform"] != "tiktok" \
+                    else _approve_problems(r, settings)
+                if now and settings.get("autopilot_publishing_paused"):
+                    problems.append("publishing is paused (Office → bottom bar)")
+                if problems:
+                    left.append(f"“{_post_name(r)}”: {problems[0]}")
+                else:
+                    good.append(r)
+            verb = "Approve and post" if now else "Approve"
+            if not good:
+                return {"label": f"{verb} {len(rows)} posts", "detail": [f"“{_post_name(r)}”" for r in rows[:6]],
+                        "blocked": "None of them can be approved here: " + "; ".join(left[:4]) + ".",
+                        "args": {"posts": [], "all": True}}
+            offered = good[:BULK_MAX]
+            pv = _bulk_preview(offered, len(good), f"{verb} these {len(offered)} posts", settings, left_out=left,
+                               extra={"now": now, "accounts": [item_account(r) for r in offered]})
+            pv["detail"].append("They go out now." if now else "Each goes out at its time" + (
+                "" if settings.get("autopilot_auto_publish") else " once you press Publish now (automatic publishing "
+                "is off)") + ".")
+            return pv
+        look = {**look, "post": rows[0]["id"]}
+    item = find_post(look, statuses, doing)
     platform = PLATFORM_NAMES.get(item["platform"], item["platform"])
     # an approved post that goes out now is still checked when it is a TikTok post: ClipForge AI never posts there
     problems = [] if item["status"] == "approved" and item["platform"] != "tiktok" \
@@ -565,13 +858,19 @@ def _approve_preview(ctx: Ctx, args: dict) -> dict:
     return {"label": f"{verb} “{_post_name(item)}” on {platform} ({_account(item)[1]})", "detail": detail,
             "blocked": ("To approve it: " + "; ".join(problems) + ".") if problems else "",
             # the account the card shows: approving checks the post still goes there (as the post page does)
-            "args": {"post": item["id"], "now": now, "account": item_account(item)}}
+            "args": {"post": item["id"], "now": now, "account": item_account(item)},
+            **({"ask": True} if args.get("all") else {})}  # "all" that found one: still a card to check
 
 
 def _approve(ctx: Ctx, args: dict) -> Result:
     from ..autopilot import routes
     from ..autopilot.targets import item_account
 
+    if args.get("posts"):  # each with the account its card showed (as one post's card does)
+        accounts = dict(zip(args["posts"], args.get("accounts") or []))
+        return _bulk_run(ctx, args, lambda c, a: _approve(c, {**a, "account": accounts.get(a["post"], "")}),
+                         "Posting them now" if args.get("now") else "Approved them",
+                         "Posting now" if args.get("now") else "Approved posts")
     item = db.fetch("scheduled_publications", str(args.get("post") or ""))
     if not item:
         raise ToolError("That post is not there any more.")
@@ -742,7 +1041,8 @@ def _work_list(ctx: Ctx, args: dict) -> Result:
     if not lines:
         lines.append("- Nothing" + (" matches those words." if want else " is running, waiting or failed."))
     return Result("\n".join([head, *lines[:LIST_MAX + 4]]), "Checked the work",
-                  {"links": [{"label": "Missions → Activity", "href": "#/missions/activity"}]})
+                  {"links": [{"label": "Missions → Activity", "href": "#/missions/activity"}]},
+                  show="\n".join([head, *lines[:LIST_MAX + 4]]))
 
 
 def _target(ctx: Ctx, args: dict) -> tuple[str, dict, str]:
@@ -1165,7 +1465,8 @@ def _missions(ctx: Ctx, args: dict) -> Result:
     lines = [f"- “{_mission_name(r)}”: uploads {'paused' if (r.get('settings') or {}).get('paused') else 'on'}"
              for r in rows[:LIST_MAX]] or ["- No missions yet."]
     return Result("Missions (the videos and streams ClipForge clips and posts for you):\n" + "\n".join(lines),
-                  "Looked at your missions", {"links": [{"label": "Missions", "href": "#/missions"}]})
+                  "Looked at your missions", {"links": [{"label": "Missions", "href": "#/missions"}]},
+                  show="\n".join(lines))
 
 
 def _pause_preview(ctx: Ctx, args: dict) -> dict:
@@ -1489,6 +1790,10 @@ POST_HELP = ("post: words from its title or video, or its time (\"18:30\", \"Nov
              "it")
 CLIP = {"project": TEXT, "clip": TEXT}
 NOT_AGENTS = {"for_agents": False}
+BULK = {"all": {"type": "boolean"},
+        "posts": {"type": "array", "items": {"type": "string"}, "maxItems": BULK_MAX, "internal": True}}
+BULK_HELP = ("; all: true for every post that fits (post words such as a title, a day, a time or a state like failed, "
+             "and platform and account, narrow it): one card lists them and waits for the owner's OK")
 ALONE = {"for_agents": False, "alone": True}  # a change made at once when the owner lets ClipForge AI act alone
 
 register(Tool("posts", "the owner's planned, uploading, failed and posted posts with their times (in the Autopilot "
@@ -1514,11 +1819,12 @@ register(Tool("fix_post_conflicts", "move every post that is too close to anothe
 register(Tool("cancel_upload", "cancel a post that is uploading now (nothing is posted). " + POST_HELP,
               {"type": "object", "properties": POST}, _cancel_upload, "change", "Cancel the upload of {post}",
               preview=_cancel_upload_preview, **ALONE))
-register(Tool("cancel_post", "take a planned post off the schedule so it is not posted. " + POST_HELP,
-              {"type": "object", "properties": POST}, _cancel_post, "change", "Don't post {post}",
+register(Tool("cancel_post", "take a planned post off the schedule so it is not posted. " + POST_HELP + BULK_HELP,
+              {"type": "object", "properties": {**POST, **BULK}}, _cancel_post, "change", "Don't post {post}",
               preview=_cancel_post_preview, **ALONE))
 register(Tool("retry_post", "try a failed, held or canceled post again (it still needs a valid approval). "
-              + POST_HELP, {"type": "object", "properties": POST}, _retry, "change", "Try {post} again",
+              + POST_HELP + BULK_HELP, {"type": "object", "properties": {**POST, **BULK}}, _retry, "change",
+              "Try {post} again",
               preview=_retry_preview, **ALONE))
 register(Tool("restart_work", "start a stalled, failed or stopped project (or one clip's render) again. project: its "
               "name; clip: its number or title words (for one render)",
@@ -1570,9 +1876,13 @@ register(Tool("edit_post", "change a planned post's own title, description or ha
               _edit_post, "change", "Change the text of {post}", preview=_edit_post_preview, **ALONE))
 register(Tool("approve_post", "approve a post that waits for approval so it goes out at its time; now: true to post "
               "it right away (also an approved one). YouTube only: TikTok posts need the owner's OK on their page. "
-              + POST_HELP,
-              {"type": "object", "properties": {**POST, "now": {"type": "boolean"},
-                                                "account": {"type": "string", "internal": True}}},
+              + (POST_HELP + BULK_HELP).replace("account", "channel"),
+              {"type": "object", "properties": {**POST, **BULK, "now": {"type": "boolean"},
+                                                # the channel's words narrow the posts; "account" is the card's own
+                                                "channel": {"type": "string", "maxLength": 120},
+                                                "account": {"type": "string", "internal": True},
+                                                "accounts": {"type": "array", "items": {"type": "string"},
+                                                             "maxItems": BULK_MAX, "internal": True}}},
               _approve, "change", "Approve {post}", preview=_approve_preview, **ALONE))
 register(Tool("set_clip_text", "use the owner's own title, hashtags or hook for a clip (exactly their words)",
               {"type": "object", "properties": {**CLIP, "title": TEXT, "hashtags": TEXT, "hook": TEXT,

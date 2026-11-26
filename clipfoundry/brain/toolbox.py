@@ -16,8 +16,9 @@ from dataclasses import dataclass
 
 from .. import db
 from ..pipeline.text_utils import STOPWORDS
-from . import appguide, library, memories
+from . import appguide, intents, library, memories
 from .tools import AskFirst, Ctx, Result, Tool, ToolError, TryAgain, clip, one_line, register
+from .tools import get as tools_get
 
 # The pages go_to can open: the main ones of the guide to ClipForge (every word of this list is read by the model
 # on every turn, so the rarely needed tabs are left to the guide's own page buttons).
@@ -216,7 +217,8 @@ def _find_projects(ctx: Ctx, args: dict) -> Result:
                                                                       else "") + ":\n" + \
         "\n".join(line(p, now) for p in shown)
     return Result(clip(text), f"Looked at your projects ({len(every)})",
-                  {"links": [{"label": p["name"], "href": p["href"]} for p in shown[:4]]})
+                  {"links": [{"label": p["name"], "href": p["href"]} for p in shown[:4]]},
+                  show=clip("\n".join(line(p, now) for p in shown[:12])))
 
 
 def _open_project(ctx: Ctx, args: dict) -> Result:
@@ -230,8 +232,9 @@ def _recall(ctx: Ctx, args: dict) -> Result:
     found = [m for m in found if m.get("enabled", True) and not m.get("expired")]
     if not found:
         return Result("Nothing in the memory matches.", "Searched your memories: nothing")
-    return Result("\n".join(f"- [{m['kind']}] {one_line(m['text'])}" for m in found),
-                  f"Searched your memories ({len(found)} found)")
+    lines = [f"- [{m['kind']}] {one_line(m['text'])}" for m in found]
+    return Result("\n".join(lines), f"Searched your memories ({len(found)} found)",
+                  show="\n".join(f"- “{one_line(m['text'], 200)}”" for m in found))
 
 
 def _knowhow(ctx: Ctx, args: dict) -> Result:
@@ -592,6 +595,11 @@ def _ask_agent(ctx: Ctx, args: dict) -> Result:
         data["remembered"] = saved
     text = f"{agent['name']} answered:\n{out['text']}" if out["ok"] else \
         f"{agent['name']} could not do it: {out['text']}"
+    looked_only = all((t := tools_get(s.get("tool", ""))) is not None and t.risk == "look"
+                      for s in out.get("steps") or [])  # a change it proposed or a memory it kept is work done
+    if out["ok"] and looked_only and intents.promise(out["text"]):  # even asked once more (the real Basic model)
+        text = (f"{agent['name']} only said what it would do and wrote nothing the owner can use: "
+                f"“{out['text']}”. Write it yourself now, in your answer.")
     return Result(clip(text, 2400), f"Asked {agent['name']}", data, ok=out["ok"])
 
 

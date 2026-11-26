@@ -32,6 +32,66 @@ Batches 2-5 (shorts, long videos, range, quality checks) are planned in
   page says so. Plain-word requests: a colour word inside a part's name ("remove the black and white intro"), a part
   of the video ("make the ending cooler") or a sound ("remove the noise") is never taken as a colour change.
 
+## Guards, second round — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** the real built-in model, checked on GitHub with the first guards, no longer repeats you and
+lists your projects in full, but it still answered "how are my clips doing?" without looking, answered "delete the
+project …" with sentences about what it would do, and its Script writer said "I'll write a hook…" without writing
+it. Now the results (or projects, posts, work, missions) you plainly ask for are looked up before the model answers,
+a delete or rename you plainly ask for always shows its OK card when the model does nothing, and a helper that only
+promises is told to do the job.
+
+- **Where:** `assistant._turn` (a look guess becomes `first`), `assistant._rounds` (`idle`, `_looked_only`, the
+  fallback when the first round uses no tool, `NUDGE_DO`), `assistant.use` (`Outcome.looked`), `intents.promise`
+  (`_PROMISE`, `_PLEASANTRY`, `_SENTENCE`).
+- **Second review, worth knowing:** `intents._GOES_ON` (a dash, semicolon or comma after "let me look" makes it an
+  answer); listings anchored with an end pattern; `_QUOTED_NAME`/`NEW_NAME_WORDS` for rename; `_NOT_A_JOB` and
+  `_POLITE_ASK` for handoff; `assistant.JOB_LEAD` is the first line of a helper's job and `_slip` checks the echo
+  against the job and the owner's quoted words; `_unbracket` strips only helper names; `operations._said_when`
+  returns parts of the day too and reads the nearest date (ahead or gone); `_account_words` is the strict account
+  rule for `find_post` and `find_posts`; `find_posts(..., every=True)` for approve; ratings only for
+  `data.tool == "talk"`, and the rating route returns `learning`.
+- **After the second real-model check:** `assistant._NOTE` matches the card notes `_pending_note` writes and is
+  removed from every round's words (helpers too); `toolbox._ask_agent` tells ClipForge AI to write the job itself
+  when the helper's answer is only a promise (`intents.promise`).
+- **After the third check:** `history(as_json=True)` writes `{"by", "say", "do", "notes"}` (name and notes never in
+  "say"); `assistant.alone_again(out, msgs)` decides when a helper is asked again with its job alone (`_turn` for
+  "@Name", `agents.run` for a handed-over job).
+- **After the fourth check and its review:** `intents._LEAD` ("Got it:" before a promise); `history` shortens a JSON
+  turn's say and notes by share (`shown(t, limit, end)`); `_NOTE` reads quoted names whole; `toolbox._ask_agent`
+  calls a helper's answer a promise only when its steps were all look tools; `think(nudge=False)`.
+- **Worth knowing:** `data.guards` now also records a slip that was not nudged ("act" after a listing was found);
+  `first:<tool>` names a look done before the model. A test that wants the model itself to call find_projects for
+  "what projects do I have?" sees it done first; the model's own same call reads the same result.
+
+## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** the small built-in model sometimes repeated your message, said "Let me look." and never
+looked, stopped at "Here are your projects:" with no projects, or pretended to be a helper. Now ClipForge AI catches
+those slips: a plainly asked request ("how are my clips doing?", "what projects do I have?", "delete the project X")
+gets its one tool even when the model forgets, the model is asked once more when it only repeats you, a list it
+leaves out is added from the app's own data, and "ask the Script writer …" goes straight to that helper. It can also
+cancel, retry or approve several posts at once ("cancel all my posts for tomorrow"), with one card to OK. Every
+answer has 👍 and 👎: what you liked becomes the example for similar questions, and your reasons for 👎 are avoided.
+
+- **Where things are:** `brain/intents.py` (`echo`, `promise`, `stops_short`, `handoff`, `guess`);
+  `assistant.think` (`said`, `first`, `fallback`, `_slip`, `NUDGES`, `_show`, `_covered`, `_BRACKET`);
+  `tools.Result.show` filled by find_projects, recall, posts, work, missions and results; docs in
+  docs/clipforge/CLIPFORGE_AI.md, "Guards for a small model". Several posts at once: `operations.find_posts`,
+  `_bulk_preview`, `_bulk_run`, `BULK`. Thumbs: `brain/ratings.py` (`rate`, `rated`, `taste`), the route
+  `POST /api/brain/chats/{chat_id}/messages/{message_id}/rating`, `Rate` in `ClipForgeAI.tsx`.
+- **Thumbs, worth knowing:** a rating is `data.rating` in its answer's message (no table of its own), read with
+  `json_extract(data, '$.rating.good')`; the newest 300 rated answers are read per turn; `rate` writes under
+  `chat._decide_lock` (the OK button writes the same message's data); `taste` fits `budgets()["ratings"]` and reads
+  nothing when `learn_from_edits` is off.
+- **Bulk, worth knowing:** `operations._said_when` reads days and times in the posting time zone and raises on a
+  number it cannot read; `find_posts` returns `(rows, total)`; a single post found by `all: true` comes back with
+  `"ask": True`, so it waits even in act-alone mode; `approve_post`'s account narrowing is the `channel` argument.
+- **Worth knowing:** a guard only steps in when nothing was done yet in the answer and the round used no tool; it
+  never deletes (a delete it reads shows its card, which waits for the OK). `data.guards` on a chat message says what
+  was caught; scripts/assistant_check.py prints it. "Ask the critic …" now runs the helper before the model's first
+  round, so a test that wants the model itself to call ask_agent must phrase the request another way.
+
 ## ClipForge AI reads your results; ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** ClipForge AI and its helpers can now see how your posts did: totals, the best and weakest

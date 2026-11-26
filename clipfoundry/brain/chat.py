@@ -484,9 +484,14 @@ def _talk(chat: dict, text: str, agent: dict | None) -> dict:
         return {"text": f"{allowance.message(settings)} Nothing was sent.", "data": {"tool": "talk"},
                 "status": "failed"}
     label = llm.provider_label(settings)
+    from . import learned
+
+    thumbs = (", earlier answers you marked 👍 or 👎 that fit it, and the reasons you gave for your newest 👎"
+              if learned.on(settings) else "")
     what = ("the conversation, the memories, know-how and lines of your switched-on skills that fit it, your "
-            "project names, the details of the projects and clips it looks at and your posts' results when it reads "
-            "them. Never your files or their sound.")
+            "project names, the details of the projects and clips it looks at" +
+            (", your posts' results when it reads them" + thumbs if thumbs else
+             " and your posts' results when it reads them") + ". Never your files or their sound.")
     sent = (f"Stays on this computer: {label} answers it." if local else f"Sent over the internet to {label}: {what}")
     data: dict = {"tool": "talk", "provider": label, "sent": sent, "remote": not local}
     role = "ai"

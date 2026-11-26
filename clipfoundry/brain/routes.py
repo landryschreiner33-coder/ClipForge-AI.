@@ -216,6 +216,11 @@ class Say(Input):
     forget: str | None = Field(default=None, max_length=4000)  # a "Which one?" button: the memory's words it shows
 
 
+class Rate(Input):
+    good: bool | None = None  # None takes the rating back
+    why: str = Field(default="", max_length=1000)
+
+
 class Decide(Input):
     do: bool
 
@@ -292,6 +297,19 @@ def say(chat_id: str, body: Say) -> dict:
                                 forget=body.forget)
     except chat_module.ChatError as exc:
         raise _chat_err(exc) from exc
+
+
+@chats.post("/{chat_id}/messages/{chat_message_id}/rating", dependencies=WRITE)
+def rate_answer(chat_id: str, chat_message_id: str, body: Rate) -> dict:
+    """👍 or 👎 on an answer, with an optional reason for 👎 (brain/ratings.py)."""
+    from . import ratings
+
+    try:
+        return ratings.rate(principal.workspace_id(), chat_id, chat_message_id, body.good, body.why)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+    except ratings.RatingError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
 
 
 @chats.delete("/{chat_id}/messages", dependencies=WRITE)
