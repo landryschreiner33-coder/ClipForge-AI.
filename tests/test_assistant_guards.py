@@ -451,11 +451,12 @@ def test_when_a_helper_only_promises_even_when_asked_again_clipforge_ai_writes_i
 
     agents.add(WS, template="script_writer")
     promise = "Got it. I'll write a title for your biking video."
-    fake = install(monkeypatch, say(promise), say(promise), say("Try “Ridge run at dawn”."))
+    # asked once more, then alone (without the conversation and tools): it still only promises
+    fake = install(monkeypatch, say(promise), say(promise), say(promise), say("Try “Ridge run at dawn”."))
     m, _c = _ask("Ask the script writer for a title for my biking video")
     assert m["text"] == "Try “Ridge run at dawn”." and m["data"]["helpers"][0]["text"] == promise
-    assert "Script writer only said what it would do" in fake.last_user(2) and "Write it yourself now" in \
-        fake.last_user(2)
+    assert "Script writer only said what it would do" in fake.last_user(3) and "Write it yourself now" in \
+        fake.last_user(3)
 
 
 def test_a_helper_that_writes_nothing_even_asked_again_is_asked_with_its_job_alone(data, monkeypatch):
@@ -550,3 +551,45 @@ def test_an_answer_with_long_notes_before_a_long_follow_up_is_kept_shortened(dat
     plan = json.loads(h[0]["content"])
     assert plan["say"].startswith("Here is the plan: open on the summit") and " … " in plan["say"]
     assert len(plan["notes"]) == 1 and plan["notes"][0].startswith("[Researcher wrote:")
+
+
+def test_a_helpers_promise_with_more_of_what_it_will_do_is_still_a_promise(data, monkeypatch):
+    """The real Basic model as the Script writer, in the last check (run 45788754134): "Got it: I'll write a two-line
+    hook about mountain biking. I'll keep the tone strong and engaging, with a clear hook in the first line…"."""
+    from clipfoundry.brain import agents, assistant, intents
+
+    said = ("Got it: I'll write a two-line hook about mountain biking. I'll keep the tone strong and engaging, with a "
+            "clear hook in the first line.")
+    assert intents.promise(said, helper=True) and not intents.promise(said)  # ClipForge AI's own words: unchanged
+    for s in ("I'll go with the ridge one, it's the strongest.", "I'll write it like this: the trail bites back.",
+              "Got it: I'll write a hook. “I almost didn't make it down.”", "I'll keep the tone strong.",
+              "Let me write a hook.\nThe trail bites back.\nAnd so do I."):
+        assert not intents.promise(s, helper=True), s
+    agents.add(WS, template="script_writer")
+    fake = install(monkeypatch, say(said), say("“I almost didn't make it down.” / “Here's why.”"))
+    m, _c = _ask("@Script writer write a two-line hook about mountain biking")
+    assert m["text"] == "“I almost didn't make it down.” / “Here's why.”" and m["data"]["guards"] == ["act"]
+    assert fake.last_user(1) == assistant.NUDGE_DO
+
+
+def test_a_helper_that_still_only_promises_writes_it_alone_without_tools(data, monkeypatch):
+    """The real Basic model as the Script writer (run 45796490867): "I'll write a two-line hook about mountain biking.
+    I'm ready to go." twice. Alone and without tools, as the planner asks, it wrote its part in every check."""
+    from clipfoundry.brain import agents, chat
+
+    agents.add(WS, template="script_writer")
+    c = chat.open_chat(WS)
+    install(monkeypatch, say("Sure."))
+    settled(c["id"], chat.send(WS, c["id"], "hi")["ai"]["id"])
+    promise = "I'll write a two-line hook about mountain biking. I'm ready to go."
+    fake = install(monkeypatch, say(promise), say(promise), say("“I almost didn't make it down.” / “Here's why.”"))
+    m = settled(c["id"], chat.send(WS, c["id"], "@Script writer write a two-line hook about mountain biking")["ai"]["id"])
+    assert m["text"] == "“I almost didn't make it down.” / “Here's why.”"
+    assert m["data"]["guards"] == ["act", "act", "alone"]
+    alone = fake.calls[2]
+    assert [x["content"] for x in alone["messages"]] == ["write a two-line hook about mountain biking"]
+    assert alone["json_schema"]["properties"]["do"]["maxItems"] == 0  # only the work itself can be written
+    # alone it still promises: its first words stay, never an empty answer
+    fake = install(monkeypatch, say(promise), say(promise), say(""))
+    m = settled(c["id"], chat.send(WS, c["id"], "@Script writer write a two-line hook about mountain biking")["ai"]["id"])
+    assert m["status"] == "done" and m["text"] == promise

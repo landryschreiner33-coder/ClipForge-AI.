@@ -314,9 +314,11 @@ def run(ws: str, agent_id: str, task: str, *, context: str = "", chat: dict | No
     try:
         assistant.think(settings, system, msgs, tool_list, ctx, max_tokens=RUN_TOKENS, max_steps=3, on_change=shown,
                         out=out, said=job)
-        if assistant.alone_again(out, msgs):  # it wrote nothing, even asked once more: the job without the chat
-            assistant.think(settings, system, msgs[-1:], tool_list, ctx, max_tokens=RUN_TOKENS, max_steps=3,
+        if (kept := assistant.alone_again(out, msgs)) is not None:  # no work, even asked again: the job alone
+            assistant.think(settings, system, msgs[-1:], [], ctx, max_tokens=RUN_TOKENS, max_steps=3,
                             on_change=shown, out=out, said=job, nudge=False)
+            if not out.text:
+                out.says[:0] = kept
     except llm.Canceled:
         raise
     except (llm.ProviderError, assistant.Stopped) as exc:

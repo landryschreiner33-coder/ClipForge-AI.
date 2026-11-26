@@ -111,8 +111,10 @@ NUDGE_ACT = ("You said you would look or do it, but you used no tool. Use the to
 NUDGE_SHORT = ("Your answer stopped where the list begins. Write the whole answer in \"say\", on one line, the items "
                "separated by commas or semicolons, or use a tool to look them up.")
 NUDGE_EMPTY = "Your answer was empty. Answer the owner, or use a tool for what they asked."
-NUDGE_DO = ("You only said what you would do. Do it now, in this answer: write the whole thing you were asked for "
-            "(the hook, the title, the plan, the review), or use a tool if you need one first.")
+# no list of examples here: the real Basic model copied one back ("I'm ready to write the hook, title, plan, and
+# review for your mountain biking video.", run 45794338079)
+NUDGE_DO = ("You only said what you would do. Now do it: this answer must be the work itself, starting with its "
+            "first words, with no sentence about what you will do. Use a tool first only if you need one.")
 NUDGES = {"echo": NUDGE_ECHO, "act": NUDGE_ACT, "short": NUDGE_SHORT, "empty": NUDGE_EMPTY}
 _BRACKET = re.compile(r"^\s*\[[^\]\n]{1,48}\]\s*")  # "[Script writer] …": a helper's mark, never ClipForge AI's
 # "[Waiting for the owner's OK: …]": the app's own note on a card (_pending_note), never part of an answer
@@ -794,7 +796,7 @@ def model_failed(exc: BaseException) -> str:
     return f"My model could not answer: {tools.clip(exc, 300)}"
 
 
-def _slip(say: str, said: str) -> str:
+def _slip(say: str, said: str, helper: bool = False) -> str:
     """What is wrong with a round that used no tool, when nothing but looking was done yet in this answer
     (intents.py): "echo" (it only repeats the owner), "act" (it only says what it will do), "short" (it stops where a
     list should begin),
@@ -810,7 +812,7 @@ def _slip(say: str, said: str) -> str:
         return "echo"
     if intents.stops_short(say):
         return "short"
-    if intents.promise(say):
+    if intents.promise(say, helper):
         return "act"
     return ""
 
@@ -845,15 +847,25 @@ def _unbracket(say: str, ws: str) -> str:
     return say[m.end():] if inner in names else say
 
 
-def alone_again(out: Outcome, msgs: list[dict]) -> bool:
-    """A helper's answer came back with no words and nothing done but looking, although it read the conversation:
-    it is asked once more (one round, no nudge after it: `think(nudge=False)`) with its job alone (a small model copies the conversation instead of writing: the real
-    Basic model, as the Script writer, answered only a card's note twice; the same job asked by the planner, without
-    the conversation, it wrote). Marks the answer's guards with "alone"."""
-    if out.text or out.pending or len(msgs) < 2 or not _looked_only(out):
-        return False
+def alone_again(out: Outcome, msgs: list[dict]) -> list[str] | None:
+    """A helper's answer came back with no words, or with words that only say what it will do even asked once more
+    (`intents.promise(…, helper=True)`), and nothing done but looking, although it read the conversation: it is
+    asked once more (one round, no nudge after it: `think(nudge=False)`) with its job alone and no tools, so the work
+    itself is all it can write. A small model copies the conversation or promises instead of writing: the real Basic
+    model, as the Script writer, answered only a card's note twice, then "I'll write a two-line hook about mountain
+    biking. I'm ready to go." twice; the same kind of job asked by the planner, alone and without tools, it wrote.
+    Returns the words set aside (put back when the round alone brings none), or None when it is not asked again.
+    Marks the answer's guards with "alone"."""
+    from . import intents
+
+    if out.pending or len(msgs) < 2 or not _looked_only(out):
+        return None
+    if out.text and not intents.promise(out.text, helper=True):
+        return None
+    kept = list(out.says)
+    out.says.clear()
     out.slips.append("alone")
-    return True
+    return kept
 
 
 def _looked_only(out: Outcome) -> bool:
@@ -983,7 +995,7 @@ def _rounds(settings: dict, system: str, msgs: list[dict], tool_list: list[tools
         calls = [] if final else reply["do"]
         guessed = False
         idle = not (calls or out.pending or out.says) and _looked_only(out)  # nothing done yet, or only looking
-        slip = _slip(reply["say"], said) if idle else ""
+        slip = _slip(reply["say"], said, bool(ctx.agent)) if idle else ""
         if fallback and not calls and not out.steps and not out.pending and not out.says:
             # the one change a plainly phrased request has, and the model did nothing with it (or only claimed it):
             # done as if the model had asked for it, as a card that waits for the OK
@@ -1243,10 +1255,12 @@ def _turn(ws: str, chat: dict, text: str, message_id: str, agent: dict | None, b
         think(settings, system, msgs, tool_list, ctx, max_tokens=budgets(settings)["max_tokens"] + (
             400 if agent else 0), on_change=lambda o: _save(message_id, o, base=base), out=out, said=text,
             first=first, fallback=plain)
-        if agent and alone_again(out, msgs):  # a helper that wrote nothing, even asked once more: its job alone
-            think(settings, system, [{"role": "user", "content": text}], tool_list, ctx,
+        if agent and (kept := alone_again(out, msgs)) is not None:  # no work, even asked once more: the job alone
+            think(settings, system, [{"role": "user", "content": text}], [], ctx,
                   max_tokens=budgets(settings)["max_tokens"] + 400, on_change=lambda o: _save(message_id, o, base=base),
                   out=out, said=text, nudge=False)
+            if not out.text:
+                out.says[:0] = kept
         out.data.pop("helper_live", None)
         if (not agent and not out.data.get("links") and library.howto(text) and know.hits
                 and know.hits[0].entry.source == "guide" and know.hits[0].score >= 1.0):
