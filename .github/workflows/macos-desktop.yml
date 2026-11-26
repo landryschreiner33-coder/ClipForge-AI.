@@ -61,7 +61,8 @@ jobs:
   regression:
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # the fast suite (3,317 tests) passed 93% in 40 minutes on GitHub's runner on Nov 25 and was stopped there
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:
