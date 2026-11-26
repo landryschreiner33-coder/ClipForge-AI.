@@ -32,7 +32,8 @@ def test_cancel_every_planned_post_with_one_card(data):  # noqa: F811
     card, done = press("cancel_post", {"all": True})
     assert card["label"] == "Don't post these 3 posts" and card["ask"] is True
     assert card["detail"][0].startswith("“Summit sunrise” on YouTube") and len(card["args"]["posts"]) == 3
-    assert done.ok and done.text.startswith("Took them off the schedule (3): “Summit sunrise”, “Lake swim”")
+    assert done.ok and done.text.startswith("Took them off the schedule (3): “Summit sunrise” (canceled), “Lake swim”")
+    assert card["detail"][0].endswith(": waiting for your approval")  # each line says the state it is in
     assert {db.fetch("scheduled_publications", r["id"])["status"] for r in rows} == {"canceled"}
     assert done.summary == "Took posts off the schedule (3 of 3)"
 
@@ -48,6 +49,7 @@ def test_words_and_days_narrow_them_strictly(data):  # noqa: F811
     assert card["label"] == "Don't post these 2 posts" and set(card["args"]["posts"]) == {a["id"], b["id"]}
     card = tool("cancel_post").preview(ctx(), {"all": True, "post": "all my posts at 14:00"})
     assert card["args"]["post"] == b["id"] and "posts" not in card["args"]  # only one fits: the one-post card
+    assert card["ask"] is True  # …which still waits for the OK: it came from "all"
     with pytest.raises(tools.ToolError, match="matching “sunrise lake”"):  # no post holds both words
         tool("cancel_post").preview(ctx(), {"all": True, "post": "sunrise lake"})
     card = tool("cancel_post").preview(ctx(), {"all": True, "post": "trail"})
@@ -115,3 +117,71 @@ def test_clipforge_ai_shows_the_card_and_waits_even_when_it_acts_alone(data, mon
     assert {db.fetch("scheduled_publications", r["id"])["status"] for r in rows} != {"canceled"}
     assert "all: true for every post that fits" in tools.signature(tools.get("cancel_post"), True)
     assert operations.BULK_MAX >= 50
+
+
+# ------------------------------------------------------------------ the review's findings (Nov 26)
+def _card(name: str, args: dict) -> dict:
+    from clipfoundry.brain import tools
+
+    return tool(name).preview(ctx(), tools.check_args(tool(name), args))
+
+
+def test_dates_and_times_narrow_them_exactly(data):  # noqa: F811
+    import pytest
+
+    from clipfoundry import db
+    from clipfoundry.brain.tools import ToolError
+
+    a, b, c = _three(data)
+    tomorrow = dt.datetime.now(CHI).date() + dt.timedelta(days=1)
+    four = tomorrow + dt.timedelta(days=3)
+    for said in (tomorrow.strftime("%b %d"), tomorrow.strftime("%d %B"), tomorrow.isoformat(),
+                 f"the {tomorrow.day}{'th' if 10 <= tomorrow.day % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(tomorrow.day % 10, 'th')}"):
+        assert set(_card("cancel_post", {"all": True, "post": said})["args"]["posts"]) == {a["id"], b["id"]}, said
+    assert _card("cancel_post", {"all": True, "post": four.strftime("%B %d")})["args"]["post"] == c["id"]
+    assert _card("cancel_post", {"all": True, "post": "2 pm"})["args"]["post"] == b["id"]  # 14:00, not 12:00
+    with pytest.raises(ToolError, match="There is no post"):
+        _card("cancel_post", {"all": True, "post": "4:00"})  # never 14:00 by a part of its digits
+    with pytest.raises(ToolError, match="could not read “28”"):
+        _card("cancel_post", {"all": True, "post": "posts on 28"})  # never a post at 14:28 or on the 28th by chance
+    db.update("scheduled_publications", c["id"], title="Top 10 trail tricks")
+    assert _card("cancel_post", {"all": True, "post": "top 10"})["args"]["post"] == c["id"]  # a title's number
+    with pytest.raises(ToolError, match="not a time of day"):
+        _card("cancel_post", {"all": True, "post": "25:00"})
+
+
+def test_status_words_keep_only_those_posts(data):  # noqa: F811
+    from clipfoundry import db
+
+    a, b, c = _three(data)
+    db.update("scheduled_publications", a["id"], status="failed", last_error="upload timed out")
+    db.update("scheduled_publications", b["id"], status="canceled")
+    card = _card("retry_post", {"all": True, "post": "every failed post"})
+    assert card["args"]["post"] == a["id"] and card["ask"] is True  # never the canceled one
+    card = _card("retry_post", {"all": True})
+    assert set(card["args"]["posts"]) == {a["id"], b["id"]}
+
+
+def test_more_than_fifty_says_so_and_upcoming_posts_come_first(data, monkeypatch):  # noqa: F811
+    from clipfoundry.brain import operations
+
+    a, b, c = _three(data)
+    monkeypatch.setattr(operations, "BULK_MAX", 2)
+    card = _card("cancel_post", {"all": True})
+    assert card["args"]["posts"] == [a["id"], b["id"]]  # the soonest
+    assert "Only the first 2 of the 3 posts that fit" in " ".join(card["detail"])
+
+
+def test_an_account_narrows_them_by_every_word_and_approve_takes_a_channel(data):  # noqa: F811
+    import pytest
+
+    from clipfoundry.brain import tools
+    from clipfoundry.brain.tools import ToolError
+
+    _three(data)
+    with pytest.raises(ToolError, match="on that account"):
+        _card("cancel_post", {"all": True, "account": "cooking channel"})  # "channel" alone is no match
+    assert tools.check_args(tool("approve_post"), {"all": True, "channel": "fishing"})["channel"] == "fishing"
+    with pytest.raises(ToolError, match="on that account"):
+        _card("approve_post", {"all": True, "channel": "cooking"})
+    assert "channel narrow it" in tools.signature(tool("approve_post"))

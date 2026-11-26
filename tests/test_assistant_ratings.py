@@ -86,7 +86,7 @@ def test_the_next_answers_read_what_the_owner_liked_and_disliked(data, monkeypat
     ratings.rate(WS, c["id"], disliked["id"], False, "too long, give me three")
     system = _system("how should I start my next mountain biking video")
     assert "An answer the owner liked (👍)" in system and "Open on the biggest jump" in system
-    assert "- “too long, give me three” (about “Give me intro ideas for my skate video”)" in system
+    assert "- “too long, give me three”\n" in system + "\n" and "(about" not in system  # only the reason itself
     assert "Your answer to a question very like this one" not in system
     again = _system("give me intro ideas for my skate video please")
     assert "Here are 12 ideas" in again and "Answer differently: too long, give me three." in again
@@ -106,3 +106,54 @@ def test_a_helpers_ratings_teach_that_helper_only(data, monkeypatch):
     assert "almost didn't make it down" in _system("write a hook for my mountain biking video", writer)
     assert "almost didn't make it down" not in _system("write a hook for my mountain biking video")
     assert ratings.rated(WS) == [] and len(ratings.rated(WS, writer["id"])) == 1
+
+
+def test_the_thumbs_fit_their_budget_and_the_liked_example_goes_first(data, monkeypatch):
+    from clipfoundry.brain import chat, ratings
+
+    install(monkeypatch, say("Open on the biggest jump, then the trail map. " * 12),
+            say("Here are 12 ideas, in no order, for intros of every kind."))
+    c = chat.open_chat(WS)
+    liked = _answer(c["id"], "How should I start my mountain biking video?")
+    ratings.rate(WS, c["id"], liked["id"], True)
+    m = _answer(c["id"], "Give me intro ideas for my skate video")
+    ratings.rate(WS, c["id"], m["id"], False, "too long, give me three")
+    full = ratings.taste(WS, "how should I start my next mountain biking video", budget=5000)
+    assert "Open on the biggest jump" in full and len(full) <= 5000
+    small = ratings.taste(WS, "how should I start my next mountain biking video", budget=260)
+    assert "too long, give me three" in small and "Open on the biggest jump" not in small and len(small) <= 260
+    mid = ratings.taste(WS, "how should I start my next mountain biking video", budget=520)
+    assert "Open on the biggest jump" in mid and len(mid) <= 520  # shortened, not left out
+    assert ratings.taste(WS, "how should I start my next mountain biking video", budget=10) == ""
+
+
+def test_learning_off_reads_no_thumbs(data, monkeypatch):
+    from clipfoundry.brain import chat, ratings
+
+    install(monkeypatch, say("Post at 6 pm."))
+    c = chat.open_chat(WS)
+    m = _answer(c["id"], "When should I post?")
+    ratings.rate(WS, c["id"], m["id"], False, "say why")
+    assert "say why" in ratings.taste(WS, "anything")
+    assert ratings.taste(WS, "anything", settings={"learn_from_edits": False}) == ""
+
+
+def test_a_liked_answer_shows_the_tools_it_used_and_an_ok_keeps_its_rating(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.brain import chat, ratings
+
+    db.create_project("Hike day", workspace_id=WS)
+    install(monkeypatch, say("", ("find_projects", {})), say("You have one: Hike day."))
+    c = chat.open_chat(WS)
+    m = _answer(c["id"], "Which hiking video projects do I have?")
+    ratings.rate(WS, c["id"], m["id"], True)
+    assert ratings.rated(WS)[0]["tools"] == ["find_projects"]
+    taste = ratings.taste(WS, "which hiking video projects do I have now")
+    assert "You (after using find_projects): “You have one: Hike day.”" in taste
+    row = db.fetch("brain_chat_messages", m["id"])  # an OK pressed at the same time writes the same data
+    data = dict(row["data"])
+    data["pending"] = [{"id": "a1", "tool": "rename_project", "state": "waiting", "args": {}}]
+    db.update("brain_chat_messages", m["id"], data=data)
+    chat.decide(WS, c["id"], m["id"], "a1", False)
+    after = db.fetch("brain_chat_messages", m["id"])["data"]
+    assert after["rating"]["good"] is True and after["pending"][0]["state"] == "skipped"

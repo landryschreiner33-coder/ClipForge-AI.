@@ -9,9 +9,10 @@ of handing the job over. The assistant (assistant.think) uses these readings:
 * `handoff`: the owner asks one of their switched-on helpers by name ("ask the Critic to …", "get the Researcher to
   …"): the job goes to that helper first, and ClipForge AI reviews its work, as its rules always said.
 * `guess`: one tool call for a request phrased so plainly that there is only one reading ("what projects do I have",
-  "delete the project Hike", "how are my clips doing?", a pasted link with "make clips"). It is used only when the
-  model's own round did nothing with the request: no tool, and words that only repeat the owner, promise to look, or
-  stop at a colon.
+  "delete the project Hike" when a project is called exactly that, "how are my clips doing?", a bare link or "make
+  clips from <link>"). It is used only when the model's own round did nothing with the request: no tool, and words
+  that only repeat the owner, promise to look, or stop at a colon. A change it reads always shows its card and waits
+  for the OK, even when ClipForge AI acts on its own (assistant.think).
 * `echo`: the words only repeat the owner's message.
 * `promise`: the words only say it will look or do something ("Let me check.").
 
@@ -58,17 +59,29 @@ def echo(said: str, owner: str) -> bool:
     return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= ECHO
 
 
+# A promise is the whole answer: it begins by saying it will look or do it ("Let me look.", "One moment, I'll check
+# your projects.", "I'll ask the Script writer."), and says nothing more. "Let me know if you want more", "Let's get
+# you a title: “Ride the Ridge”" and "I'll be honest: the hook is weak" are answers.
 _PROMISE = re.compile(
-    r"\b(?:let me|let's|lemme|i(?:'ll| will|’ll| am going to|'m going to|’m going to)|one (?:moment|sec(?:ond)?)|"
-    r"give me a (?:moment|sec(?:ond)?)|hold on|just a (?:moment|sec(?:ond)?))\b[^.!?\n]{0,60}?\b(?:check\w*|look\w*|"
-    r"find\w*|see|search\w*|get|pull\w*|fetch\w*|open\w*|review\w*|read\w*|ask\w*|do that|take care of|handle)\b",
+    r"^(?:(?:ok(?:ay)?|sure|alright|all right|of course|certainly|great|no problem)[,!.]?\s+)?"
+    r"(?:(?:one (?:moment|sec(?:ond)?)|give me a (?:moment|sec(?:ond)?)|hold on|just a (?:moment|sec(?:ond)?))"
+    r"[,.!…]*\s*)?"
+    r"(?:let me|let's|lemme|i(?:'ll| will|’ll| am going to|'m going to|’m going to))\s+(?:quickly\s+|just\s+|now\s+|go\s+)?"
+    r"(?:check|look|find|see|search|pull up|fetch|open|review|read|dig|take a look|have a look|ask (?:the|your|my)|"
+    r"get (?:that|it|your|the|those|them)|do that|take care of (?:it|that)|handle (?:it|that))\b",
     re.I)
+_NOT_PROMISE = re.compile(r"^(?:let me know|let's (?:get|make|try|go|do|start|write)\b)", re.I)
 
 
 def promise(said: str) -> bool:
-    """The answer only says it will look or do something ("Let me look.", "I'll check for the project …")."""
-    s = (said or "").strip()
-    return bool(s) and len(s) <= PROMISE_CHARS and "?" not in s and bool(_PROMISE.search(s))
+    """The answer only says it will look or do something ("Let me look.", "I'll check for the project “Old gear
+    review”."): it begins with that, is one sentence, and adds nothing after a colon."""
+    s = " ".join((said or "").split())
+    m = _PROMISE.match(s)
+    if not m or len(s) > PROMISE_CHARS or "?" in s or _NOT_PROMISE.match(s):
+        return False
+    rest = s[m.end():].rstrip(".!… ")  # after "let me look": one sentence, nothing after a colon
+    return not re.search(r"[.!]\s+\S", rest) and not rest.partition(":")[2].strip()
 
 
 def stops_short(said: str) -> bool:
@@ -106,6 +119,7 @@ def handoff(ws: str, text: str) -> tuple[dict, str] | None:
 
 
 # ------------------------------------------------------------------ one plainly asked request
+_SHORT = 10  # words: a plain request is short ("how are my clips doing?"); a longer message is for the conversation
 _PROJECTS = re.compile(r"^(?:(?:what|which)\s+(?:projects|videos|clips projects)\s+(?:do\s+)?i\s+(?:have|got)|"
                        r"(?:please\s+)?(?:list|show)(?:\s+me)?\s+(?:all\s+)?(?:of\s+)?my\s+(?:projects|videos)|"
                        r"my\s+projects|what\s+(?:am i working on|have i (?:made|got)))\b", re.I)
@@ -113,7 +127,7 @@ _POSTS = re.compile(r"^(?:what(?:'s|’s| is)\s+(?:scheduled|planned|coming up|g
                     r"(?:please\s+)?(?:show|list)(?:\s+me)?\s+my\s+(?:upcoming\s+|planned\s+|scheduled\s+|next\s+)?posts|"
                     r"when\s+(?:is|are)\s+my\s+next\s+posts?|what\s+posts?\s+(?:is|are)\s+(?:scheduled|planned|coming))",
                     re.I)
-_WORK = re.compile(r"^(?:what(?:'s|’s| is)\s+(?:running|happening|working|stuck|in the queue)|"
+_WORK = re.compile(r"^(?:what(?:'s|’s| is)\s+(?:running|stuck|in the queue)|"
                    r"is\s+(?:anything|something)\s+(?:running|stuck|working)|"
                    r"(?:please\s+)?(?:show|check)(?:\s+me)?\s+(?:the\s+)?(?:work|queue|jobs)\b)", re.I)
 _MISSIONS = re.compile(r"^(?:please\s+)?(?:show|list)(?:\s+me)?\s+my\s+missions|^what\s+missions\b", re.I)
@@ -121,16 +135,31 @@ _DELETE = re.compile(r"^(?:please\s+)?(?:delete|remove)\s+(?:the\s+|my\s+)?(?P<k
                      r"(?P<x>.+?)\s*[.!]?$", re.I)
 _RENAME = re.compile(r"^(?:please\s+)?rename\s+(?:the\s+|my\s+)?(?:project\s+|video\s+)?(?P<x>.+?)\s+to\s+(?P<y>.+?)"
                      r"\s*[.!]?$", re.I)
-_MAKE = re.compile(r"\b(?:clip|clips|shorts?|cut|make)\b", re.I)
+# "make clips from <link>", "clip this <link>", "cut shorts from <link>": an order at the start, never "don't make …",
+# "I already made clips from …" or "here is my short <link>, what do you think"
+_MAKE = re.compile(r"^(?:please\s+)?(?:can you\s+|could you\s+)?(?:make|cut|create|get)\s+(?:me\s+)?(?:some\s+)?"
+                   r"(?:clips|shorts)\s+(?:from|of|out of|for)(?:\s+(?:this|that|it))?(?:\s+video)?\s*:?\s*$|"
+                   r"^(?:please\s+)?clip(?:\s+(?:this|that|it))?(?:\s+video)?\s*:?\s*$", re.I)
+_NEW_NAME_NOT = re.compile(r"(?:,|\bthen\b|\band\b|^something\b|^anything\b|\bbetter\b|\bcatchier\b)", re.I)
 
 
 def _name(text: str) -> str:
     return text.strip().strip(_QUOTES).strip()
 
 
-def guess(text: str, names: set[str] | list[str]) -> dict | None:
+def _project_named(ws: str, words: str) -> bool:
+    """`words` are exactly one of the owner's project names (case and quotes aside): only then is "delete the
+    project X" or "rename X to Y" plain enough to read without a model."""
+    from .toolbox import projects
+
+    want = " ".join(_plain_words(words))
+    return bool(want) and any(" ".join(_plain_words(p["name"])) == want for p in projects(ws))
+
+
+def guess(text: str, names: set[str] | list[str], ws: str = "") -> dict | None:
     """One tool call ({"tool", "args"}) for a request phrased so plainly that there is only one reading, among the
-    tools `names` offered in this chat; None for anything else."""
+    tools `names` offered in this chat; None for anything else. A short message only (`_SHORT` words, no comma),
+    except a link; a project to delete or rename must be named exactly as it is called (in workspace `ws`)."""
     from .chat import _RESULTS
 
     t = " ".join(str(text or "").split())
@@ -141,6 +170,14 @@ def guess(text: str, names: set[str] | list[str]) -> dict | None:
     def call(tool: str, args: dict | None = None) -> dict | None:
         return {"tool": tool, "args": args or {}} if tool in have else None
 
+    links = _URL.findall(t)
+    if len(links) == 1:  # a bare link, or an order to clip it: nothing else
+        rest = _URL.sub(" ", t).strip(" .,!")
+        if not rest or _MAKE.match(rest):
+            return call("make_clips", {"link": links[0].rstrip(".,!?)")})
+        return None
+    if links or "," in t or len(t.split()) > _SHORT:
+        return None
     if _RESULTS.match(t):
         return call("results")
     if _PROJECTS.match(t):
@@ -151,17 +188,15 @@ def guess(text: str, names: set[str] | list[str]) -> dict | None:
         return call("work")
     if _MISSIONS.match(t):
         return call("missions")
-    if "?" in t:  # a question about deleting, renaming or a link is for the conversation
+    if "?" in t or not ws:  # a question about deleting or renaming is for the conversation
         return None
     m = _DELETE.match(t)
-    if m and _name(m.group("x")):
+    if m and _project_named(ws, _name(m.group("x"))):
         kind = "full_video" if m.group("kind").lower() == "video" else "clips" if "clips" in m.group("kind").lower() \
             else ""
         return call("delete_project", {"project": _name(m.group("x")), **({"kind": kind} if kind else {})})
     m = _RENAME.match(t)
-    if m and _name(m.group("x")) and _name(m.group("y")):
+    if m and _project_named(ws, _name(m.group("x"))) and _name(m.group("y")) and \
+            not _NEW_NAME_NOT.search(_name(m.group("y"))):
         return call("rename_project", {"project": _name(m.group("x")), "name": _name(m.group("y"))})
-    links = _URL.findall(t)
-    if len(links) == 1 and (t == links[0] or _MAKE.search(_URL.sub(" ", t))):
-        return call("make_clips", {"link": links[0].rstrip(".,!?)")})
     return None

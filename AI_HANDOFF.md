@@ -17,7 +17,12 @@ answer has 👍 and 👎: what you liked becomes the example for similar questio
   `_bulk_preview`, `_bulk_run`, `BULK`. Thumbs: `brain/ratings.py` (`rate`, `rated`, `taste`), the route
   `POST /api/brain/chats/{chat_id}/messages/{message_id}/rating`, `Rate` in `ClipForgeAI.tsx`.
 - **Thumbs, worth knowing:** a rating is `data.rating` in its answer's message (no table of its own), read with
-  `json_extract(data, '$.rating.good')`; the newest 300 rated answers are read per turn.
+  `json_extract(data, '$.rating.good')`; the newest 300 rated answers are read per turn; `rate` writes under
+  `chat._decide_lock` (the OK button writes the same message's data); `taste` fits `budgets()["ratings"]` and reads
+  nothing when `learn_from_edits` is off.
+- **Bulk, worth knowing:** `operations._said_when` reads days and times in the posting time zone and raises on a
+  number it cannot read; `find_posts` returns `(rows, total)`; a single post found by `all: true` comes back with
+  `"ask": True`, so it waits even in act-alone mode; `approve_post`'s account narrowing is the `channel` argument.
 - **Worth knowing:** a guard only steps in when nothing was done yet in the answer and the round used no tool; it
   never deletes (a delete it reads shows its card, which waits for the OK). `data.guards` on a chat message says what
   was caught; scripts/assistant_check.py prints it. "Ask the critic …" now runs the helper before the model's first

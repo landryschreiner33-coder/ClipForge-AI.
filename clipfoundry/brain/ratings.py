@@ -7,12 +7,16 @@ its chat: clearing or deleting the chat, or deleting the project, removes it too
 
 What the next answers read (`taste`, in the system prompt):
 
+* a disliked answer to a question very like the new one, to answer differently;
+* the newest reasons the owner gave for a thumbs down, to avoid (always, whatever is asked: only the reasons, never
+  the question or the answer they were about);
 * the liked answer to the question most like the new one (the same words, at least two of them), as an example of
-  how to answer: its way of answering, never its facts, which come from the app as it is now;
-* the newest reasons the owner gave for a thumbs down, to avoid;
-* a disliked answer to a question very like the new one, to answer differently.
+  how to answer, with the tools it used first: its way of answering, never its facts, which come from the app as it
+  is now.
 
-ClipForge AI's own answers teach ClipForge AI; a helper's (an answer to "@Name …") teach that helper only.
+They fit in `budget` characters (assistant.budgets: "ratings"), kept in that order: the liked example is shortened or
+left out first. ClipForge AI's own answers teach ClipForge AI; a helper's (an answer to "@Name …") teach that helper
+only. With learning off (Settings: learn_from_edits, as in Brain → Learned) the answers read none of them.
 """
 from __future__ import annotations
 
@@ -30,6 +34,8 @@ REASONS = 3            # thumbs-down reasons shown
 LIKE = 0.3             # how alike a liked answer's question must be (shared words / all words)
 UNLIKE = 0.5           # how alike a disliked answer's question must be to be shown
 MIN_SHARED = 2         # words two questions share at least
+BUDGET = 1500          # characters of the system prompt, when the caller gives none
+MIN_EXAMPLE = 120      # a liked answer shortened below this is left out
 
 
 class RatingError(ValueError):
@@ -70,14 +76,19 @@ def rate(ws: str, chat_id: str, message_id: str, good: bool | None, why: str = "
         raise RatingError("Only ClipForge AI's answers and its helpers' can be rated.")
     if row["status"] == "thinking":
         raise RatingError("Wait for the answer to finish first.", 409)
-    data = dict(row.get("data") or {})
-    if good is None:
-        data.pop("rating", None)
-    else:
-        why = one_line(why, WHY_CHARS) if not good else ""
-        data["rating"] = {"good": bool(good), "why": why, "question": _question(row), "at": round(time.time(), 3)}
-    db.update("brain_chat_messages", message_id, data=data)
-    return chat._view(db.fetch("brain_chat_messages", message_id) or row, ws)  # noqa: SLF001 - the page's view
+    rating = None if good is None else {"good": bool(good), "why": one_line(why, WHY_CHARS) if not good else "",
+                                        "question": _question(row), "at": round(time.time(), 3)}
+    with chat._decide_lock:  # noqa: SLF001 - an OK pressed at the same moment writes the same message's data
+        now = db.fetch("brain_chat_messages", message_id)
+        if not now:
+            raise RatingError("That answer is not there any more.", 404)
+        data = dict(now.get("data") or {})
+        if rating is None:
+            data.pop("rating", None)
+        else:
+            data["rating"] = rating
+        db.update("brain_chat_messages", message_id, data=data)
+    return chat._view(db.fetch("brain_chat_messages", message_id) or now, ws)  # noqa: SLF001 - the page's view
 
 
 def rated(ws: str, agent_id: str = "") -> list[dict]:
@@ -91,37 +102,60 @@ def rated(ws: str, agent_id: str = "") -> list[dict]:
         if (r["role"] == "agent" and who != agent_id) or (r["role"] == "ai" and agent_id):
             continue
         rating = data.get("rating") or {}
+        used = []  # the tools the answer used before it answered: a liked answer is liked with them
+        for s in [*(data.get("steps") or []), *(data.get("pending") or [])]:
+            name = s.get("tool") if isinstance(s, dict) and (s.get("ok") or s.get("state") == "done") else ""
+            if isinstance(name, str) and name and name not in used:
+                used.append(name)
         out.append({"good": bool(rating.get("good")), "why": str(rating.get("why") or ""),
                     "question": str(rating.get("question") or ""), "answer": str(r.get("text") or ""),
-                    "at": float(rating.get("at") or 0)})
+                    "tools": used, "at": float(rating.get("at") or 0)})
     return sorted(out, key=lambda x: -x["at"])
 
 
-def taste(ws: str, text: str, agent_id: str = "") -> str:
-    """What the owner's thumbs say about answering `text`, for the system prompt ("" when nothing applies)."""
+def taste(ws: str, text: str, agent_id: str = "", budget: int = BUDGET, settings: dict | None = None) -> str:
+    """What the owner's thumbs say about answering `text`, for the system prompt, in at most `budget` characters
+    ("" when nothing applies or learning is off)."""
+    from . import learned
+
+    if not learned.on(settings):
+        return ""
     rows = rated(ws, agent_id)
     if not rows:
         return ""
     asked = _words(text)
-    parts = []
-    liked = sorted(((_alike(asked, _words(r["question"])), r) for r in rows if r["good"] and r["answer"].strip()),
-                   key=lambda x: -x[0])
-    if liked and liked[0][0] >= LIKE:
-        r = liked[0][1]
-        parts.append("An answer the owner liked (👍), to a question like this one. Answer in its way; never copy its "
-                     "facts, which may be old: facts come from \"Right now\" and your tools.\n"
-                     f"Owner: “{one_line(r['question'], QUESTION_CHARS)}”\n"
-                     f"You: “{one_line(r['answer'], EXAMPLE_CHARS)}”")
-    reasons = [r for r in rows if not r["good"] and r["why"]][:REASONS]
-    if reasons:
-        parts.append("The owner marked earlier answers as not helpful (👎) and said why; avoid that:\n" + "\n".join(
-            f"- “{r['why']}”" + (f" (about “{one_line(r['question'], 80)}”)" if r["question"] else "")
-            for r in reasons))
+    disliked = ""
     unliked = sorted(((_alike(asked, _words(r["question"])), r) for r in rows if not r["good"] and r["answer"].strip()),
                      key=lambda x: -x[0])
     if unliked and unliked[0][0] >= UNLIKE:
         r = unliked[0][1]
         why = r["why"].rstrip(".")
-        parts.append("Your answer to a question very like this one was marked not helpful (👎): "
-                     f"“{one_line(r['answer'], 200)}”. Answer differently" + (f": {why}." if why else "."))
-    return "\n\n".join(parts)
+        disliked = ("Your answer to a question very like this one was marked not helpful (👎): "
+                    f"“{one_line(r['answer'], 200)}”. Answer differently" + (f": {why}." if why else "."))
+    head = "The owner marked earlier answers as not helpful (👎) and said why; avoid that:"
+    reasons = [f"- “{r['why']}”" for r in rows if not r["good"] and r["why"]][:REASONS]
+    liked = sorted(((_alike(asked, _words(r["question"])), r) for r in rows if r["good"] and r["answer"].strip()),
+                   key=lambda x: -x[0])
+    good = liked[0][1] if liked and liked[0][0] >= LIKE else None
+
+    def size(parts: list[str]) -> int:
+        return sum(len(p) + 2 for p in parts if p)
+
+    room = budget
+    if disliked and len(disliked) > room:
+        disliked = ""
+    room -= size([disliked])
+    while reasons and size([head, *reasons]) > room:
+        reasons.pop()  # the oldest reason goes first
+    said = (head + "\n" + "\n".join(reasons)) if reasons else ""
+    room -= size([said])
+    example = ""
+    if good is not None:
+        first = ("An answer the owner liked (👍), to a question like this one. Answer in its way; never copy its "
+                 "facts, which may be old: facts come from \"Right now\" and your tools.\n"
+                 f"Owner: “{one_line(good['question'], QUESTION_CHARS)}”\n" +
+                 (f"You (after using {', '.join(good['tools'][:4])}): “" if good["tools"] else "You: “"))
+        fits = min(EXAMPLE_CHARS, room - len(first) - 3)
+        if fits >= MIN_EXAMPLE:
+            example = first + one_line(good["answer"], fits) + "”"
+    return "\n\n".join(p for p in (disliked, said, example) if p)

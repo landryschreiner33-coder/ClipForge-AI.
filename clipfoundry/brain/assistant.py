@@ -154,7 +154,8 @@ def budgets(settings: dict) -> dict:
     everything one round reads (the system text, the conversation and this answer's tool results): for a small
     model about 7,000 tokens even in a language with short tokens (about 3 characters each), so its answer fits
     too. `knowhow` is what the library adds (craft, the guide to the app, the owner's skills): the smallest built-in
-    model reads one or two entries, Standard and Pro about three, a bigger model four."""
+    model reads one or two entries, Standard and Pro about three, a bigger model four. `ratings` is what the owner's
+    👍 and 👎 add (brain/ratings.py)."""
     provider = settings.get("ai_provider")
     small = provider == "builtin" or provider == "ollama"
     roomy = False
@@ -168,7 +169,7 @@ def budgets(settings: dict) -> dict:
     return {"context": 2200 if small else 3600, "memories": 1200 if small else 1600,
             "knowhow": (2000 if roomy else 1300) if small else 2800, "library": 3 if small else 4,
             "history": 5000 if small else 12000, "max_tokens": 800 if small else 1200,
-            "read": 21000 if small else 60000}
+            "read": 21000 if small else 60000, "ratings": 800 if small else 1500}
 
 
 def app_context(ws: str, project_id: str = "", budget_chars: int = 2000) -> str:
@@ -585,12 +586,14 @@ def _failed(name: str, words: str, why: str, out: Outcome, *, not_offered: bool 
 
 
 def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = "",
-           why: str = "") -> tuple[str, bool]:
+           why: str = "", ask: bool = False) -> tuple[str, bool]:
     """Show `tool` with `args` as a button that waits for the owner's OK: a change, a delete, or what a tool asks
     first (`why`, from tools.AskFirst; `said`: the tool the model used then). Returns the line the model reads and
     whether it must read it: never. What the owner sees says what became of it (a waiting button, a button that
     cannot be pressed now and why, or a failed step and why), and a model asked again could only talk about it: the
-    real Basic model, asked again after a delete it could not offer, said twice that the project was deleted."""
+    real Basic model, asked again after a delete it could not offer, said twice that the project was deleted.
+    `ask`: always a button, even when ClipForge AI acts on its own (a call a guard read from the owner's words,
+    not one the model chose)."""
     from ..pipeline import llm
 
     name = said or tool.name
@@ -610,7 +613,7 @@ def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = 
         return f"{name}: already shown to the owner.", False
     blocked = str(pv.get("blocked") or "")
     # a preview that says "ask" (the step would delete something: clips made again) always waits for the OK
-    if not blocked and not why and not pv.get("ask") and tool.alone and not ctx.agent \
+    if not blocked and not why and not ask and not pv.get("ask") and tool.alone and not ctx.agent \
             and tools.acts_alone(db.get_settings()):
         return _act(tool, args, ctx, out, name, pv)
     out.pending.append({"id": f"a{len(out.pending) + 1}", "tool": tool.name, "args": args, "risk": tool.risk,
@@ -659,12 +662,12 @@ def _act(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, name: str, pv: di
     return f"{name}: done (you did it yourself, no OK needed): {res.text}", True
 
 
-def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome) -> tuple[str, bool]:
+def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome, *, ask: bool = False) -> tuple[str, bool]:
     """One tool the model asked for: run it (look, make) or show it for the owner's OK (change, delete, and what a
     tool asks first with tools.AskFirst). Returns the line the model reads next and whether the model needs to read
     it before the answer is complete. A tool that breaks fails its own step and the model reads that it failed: the
     answer goes on. A change or delete that cannot be offered fails its step too, but is no reason to ask the model
-    again (`_offer`)."""
+    again (`_offer`). `ask`: a change is always a button (`_offer`)."""
     from ..pipeline import llm
 
     name = call["tool"]
@@ -678,7 +681,7 @@ def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome) -> tupl
         _add_step(out, {"tool": name, "label": tool.words({}), "ok": False, "why": str(exc)})
         return f"{name}: {exc}", True
     if tool.risk in tools.WAITS:
-        return _offer(tool, args, ctx, out)
+        return _offer(tool, args, ctx, out, ask=ask)
     why = ""  # why it could not be done, for the owner's step line
     try:
         res = tool.run(ctx, args)
@@ -691,7 +694,7 @@ def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome) -> tupl
         except ToolError as err:
             _failed(name, tool.words(args), str(err), out)
             return f"{name}: {err}", True
-        return _offer(asked, asked_args, ctx, out, said=name, why=str(exc))
+        return _offer(asked, asked_args, ctx, out, said=name, why=str(exc), ask=ask)
     except ToolError as exc:
         why = str(exc)
         res = Result(why, _could_not(tool.words(args)), ok=False)
@@ -821,18 +824,19 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
     round as if it had asked for them (intents.handoff: a helper asked by name); `fallback` is the one tool call a
     plainly phrased request has (intents.guess). A round that uses no tool before anything was done, and only
     repeats `said`, only says it will look, stops at a colon or says nothing, runs `fallback` instead, or, without
-    one, is asked once more (NUDGE_ECHO, NUDGE_ACT). Its words are not kept, unless nothing better comes. A look
-    tool's listing that the answer leaves out is added to it (`_show`)."""
-    from ..pipeline import llm
-
+    one, is asked once more (`NUDGES`; not when today's online requests are used up). Its words are not kept, unless
+    nothing better comes, also when a later round fails. A change `fallback` reads always shows its card and waits
+    for the OK, even when ClipForge AI acts on its own. A look tool's listing that the answer leaves out is added to
+    it when the answer is broken, or names too little of the listing `fallback` stands for (`_show`)."""
     out = out or Outcome()
     msgs = list(messages)
     start = len(msgs)  # this answer's own rounds start here
     room = budgets(settings)["read"]  # what one round may read in all
     last_write = [0.0]
-    held = ""          # the words of a round a guard caught: shown only if nothing better comes
-    nudged = False
-    wanted = {fallback["tool"]} if fallback else set()
+    held = [""]        # the words of a round a guard caught: shown only if nothing better comes
+    # the listing the owner plainly asked for (a short message with one reading: intents.guess); `_show` adds what it
+    # found when the answer names too little of it
+    wanted: set[str] = {fallback["tool"]} if fallback else set()
     if first:  # what the owner plainly asked for is done before the model's first round
         lines = []
         for call in first:
@@ -851,6 +855,32 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
             last_write[0] = time.monotonic()
             on_change(out)
 
+    def keep_held() -> None:  # nothing better came or was done: what the caught round said is better than nothing
+        if held[0] and not (out.text or out.steps or out.pending):
+            out.says.append(held[0])
+
+    try:
+        _rounds(settings, system, msgs, tool_list, ctx, out, max_tokens=max_tokens, max_steps=max_steps,
+                on_change=on_change, said=said, fallback=fallback, start=start, room=room, held=held, wanted=wanted,
+                streaming=streaming)
+    except BaseException:  # stopped, out of time or today's requests, or a model that failed: keep what came
+        keep_held()
+        raise
+    _show(out, said, wanted)
+    keep_held()
+    if on_change:
+        on_change(out)
+    return out
+
+
+def _rounds(settings: dict, system: str, msgs: list[dict], tool_list: list[tools.Tool], ctx: Ctx, out: Outcome, *,
+            max_tokens: int, max_steps: int, on_change: Callable[[Outcome], None] | None, said: str,
+            fallback: dict | None, start: int, room: int, held: list[str], wanted: set[str],
+            streaming: Callable[[str], None]) -> None:
+    """The model's rounds of `think`."""
+    from ..pipeline import llm
+
+    nudged = False
     for step in range(max_steps):
         if ctx.cancel and ctx.cancel():  # stopped while a tool worked: a model that answers all at once is not asked
             raise llm.Canceled("Stopped.")
@@ -858,7 +888,7 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
         offered = [] if final else tool_list
         left = (ctx.deadline - time.monotonic()) if ctx.deadline else 180.0
         if left < 5:
-            if out.rounds:
+            if out.rounds or out.steps or out.pending:  # a helper's work, done first, is an answer too
                 break
             raise Stopped("No time left for this answer.")
         start = _fit(system, msgs, start, room)
@@ -872,12 +902,14 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
         if not ctx.agent:  # "[Script writer] …": the model imitated a helper's line in the conversation
             reply["say"] = _BRACKET.sub("", reply["say"], count=1)
         calls = [] if final else reply["do"]
+        guessed = False
         slip = "" if calls or out.steps or out.pending or out.says else _slip(reply["say"], said)
-        if slip and (fallback or not (nudged or final or step + 1 == max_steps - 1)):
-            held = held or ("" if slip == "echo" else reply["say"])
+        may_nudge = not (nudged or final or step + 1 == max_steps - 1 or allowance.reached(ctx.ws, settings))
+        if slip and (fallback or may_nudge):
+            held[0] = held[0] or ("" if slip == "echo" else reply["say"])
             out.slips.append(slip)
             if fallback:  # the one plain reading of the request: done as if the model had asked for it
-                calls, reply = [fallback], {**reply, "say": "", "do": [fallback]}
+                calls, reply, guessed = [fallback], {**reply, "say": "", "do": [fallback]}, True
                 out.slips.append(f"fallback:{fallback['tool']}")
                 fallback = None
             else:  # asked once more, with what went wrong
@@ -894,7 +926,8 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
         for call in calls:
             if ctx.cancel and ctx.cancel():
                 raise llm.Canceled("Stopped.")
-            line, read = use(tool_list, call, ctx, out)
+            # a change a guard read from the owner's words always shows its card (never done on its own)
+            line, read = use(tool_list, call, ctx, out, ask=guessed)
             lines.append(line)
             again = again or read
             if on_change:
@@ -907,12 +940,6 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
         msgs += [{"role": "assistant", "content": tools.dumps({"say": reply["say"], "do": calls})},
                  {"role": "user", "content": RESULTS + "\n" + "\n".join(f"- {tools.clip(x)}" for x in lines) + "\n" +
                   (LAST if step + 1 == max_steps - 1 else NEXT)}]
-    _show(out, said, wanted)
-    if held and not (out.text or out.steps or out.pending):  # nothing better came or was done
-        out.says.append(held)
-    if on_change:
-        on_change(out)
-    return out
 
 
 # ------------------------------------------------------------------ the system prompt
@@ -951,7 +978,7 @@ def system_prompt(ws: str, chat: dict, text: str, tool_list: list[tools.Tool], s
     try:  # the owner's 👍 and 👎 on earlier answers (brain/ratings.py)
         from . import ratings
 
-        thumbs = ratings.taste(ws, text, agent["id"] if agent else "")
+        thumbs = ratings.taste(ws, text, agent["id"] if agent else "", b["ratings"], settings)
     except Exception:  # noqa: BLE001 - reading them is a help, never a reason for the answer to fail
         log.exception("reading the owner's ratings failed")
         thumbs = ""
@@ -1127,7 +1154,7 @@ def _turn(ws: str, chat: dict, text: str, message_id: str, agent: dict | None, b
         first = [{"tool": "ask_agent", "args": {"agent": hand[0]["name"], "task": hand[1]}}] if hand else None
         think(settings, system, msgs, tool_list, ctx, max_tokens=budgets(settings)["max_tokens"] + (
             400 if agent else 0), on_change=lambda o: _save(message_id, o, base=base), out=out, said=text,
-            first=first, fallback=None if agent or first else intents.guess(text, names))
+            first=first, fallback=None if agent or first else intents.guess(text, names, ws))
         out.data.pop("helper_live", None)
         if (not agent and not out.data.get("links") and library.howto(text) and know.hits
                 and know.hits[0].entry.source == "guide" and know.hits[0].score >= 1.0):

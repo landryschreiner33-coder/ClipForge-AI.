@@ -20,6 +20,13 @@ instead of handing the job over. Details: docs/clipforge/CLIPFORGE_AI.md, "Guard
 - **Several posts at once:** `cancel_post`, `retry_post` and `approve_post` take `all: true`; post words, days
   ("tomorrow") and times narrow them strictly; one card lists them and always waits for the OK; one post that cannot
   change never stops the others.
+- **A review of all of the above (19 findings, all fixed):** a guessed change always waits for the OK; guesses only
+  for short, plain requests ("let me know…" is an answer, not a promise; "rename X" needs X's exact name); words the
+  guard held are kept when the model fails; days ("Nov 28", "the 28th", weekdays) are read in the posting time zone
+  and times exactly, a number it cannot read is said, state words ("failed") keep only those posts, at most 50 with
+  the count said, soonest first; approve's account is `channel`; ratings: written under the OK lock, fit a budget
+  (800 characters for small models), 👎 reasons sent without their questions, tools shown with a liked example,
+  nothing read with learning off, the privacy page lists the rating among what a message keeps.
 
 ## ClipForge AI reads your results; the ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code)
 

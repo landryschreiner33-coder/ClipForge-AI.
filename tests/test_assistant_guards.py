@@ -56,7 +56,12 @@ def test_echo_promise_and_an_answer_that_stops_at_a_colon():
               "Let me ask the Script writer."):
         assert intents.promise(s), s
     for s in ("Let me know if you want more.", "Can I look at it?", "I can't find that project.",
-              "You have 3 projects. " + "x" * 300, "I'll be honest: the hook is too slow."):
+              "You have 3 projects. " + "x" * 300, "I'll be honest: the hook is too slow.",
+              # the review's answers that are answers (Nov 26)
+              "Try “Ridge Rider”, “Downhill Dreams” or “Wheels Up”. Let me know if you want me to find more.",
+              "Let's get you a title: “Ride the Ridge”.", "I'll be honest: the hook is weak, see if you can open on it",
+              "Got it — from now on I will ask you before anything is posted.", "Let me look. You have 3 projects.",
+              "Let me check: you have “Hike day” and “Lake swim”."):
         assert not intents.promise(s), s
     assert intents.stops_short("Here are your projects:") and not intents.stops_short("You have 2 projects.")
 
@@ -76,12 +81,15 @@ def test_a_helper_asked_by_name_is_found_only_when_it_is_switched_on(data):
     assert intents.handoff(WS, "What would the script writer say?") is None
 
 
-def test_a_plainly_phrased_request_has_one_tool_call():
+def test_a_plainly_phrased_request_has_one_tool_call(data):
+    from clipfoundry import db
     from clipfoundry.brain import intents
 
+    for name in ("Old gear review", "Lake swim", "Hike day", "Music festival vlog"):
+        db.create_project(name, workspace_id=WS, status="ready")
     every = {"results", "find_projects", "posts", "work", "missions", "delete_project", "rename_project",
              "make_clips"}
-    g = lambda t: intents.guess(t, every)  # noqa: E731
+    g = lambda t: intents.guess(t, every, WS)  # noqa: E731
     assert g("How are my clips doing?") == {"tool": "results", "args": {}}
     assert g("what projects do I have?") == {"tool": "find_projects", "args": {}}
     assert g("show me my upcoming posts") == {"tool": "posts", "args": {}}
@@ -95,10 +103,20 @@ def test_a_plainly_phrased_request_has_one_tool_call():
     assert g("make clips from https://youtu.be/abc123") == {"tool": "make_clips",
                                                             "args": {"link": "https://youtu.be/abc123"}}
     assert g("https://youtu.be/abc123") == {"tool": "make_clips", "args": {"link": "https://youtu.be/abc123"}}
+    assert g("please clip this video: https://youtu.be/q") == {"tool": "make_clips",
+                                                               "args": {"link": "https://youtu.be/q"}}
     for t in ("should I delete the project Old gear review?", "what is this? https://youtu.be/abc",
-              "how do I make my hooks better", "delete the intro of my video please", ""):
+              "how do I make my hooks better", "delete the intro of my video please", "",
+              # the review's misreads (Nov 26): never a guess
+              "Don't make clips from https://youtu.be/abc123", "I already made clips from https://youtu.be/abc, great",
+              "Here is my latest short https://youtube.com/shorts/xyz, tell me what you think.",
+              "Remove the video background music", "remove my video from TikTok", "Delete the video intro",
+              "Rename this video to something catchier", "rename Hike day to Summer hike, then post it to TikTok",
+              "rename the second clip to Big jump", "my results are bad, help me write better hooks",
+              "My views dropped, what should I change in my hooks?", "What's working for my channel?"):
         assert g(t) is None, t
     assert intents.guess("what projects do I have?", {"posts"}) is None  # only tools this chat offers
+    assert intents.guess("Delete the project Old gear review", every) is None  # no workspace: no project to check
 
 
 # ------------------------------------------------------------------ the rounds of one answer
@@ -214,3 +232,50 @@ def test_a_helper_that_repeats_its_job_is_asked_once_more(data, monkeypatch):
     out = agents.run(WS, writer["id"], task)
     assert out["ok"] and out["text"] == "“I almost didn't make it down.”" and fake.last_user(1) == \
         assistant.NUDGE_ECHO
+
+
+# ------------------------------------------------------------------ the review's findings (Nov 26)
+def test_a_change_a_guard_reads_always_waits_for_the_ok(data, monkeypatch):
+    from clipfoundry.brain import intents, tools
+
+    ran: list = []
+    make = tools.get("make_clips")
+    monkeypatch.setattr(make, "run", lambda ctx, args: ran.append(args) or tools.Result("Started.", "Started"))
+    monkeypatch.setattr(make, "preview", lambda ctx, args: {"label": f"Make clips from {args['link']}", "args": {}})
+    said = "make clips from https://youtu.be/abc123"
+    install(monkeypatch, say("Let me take a look."), ai_acts_alone=True)
+    out = _think([make], said, fallback=intents.guess(said, {"make_clips"}))
+    assert out.pending[0]["state"] == "waiting" and ran == []  # acting alone, yet a guessed change is a button
+    # the model's own call still acts at once, as Settings say
+    install(monkeypatch, say("Making clips.", ("make_clips", {"link": "https://youtu.be/abc123"})), ai_acts_alone=True)
+    out = _think([make], said)
+    assert out.pending[0]["state"] == "done" and len(ran) == 1
+
+
+def test_an_answer_that_ends_with_let_me_know_is_kept(data, monkeypatch):
+    good = "Try “Ridge Rider”, “Downhill Dreams” or “Wheels Up”. Let me know if you want me to find more."
+    fake = install(monkeypatch, say(good), say("never asked"))
+    out = _think(_tools("find_projects"), "title ideas for my biking video")
+    assert out.text == good and len(fake.calls) == 1 and out.slips == []
+
+
+def test_the_caught_words_stay_when_the_next_round_fails(data, monkeypatch):
+    from clipfoundry.brain import assistant
+    from clipfoundry.pipeline import llm
+
+    install(monkeypatch, say("Let me check."), llm.ProviderError("the model went away"))
+    out = assistant.Outcome()
+    with pytest.raises(llm.ProviderError):
+        _think(_tools("find_projects"), "anything I should finish", out=out)
+    assert out.text == "Let me check."
+
+
+def test_work_done_first_is_an_answer_even_when_the_time_is_up(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.brain.tools import Ctx
+
+    db.create_project("Hike day", workspace_id=WS, status="ready")
+    fake = install(monkeypatch)
+    out = _think(_tools("find_projects"), "my projects", first=[{"tool": "find_projects", "args": {}}],
+                 ctx=Ctx(ws=WS, deadline=time.monotonic() + 3))
+    assert out.rounds == 0 and fake.calls == [] and "“Hike day”" in out.text  # not "No time left"

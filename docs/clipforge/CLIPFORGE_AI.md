@@ -987,7 +987,9 @@ only the owner's own words (`brain/intents.py`):
   owner, only say it will look, stop at a colon, or are empty; `assistant._slip`): when the request is phrased so
   plainly that it has one reading (`intents.guess`: "how are my clips doing?" → `results`, "what projects do I have?"
   → `find_projects`, "show me my posts", "is anything stuck?", "list my missions", "delete the project X",
-  "rename X to Y", a link with "make clips"), that tool call is made instead; otherwise the model is asked once more,
+  "rename X to Y", a link with "make clips"; a short request of ten words or fewer, without commas, "?" for a
+  change, and a delete or rename only of a project named exactly), that tool call is made instead, and a change made
+  from such a guess always waits for the OK, even when ClipForge AI acts alone; otherwise the model is asked once more,
   told what went wrong (`NUDGE_ECHO`, `NUDGE_ACT`, `NUDGE_SHORT`, `NUDGE_EMPTY`). The caught words are shown only if
   nothing better comes (never an echo). A delete it reads still only shows its card: deleting always waits for the OK.
 - **A listing the answer leaves out** (`assistant._show`): a look tool's result carries what the owner should see
@@ -1009,15 +1011,21 @@ again takes the rating back. `POST /api/brain/chats/{chat_id}/messages/{message_
 why?}` saves it in the answer's own message (`data.rating`: good, why, the owner's question it answered, when), so
 it goes with its chat: clearing or deleting the chat, or deleting its project, removes it too.
 
-`brain/ratings.py` (`taste`) adds to the system prompt, before "Right now" (at most ~1,500 characters):
+`brain/ratings.py` (`taste`) adds to the system prompt, before "Right now", in at most `budgets()["ratings"]`
+characters (800 for the built-in and local models, 1,500 for the others), kept in this order:
 
+- a disliked answer to a question very like the new one (50% of all words), with "Answer differently";
+- the newest three reasons the owner gave for 👎 ("too long, give me three"), to avoid: always, whatever is asked,
+  so only the reasons themselves, never the question or the answer they were about;
 - the liked answer to the question most like the new one (at least two shared words and 30% of all words), as an
-  example of the way to answer, with a warning never to copy its facts, which come from the app as it is now;
-- the newest three reasons the owner gave for 👎 ("too long, give me three"), to avoid;
-- a disliked answer to a question very like the new one (50%), with "Answer differently".
+  example of the way to answer, with the tools it used first ("You (after using find_projects): …") and a warning
+  never to copy its facts, which come from the app as it is now. It is shortened to fit, and left out below 120
+  characters.
 
-ClipForge AI's own answers teach ClipForge AI; a helper's teach that helper only. The chat's "Sent over the
-internet" line and the privacy page name the rated answers an online model may read.
+ClipForge AI's own answers teach ClipForge AI; a helper's teach that helper only. With learning off (Settings:
+`learn_from_edits`, the same switch as Brain → Learned) no rating is read. A rating is written under
+`chat._decide_lock`, so an OK pressed on the same answer at the same moment keeps both. The chat's "Sent over the
+internet" line and the privacy page name the rated answers and the 👎 reasons an online model may read.
 
 ## Acting without asking, and the new commands (2026-11-26)
 
@@ -1053,14 +1061,21 @@ on its own you dont have to say ok". So:
 - **Long chats** keep 5,000 messages (`chat.KEEP`, was 200); the page loads the newest 400 (`chat.SHOW`).
 - **Several posts at once** (added later on 2026-11-26): `cancel_post`, `retry_post` and `approve_post` take
   `all: true` ("cancel all my posts for tomorrow", "retry every failed post", "approve all my YouTube posts").
-  `operations.find_posts` narrows them strictly: a post must hold every post word of three letters or more, the times
-  ("14:00") and the days named ("today", "tomorrow", a weekday), and platform and account narrow it too; at most
-  `BULK_MAX` (50). One card lists them (`_bulk_preview`, 12 lines then "…and N more") and always waits for the
-  owner's OK, in both modes, so a misread "all" never changes many posts on its own; when only one post fits, it is
-  the ordinary one-post command (done at once when ClipForge AI acts alone). `approve_post` checks each post as the
-  post page does and lists what it leaves out and why (a TikTok post always: its own page). OK runs the one-post
-  command for each (`_bulk_run`); one that cannot change any more (it went out meanwhile) is named, and the others
-  still change.
+  `operations.find_posts` narrows them strictly: a post must hold every post word of three letters or more; state
+  words keep only posts in that state ("failed", "held", "waiting", "approved"…; "retry every failed post" never
+  takes a canceled one); days are read in the posting time zone ("today", "tomorrow", a weekday as its next one,
+  "Nov 28", "28 November", "2026-11-28", "the 28th"; `scheduler._local`, so a daylight-saving change never moves a
+  day) and times exactly ("2 pm" and "14:00" are 14:00; "4:00" never takes 14:00); another number must be in the
+  post's title, its clip's or its video's ("top 10"), never read from its time; otherwise it is a `ToolError` ("I
+  could not read “28” …"), never ignored. An account (`approve_post` calls it
+  `channel`, since `account` is its own approval name) must hold every word of three letters or more. Upcoming posts
+  come first, soonest first, then past ones, newest first; at most `BULK_MAX` (50), and the card says "Only the first
+  50 of the N posts that fit" when more do. One card lists them (`_bulk_preview`, 12 lines then "…and N more", each
+  line with the post's state) and always waits for the owner's OK, in both modes, so a misread "all" never changes
+  many posts on its own; when only one post fits, it is the ordinary one-post card, and it still waits (`ask`).
+  `approve_post` checks each post as the post page does and lists what it leaves out and why (a TikTok post always:
+  its own page); its result says "Posting now" only when `now: true` posted them. OK runs the one-post command for
+  each (`_bulk_run`); one that cannot change any more (it went out meanwhile) is named, and the others still change.
 
 ## API
 
