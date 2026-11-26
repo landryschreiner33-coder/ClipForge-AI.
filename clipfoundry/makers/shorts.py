@@ -398,7 +398,7 @@ def _insert_scenes(project_id: str, workspace_id: str, rows: list[dict], base_se
     for k, r in enumerate(rows):
         sid = "sc-" + os.urandom(6).hex()
         seq = first_seq + k
-        info: dict = {"seq": seq}
+        info: dict = {"seq": seq, "moves": 2}   # automatic moves from motion.ORDER (none: ORDER_V1)
         if after is not _UNSET:
             info["after"] = after if k == 0 else ids[-1]
         picture = _norm(r.get("picture"))[:MAX_PICTURE]
@@ -557,11 +557,33 @@ def _fine_pictures(scene: dict, short: dict) -> tuple[str, ...]:
     return (engine_key,) if engine_status("image")["ready"] and not failed else (engine_key, card_key)
 
 
+def main_character_picture(project_id: str, scene: dict, short: dict, workspace_id: str) -> dict | None:
+    """For a short without characters (makers/cast.py) whose main character ClipForge AI described: the first other
+    scene's picture the picture maker drew, to draw this one with so the character looks the same in every scene
+    ({**asset, "n": its scene number}). None when the picture maker keeps a look by the words only, or there is no
+    such picture yet. Not part of the picture's key: a picture made before is kept as it is."""
+    if cast.members(short) or not (short.get("character") or "").strip() or not engine_status("image").get("references"):
+        return None
+    project = db.fetch("studio_projects", project_id) or {}
+    plan = video_flow.plan_at(project_id, project["plan_revision"]) if project.get("plan_revision") else None
+    for n, row in enumerate(ordered(scene_rows(project_id), plan), 1):   # the order the owner sees
+        if row["id"] == scene["id"] or row["picture_source"] == "upload":
+            continue
+        # only a picture made for the short as it is now (its look and character): never one an earlier look drew
+        if (_info(row).get("picture") or {}).get("source") == "engine" \
+                and row["picture_key"] == picture_keys(row, short)[0]:
+            found = _asset_ok(row["picture_asset_id"], workspace_id, "image")
+            if found:
+                return {**found, "n": n, "scene_id": row["id"]}
+    return None
+
+
 def _move(scene: dict) -> str:
     from . import motion
 
     move = scene.get("move") or "auto"
-    return motion.pick_move(int(_info(scene).get("seq") or 0)) if move == "auto" else move
+    return motion.pick_move(int(_info(scene).get("seq") or 0), legacy=not _info(scene).get("moves")) \
+        if move == "auto" else move
 
 
 def _motion_mode(short: dict) -> str:
@@ -1015,6 +1037,9 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
             with tempfile.TemporaryDirectory(dir=short_dir(pid)) as tmpdir:
                 found = cast.in_scene(short, scene)
                 refs = [Path(a["path"]) for a in cast.reference_assets(short, scene, ws)]
+                kept = None if refs else main_character_picture(pid, scene, short, ws)
+                if kept:
+                    refs = [Path(kept["path"])]
                 got = pictures.make(scene["narration"], scene["picture_prompt"], look, Path(tmpdir),
                                     character=character_words(short, scene), seed=int(scene["seed"]), index=seq,
                                     cancel=lease.canceled, references=refs,
@@ -1037,7 +1062,10 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
             made_key = engine_key if got["source"] == "engine" else card_key
             pic_info = {"source": got["source"], "engine": got.get("engine") or "", "why": got.get("why") or "",
                         "failed": engine_key if got["source"] != "engine" and got.get("tried") else "",
-                        "references": int(got.get("references") or 0), "asked_references": len(refs)}
+                        # the first scene's picture is not a character's reference picture: only kept_from tells
+                        "references": 0 if kept else int(got.get("references") or 0),
+                        "asked_references": 0 if kept else len(refs),
+                        "kept_from_id": kept["scene_id"] if kept and got.get("references") else ""}
             entry = {"asset_id": stored["id"], "prompt": scene["picture_prompt"], "seed": int(scene["seed"]),
                      "key": made_key, "at": time.time(), **{k: pic_info[k] for k in ("source", "engine", "why")}}
 
@@ -2140,7 +2168,8 @@ def voice_sample(voice_id: str, speed: float) -> tuple[Path, str]:
 
 
 # ------------------------------------------------------------------ the editor page
-def _scene_view(s: dict, n: int, plan: dict | None, short: dict | None = None) -> dict:
+def _scene_view(s: dict, n: int, plan: dict | None, short: dict | None = None,
+                numbers: dict[str, int] | None = None) -> dict:
     info = _info(s)
     short = short or {}
     drift = info.get("drift") or {}
@@ -2165,7 +2194,9 @@ def _scene_view(s: dict, n: int, plan: dict | None, short: dict | None = None) -
             "duration": round(int(s["duration_ms"] or 0) / 1000, 2),
             "picture": {"source": source, "engine": pic.get("engine") or "", "why": pic.get("why") or "",
                         "references": int(pic.get("references") or 0),
-                        "asked_references": int(pic.get("asked_references") or 0)},
+                        "asked_references": int(pic.get("asked_references") or 0),
+                        # the scene whose picture this one was drawn with, numbered as the owner sees it now
+                        "kept_from": int((numbers or {}).get(str(pic.get("kept_from_id") or ""), 0))},
             "cast": [m["id"] for m in cast.in_scene(short, s)], "cast_chosen": isinstance(info.get("cast"), list),
             "overrides": {k: v for k, v in overrides.items() if v}, "hold_ms": hold_ms(s),
             "drift": ({"flags": list(drift.get("flags") or []), "how": drift.get("how") or "",
@@ -2186,7 +2217,8 @@ def view(project: dict, plan: dict | None = None) -> dict:
     if plan is None and project.get("plan_revision"):
         plan = video_flow.plan_at(project["id"], project["plan_revision"])
     rows = ordered(scene_rows(project["id"]), plan)
-    shown = [_scene_view(s, n, plan, short) for n, s in enumerate(rows, 1)]
+    numbers = {s["id"]: n for n, s in enumerate(rows, 1)}
+    shown = [_scene_view(s, n, plan, short, numbers) for n, s in enumerate(rows, 1)]
     speed = float(short.get("speed") or 1.0)
     # the video as it is (switched-off scenes left out, the owner's own clips in), and what scenes not in it yet add
     in_video = {c.get("scene_id") for c in (plan or {}).get("clips") or [] if c.get("scene_id")}

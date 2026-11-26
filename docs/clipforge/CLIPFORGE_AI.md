@@ -17,9 +17,11 @@ Three rules hold everywhere:
 - **Checked tools, never files.** The model answers in JSON that is checked against a fixed shape and limits (the
   existing `edit_requests.check` and `craft/ai.check_steps`; the assistant's `parse_reply` and `tools.check_args`);
   it never sees paths, keys, the video or the sound.
-- **Your OK, never the model's word.** A model may look things up and make new things (a memory, a proposed change, a
-  helper's work). Anything that changes or deletes what you have only becomes a button in the chat and runs when you
-  press OK; nothing a model, a project name or a transcript says can press it.
+- **Your OK for deletes; your say for the rest.** A model may look things up and make new things (a memory, a proposed
+  change, a helper's work). Deleting only becomes a button in the chat and runs when you press OK; nothing a model, a
+  project name or a transcript says can press it. The commands that change posts, clips, missions, Autopilot and
+  settings run at once when you ask (Settings → ClipForge AI → "Do it without asking", on by default since Nov 26);
+  "Ask me first" makes every change a button again. A TikTok post always waits for your OK on its page.
 
 ## The brain: memories
 
@@ -911,7 +913,8 @@ another helper (it has no `ask_agent`); work without ClipForge AI's model; be re
 
 **Commands** (`brain/operations.py`, final release batch 3): `posts`, `work`, `missions` and `crew_report` look;
 `reschedule_post`, `fix_post_conflicts`, `cancel_upload`, `cancel_post`, `retry_post`, `restart_work`, `stop_work`,
-`regenerate_post_text`, `adjust_framing`, `pause_mission` and `change_setting` change (each waits for an OK);
+`regenerate_post_text`, `adjust_framing`, `pause_mission` and `change_setting` change (each waited for an OK; since
+Nov 26 they run at once unless the owner chose "Ask me first", see below);
 `render_clip` and `crew_check` make. Each calls the function the app's own button calls, so a refusal comes back in
 the app's own words; times are in the Autopilot time zone. A command first finds exactly one post, project, clip or
 mission (`toolbox.find`, `operations.find_post`) and names the ones that fit when there are more. Queued work is
@@ -937,6 +940,39 @@ by format; used at 20% closer on 4 or more), `defaults` (what new clips use), `s
 `DELETE /api/brain/learned/{id}`, `DELETE /api/brain/learned/edits`,
 `POST /api/brain/learned/versions/{number}/rollback`, `POST /api/brain/learned/clips/{clip_id}/feedback`
 `{good, why?}`.
+
+## Acting without asking, and the new commands (2026-11-26)
+
+Landry asked for an assistant that can "do anything in the app" and then, on Nov 26, "no i want it to be able to do it
+on its own you dont have to say ok". So:
+
+- **`ai_acts_alone`** (Settings → ClipForge AI → When you ask it to do something: "Do it without asking" (default) or
+  "Ask me first (OK button)"). A tool marked `alone` (`tools.Tool.alone`, only a `change`, never a `delete`) runs
+  at once in `assistant._act`, exactly as its OK button would (`chat.decide`): its preview checks and resolves the
+  arguments, then `run`. Its card shows "Done without asking you: …" (`pending[].alone`), the model reads the result
+  and says what it did, and later turns read "[You did it on your own: …]". One that cannot be done yet
+  (`TryAgain`) becomes an ordinary button. Helper agents never act alone. The rules the model reads change with it
+  (`assistant.rules`), and the tool list says "Done at once." instead of "Waits for the owner's OK."
+- **New commands** (all `alone`): `edit_post` (a planned post's own title, description and hashtags, through
+  `PATCH /scheduled/{id}`; an approved post needs approving again), `approve_post` (YouTube only, through
+  `routes.approve_as(..., "ClipForge AI")`, which is `approve_item` with who approved it in the post's history; it
+  refuses what the post page would ask for first: a disconnected channel, no title, "made for kids" not answered,
+  no audience, a failed final check, a reuse reason missing; `now: true` also posts it through `publish_now`),
+  `set_clip_text` (the owner's own title, hashtags or hook), `edit_clip` (trim start and end in seconds, captions on or
+  off, caption style and size, speed 0.8-1.25, volume -12 to 12 dB, pause cutting, "um" cutting, keep or drop; then a
+  render), `make_clips` (a link, like Make clips → Paste a link), `start_mission` (a video or live link on Missions,
+  clips only: uploads are turned on there, with the channels and the reuse reason), `write_text_story` (a new story
+  written in the background), `autopilot` (on, off, stop_all, resume, auto_publish_off), and `change_setting` now
+  also takes the posting rules (minutes between posts, earliest and latest posting hour, posts a day per platform,
+  posting time zone).
+- **TikTok** posts are never approved by ClipForge AI: TikTok's rules for apps require the owner's own OK on every
+  post, with its preview and their own privacy choice (`autopilot/autopublish.py`).
+- **More words bring the commands** to a small model (`operations.CUES`: weekdays, months, "at 6", push, delay,
+  postpone, kill, trim, louder, turn on/off, approve, links, stories…); a bigger online model always has them all
+  (`operations.offered(..., settings)`).
+- **Reviewing helpers:** after `ask_agent` the model always reads the helper's work before the answer ends, and its
+  rules make it the reviewer (check, correct, then use it).
+- **Long chats** keep 5,000 messages (`chat.KEEP`, was 200); the page loads the newest 400 (`chat.SHOW`).
 
 ## API
 

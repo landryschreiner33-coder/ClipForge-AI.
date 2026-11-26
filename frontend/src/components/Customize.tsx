@@ -9,10 +9,14 @@ export const PALETTES: { id: Appearance["palette"]; name: string; note: string; 
   { id: "studio", name: "Studio", note: "Charcoal and navy", swatch: ["#0B0D14", "#151A25", "#1D2331"] },
   { id: "midnight", name: "Midnight", note: "Deep blue", swatch: ["#070B18", "#0F1730", "#172142"] },
   { id: "graphite", name: "Graphite", note: "Neutral grey", swatch: ["#0E0F11", "#18191C", "#212226"] },
-  { id: "plum", name: "Plum", note: "Dark purple", swatch: ["#100B17", "#1A1325", "#231A31"] },
+  { id: "plum", name: "Plum", note: "Dark purple", swatch: ["#100B17", "#1A1325", "#231A31"] },  { id: "forest", name: "Forest", note: "Dark green", swatch: ["#07110C", "#0C1A13", "#12241B"] },
+  { id: "ocean", name: "Ocean", note: "Deep teal", swatch: ["#051214", "#0A1C1F", "#102629"] },
+  { id: "ember", name: "Ember", note: "Warm dark red", swatch: ["#120A08", "#1B100D", "#241713"] },
+  { id: "black", name: "Black", note: "True black", swatch: ["#000000", "#0B0B0C", "#141416"] },
 ];
 export const ACCENTS: [string, string, string][] = [["blue", "Glacier", "#6CCFF6"], ["violet", "Violet", "#9A7CFF"],
-  ["teal", "Teal", "#2DD4BF"], ["coral", "Coral", "#FF8A5B"], ["green", "Green", "#3DD68C"], ["pink", "Pink", "#FF6FB5"]];
+  ["teal", "Teal", "#2DD4BF"], ["coral", "Coral", "#FF8A5B"], ["green", "Green", "#3DD68C"], ["pink", "Pink", "#FF6FB5"],
+  ["gold", "Gold", "#F5C451"], ["red", "Ruby", "#FF6B6B"], ["lime", "Lime", "#A3E635"]];
 const PANEL_NAMES: Record<string, string> = { needs_you: "Needs you", pinned: "Pinned projects",
   current: "Current project", office: "Robot office", recent: "Recent projects", publishing: "Publishing",
   preview: "Preview", outputs: "Clips or sequence", transcript: "Look and sound", guidance: "Used from your Brain" };
@@ -129,8 +133,17 @@ function CustomizePanel({ cloud }: { cloud: boolean }) {
                   onChange={() => patch({ accent: id })} />
                 <span className="dot" aria-hidden="true" style={{ background: hex }} />{name}</label>
             ))}
+            <label className={`btn btn-small${a.accent === "custom" ? " on" : ""}`}>
+              <input type="radio" name="customize-accent" value="custom" checked={a.accent === "custom"}
+                onChange={() => patch({ accent: "custom" })} />
+              <span className="dot" aria-hidden="true" style={{ background: a.accent_color }} />Your own</label>
+            <label className="btn btn-small" title="Pick your own colour">
+              <input type="color" value={a.accent_color.toLowerCase()} aria-label="Pick your own colour"
+                onChange={(e) => patch({ accent: "custom", accent_color: e.target.value.toUpperCase() })} />
+              <Icon name="edit" />Pick a colour</label>
           </div>
-          <span className="tiny muted">Every accent is checked for readable text on every palette.</span>
+          <span className="tiny muted">Every accent is checked for readable text on every palette; your own colour is
+            made lighter if it needs to be (it shows fully once you save).</span>
         </fieldset>
         <div className="field"><span>Spacing</span>
           <Segmented label="Spacing" value={a.density} onChange={(v) => patch({ density: v })}

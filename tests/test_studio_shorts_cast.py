@@ -560,3 +560,43 @@ def test_cuts_the_owner_asks_for_stay_cuts_when_the_scene_grows(env, monkeypatch
     shorts.update_scene(_fresh(project["id"]), second["id"], {"narration": "The door was open, and a light was on."})
     _run(env)
     assert _plan(project["id"])["transition"] == {"type": "cut", "ms": 0}
+
+
+def test_without_characters_the_main_character_keeps_the_look_of_the_first_picture(env, drawn):  # noqa: F811
+    """A short ClipForge AI described a main character for, with no characters added: every later picture is drawn
+    with the first one, so the character looks the same; a picture an earlier look or character drew is never used."""
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+
+    project = _make(env, SCRIPT)
+    assert all(a["references"] == [] for a in drawn.asked)   # no main character described: nothing to keep
+    shorts._rebuild(_fresh(project["id"]), {"character": "a small fox in a red scarf"})
+    n = len(drawn.asked)
+    _run(env)
+    made = drawn.asked[n:]
+    scenes = _scenes(project["id"])
+    first = db.fetch("assets", scenes[0]["picture_asset_id"])
+    assert len(made) == 3 and made[0]["references"] == []   # the old pictures were of no main character
+    assert [a["references"] for a in made[1:]] == [[str(Path(first["path"]))]] * 2
+    view = shorts.view(_fresh(project["id"]))
+    assert [s["picture"]["kept_from"] for s in view["scenes"]] == [0, 1, 1]
+    # the first scene's picture is not a character's reference picture: only "drawn with scene 1's picture" shows
+    assert all(s["picture"]["asked_references"] == 0 and s["picture"]["references"] == 0 for s in view["scenes"])
+    # once characters are added, their own reference pictures (or their words) are used instead
+    shorts.cast_add(_fresh(project["id"]), {**MIA})
+    n = len(drawn.asked)
+    _run(env)
+    assert len(drawn.asked) == n + 3 and all(a["references"] == [] for a in drawn.asked[n:])
+    assert [s["picture"]["kept_from"] for s in shorts.view(_fresh(project["id"]))["scenes"]] == [0, 0, 0]
+
+
+def test_a_words_only_picture_maker_draws_the_main_character_from_its_description(env, drawn, monkeypatch):  # noqa: F811
+    from clipfoundry.makers import shorts
+
+    drawn.model = "z-image-turbo"
+    project = _make(env, SCRIPT)
+    shorts._rebuild(_fresh(project["id"]), {"character": "a small fox in a red scarf"})
+    n = len(drawn.asked)
+    _run(env)
+    assert len(drawn.asked) == n + 3 and all(a["references"] == [] for a in drawn.asked[n:])
+    assert all("fox in a red scarf" in a["prompt"] for a in drawn.asked[n:])

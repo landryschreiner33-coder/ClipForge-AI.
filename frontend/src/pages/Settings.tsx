@@ -588,7 +588,13 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
             <Check k="caption_emphasis" c={c}>Emphasize key words in their own color</Check>
             <Check k="hook_overlay" c={c}>Hook on screen at the start</Check>
             <Check k="normalize_audio" c={c}>Normalize loudness</Check>
+            <Check k="auto_trims" c={c}>Start on the first real word and cut outros (each can be put back)</Check>
           </div>
+        </SettingRow>
+        <SettingRow k="post_always_hashtags" label="Hashtags on every post"
+          hint={"Up to 5, put first on every post: your series, your channel or the game you play. ClipForge adds "
+            + "the clip's own after them."} errors={errors}>
+          <TextInput k="post_always_hashtags" c={c} placeholder="#valorant #MyShow" label="Hashtags on every post" />
         </SettingRow>
       </SettingsPanel>
 

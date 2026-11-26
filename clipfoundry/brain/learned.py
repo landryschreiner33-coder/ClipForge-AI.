@@ -129,9 +129,16 @@ def _observe(before: dict, after: dict, settings: dict) -> list[dict]:
                                                 "fmt": fmt, "data": data}))
 
     if any(be.get(k) != ae.get(k) for k in ("start", "end")):  # against ClipForge's own pick (the clip's start/end)
-        start, end = float(after["start"]), float(after["end"])
-        add("trim", {"start_shift": round(float(ae.get("start", start)) - start, 2),
-                     "end_shift": round(float(ae.get("end", end)) - end, 2)})
+        # measured from the pick, where shift_bounds puts a learned shift; a side still at a trim ClipForge made
+        # (and you kept) counts as the pick, so its trim is never learned as your move
+        pick = {"start": float(after["start"]), "end": float(after["end"])}
+        at = {side: float(ae.get(side, pick[side])) for side in pick}
+        for t in be.get("auto_trims") or []:
+            side = t.get("side")
+            if side in at and abs(at[side] - float(t.get("to", -1e9))) < 0.005:
+                at[side] = float(t.get("was", pick[side]))
+        add("trim", {"start_shift": round(at["start"] - pick["start"], 2),
+                     "end_shift": round(at["end"] - pick["end"], 2)})
     for kind in ("framing", "captions", "pacing"):
         keys = FIELDS[kind]
         if any(be.get(k) != ae.get(k) for k in keys):
@@ -140,7 +147,7 @@ def _observe(before: dict, after: dict, settings: dict) -> list[dict]:
     if ap.get("title") and ap.get("title") != bp.get("title") and ap["title"] in (bp.get("titles") or []):
         from ..pipeline import postpack
 
-        kws = postpack.topics(str(ap.get("clip_text") or ""))
+        kws = postpack.kind_keywords(bp.get("subject") or ap.get("subject"), str(ap.get("clip_text") or ""))
         titles = bp.get("titles") or [""]
         offered = titles[int(bp.get("recommended_title") or 0) % len(titles)]
         add("title", {"title_kind": postpack.title_kind(ap["title"], kws),

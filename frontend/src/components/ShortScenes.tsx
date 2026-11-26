@@ -21,7 +21,8 @@ type Send = (call: () => Promise<Video>, said?: string) => Promise<Video>;
 type Run = (call: () => Promise<Video>, said?: string) => Promise<Video | null>;
 
 export const MOVES: [string, string][] = [["auto", "Automatic"], ["zoom_in", "Push in"], ["zoom_out", "Pull out"],
-  ["pan_left", "Pan left"], ["pan_right", "Pan right"], ["pan_up", "Pan up"], ["pan_down", "Pan down"], ["still", "Still"]];
+  ["pan_left", "Pan left"], ["pan_right", "Pan right"], ["pan_up", "Pan up"], ["pan_down", "Pan down"],
+  ["push_left", "Push in, drift left"], ["push_right", "Push in, drift right"], ["still", "Still"]];
 const WORKING = new Set<SceneStatus>(["voice", "picture", "motion"]);
 const HOLDS = [0, 500, 1000, 2000, 3000];
 const SCENE_WORDS: Record<SceneStatus, string> = { waiting: "Waiting its turn", voice: "Making the voice",
@@ -342,6 +343,10 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
                 ? `Drawn with ${plural(scene.picture.references, "reference picture")} of the characters in it.`
                 : "Drawn from the characters' written details: this picture maker does not take reference pictures."}
               </p>
+            )}
+            {scene.picture.source === "engine" && (scene.picture.kept_from ?? 0) > 0 && (
+              <p className="small muted">Drawn with scene {scene.picture.kept_from}'s picture, so the main character
+                looks the same. Add them under Characters to choose their look yourself.</p>
             )}
             {!writing && <UseAsReference scene={scene} v={v} s={s} off={off} run={run} />}
             <div className="field">

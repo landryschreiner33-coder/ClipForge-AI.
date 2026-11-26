@@ -1,6 +1,6 @@
 import { ReactElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  alignWords, api, Clip, ClipEdit, ClipVersion, errorText, fmtPrecise, Project, Settings, TrimSuggestion,
+  alignWords, api, AutoTrim, Clip, ClipEdit, ClipVersion, errorText, fmtPrecise, Project, Settings, TrimSuggestion,
   versionVideoUrl, Word,
 } from "../api";
 import { at, plural } from "../format";
@@ -112,6 +112,24 @@ function ClipTeach({ clipId, learned }: { clipId: string; learned: string[] }) {
         Started with what you usually do: {learned.map((k) => LEARNED_WORD[k] || k).join(", ")}.{" "}
         <a className="textlink" href="#/brain/learned">Brain → Learned</a></span>}
     </div>
+  );
+}
+
+/** The trims ClipForge made on this new clip (start on the first real word, cut an outro), each with Put back. */
+function AutoTrims({ trims, draft, onPutBack }: {
+  trims: AutoTrim[]; draft: ClipEdit; onPutBack: (side: "start" | "end", at: number) => void;
+}) {
+  const shown = trims.filter((t) => draft[t.side] === t.to);
+  if (!shown.length) return null;
+  return (
+    <ul className="small muted clip-auto-trims" data-testid="clip-auto-trims">
+      {shown.map((t) => (
+        <li key={t.side}>
+          Trimmed for you: {t.label}. <span className="faint">{t.why}</span>{" "}
+          <button type="button" className="textlink" onClick={() => onPutBack(t.side, t.was)}>Put it back</button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -813,6 +831,7 @@ export default function ClipEditor({ id }: { id: string }) {
       )}
 
       <ClipTeach clipId={clip.id} learned={clip.edit?.learned_keys || []} />
+      <AutoTrims trims={clip.edit?.auto_trims || []} draft={draft} onPutBack={(side, at) => set({ [side]: at })} />
 
       {brainLessons.length > 0 && <p className="small muted" data-testid="clip-brain-guidance">
         Brain guidance used for this clip: {brainLessons.map(item =>

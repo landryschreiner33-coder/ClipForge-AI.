@@ -27,7 +27,9 @@ jobs:
           CLIPFORGE_YOUTUBE_CLIENT_SECRET: ${{ secrets.CLIPFORGE_YOUTUBE_CLIENT_SECRET }}
           CLIPFORGE_TIKTOK_CLIENT_KEY: ${{ secrets.CLIPFORGE_TIKTOK_CLIENT_KEY }}
           CLIPFORGE_TIKTOK_BROKER: ${{ secrets.CLIPFORGE_TIKTOK_BROKER }}
-        run: python3 scripts/write_oauth_apps.py
+          RELEASE: ${{ inputs.version }}
+        # a build with a version number is a release: a missing sign-in is flagged on the run and in its summary
+        run: python3 scripts/write_oauth_apps.py ${RELEASE:+--release}
       - name: Compile native window and build complete Apple-silicon app
         env:
           CLIPFORGE_VERSION: ${{ inputs.version }}

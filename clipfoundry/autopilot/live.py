@@ -842,8 +842,12 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
     texts = [sents[k]["text"] for k in range(r["s0"], r["s1"] + 1)]
     hook, alts = hooks.heuristic_hooks(texts)
     all_sents = build_sentences(sess.words)
-    post = postpack.generate(texts, hook, alts, hooks.categorize(" ".join(texts)), sess.settings,
-                             scoring.document_frequencies(all_sents), max(1, len(all_sents)), use_ai=False)
+    taught = _learned(sess)
+    post = postpack.generate(texts, hook, alts, hooks.categorize(" ".join(texts)), {**sess.settings,
+                                                                                    "learned": taught},
+                             scoring.document_frequencies(all_sents), max(1, len(all_sents)), use_ai=False,
+                             name=postpack.video_names(sess.project),
+                             starts=[float(sents[k].get("start", start)) - start for k in range(r["s0"], r["s1"] + 1)])
     clip_id = hashlib.sha256(f"live:{sess.project['id']}:{start:.6f}:{end:.6f}".encode()).hexdigest()[:32]
     clip = db.get_clip(clip_id)
     if clip and clip["status"] == "ready" and Path(clip.get("output_path") or "").is_file():
@@ -853,7 +857,8 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
                           hook=hook, hooks_alt=alts, caption_text=" ".join(texts), hashtags=post["hashtags"],
                           category=hooks.categorize(" ".join(texts)), score=_live_score(r),
                           scores=virality.summary(r)["factors"], score_source="Live analysis",
-                          reason=scoring.reason_text(r), analysis=virality.summary(r), post=post, edit={},
+                          reason=scoring.reason_text(r), analysis=virality.summary(r), post=post,
+                          edit=_learned_look(taught),
                           status="rendering", duration=round(end - start, 2))
     try:
         window, shift = _window_file(sess, start, end, cancel=job.cancelled)
@@ -876,9 +881,12 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
         if heard:
             db.update_clip(clip["id"], **heard)
             clip = {**clip, **heard}
-        out = render.render_clip(proj, {**clip, "start": start - shift, "end": end - shift, "edit": {}}, shifted,
+        look = {k: v for k, v in (clip.get("edit") or {}).items() if k not in ("start", "end", "caption_words")}
+        out = render.render_clip(proj, {**clip, "start": start - shift, "end": end - shift, "edit": look}, shifted,
                                  sess.settings, JobContext(None, job.cancelled),
-                                 blueprint=blueprint.shifted(bp, -shift))
+                                 # the learned look over the plan, as for_render does for every other render
+                                 blueprint=blueprint.shifted(blueprint.with_edit(bp, look, "edit") if look else bp,
+                                                             -shift))
         db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
     except (queue.Canceled, queue.Wait):
         raise
@@ -890,6 +898,29 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
         return clip
     clip = db.get_clip(clip["id"]) or clip
     return _store_live_clip(sess, clip, r, job)
+
+
+def _learned(sess: Session) -> dict:
+    """What your edits taught (Brain → Learned), checked before use; {} when learning is off."""
+    from ..brain import learned
+
+    try:
+        return learned.defaults(str(sess.project.get("workspace_id") or "local"), sess.settings)
+    except Exception:  # noqa: BLE001 - a live clip is made without it rather than not at all
+        log.exception("could not read what was learned for a live clip")
+        return {}
+
+
+def _learned_look(taught: dict) -> dict:
+    """How a live clip starts in the editor from what your edits taught: your captions and pacing. Its framing
+    stays the stream's own (the face cam and gameplay view), and its start and end stay the live pick."""
+    from ..brain import learned
+
+    keys = set(learned.FIELDS["captions"]) | set(learned.FIELDS["pacing"])
+    edit = {k: v for k, v in taught.items() if k in keys}
+    if edit:
+        edit["learned_keys"] = sorted(edit)
+    return edit
 
 
 def _skip(sess: Session, start: float, end: float) -> None:

@@ -132,6 +132,12 @@ export const submissions = {
   link: (url: string, options: SubmissionOptions, live = false) =>
     req<SubmissionResult>("POST", `${ROOT}/link`, { url, ...options, live }),
   live: () => req<LiveStream[]>("GET", `${ROOT}/live`),
+  /** A picture from the newest whole recorded minute of a live stream (a fresh one each time). */
+  liveFrame: (projectId: string) => `${ROOT}/live/${projectId}/frame?at=${Date.now()}`,
+  /** The face cam box set for a live stream's clips (`locked`: the owner drew it). */
+  liveFacecam: (projectId: string) => req<{ box: number[] | null; locked: boolean }>("GET", `${ROOT}/live/${projectId}/facecam`),
+  lockLiveFacecam: (projectId: string, box: number[] | null) =>
+    req<{ box: number[] | null; locked: boolean }>("PUT", `${ROOT}/live/${projectId}/facecam`, { box }),
   /** Copy a video file in. `signal` cancels the transfer while bytes are still being sent; once every byte has
    * arrived ClipForge is copying and checking it, and a cancel can no longer stop that (the answer still comes). */
   file: (file: File, options: SubmissionOptions, onProgress: (fraction: number) => void, signal?: AbortSignal) =>

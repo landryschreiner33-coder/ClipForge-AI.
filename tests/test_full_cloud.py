@@ -380,6 +380,12 @@ def test_settings_processing_modes(desk):
     assert got["mode"] == "hybrid" and db.get_settings()["engines_comfyui"] == "remote" and got["note"]
     got = c.put("/api/processing", json={"mode": "local"}, headers=h).json()
     assert db.get_settings()["engines_comfyui"] == "clipforge" and "this computer" in got["note"]
+    # Full Cloud with a cloud computer set up: pictures and video go there too (Landry, Nov 26: everything in the cloud)
+    got = c.put("/api/processing", json={"mode": "full_cloud"}, headers=h).json()
+    assert got["mode"] == "full_cloud" and db.get_settings()["engines_comfyui"] == "remote"
+    assert "cloud computer" in got["note"] and got["pictures_on"] == "cloud computer"
+    got = c.put("/api/processing", json={"mode": "local"}, headers=h).json()
+    assert db.get_settings()["engines_comfyui"] == "clipforge"
     off = c.post("/api/processing/worker", json={"url": ""}, headers=h).json()
     assert off["worker"]["url"] == "" and off["mode"] == "local"
 

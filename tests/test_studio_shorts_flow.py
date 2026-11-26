@@ -118,7 +118,7 @@ def env(monkeypatch, tmp_path):
 
     motion.MotionError = MotionError
     motion.MOVES = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "still")
-    motion.pick_move = lambda i: ("zoom_in", "pan_right", "zoom_out", "pan_left")[i % 4]
+    motion.pick_move = lambda i, legacy=False: ("zoom_in", "pan_right", "zoom_out", "pan_left")[i % 4]
     motion.still_clip = still_clip
     motion.video_clip = lambda *a, **k: (_ for _ in ()).throw(MotionError("no video in these tests"))
 

@@ -278,7 +278,7 @@ def work_state(kind: str, ref: str) -> dict:
 
 
 @chats.get("/{chat_id}/messages", dependencies=READ)
-def chat_messages(chat_id: str, after: str = "", limit: int = chat_module.KEEP) -> list[dict]:
+def chat_messages(chat_id: str, after: str = "", limit: int = chat_module.SHOW) -> list[dict]:
     try:
         return chat_module.messages(principal.workspace_id(), chat_id, after, limit)
     except chat_module.ChatError as exc:

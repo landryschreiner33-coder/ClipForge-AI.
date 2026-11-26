@@ -210,3 +210,27 @@ def test_a_release_build_writes_the_registration_file_without_printing_it(monkey
     monkeypatch.setattr(oauth_apps, "BUNDLED", tmp_path / "oauth_apps.json")
     assert oauth_apps.built_in()["youtube"]["client_id"] == "id.apps.googleusercontent.com"
     assert (ROOT / ".gitignore").read_text().count("clipfoundry/oauth_apps.json") == 1  # never committed
+
+
+def test_a_release_without_built_in_sign_in_is_flagged_and_can_be_required(monkeypatch, tmp_path, capsys):
+    spec = importlib.util.spec_from_file_location("write_oauth_apps", ROOT / "scripts/write_oauth_apps.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "OUT", tmp_path / "oauth_apps.json")
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    for name in ("CLIPFORGE_YOUTUBE_CLIENT_ID", "CLIPFORGE_YOUTUBE_CLIENT_SECRET", "CLIPFORGE_TIKTOK_CLIENT_KEY",
+                 "CLIPFORGE_TIKTOK_BROKER"):
+        monkeypatch.delenv(name, raising=False)
+    assert module.main([]) == 0 and "::warning" not in capsys.readouterr().out   # a test build: no flag
+    assert module.main(["--release"]) == 0
+    out = capsys.readouterr().out
+    assert "::warning title=No built-in sign-in::" in out and "YouTube and TikTok" in out
+    assert "No built-in sign-in for YouTube and TikTok" in summary.read_text()
+    monkeypatch.setenv("CLIPFORGE_YOUTUBE_CLIENT_ID", "id.apps.googleusercontent.com")
+    monkeypatch.setenv("CLIPFORGE_YOUTUBE_CLIENT_SECRET", "s3cret")
+    assert module.main(["--require"]) == 1   # TikTok still missing
+    out = capsys.readouterr().out
+    assert "::error title=No built-in sign-in::" in out and "TikTok" in out and "s3cret" not in out
+    workflow = (ROOT / ".github/workflows/macos-desktop.yml").read_text()
+    assert "write_oauth_apps.py ${RELEASE:+--release}" in workflow and "RELEASE: ${{ inputs.version }}" in workflow

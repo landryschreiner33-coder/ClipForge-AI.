@@ -1,5 +1,49 @@
 # AI changelog
 
+## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code)
+
+A check of the batch 4 head against Landry's updated list of Nov 26 found what had not shipped yet; this batch
+builds it (PR #72, from `claude/project-thread-8ua98o` on the release line at 3baaa34).
+
+- **ClipForge AI acts on its own** (Landry: "no i want it to be able to do it on its own you dont have to say ok"):
+  Settings → ClipForge AI → "Do it without asking" (default) or "Ask me first". New commands: edit a planned post's
+  text, approve and post a YouTube post (the post page's checks), trim and edit a clip, clips or a mission from a
+  link, a Text Story, Autopilot on/off/stop all/resume, the posting rules. Deleting always asks; a TikTok post always
+  waits for the owner's OK on its page (TikTok's rules for apps). The main AI reviews every helper's work.
+- **Titles and hashtags** (Landry's research): what the whole video is about (its name and the source's title)
+  leads the Searchable title and the hashtags; hashtags go subject → topic → community, #viral/#fyp/#trending
+  filtered, case duplicates removed, YouTube 1-3, TikTok 2-4 with the caption, Reels at most 5; Settings → Defaults →
+  "Hashtags on every post"; vague titles sink; each recommended title names the moment the clip says it; a trim
+  that cuts out that line flags the post text; text typed by hand is kept when the post text is made again.
+- **Learning for automatic and live posts:** Autopilot and live clips use the title kinds and captions/pacing
+  learned from your edits. **Clips that start on the point:** a lead-in, warm-up or outro is trimmed when clips are
+  made (Settings → Defaults, on by default), shown in the clip editor with "Put it back", never learned as your edit.
+- **The ClipForge name everywhere:** the Mac Keychain key is copied to "ClipForge profile encryption" (the old item
+  stays, so a copy of the app from before the rename still opens the profile with the same key), the videos folder is Videos/ClipForge (an old ClipFoundry folder keeps being used), the
+  Mac download is ClipForge-Mac-Apple-Silicon.dmg, and the Mac app refreshes its name in Finder and the Dock and says
+  once where other copies are (nothing is moved).
+- **More colours:** backgrounds forest, ocean, ember and black; accents gold, ruby and lime, and "Your own" colour
+  picker. **Cancel upload** for Text Stories backgrounds and face cam recordings.
+- **Full Cloud:** with a cloud computer set up, shorts' pictures and video are made there too.
+- **Live face cam:** "Draw the face cam" on a live stream's row in Missions: a picture from the newest recorded
+  minute, a box around the streamer's cam, and every live clip with a split view uses it from then on.
+- **Animated shorts:** camera moves ease in and out, two new pushes that drift sideways, six moves in turn; with no
+  characters added, a picture maker that takes reference pictures (FLUX.2 klein) draws each later scene with the
+  first scene's picture so the main character looks the same; every voice-engine voice also comes deeper and
+  brighter (30 voices instead of 10).
+- **Text Stories:** "Find free footage" in the Background step searches Settings → Media sources and puts the pick
+  behind the story, with its license and any credit it needs.
+- **Releases without built-in sign-in** show a warning in the Mac build's summary (`write_oauth_apps.py --release`).
+- **Review (4 reviewers, every finding checked again): 21 problems fixed.** ClipForge's own trims keep the plan's
+  middle cuts (`blueprint._inside_trims`); owner hashtags with digits or other alphabets pass every check; a
+  sentence's first word is not a subject; learned trims are measured from ClipForge's pick; title kinds use the same
+  words everywhere (`postpack.kind_keywords`); live clips render with their learned look; text typed before the
+  upgrade is kept; ClipForge AI never posts an approved TikTok post, checks the account its card showed, says so when
+  a post was approved meanwhile, puts TikTok hashtags in the caption, and asks before making a project's clips
+  again; the old Keychain item is kept; the live face cam picture is never an old one; the two new Settings
+  defaults are saved; free footage joins the backgrounds as they are when it arrives; pushes drift as gently as
+  pans; older shorts keep their automatic moves; the kept-picture note names the scene as the owner sees it.
+
 ## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code)
 
 Last of the four batches in Landry's "ClipForge Final Release" prompt (sections 1, 6, 7 and 8). Built on

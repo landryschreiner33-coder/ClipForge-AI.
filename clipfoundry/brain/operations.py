@@ -4,7 +4,10 @@ Every command runs the very function the app's own button runs (the route functi
 autopilot/routes.py), so the same checks, time zone, gap between posts and approval rules apply, and an action the
 app refuses is refused here in the app's own words. Changes wait for the owner's OK on a card that says exactly what
 will happen (tools.WAITS); a card for several posts lists each one (a batch change is approved once, as a whole).
-ClipForge AI never publishes and never approves a post: a post goes out only through its approval page.
+With Settings → ClipForge AI → "Act without asking" on (the default, Landry's wish of Nov 26) a command marked
+`alone` runs at once and the card shows it done (assistant._offer); deleting always waits for the OK. ClipForge AI
+approves and posts YouTube posts (approve_post) with the post page's own checks; a TikTok post always waits for the
+owner's OK on its page (TikTok's rules for apps: a preview and the owner's own privacy choice on every post).
 
 Before acting, a command finds exactly one post, project, clip or mission. When more than one fits, it names them and
 the model asks the owner which one; times are clock times in the Autopilot time zone (Settings), which `posts` shows.
@@ -435,6 +438,174 @@ def _retry(ctx: Ctx, args: dict) -> Result:
                   {"links": _post_links(out), "work": [_work("post", out["id"], f"“{_post_name(out)}”")]})
 
 
+EDITABLE = ("awaiting_approval", "approved", "failed", "action_needed", "blocked", "canceled")  # scheduler.edit
+
+
+def _tag_list(value, platform: str) -> list[str]:
+    """Hashtags as the owner said them ("#fishing #bass", ["fishing", "bass"]) in the form the platform keeps:
+    YouTube tags without #, TikTok hashtags with it."""
+    words = value if isinstance(value, list) else re.split(r"[\s,]+", str(value or ""))
+    out: list[str] = []
+    for w in words:
+        w = re.sub(r"[^\w]", "", str(w).strip().lstrip("#"), flags=re.UNICODE)[:40]
+        tag = ("#" + w) if platform == "tiktok" else w
+        if w and tag.lower() not in {t.lower() for t in out}:
+            out.append(tag)
+    return out[:10]
+
+
+def _edit_post_fields(item: dict, args: dict) -> tuple[dict, list[str]]:
+    fields, words = {}, []
+    tiktok = item["platform"] == "tiktok"
+    if args.get("title") is not None and str(args["title"]).strip():
+        if tiktok:   # TikTok posts only the caption
+            raise ToolError("A TikTok post has no title of its own: change its caption (description) instead.")
+        fields["title"] = str(args["title"]).strip()[:100]
+        words.append(f"title “{fields['title']}”")
+    if args.get("description") is not None:
+        fields["description"] = str(args["description"]).strip()[:2200 if tiktok else 4000]
+        words.append(("caption “" if tiktok else "description “") + one_line(fields["description"], 80) + "”"
+                     if fields["description"] else "no description")
+    if args.get("hashtags") is not None:
+        fields["tags"] = _tag_list(args["hashtags"], item["platform"])
+        words.append("hashtags " + (" ".join(("#" + t.lstrip("#")) for t in fields["tags"]) or "none"))
+        if tiktok:   # TikTok's hashtags are the ones in the caption it posts: they go at its end
+            caption = str(fields.get("description", item.get("description") or ""))
+            caption = re.sub(r"(\s*#\w+)+\s*$", "", caption, flags=re.UNICODE).rstrip()
+            fields["description"] = (caption + " " + " ".join(fields["tags"])).strip()[:2200]
+    if not fields:
+        raise ToolError("Say what to change: title, description or hashtags.")
+    return fields, words
+
+
+def _edit_post_preview(ctx: Ctx, args: dict) -> dict:
+    item = find_post(args, EDITABLE, "can be edited")
+    fields, words = _edit_post_fields(item, args)
+    platform = PLATFORM_NAMES.get(item["platform"], item["platform"])
+    return {"label": f"Change “{_post_name(item)}” on {platform}: " + "; ".join(words),
+            "detail": ["The same change as editing the text on its page."] +
+                      (["It was approved: approve it again after this change."] if item["status"] == "approved"
+                       else []),
+            "blocked": "", "args": {"post": item["id"], **{k: args[k] for k in ("title", "description", "hashtags")
+                                                          if args.get(k) is not None}}}
+
+
+def _edit_post(ctx: Ctx, args: dict) -> Result:
+    from ..autopilot import routes
+
+    item = db.fetch("scheduled_publications", str(args.get("post") or ""))
+    if not item:
+        raise ToolError("That post is not there any more.")
+    fields, _words = _edit_post_fields(item, args)
+    try:
+        out = routes.edit_item(item["id"], routes.EditBody(**fields))
+    except HTTPException as exc:
+        raise _http(exc) from exc
+    tags = " ".join(("#" + t.lstrip("#")) for t in out.get("tags") or [])
+    text = (f"“{_post_name(out)}” now has the title “{out.get('title')}”" + (f" and hashtags {tags}" if tags else "")
+            + f"; it is {STATUS_WORDS.get(out['status'], out['status'])}.")
+    if out.get("warnings"):
+        text += " Check: " + one_line(out["warnings"][0], 160)
+    return Result(text, "Changed the post's text", {"links": _post_links(out)})
+
+
+def _approve_problems(item: dict, settings: dict) -> list[str]:
+    """What stands between this post and an approval ClipForge AI may give for the owner: the post page's own list
+    (PostReview.tsx `missing`) for a YouTube post. TikTok asks for the owner's OK on every post."""
+    from ..autopilot import gate, rights
+    from ..autopilot.targets import account_view, usable
+
+    if item["platform"] == "tiktok":
+        return ["TikTok's rules for apps need your own OK on every post, with its preview and your own privacy "
+                "choice: approve it on its page"]
+    problems = []
+    acc = db.get_connection(account_view(item)["connection_id"]) if account_view(item)["connection_id"] else None
+    if not usable(acc):
+        problems.append("connect YouTube again (Settings → Accounts)")
+    if not str(item.get("title") or "").strip():
+        problems.append("it has no title")
+    if len(str(item.get("title") or "")) > 100:
+        problems.append("its title is longer than 100 characters")
+    if type((item.get("options") or {}).get("made_for_kids")) is not bool:
+        problems.append("answer “made for kids” on its page (YouTube asks you)")
+    if not item.get("privacy"):
+        problems.append("choose who can see it on its page")
+    clip = db.get_clip(item["clip_id"]) or {}
+    rep = gate.report_for(clip) if clip else None
+    if rep and rep["status"] == "failed":
+        problems.append("its clip failed the final check (" + "; ".join(rep.get("blockers") or [])[:120] + ")")
+    review = rights.review_info(item, settings)
+    if review.get("required") and not review.get("confirmed"):
+        problems.append("say why you can reuse this clip on its page")
+    return problems
+
+
+def _approve_preview(ctx: Ctx, args: dict) -> dict:
+    from ..autopilot.targets import item_account
+
+    settings = _settings()
+    now = bool(args.get("now"))
+    item = find_post(args, ("awaiting_approval", "failed", *(("approved",) if now else ())), "waits for approval"
+                     if not now else "can be approved or posted")
+    platform = PLATFORM_NAMES.get(item["platform"], item["platform"])
+    # an approved post that goes out now is still checked when it is a TikTok post: ClipForge AI never posts there
+    problems = [] if item["status"] == "approved" and item["platform"] != "tiktok" \
+        else _approve_problems(item, settings)
+    if now and settings.get("autopilot_publishing_paused"):
+        problems.append("publishing is paused (Office → bottom bar)")
+    tags = " ".join(("#" + t.lstrip("#")) for t in item.get("tags") or [])
+    detail = [f"Title: “{one_line(item.get('title'), 100)}”",
+              *([f"Text: “{one_line(item.get('description'), 140)}”"] if item.get("description") else []),
+              *([f"Hashtags: {tags}"] if tags else []),
+              f"On {platform}, {_account(item)[1]}, for: {item.get('privacy') or 'not chosen'}.",
+              ("It goes out now." if now else f"It goes out at its time, {_label(item.get('planned_at'), settings)}"
+               + ("" if settings.get("autopilot_auto_publish") else " once you press Publish now (automatic "
+                  "publishing is off)") + ".")]
+    verb = "Post" if now and item["status"] == "approved" else "Approve and post" if now else "Approve"
+    return {"label": f"{verb} “{_post_name(item)}” on {platform} ({_account(item)[1]})", "detail": detail,
+            "blocked": ("To approve it: " + "; ".join(problems) + ".") if problems else "",
+            # the account the card shows: approving checks the post still goes there (as the post page does)
+            "args": {"post": item["id"], "now": now, "account": item_account(item)}}
+
+
+def _approve(ctx: Ctx, args: dict) -> Result:
+    from ..autopilot import routes
+    from ..autopilot.targets import item_account
+
+    item = db.fetch("scheduled_publications", str(args.get("post") or ""))
+    if not item:
+        raise ToolError("That post is not there any more.")
+    problems = [] if item["status"] == "approved" and item["platform"] != "tiktok" \
+        else _approve_problems(item, _settings())
+    if problems:
+        raise ToolError("To approve it: " + "; ".join(problems) + ".")
+    shown = str(args.get("account") or "")
+    if shown and shown != item_account(item):
+        raise ToolError("Another account is connected now than the one this was for. Check the post on its page.")
+    out = item
+    try:
+        if item["status"] != "approved":
+            opts = item.get("options") or {}
+            out = routes.approve_as(item["id"], routes.ApproveBody(
+                confirm=True, title=item.get("title"), description=item.get("description") or "",
+                tags=list(item.get("tags") or []), privacy=item.get("privacy"),
+                made_for_kids=opts.get("made_for_kids"), expected_account_id=shown or item_account(item)),
+                "ClipForge AI")
+        if args.get("now"):
+            out = routes.publish_now(item["id"])
+    except HTTPException as exc:
+        raise _http(exc) from exc
+    except ValueError as exc:  # PublishError and the scheduler's own reasons
+        raise ToolError(str(exc)) from exc
+    text = f"“{_post_name(out)}” is {STATUS_WORDS.get(out['status'], out['status'])}"
+    if out["status"] == "approved" and not _settings().get("autopilot_auto_publish"):
+        text += "; automatic publishing is off, so it waits for Publish now (approve_post with now)"
+    if out.get("warnings"):
+        text += ". Check: " + one_line(out["warnings"][0], 160)
+    return Result(text + ".", "Posting it now" if args.get("now") else "Approved it",
+                  {"links": _post_links(out), "work": [_work("post", out["id"], f"“{_post_name(out)}”")]})
+
+
 # ------------------------------------------------------------------ work: what is running, waiting or stuck
 def _queue() -> tuple[str | None, list[tuple[str, str]]]:
     """(the key the worker runs now, the (kind, key) waiting in its line)."""
@@ -594,10 +765,15 @@ def _restart_preview(ctx: Ctx, args: dict) -> dict:
         raise ToolError(f"{name[0].upper() + name[1:]} is finished. To change it, edit it or render a clip again.")
     what = ("Start making the clips of " + name + " again (the saved sound and transcript are reused)"
             if kind == "project" else "Render " + name + " again")
+    # making a project's clips again from the start replaces the clips it has (as Make clips again does): that
+    # deletes them, so it always waits for the OK
+    made = len(db.list_clips(row["id"])) if kind == "project" else 0
     return {"label": what[0].upper() + what[1:], "detail": [f"Now: {d['state']}: {d['why']}."]
             + (["It is stopped first; press OK again once it has stopped."] if d["state"] == "stalled"
-               and _queue()[0] == row["id"] else []),
-            "blocked": "", "args": {"kind": kind, "id": row["id"]}}
+               and _queue()[0] == row["id"] else [])
+            + ([f"The {made} clip{'s' if made != 1 else ''} it has now are replaced: their edits and versions are "
+                "lost. Posts already on YouTube or TikTok stay there."] if made else []),
+            "blocked": "", "ask": bool(made), "args": {"kind": kind, "id": row["id"]}}
 
 
 def _restart(ctx: Ctx, args: dict) -> Result:
@@ -685,6 +861,133 @@ def _regen(ctx: Ctx, args: dict) -> Result:
     tags = " ".join(post.get("hashtags") or [])
     return Result(f"New title: “{post.get('title') or out.get('title')}”. Hashtags: {tags or 'none'}.",
                   "Wrote new post text", {"links": [{"label": "Open the clip", "href": f"#/clip/{out['id']}"}]})
+
+
+def _clip_text_preview(ctx: Ctx, args: dict) -> dict:
+    p, c, n = _find_clip(ctx.ws, args.get("project", ""), args.get("clip", ""), ctx.project_id)
+    words, keep = [], {}
+    if str(args.get("title") or "").strip():
+        keep["title"] = str(args["title"]).strip()
+        words.append(f"title “{keep['title']}”")
+    if args.get("hashtags") is not None:
+        keep["hashtags"] = " ".join("#" + t for t in _tag_list(args["hashtags"], "youtube"))
+        words.append("hashtags " + (keep["hashtags"] or "none"))
+    if str(args.get("hook") or "").strip():
+        keep["hook"] = str(args["hook"]).strip()
+        words.append(f"hook “{keep['hook']}”")
+    if not keep:
+        raise ToolError("Say the title, hashtags or hook to use.")
+    return {"label": f"Use your own words for clip {n} of “{p['name']}”: " + "; ".join(words),
+            "detail": ["The same as typing them in the clip editor's Post tab. Posts already planned keep their own "
+                       "text (edit_post changes those)."],
+            "blocked": "", "args": {"clip_id": c["id"], **keep}}
+
+
+def _clip_text(ctx: Ctx, args: dict) -> Result:
+    api = _api()
+    clip_id = str(args.get("clip_id") or "")
+    try:
+        tags = None if args.get("hashtags") is None else ["#" + t for t in _tag_list(args["hashtags"], "youtube")]
+        out = api.patch_clip(clip_id, api.ClipPatch(title=args.get("title"), hashtags=tags, hook=args.get("hook")))
+    except HTTPException as exc:
+        raise _http(exc) from exc
+    post = out.get("post") or {}
+    return Result(f"Clip “{one_line(post.get('title') or out.get('title'), 80)}” now uses your words; hashtags: "
+                  f"{' '.join(post.get('hashtags') or out.get('hashtags') or []) or 'none'}.", "Changed the clip's text",
+                  {"links": [{"label": "Open the clip", "href": f"#/clip/{clip_id}"}]})
+
+
+MIN_CLIP_S = 3.0  # a trim never leaves less than this
+
+
+def _clip_edit(c: dict, p: dict, args: dict) -> tuple[dict, list[str], bool | None]:
+    """(the clip editor's change, the owner's words for it, keep/drop or None) from edit_clip's arguments."""
+    from .. import config
+    from ..pipeline.blueprint import GAIN_RANGE, SPEED_RANGE
+
+    was = dict(c.get("edit") or {})
+    start, end = float(was.get("start", c.get("start") or 0)), float(was.get("end", c.get("end") or 0))
+    edit, words = {}, []
+    if args.get("cut_start") or args.get("cut_end"):
+        new_start = max(0.0, start + float(args.get("cut_start") or 0))
+        new_end = end - float(args.get("cut_end") or 0)
+        total = float(p.get("duration") or 0)
+        if total > 0:
+            new_end = min(new_end, total)
+        if new_end - new_start < MIN_CLIP_S:
+            raise ToolError(f"That would leave {max(0.0, new_end - new_start):.1f} seconds: a clip needs at least "
+                            f"{MIN_CLIP_S:.0f}. It is {end - start:.1f} seconds now.")
+        edit.update(start=round(new_start, 2), end=round(new_end, 2))
+        words.append(f"from {new_start:.1f}s to {new_end:.1f}s ({new_end - new_start:.1f} seconds, was "
+                     f"{end - start:.1f})")
+    if args.get("captions") is not None:
+        edit["captions_enabled"] = bool(args["captions"])
+        words.append("captions " + ("on" if args["captions"] else "off"))
+    if args.get("caption_style"):
+        if args["caption_style"] not in config.CAPTION_STYLES:
+            raise ToolError("Caption styles: " + ", ".join(config.CAPTION_STYLES) + ".")
+        edit["caption_style"] = args["caption_style"]
+        words.append(f"caption style {args['caption_style'].replace('_', ' ')}")
+    if args.get("caption_size") is not None:
+        edit["caption_size"] = round(max(0.6, min(1.6, float(args["caption_size"]) / 100)), 2)
+        words.append(f"captions at {edit['caption_size'] * 100:.0f}%")
+    if args.get("speed") is not None:
+        edit["speed"] = round(max(SPEED_RANGE[0], min(SPEED_RANGE[1], float(args["speed"]))), 2)
+        words.append(f"speed {edit['speed']}×")
+    if args.get("volume_db") is not None:
+        edit["gain_db"] = round(max(GAIN_RANGE[0], min(GAIN_RANGE[1], float(args["volume_db"]))) * 2) / 2
+        words.append(f"sound {edit['gain_db']:+g} dB")
+    if args.get("pauses"):
+        if args["pauses"] not in config.SILENCE_MODES:
+            raise ToolError("Pause cutting: " + ", ".join(config.SILENCE_MODES) + ".")
+        edit["silence"] = args["pauses"]
+        words.append(f"pause cutting {args['pauses']}")
+    if args.get("fillers") is not None:
+        edit["remove_fillers"] = bool(args["fillers"])
+        words.append("“um” and “uh” " + ("cut" if args["fillers"] else "kept"))
+    keep = None if args.get("keep") is None else bool(args["keep"])
+    if keep is not None:
+        words.append("kept in the project's picks" if keep else "taken out of the project's picks")
+    if not edit and keep is None:
+        raise ToolError("Say what to change: cut_start, cut_end, captions, caption_style, caption_size, speed, "
+                        "volume_db, pauses, fillers or keep.")
+    return edit, words, keep
+
+
+def _edit_clip_preview(ctx: Ctx, args: dict) -> dict:
+    p, c, n = _find_clip(ctx.ws, args.get("project", ""), args.get("clip", ""), ctx.project_id)
+    edit, words, keep = _clip_edit(c, db.get_project(p["id"]) or p, args)
+    busy = c.get("status") in ("queued", "rendering")
+    return {"label": f"Edit clip {n} of “{p['name']}”: " + ", ".join(words),
+            "detail": ["The same change as the clip editor."] + ([] if not edit else [
+                "Then it is rendered again." if not busy else
+                "It is rendering now: the change is used the next time it renders."]),
+            "blocked": "", "args": {"clip_id": c["id"], "edit": edit, **({"keep": keep} if keep is not None else {})}}
+
+
+def _edit_clip(ctx: Ctx, args: dict) -> Result:
+    api = _api()
+    clip_id = str(args.get("clip_id") or "")
+    edit = dict(args.get("edit") or {})
+    keep = args.get("keep")
+    queued = False
+    try:
+        api.patch_clip(clip_id, api.ClipPatch(edit=edit or None, selected=None if keep is None else bool(keep)))
+        if edit:
+            try:
+                api.rerender(clip_id)
+                queued = True
+            except HTTPException as exc:
+                if exc.status_code != 409:
+                    raise
+    except HTTPException as exc:
+        raise _http(exc) from exc
+    out = api.get_clip(clip_id)
+    name = f"“{one_line(out.get('title') or 'the clip', 50)}”"
+    text = f"Saved the change to {name}" + (" and queued its render." if queued else
+                                            "; it is rendering now, so render it again after." if edit else ".")
+    return Result(text, "Edited the clip", {"links": [{"label": "Open the clip", "href": f"#/clip/{clip_id}"}],
+                                            "work": [_work("clip", clip_id, f"Render {name}")] if queued else []})
 
 
 FOLLOW = {"auto": "the action, automatically", "center": "the middle", "face": "the face", "speaker":
@@ -889,9 +1192,143 @@ def _pause(ctx: Ctx, args: dict) -> Result:
                   {"links": [{"label": "Missions", "href": "#/missions"}]})
 
 
-# Settings ClipForge AI may change, with the owner's OK: editing choices only. Publishing rules, accounts, spending
-# limits and daily targets stay on their own pages, changed by the owner there.
-SETTING_NAMES = dict(_SETTINGS_WORDS)
+# ------------------------------------------------------------------ new work: clips from a link, missions, stories
+_LINK = re.compile(r"https?://[^\s<>\"']+", re.I)
+
+
+def _link(args: dict) -> str:
+    found = _LINK.search(str(args.get("link") or ""))
+    if not found:
+        raise ToolError("Give the video's link (https://…).")
+    return found.group(0).rstrip(".,;)")
+
+
+def _make_clips_preview(ctx: Ctx, args: dict) -> dict:
+    url = _link(args)
+    return {"label": f"Make clips from {one_line(url, 90)}",
+            "detail": ["ClipForge downloads the video and makes clips with your Settings → Defaults, like Make clips "
+                       "→ Paste a link. Use only videos you may reuse."],
+            "blocked": "", "args": {"link": url}}
+
+
+def _make_clips(ctx: Ctx, args: dict) -> Result:
+    api = _api()
+    try:
+        out = api.create_from_url(api.UrlImport(url=_link(args)))
+    except HTTPException as exc:
+        raise _http(exc) from exc
+    name = f"“{one_line(out.get('name'), 60)}”"
+    return Result(f"Started making clips from that link as the project {name}; the chat shows when they are ready.",
+                  "Started making clips", {"work": [_work("project", out["id"], f"Clips from {name}")],
+                                           "links": [{"label": "Open the project", "href": f"#/project/{out['id']}"}]})
+
+
+def _mission_preview(ctx: Ctx, args: dict) -> dict:
+    url = _link(args)
+    live = bool(args.get("live"))
+    return {"label": f"{'Clip the live stream' if live else 'Add the mission'} {one_line(url, 90)}",
+            "detail": ["Like Missions → " + ("Live streams" if live else "Add a video") + " with Make clips only: "
+                       "ClipForge makes the clips; turning on uploads for it stays on Missions, where you confirm "
+                       "the channels and your right to reuse it."],
+            "blocked": "", "args": {"link": url, "live": live}}
+
+
+def _mission(ctx: Ctx, args: dict) -> Result:
+    from ..autopilot import routes
+
+    try:
+        out = routes.submit_link(routes.SubmissionIn(url=_link(args), auto_upload=False, live=bool(args.get("live"))))
+    except HTTPException as exc:
+        raise _http(exc) from exc
+    title = one_line((out.get("source") or {}).get("title") or out.get("title") or _link(args), 70)
+    return Result(f"Added “{title}” to Missions (clips only). It shows on Missions as it is checked and clipped.",
+                  "Added a mission", {"links": [{"label": "Missions", "href": "#/missions"}]})
+
+
+def _story_preview(ctx: Ctx, args: dict) -> dict:
+    from ..makers import writer
+
+    idea = str(args.get("idea") or "").strip()
+    if len(idea) < 4:
+        raise ToolError("Say what the story is about.")
+    tone = args.get("tone") if args.get("tone") in writer.STORY_TONES else "drama"
+    return {"label": f"Write a Text Story: “{one_line(idea, 90)}”",
+            "detail": [f"A new story on Text Stories, written in a {tone} tone, with backgrounds ClipForge picks from "
+                       "your videos. You can change the script, voice and background there, then export it."],
+            "blocked": "", "args": {"idea": idea, "tone": tone}}
+
+
+def _story(ctx: Ctx, args: dict) -> Result:
+    from ..makers import textstory
+
+    idea = str(args.get("idea") or "").strip()
+    try:
+        story = textstory.create(ctx.ws, name=one_line(idea, 60))
+        try:
+            story = textstory.auto_backgrounds(story)
+        except textstory.StoryError:
+            pass  # no usable videos: the story keeps its moving colour
+        story = textstory.start(story, "write", {"topic": idea, "tone": args.get("tone") or "drama",
+                                                 "length": "standard", "change": ""})
+    except textstory.StoryError as exc:
+        raise ToolError(str(exc)) from exc
+    return Result(f"Started writing the story “{one_line(idea, 60)}” on Text Stories; open it to hear and export it.",
+                  "Started a Text Story", {"links": [{"label": "Open the story", "href": f"#/stories/{story['id']}"}]})
+
+
+AUTOPILOT_ACTIONS = {"on": "Turn Autopilot on", "off": "Turn Autopilot off (queued work waits)",
+                     "stop_all": "Stop all jobs (renders, uploads, Autopilot) until you resume",
+                     "resume": "Allow jobs again after Stop all", "auto_publish_off":
+                     "Turn automatic publishing off (posts wait for an approval)"}
+
+
+def _autopilot_preview(ctx: Ctx, args: dict) -> dict:
+    action = args.get("action")
+    if action not in AUTOPILOT_ACTIONS:
+        raise ToolError("Say on, off, stop_all, resume or auto_publish_off. Turning automatic publishing on stays "
+                        "on Missions, where you agree to its rules.")
+    s = _settings()
+    if action == "on" and s.get("autopilot_enabled"):
+        raise ToolError("Autopilot is already on.")
+    if action == "off" and not s.get("autopilot_enabled"):
+        raise ToolError("Autopilot is already off.")
+    return {"label": AUTOPILOT_ACTIONS[action], "detail": ["The same as the button on Missions and the Office."],
+            "blocked": "", "args": {"action": action}}
+
+
+def _autopilot(ctx: Ctx, args: dict) -> Result:
+    from ..autopilot import routes
+
+    action = args.get("action")
+    try:
+        if action in ("on", "off"):
+            routes.enable(routes.EnableBody(enabled=action == "on"))
+            said = f"Autopilot is {action}."
+        elif action == "stop_all":
+            out = routes.stop_all()
+            said = (f"Stopped all jobs: {out['canceled']} waiting canceled, {out['stopping']} running stopping, "
+                    f"{out['manual']} renders or uploads stopped. Nothing new starts until resume.")
+        elif action == "resume":
+            routes.resume()
+            said = "Jobs are allowed again."
+        else:
+            back = routes.auto_publish_off("youtube").get("returned_to_review") or 0
+            said = "Automatic publishing is off: new posts wait for an approval" + (
+                f"; {back} post(s) it had approved wait for one again." if back else ".")
+    except HTTPException as exc:
+        raise _http(exc) from exc
+    return Result(said, AUTOPILOT_ACTIONS.get(action, "Autopilot"), {"links": [{"label": "Missions",
+                                                                                 "href": "#/missions"}]})
+
+
+# Settings ClipForge AI may change: editing choices and the posting rules (gap, hours, posts a day, time zone).
+# Accounts, spending limits, the AI model and automatic publishing stay on their own pages, changed by the owner.
+PUBLISHING_WORDS = (
+    ("autopilot_min_gap_minutes", "Minutes between posts on one account"),
+    ("autopilot_active_start", "Earliest posting hour (0-23)"), ("autopilot_active_end", "Latest posting hour (1-24)"),
+    ("autopilot_youtube_daily_limit", "YouTube posts a day at most"),
+    ("autopilot_tiktok_daily_limit", "TikTok posts a day at most"), ("autopilot_timezone", "Posting time zone"))
+SETTING_NAMES = dict(_SETTINGS_WORDS) | dict(PUBLISHING_WORDS)
 
 
 def _which_setting(text: str) -> str:
@@ -901,8 +1338,8 @@ def _which_setting(text: str) -> str:
     words = set(_said_words(key))
     scored = sorted(((len(words & set(_said_words(label))), k) for k, label in SETTING_NAMES.items()), reverse=True)
     if not scored or scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
-        raise ToolError("Say which setting: " + ", ".join(SETTING_NAMES.values()) + ". Publishing, accounts, "
-                        "spending limits and daily targets are changed by the owner on their own pages.")
+        raise ToolError("Say which setting: " + ", ".join(SETTING_NAMES.values()) + ". Accounts, spending limits, "
+                        "the AI model and automatic publishing are changed by the owner on their own pages.")
     return scored[0][1]
 
 
@@ -919,15 +1356,19 @@ def _setting_preview(ctx: Ctx, args: dict) -> dict:
     now = db.get_settings().get(key)
     if now == clean[key]:
         raise ToolError(f"{SETTING_NAMES[key]} is already {clean[key]}.")
+    publishing = key in dict(PUBLISHING_WORDS)
     return {"label": f"Change {SETTING_NAMES[key]} from {now} to {clean[key]}",
-            "detail": ["New projects use it; a project or clip you changed by hand keeps its own."],
+            "detail": ["Posts planned from now on follow it; posts already planned keep their times." if publishing
+                       else "New projects use it; a project or clip you changed by hand keeps its own."],
             "blocked": "", "args": {"setting": key, "value": clean[key]}}
 
 
 def _setting(ctx: Ctx, args: dict) -> Result:
     out = _api().put_settings({args["setting"]: args["value"]})
+    page = ({"label": "Settings → Advanced → Autopilot posting", "href": "#/settings/advanced"} if args["setting"] in
+            dict(PUBLISHING_WORDS) else {"label": "Settings → Defaults", "href": "#/settings/defaults"})
     return Result(f"{SETTING_NAMES.get(args['setting'], args['setting'])} is now {out.get(args['setting'])}.",
-                  "Changed a setting", {"links": [{"label": "Settings → Defaults", "href": "#/settings/defaults"}]})
+                  "Changed a setting", {"links": [page]})
 
 
 # ------------------------------------------------------------------ work the chat follows
@@ -1010,21 +1451,31 @@ def work_state(kind: str, ref: str, ws: str | None = None) -> dict:
 
 
 # ------------------------------------------------------------------ when the commands are offered
-# Words that mean the owner may want one of these commands. A small model reads every tool's description on every
-# turn, so the commands (about 3,400 characters) are offered only when the owner's recent words are about posts,
-# work, clips' framing or text, missions or settings; any other turn reads the tool list as it was before them.
+# Words that mean the owner may want one of these commands. A small model (the built-in one, or one run by Ollama)
+# reads every tool's description on every turn, so for it the commands (about 6,000 characters) are offered only
+# when the owner's recent words are about posts, work, clips, missions, stories or settings; any other turn reads
+# the tool list as it was before them. A bigger model always has them all.
 CUES = re.compile(r"\b(?:posts?|posting|posted|schedul\w*|upload\w*|publish\w*|times?|o'?clock|\d{1,2}(?::\d{2})?\s*"
-                  r"(?:am|pm)|\d{1,2}:\d{2}|tonight|tomorrow|today|later|earlier|move|moving|reschedul\w*|cancel\w*|"
-                  r"retry|again|clash\w*|conflict\w*|too close|overlap\w*|render\w*|crop\w*|fram\w*|zoom\w*|layout|"
-                  r"face ?cam|centre|center|left|right|stuck|stall\w*|frozen|hang\w*|job|jobs|queue\w*|working|running|"
-                  r"progress|restart\w*|stop\w*|fail\w*|error\w*|mission\w*|pause\w*|resume|setting\w*|titles?|"
-                  r"hashtags?|caption\w*|post text|metadata|description|clips per|youtube|tiktok|crew|robots?|check\w*|"
-                  r"review\w*|quality)\b", re.I)
+                  r"(?:am|pm)|\d{1,2}:\d{2}|at \d{1,2}|tonight|tomorrow|today|later|earlier|move|moving|reschedul\w*|"
+                  r"push\w*|shift\w*|delay\w*|postpone\w*|bring (?:it )?forward|monday|tuesday|wednesday|thursday|"
+                  r"friday|saturday|sunday|weekend|january|february|march|april|may|june|july|august|september|"
+                  r"october|november|december|cancel\w*|kill|don'?t (?:post|send|upload)|retry|again|clash\w*|"
+                  r"conflict\w*|too close|overlap\w*|render\w*|crop\w*|fram\w*|zoom\w*|layout|face ?cam|centre|center|"
+                  r"left|right|stuck|stall\w*|frozen|hang\w*|job|jobs|queue\w*|working|running|progress|restart\w*|"
+                  r"stop\w*|fail\w*|error\w*|mission\w*|pause\w*|resume|setting\w*|titles?|hashtags?|tags?|hooks?|"
+                  r"caption\w*|post text|metadata|description|clips?|clips per|videos?|youtube|tiktok|crew|robots?|"
+                  r"check\w*|review\w*|quality|trim\w*|cut\w*|shorter|longer|seconds?|length|speed\w*|faster|"
+                  r"slower|louder|quieter|volume|sound|turn (?:it )?(?:on|off)|switch (?:it )?(?:on|off)|autopilot|"
+                  r"approv\w*|go live|links?|https?://\S+|story|stories|keep|drop|gap|hours?|time ?zone|limit)\b",
+                  re.I)
 
 
-def offered(tool_list: list[Tool], words: str) -> list[Tool]:
-    """The tools for one answer: the commands only when `words` (the owner's message and the ones just before it)
-    are about something they do."""
+def offered(tool_list: list[Tool], words: str, settings: dict | None = None) -> list[Tool]:
+    """The tools for one answer: all of them for a bigger model; for a small one, the commands only when `words`
+    (the owner's message and the ones just before it) are about something they do."""
+    provider = (settings or {}).get("ai_provider") if settings is not None else None
+    if provider and provider not in ("builtin", "ollama", "heuristic"):
+        return tool_list
     if CUES.search(words or ""):
         return tool_list
     return [t for t in tool_list if t.name not in COMMANDS]
@@ -1038,6 +1489,7 @@ POST_HELP = ("post: words from its title or video, or its time (\"18:30\", \"Nov
              "it")
 CLIP = {"project": TEXT, "clip": TEXT}
 NOT_AGENTS = {"for_agents": False}
+ALONE = {"for_agents": False, "alone": True}  # a change made at once when the owner lets ClipForge AI act alone
 
 register(Tool("posts", "the owner's planned, uploading, failed and posted posts with their times (in the Autopilot "
               "time zone), accounts, problems and posts too close together; view: upcoming, problems or published",
@@ -1052,35 +1504,35 @@ register(Tool("reschedule_post", "move a planned post to another time. when: the
               "zone as 2026-11-26T18:30 (posts shows the zone and today's date), or nearest_free. " + POST_HELP,
               {"type": "object", "properties": {**POST, "when": {"type": "string", "maxLength": 40}},
                "required": ["when"]}, _reschedule, "change", "Move {post} to {when}", preview=_reschedule_preview,
-              **NOT_AGENTS))
+              **ALONE))
 register(Tool("fix_post_conflicts", "move every post that is too close to another post on the same account to the "
               "nearest free time (one OK for all)",
               {"type": "object", "properties": {"platform": POST["platform"],
                                                 "moves": {"type": "array", "items": {"type": "object"},
                                                           "maxItems": 40, "internal": True}}},
-              _fix, "change", "Fix posts that are too close", preview=_fix_preview, **NOT_AGENTS))
+              _fix, "change", "Fix posts that are too close", preview=_fix_preview, **ALONE))
 register(Tool("cancel_upload", "cancel a post that is uploading now (nothing is posted). " + POST_HELP,
               {"type": "object", "properties": POST}, _cancel_upload, "change", "Cancel the upload of {post}",
-              preview=_cancel_upload_preview, **NOT_AGENTS))
+              preview=_cancel_upload_preview, **ALONE))
 register(Tool("cancel_post", "take a planned post off the schedule so it is not posted. " + POST_HELP,
               {"type": "object", "properties": POST}, _cancel_post, "change", "Don't post {post}",
-              preview=_cancel_post_preview, **NOT_AGENTS))
+              preview=_cancel_post_preview, **ALONE))
 register(Tool("retry_post", "try a failed, held or canceled post again (it still needs a valid approval). "
               + POST_HELP, {"type": "object", "properties": POST}, _retry, "change", "Try {post} again",
-              preview=_retry_preview, **NOT_AGENTS))
+              preview=_retry_preview, **ALONE))
 register(Tool("restart_work", "start a stalled, failed or stopped project (or one clip's render) again. project: its "
               "name; clip: its number or title words (for one render)",
               {"type": "object", "properties": {**CLIP, "kind": {"type": "string", "internal": True},
                                                 "id": {"type": "string", "internal": True}}},
-              _restart, "change", "Start {project} again", preview=_restart_preview, **NOT_AGENTS))
+              _restart, "change", "Start {project} again", preview=_restart_preview, **ALONE))
 register(Tool("stop_work", "stop a project that is being made (or one clip's render)",
               {"type": "object", "properties": {**CLIP, "kind": {"type": "string", "internal": True},
                                                 "id": {"type": "string", "internal": True}}},
-              _stop, "change", "Stop {project}", preview=_stop_preview, **NOT_AGENTS))
+              _stop, "change", "Stop {project}", preview=_stop_preview, **ALONE))
 register(Tool("regenerate_post_text", "write a new title, post text and hashtags for a clip from what is said in it "
               "(replaces the current ones)",
               {"type": "object", "properties": {**CLIP, "clip_id": {"type": "string", "internal": True}}},
-              _regen, "change", "New post text for {clip}", preview=_regen_preview, **NOT_AGENTS))
+              _regen, "change", "New post text for {clip}", preview=_regen_preview, **ALONE))
 register(Tool("adjust_framing", "change how a clip is framed (crop) and render it again. position: 0-100 (% from "
               "the left, a fixed crop); follow: auto, center, face, speaker or screen; layout: fill, fit, split "
               "(gameplay + face cam), pip, game or auto; zoom: 1 to 2.5; corner: left or right (pip face cam box)",
@@ -1091,7 +1543,7 @@ register(Tool("adjust_framing", "change how a clip is framed (crop) and render i
                   "zoom": {"type": "number", "minimum": 1, "maximum": 2.5},
                   "corner": {"type": "string", "enum": ["left", "right"]},
                   "clip_id": {"type": "string", "internal": True}, "edit": {"type": "object", "internal": True}}},
-              _crop, "change", "Change the framing of {clip}", preview=_crop_preview, **NOT_AGENTS))
+              _crop, "change", "Change the framing of {clip}", preview=_crop_preview, **ALONE))
 register(Tool("render_clip", "render a clip again (queued; the chat shows when it is done)",
               {"type": "object", "properties": CLIP}, _render, "make", "Queued a render", **NOT_AGENTS))
 register(Tool("crew_check", "hand clips to the robot crew's final check (file, picture, sound, captions, cuts, text; "
@@ -1102,13 +1554,64 @@ register(Tool("crew_report", "what the robot crew found and decided for a projec
               {"type": "object", "properties": CLIP}, _crew_report, "look", "Read the crew's reviews"))
 register(Tool("pause_mission", "pause (paused true) or resume (paused false) one mission's uploads",
               {"type": "object", "properties": {"mission": TEXT, "paused": {"type": "boolean"}},
-               "required": ["paused"]}, _pause, "change", "Pause {mission}", preview=_pause_preview, **NOT_AGENTS))
-register(Tool("change_setting", "change one editing choice in Settings (clips per video, clip lengths, captions, "
-              "framing, pauses, sound); setting: its name, value: the new value as text (5, on, off, bold)",
+               "required": ["paused"]}, _pause, "change", "Pause {mission}", preview=_pause_preview, **ALONE))
+register(Tool("change_setting", "change one setting: an editing choice (clips per video, clip lengths, captions, "
+              "framing, pauses, sound) or a posting rule (minutes between posts, earliest and latest posting hour, "
+              "posts a day, time zone); setting: its name, value: the new value as text (5, on, off, bold)",
               {"type": "object", "properties": {"setting": TEXT, "value": {"type": "string", "maxLength": 40}},
                "required": ["setting", "value"]}, _setting, "change", "Change {setting} to {value}",
-              preview=_setting_preview, **NOT_AGENTS))
+              preview=_setting_preview, **ALONE))
+
+register(Tool("edit_post", "change a planned post's own title, description or hashtags (the words you are given, "
+              "as they are). " + POST_HELP,
+              {"type": "object", "properties": {**POST, "title": TEXT, "description": {"type": "string",
+                                                                                     "maxLength": 4000},
+                                                "hashtags": TEXT}},
+              _edit_post, "change", "Change the text of {post}", preview=_edit_post_preview, **ALONE))
+register(Tool("approve_post", "approve a post that waits for approval so it goes out at its time; now: true to post "
+              "it right away (also an approved one). YouTube only: TikTok posts need the owner's OK on their page. "
+              + POST_HELP,
+              {"type": "object", "properties": {**POST, "now": {"type": "boolean"},
+                                                "account": {"type": "string", "internal": True}}},
+              _approve, "change", "Approve {post}", preview=_approve_preview, **ALONE))
+register(Tool("set_clip_text", "use the owner's own title, hashtags or hook for a clip (exactly their words)",
+              {"type": "object", "properties": {**CLIP, "title": TEXT, "hashtags": TEXT, "hook": TEXT,
+                                                "clip_id": {"type": "string", "internal": True}}},
+              _clip_text, "change", "Use your words for {clip}", preview=_clip_text_preview, **ALONE))
+register(Tool("edit_clip", "edit a clip like the clip editor and render it again. cut_start / cut_end: seconds to cut "
+              "off its start / end (negative makes it longer); captions: true/false; caption_style: clean, bold, "
+              "high_energy or minimal; caption_size: 60 to 160 (%); speed: 0.8 to 1.25; volume_db: -12 to 12; "
+              "pauses: off, light or aggressive; fillers: true cuts “um”; keep: false takes it out of the picks",
+              {"type": "object", "properties": {
+                  **CLIP, "cut_start": {"type": "number", "minimum": -60, "maximum": 600},
+                  "cut_end": {"type": "number", "minimum": -60, "maximum": 600}, "captions": {"type": "boolean"},
+                  "caption_style": {"type": "string", "enum": ["bold", "clean", "high_energy", "minimal"]},
+                  "caption_size": {"type": "number", "minimum": 60, "maximum": 160},
+                  "speed": {"type": "number", "minimum": 0.8, "maximum": 1.25},
+                  "volume_db": {"type": "number", "minimum": -12, "maximum": 12},
+                  "pauses": {"type": "string", "enum": ["aggressive", "light", "off"]}, "fillers": {"type": "boolean"},
+                  "keep": {"type": "boolean"}, "clip_id": {"type": "string", "internal": True},
+                  "edit": {"type": "object", "internal": True}}},
+              _edit_clip, "change", "Edit {clip}", preview=_edit_clip_preview, **ALONE))
+register(Tool("make_clips", "make clips from a video link the owner gives (a new clips project)",
+              {"type": "object", "properties": {"link": TEXT}, "required": ["link"]}, _make_clips, "change",
+              "Make clips from {link}", preview=_make_clips_preview, **ALONE))
+register(Tool("start_mission", "add a video link (or a live stream: live true) to Missions so ClipForge clips it; "
+              "uploads for it are turned on by the owner on Missions",
+              {"type": "object", "properties": {"link": TEXT, "live": {"type": "boolean"}}, "required": ["link"]},
+              _mission, "change", "Add {link} to Missions", preview=_mission_preview, **ALONE))
+register(Tool("write_text_story", "start a new Text Story (a story read over background video) about the owner's "
+              "idea; tone: drama, funny, scary, wholesome or the like",
+              {"type": "object", "properties": {"idea": {"type": "string", "maxLength": 600},
+                                                "tone": {"type": "string", "maxLength": 20}}, "required": ["idea"]},
+              _story, "change", "Write a story about {idea}", preview=_story_preview, **ALONE))
+register(Tool("autopilot", "Autopilot and the job controls. action: on, off, stop_all (stop every job until "
+              "resume), resume, or auto_publish_off",
+              {"type": "object", "properties": {"action": {"type": "string", "enum": sorted(AUTOPILOT_ACTIONS)}},
+               "required": ["action"]}, _autopilot, "change", "Autopilot: {action}", preview=_autopilot_preview,
+              **ALONE))
 
 COMMANDS = frozenset(("posts", "work", "missions", "crew_check", "crew_report", "reschedule_post", "fix_post_conflicts",
                       "cancel_upload", "cancel_post", "retry_post", "restart_work", "stop_work", "regenerate_post_text",
-                      "adjust_framing", "render_clip", "pause_mission", "change_setting"))
+                      "adjust_framing", "render_clip", "pause_mission", "change_setting", "edit_post", "approve_post",
+                      "set_clip_text", "edit_clip", "make_clips", "start_mission", "write_text_story", "autopilot"))

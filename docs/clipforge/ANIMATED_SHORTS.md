@@ -66,7 +66,10 @@ script text or topic
        or ClipForge AI writes them (writer.py: title, main character, scenes with words and a picture idea)
   └─ for each scene, only what changed:
        voice   (voice.py: the local voice engine, else the computer's own voice) → WAV + timed words
-       picture (pictures.py: the local picture engine, else a designed card from cards.py; or the owner's picture)
+       picture (pictures.py: the local picture engine, else a designed card from cards.py; or the owner's picture;
+                with no characters added, a picture maker that takes reference pictures (FLUX.2 klein) draws each
+                later scene with the first scene's picture so the main character looks the same:
+                shorts.main_character_picture, only a picture made for the current look and character)
        motion  (motion.py: a slow push-in or pan on the still, or the video engine's motion) + the voice → MP4
        → stored as a private video asset with its words written as the asset's transcript
   └─ the plan (shorts.py: one clip per scene, cuts, centred highlighted captions, ducked music, whooshes)
@@ -188,7 +191,10 @@ def voices() -> list[dict]
     # [{"id", "name", "lang", "gender", "about", "engine"}]; "auto" first, then the engine's voices ("engine:<id>"),
     # then this computer's voices ("system:<name>": macOS say, Windows SAPI; "espeak:<voice>" when espeak-ng is
     # installed). Novelty voices are left out. Cached for ten minutes (half a minute when a listing failed). A voice
-    # whose lang is "multilingual", "mul" or "" reads every language (the engine's voices say so).
+    # whose lang is "multilingual", "mul" or "" reads every language (the engine's voices say so). Each engine
+    # voice also comes a little lower and a little higher ("engine:<id>@deep", -2.5 semitones; "@bright", +2), after
+    # the engine's own: FFmpeg moves the pitch without changing the length (asetrate, then atempo), so the word
+    # times stay within a frame (about 30 ms).
 def default_voice() -> str
 def speak(text: str, out: Path, *, voice: str = "auto", speed: float = 1.0, lang: str = "en", cancel=None) -> dict
     # writes `out` (WAV, mono, 48 kHz, 16-bit, silence at both ends trimmed to 40 ms) and returns
@@ -232,8 +238,9 @@ def make_card(text: str, look: Look, out: Path, *, index: int = 0, size=(1242, 2
 ### motion.py
 
 ```python
-MOVES = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "still")
-def pick_move(index: int) -> str                  # alternating: zoom_in, pan_right, zoom_out, pan_left, ...
+MOVES = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "push_left", "push_right", "still")
+def pick_move(index: int) -> str   # six in turn: zoom_in, pan_right, push_left, zoom_out, pan_left, push_right, ...
+def ease(p: float) -> float        # each move eases in and out (EASE = 0.6 of a smoothstep), never a dead stop
 def still_clip(picture: Path, audio: Path, out: Path, *, duration_s: float, move: str = "zoom_in", fps: int = 30,
                size=(1080, 1920), strength: float = 0.08, cancel=None, progress=None, background=None) -> dict
 def video_clip(video: Path, audio: Path, out: Path, *, duration_s: float, fps: int = 30, size=(1080, 1920),
@@ -243,7 +250,9 @@ def video_clip(video: Path, audio: Path, out: Path, *, duration_s: float, fps: i
 ```
 
 `still_clip` covers the frame with the picture and moves it with OpenCV (sub-pixel, so there is no jitter), frames
-piped to FFmpeg. The picture is read with Pillow, upright: a see-through picture lies on `background` (the look's
+piped to FFmpeg. A move starts and stops gently (`ease`), as a camera operator moves, and keeps a little speed at
+both ends so a cut always lands on a picture that is still moving. A push (`push_left`, `push_right`) closes in
+while drifting sideways, never past the picture's edge. Six scenes go by before an automatic move comes back. The picture is read with Pillow, upright: a see-through picture lies on `background` (the look's
 bottom colour), a JPEG much larger than the move needs is decoded at an eighth, a quarter or half its size, and a
 picture over Pillow's limit (about 180 million pixels) is refused in plain words. `video_clip` covers the frame with
 the engine's video, slows it down up to 1.5 times when it is shorter than the voice and holds its last frame for the

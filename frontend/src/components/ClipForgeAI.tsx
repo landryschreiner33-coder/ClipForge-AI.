@@ -781,7 +781,9 @@ function Action({ a, disabled, onDecide }: { a: ChatAction; disabled: boolean; o
       {(a.detail || []).length > 0 && <ul className="cfai-action-detail">{a.detail.map((x, i) => <li key={i}>{x}</li>)}</ul>}
       {after ? (
         <p ref={outcome} tabIndex={-1} className={`cfai-action-state ${after.tone}`}><Icon name={after.icon} className="xs" />
-          {a.state === "done" && why ? sentence(why) : `${after.word}${why ? `: ${sentence(why)}` : "."}`}</p>
+          {a.alone && a.state === "done" ? `Done without asking you${why ? `: ${sentence(why)}` : "."}`
+            : a.alone && a.state === "failed" ? `I tried, but it did not work${why ? `: ${sentence(why)}` : "."}`
+            : a.state === "done" && why ? sentence(why) : `${after.word}${why ? `: ${sentence(why)}` : "."}`}</p>
       ) : (
         <>
           {/* pressed, but not yet possible: the toast said it too; the note stays until the next press */}

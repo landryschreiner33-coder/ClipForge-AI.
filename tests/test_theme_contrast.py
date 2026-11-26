@@ -47,13 +47,13 @@ def ratio(a: str, b: str) -> float:
 
 def test_there_is_no_light_theme_left():
     assert "data-theme" not in CSS and "light" not in re.sub(r"/\*.*?\*/", "", CSS, flags=re.DOTALL).lower()
-    assert set(PALETTES) == {"studio", "midnight", "graphite", "plum"}
-    assert set(ACCENTS) == {"violet", "teal", "blue", "coral", "green", "pink"}  # and Custom, made readable below
+    assert set(PALETTES) == {"studio", "midnight", "graphite", "plum", "forest", "ocean", "ember", "black"}
+    assert set(ACCENTS) == {"violet", "teal", "blue", "coral", "green", "pink", "gold", "red", "lime"}  # and Custom, made readable below
     for p in PALETTES.values():  # every palette is dark: the canvas is darker than the text by far
         assert _lum(p["canvas"]) < 0.02 and _lum(p["surface"]) < 0.03
 
 
-@pytest.mark.parametrize("palette", ["studio", "midnight", "graphite", "plum"])
+@pytest.mark.parametrize("palette", ["studio", "midnight", "graphite", "plum", "forest", "ocean", "ember", "black"])
 def test_text_status_focus_and_controls_are_readable_on_every_palette(palette):
     p = PALETTES[palette]
     for bg in ("canvas", "surface", "raised", "hover"):
@@ -65,7 +65,7 @@ def test_text_status_focus_and_controls_are_readable_on_every_palette(palette):
         assert ratio(p["focus"], p[bg]) >= 3 and ratio(p["control-border"], p[bg]) >= 3, (palette, bg)
 
 
-@pytest.mark.parametrize("accent", ["violet", "teal", "blue", "coral", "green", "pink"])
+@pytest.mark.parametrize("accent", ["violet", "teal", "blue", "coral", "green", "pink", "gold", "red", "lime"])
 def test_every_accent_is_readable_on_every_palette_and_under_button_text(accent):
     a = ACCENTS[accent]
     for name, p in PALETTES.items():

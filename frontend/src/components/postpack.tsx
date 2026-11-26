@@ -189,7 +189,8 @@ export function RewritePostDialog({ clip, edited, onClose, onDone }: {
       <p className="muted">
         ClipForge writes new titles, captions, hashtags, a description and a hook from this clip's own words.
       </p>
-      {edited && <p className="small"><b>Your edited post text is replaced.</b> The video doesn't change.</p>}
+      {edited && <p className="small"><b>What you typed yourself is kept;</b> the new suggestions are there to pick
+        from. Unsaved changes are not kept. The video doesn't change.</p>}
     </ConfirmDialog>
   );
 }

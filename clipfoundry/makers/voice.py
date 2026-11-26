@@ -64,6 +64,9 @@ MATCH_MIN = 0.5            # heard words must match this share of the script's w
 WORD_S = 60.0 / WPM        # one word's time when nothing better is known
 FINAL_WEIGHT = 3           # the last word of a phrase is drawn out (phrase-final lengthening)
 MIN_WORD_S = 0.01
+# More voices from the local voice engine's own: each of its voices a little lower or higher ("engine:F1@deep"). The
+# pitch moves without changing the length, so the voice's word times stay right.
+PITCHES = {"deep": (-2.5, "deeper", "a little lower"), "bright": (2.0, "brighter", "a little higher")}
 AUTO_NAME = "Best voice on this computer"
 SETUP = "download the voice in ClipForge's Settings → Pictures, video, voice"
 
@@ -232,7 +235,11 @@ def _engine_voices(status: dict, trouble: list[str]) -> list[dict]:
             about = str(v.get("about") or "A voice from the local voice engine.")
             found[vid] = _entry(f"engine:{vid}", str(v.get("name") or vid), str(v.get("lang") or ""),
                                 str(v.get("gender") or ""), about, "engine")
-    return _english_first(list(found.values()))
+    base = _english_first(list(found.values()))
+    more = [_entry(f"{v['id']}@{kind}", f"{v['name']}, {word}", v["lang"], v["gender"],
+                   f"{v['name']} {lower}. {v['about']}", "engine")
+            for kind, (_, word, lower) in PITCHES.items() for v in base if "@" not in v["id"]]
+    return base + more   # the engine's own voices first: the best voice stays one of them
 
 
 def _system_voices(trouble: list[str]) -> list[dict]:
@@ -466,9 +473,11 @@ def _read_with(choice: dict, text: str, out: Path, speed: float, lang: str, work
     kind, name = choice["engine"], choice["name"]
     voice_id = choice["id"].split(":", 1)[1]
     work.mkdir(parents=True, exist_ok=True)
-    words, rule, original = None, "", ""
+    words, rule, original, pitch = None, "", "", 0.0
     try:
         if kind == "engine":
+            voice_id, _, kind_of = voice_id.partition("@")
+            pitch = PITCHES[kind_of][0] if kind_of in PITCHES else 0.0
             raw, words, rule = _engine_read(voice_id, text, speed, lang, cancel)
             original = str(raw)
         elif kind == "say":
@@ -478,7 +487,7 @@ def _read_with(choice: dict, text: str, out: Path, speed: float, lang: str, work
         else:
             raw = _espeak_read(voice_id, _no_commands(text), work, speed, cancel)
         try:
-            length, shift = _save(raw, out, work, cancel, tempo=speed if kind in TEMPO_KINDS else 1.0)
+            length, shift = _save(raw, out, work, cancel, tempo=speed if kind in TEMPO_KINDS else 1.0, pitch=pitch)
         except BaseException:
             local_engines.discard_made(original)  # the engine's file that could not be used (or Stop) goes
             raise
@@ -604,11 +613,16 @@ def _tail(data: bytes | None) -> str:
     return (data or b"").decode("utf-8", "replace").strip()[-400:]
 
 
-def _convert(src: Path, dst: Path, rate: int, cancel=None, tempo: float = 1.0) -> None:
+def _convert(src: Path, dst: Path, rate: int, cancel=None, tempo: float = 1.0, pitch: float = 0.0) -> None:
     """Any sound file as a mono 16-bit WAV at `rate`, by FFmpeg; `tempo` other than 1 makes it that much faster or
-    slower without changing its pitch."""
+    slower without changing its pitch, and `pitch` (semitones) makes it lower or higher without changing its
+    length."""
     tempo = _speed(tempo)
-    shape = ["-af", f"atempo={tempo:.4f}"] if abs(tempo - 1.0) > 1e-4 else []
+    k = 2 ** (max(-4.0, min(4.0, float(pitch or 0.0))) / 12)
+    if abs(k - 1.0) > 1e-4:   # played k times as fast (k times as high), then stretched back to its length
+        shape = ["-af", f"aresample={rate},asetrate={rate * k:.3f},aresample={rate},atempo={tempo / k:.6f}"]
+    else:
+        shape = ["-af", f"atempo={tempo:.4f}"] if abs(tempo - 1.0) > 1e-4 else []
     args = [ffmpeg_utils.ffmpeg_bin(), "-hide_banner", "-nostdin", "-v", "error", "-y", "-i", str(src),
             "-map", "0:a:0", *shape, "-ac", "1", "-ar", str(rate), "-c:a", "pcm_s16le", "-f", "wav", str(dst)]
     try:
@@ -619,11 +633,11 @@ def _convert(src: Path, dst: Path, rate: int, cancel=None, tempo: float = 1.0) -
         raise _Failed(f"FFmpeg could not read the voice's sound: {_tail(got.stderr)}")
 
 
-def _save(raw: Path, out: Path, work: Path, cancel, tempo: float = 1.0) -> tuple[float, float]:
-    """The voice program's sound as the voice file `out` (`tempo` times as fast): (its length, and how far its times
-    moved, in seconds). Engine words are only ever given with tempo 1."""
+def _save(raw: Path, out: Path, work: Path, cancel, tempo: float = 1.0, pitch: float = 0.0) -> tuple[float, float]:
+    """The voice program's sound as the voice file `out` (`tempo` times as fast, `pitch` semitones higher): (its
+    length, and how far its times moved, in seconds). Engine words are only ever given with tempo 1."""
     pcm = work / "voice-48k.wav"
-    _convert(raw, pcm, RATE, cancel, tempo)
+    _convert(raw, pcm, RATE, cancel, tempo, pitch)
     _check(cancel)
     return _trim(pcm, out)
 

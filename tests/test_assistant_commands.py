@@ -84,8 +84,10 @@ def test_the_commands_wait_for_ok_and_are_the_owners_alone():
     every = [t.name for t in tools.all_tools()]
     helper = tools.available("general", agent={"tools": every})
     assert not names & {t.name for t in helper} and "render_clip" not in {t.name for t in helper}
-    assert not [n for n in every if "publish" in n or "approve" in n]  # it never publishes or approves a post
-    assert "never publish or approve a post" in assistant.RULES
+    # the one command that approves or posts (Landry, Nov 26) is approve_post, YouTube only; with "Ask me first" the
+    # rules still say it never does (test_assistant_acts_alone.py)
+    assert [n for n in every if "publish" in n or "approve" in n] == ["approve_post"]
+    assert "never publish or approve a post" in assistant.rules({"ai_acts_alone": False})
 
 
 def test_move_a_post_to_a_time_in_the_autopilot_time_zone(data):

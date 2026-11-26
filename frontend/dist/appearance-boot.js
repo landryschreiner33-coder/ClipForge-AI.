@@ -3,8 +3,8 @@
    inline scripts. The account copy, loaded by the app, stays the record. */
 (function () {
   var allowed = {
-    palette: ["studio", "midnight", "graphite", "plum"],
-    accent: ["violet", "teal", "blue", "coral", "green", "pink"],
+    palette: ["studio", "midnight", "graphite", "plum", "forest", "ocean", "ember", "black"],
+    accent: ["violet", "teal", "blue", "coral", "green", "pink", "gold", "red", "lime"],
     density: ["comfortable", "compact"],
     text: ["standard", "large", "larger"]
   };

@@ -24,7 +24,8 @@ MODES = (
                                                 "made on your cloud computer (Settings → Cloud computer)."},
     {"id": "full_cloud", "name": "Full Cloud", "about": "Make clips runs on your ClipForge worker: getting the video, "
                                                         "transcription, finding the moments, framing, captions and "
-                                                        "rendering. The clips come back here."},
+                                                        "rendering. The clips come back here. With a cloud computer "
+                                                        "set up, pictures and video for shorts are made there too."},
 )
 
 
@@ -81,6 +82,10 @@ def set_processing(body: dict[str, Any]) -> dict:
             raise HTTPException(422, "Choose Local, Hybrid or Full Cloud.")
         if mode == "full_cloud" and not client.configured(settings):
             raise HTTPException(409, "Add your worker's address and key first, then choose Full Cloud.")
+        if mode == "full_cloud" and settings.get("engines_remote_url") and settings.get("engines_comfyui") != "remote":
+            # Full Cloud is everything in the cloud: the heavy pictures and video go to the cloud computer as well
+            patch["engines_comfyui"] = "remote"
+            note = "Clips are made on your worker, and pictures and video on your cloud computer."
         if mode == "hybrid":
             if not settings.get("engines_remote_url"):
                 raise HTTPException(409, "Set up a cloud computer first (Settings → Cloud computer), then choose "

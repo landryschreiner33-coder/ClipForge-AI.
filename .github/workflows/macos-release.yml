@@ -74,6 +74,6 @@ jobs:
           meta = json.loads((folder/'mac-release.json').read_text())
           assert meta['notarized'] and meta['developer_id_signed'] and meta['source_commit'] == os.environ['COMMIT']
           notes = folder/'release-notes.md'
-          notes.write_text('Native ClipFoundry for Apple silicon, macOS 15 or newer.\n\nOpen the DMG, drag ClipFoundry into Applications, then open it. Existing Brain, clips and settings are preserved.\n\nDeveloper ID signed, notarized by Apple, and stapled. All release gates and native smoke checks passed. No real accounts or uploads were used in tests.\n\nSHA-256: `'+meta['sha256']+'`\n')
-          subprocess.run(['gh','release','create','macos-v'+os.environ['VERSION'],'--target',os.environ['COMMIT'],'--title','ClipFoundry for Mac '+os.environ['VERSION'],'--notes-file',str(notes),str(folder/meta['file']),str(folder/meta['sources_file']),str(folder/'mac-release.json')],check=True)
+          notes.write_text('Native ClipForge for Apple silicon, macOS 15 or newer.\n\nOpen the DMG, drag ClipForge into Applications, then open it. Existing Brain, clips and settings are preserved.\n\nDeveloper ID signed, notarized by Apple, and stapled. All release gates and native smoke checks passed. No real accounts or uploads were used in tests.\n\nSHA-256: `'+meta['sha256']+'`\n')
+          subprocess.run(['gh','release','create','macos-v'+os.environ['VERSION'],'--target',os.environ['COMMIT'],'--title','ClipForge for Mac '+os.environ['VERSION'],'--notes-file',str(notes),str(folder/meta['file']),str(folder/meta['sources_file']),str(folder/'mac-release.json')],check=True)
           PY

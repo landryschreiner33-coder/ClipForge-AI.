@@ -796,6 +796,11 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
             if whole and "hook_seconds" not in body.edit and length > 0:
                 edit["hook_seconds"] = math.ceil(length) + 1  # "Part N" showed for the whole part: it still does
         fields["edit"] = learned.mine(dict(clip.get("edit") or {}), edit)  # a learned value you changed is yours
+        if post and ("start" in body.edit or "end" in body.edit or "caption_words" in body.edit):
+            # a trim can cut out the line a title or hashtag came from: its note shows next to it
+            project = db.get_project(clip["project_id"]) or {}
+            fields["post"] = post = postpack.recheck(post, load_words(project) if project else [],
+                                                     {**clip, "edit": fields["edit"]})
     db.update_clip(clip_id, **fields)
     if body.edit is not None or body.post is not None or body.title is not None:  # your taste (Brain → Learned)
         learned.observe(clip, db.get_clip(clip_id) or clip)
@@ -808,11 +813,12 @@ class PostPackageBody(BaseModel):
 
 @app.post("/api/clips/{clip_id}/post-package")
 def regenerate_post_package(clip_id: str, body: PostPackageBody) -> dict:
-    """(Re)write the clip's post package from its current transcript range. Replaces any edits."""
+    """(Re)write the clip's post package from its current transcript range. What the owner typed stays."""
     clip = _clip_or_404(clip_id)
     project = db.get_project(clip["project_id"])
     assert project
     post = postpack.for_clip(clip, load_words(project), db.get_settings(), use_ai=body.use_ai)
+    post = postpack.keep_mine(clip.get("post") or {}, post)
     db.update_clip(clip_id, post=post, title=post["title"] or clip["title"], hashtags=post["hashtags"])
     return get_clip(clip_id)
 

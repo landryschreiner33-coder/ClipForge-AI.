@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import WebKit
 
 // The WebView is only a window onto our owned loopback server. Account sign-in
@@ -55,6 +56,35 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         start()
+        refreshName()
+    }
+
+    // Finder, the Dock and Launchpad keep the name they read when they first saw the app. Registering the running
+    // copy again makes them read its name now (ClipForge) after an update from a build that showed ClipFoundry.
+    // Another copy of the app (a "ClipFoundry 2.app" from Keep Both, an old one in Downloads) can still put the
+    // old name in the Dock, so ClipForge says where the other copies are, once for each set of copies.
+    func refreshName() {
+        if smoke { return }
+        _ = LSRegisterURL(Bundle.main.bundleURL as CFURL, true)
+        let here = Bundle.main.bundleURL.standardizedFileURL.path
+        let others = NSWorkspace.shared.urlsForApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .map { $0.standardizedFileURL.path }
+            .filter { $0 != here && !$0.hasPrefix("/Volumes/") && !$0.contains("/.Trash/") }
+        let key = "ClipForgeOtherCopiesShown"
+        let seen = others.sorted().joined(separator: "\n")
+        if others.isEmpty || UserDefaults.standard.string(forKey: key) == seen { return }
+        UserDefaults.standard.set(seen, forKey: key)
+        let alert = NSAlert()
+        alert.messageText = others.count == 1 ? "Another copy of ClipForge is on this Mac" : "Other copies of ClipForge are on this Mac"
+        alert.informativeText = "The Dock or Launchpad may show the old name ClipFoundry because of: \n" + others.joined(separator: "\n")
+            + "\n\nYou are using " + here + ". Keep this one and move the others to the Trash if you no longer need them. Nothing is moved for you."
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window) { answer in   // a sheet: the studio keeps starting behind it
+            if answer == .alertFirstButtonReturn {
+                NSWorkspace.shared.activateFileViewerSelecting(others.map { URL(fileURLWithPath: $0) })
+            }
+        }
     }
 
     func label(_ text: String, _ size: CGFloat, _ color: NSColor = .labelColor) -> NSTextField {

@@ -84,10 +84,15 @@ class Tool:
     """change/delete: what pressing OK would do, shown before the press: {"label", "detail": [sentences],
     "blocked": "" or why it cannot be done now}. Raises ToolError when it makes no sense (no such project)."""
     for_agents: bool = True           # helper agents may be given it
+    alone: bool = False
+    """A change ClipForge AI may make at once, without the owner's OK, when Settings → ClipForge AI → "Act without
+    asking" is on (`acts_alone`). Never a delete: deleting always waits for the OK."""
 
     def __post_init__(self) -> None:
         if self.risk not in RISKS:
             raise ValueError(f"unknown risk {self.risk!r}")
+        if self.alone and self.risk != "change":
+            raise ValueError("only a change may be made without the owner's OK")
         if not self.name.replace("_", "").isalnum() or not self.name.islower():
             raise ValueError(f"tool names are lower_case words: {self.name!r}")
         if (self.args or {}).get("type", "object") != "object":
@@ -99,6 +104,12 @@ class Tool:
         for k, v in (args or {}).items():
             text = text.replace("{" + k + "}", str(v)[:80])
         return text.replace("{", "").replace("}", "") if "{" in text else text
+
+
+def acts_alone(settings: dict) -> bool:
+    """Whether ClipForge AI makes its `alone` changes at once (Settings → ClipForge AI → "Act without asking": on
+    unless the owner turned it off)."""
+    return bool(settings.get("ai_acts_alone", True))
 
 
 _registry: dict[str, Tool] = {}
@@ -216,7 +227,7 @@ def check_args(tool: Tool, args: object, *, button: bool = False) -> dict:
     return out
 
 
-def signature(tool: Tool) -> str:
+def signature(tool: Tool, alone: bool = False) -> str:
     """One line the model reads: name(arg: type, optional?: type) — description."""
     props = (tool.args or {}).get("properties") or {}
     need = set((tool.args or {}).get("required") or [])
@@ -228,7 +239,7 @@ def signature(tool: Tool) -> str:
             {"string": "text", "integer": "number", "number": "number", "boolean": "true|false",
              "array": "list of text"}.get(spec.get("type", "string"), "text")
         parts.append(f"{name}{'' if name in need else '?'}: {kind}")
-    waits = " Waits for the owner's OK." if tool.risk in WAITS else ""
+    waits = (" Done at once." if alone and tool.alone else " Waits for the owner's OK.") if tool.risk in WAITS else ""
     return f"- {tool.name}({', '.join(parts)}): {tool.description}{waits}"
 
 
@@ -243,8 +254,9 @@ def same_button(tool: Tool, a: dict, b: dict) -> bool:
     return shown(a) == shown(b)
 
 
-def describe(tools: list[Tool]) -> str:
-    return "\n".join(signature(t) for t in tools)
+def describe(tools: list[Tool], alone: bool = False) -> str:
+    """The tools as the model reads them; `alone`: ClipForge AI makes its `alone` changes at once (acts_alone)."""
+    return "\n".join(signature(t, alone) for t in tools)
 
 
 def reply_schema(tools: list[Tool]) -> dict:

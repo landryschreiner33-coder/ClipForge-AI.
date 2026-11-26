@@ -84,7 +84,7 @@ def test_appearance_and_layouts_persist_per_device_with_conflicts_and_reset(api)
     assert api.get("/api/preferences/appearance").json()["value"]["accent_shades"] == own["value"]["accent_shades"]
     assert api.put("/api/preferences/appearance", json={"value": {"accent": "teal"}}).json()["value"]["accent"] == "teal"
     for bad in ({"palette": "light"}, {"theme": "neon"}, {"text_size": "huge"}, {"office_size": 3},
-                {"accent_color": "red"}, {"accent_color": "#12345"}, {"accent": "gold"}):
+                {"accent_color": "red"}, {"accent_color": "#12345"}, {"accent": "neon"}):
         assert api.put("/api/preferences/appearance", json={"value": bad}).status_code == 422, bad
     desk = api.get("/api/preferences/layout/desktop").json()
     assert [p["id"] for p in desk["value"]["screens"]["studio"]] == ["needs_you", "pinned", "current", "office",

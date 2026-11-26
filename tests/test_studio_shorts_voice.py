@@ -831,3 +831,37 @@ def test_brackets_in_the_words_are_never_voice_commands(env, monkeypatch):
     monkeypatch.setattr(voice, "_find", lambda program: "/usr/bin/say" if program == "say" else None)
     voice.speak(words, env / "s.wav", voice="system:Daniel")  # say acts on [[...]] commands
     assert said == ["Say [ [like this] ] and [ [ [ [slnc 3000] ] ] ] or [one] now"] * 2
+
+
+def _pitch(path: Path) -> float:
+    """The strongest frequency of a voice file (Hz)."""
+    with wave.open(str(path), "rb") as wf:
+        rate = wf.getframerate()
+        x = np.frombuffer(wf.readframes(wf.getnframes()), "<i2").astype(np.float64)
+    spectrum = np.abs(np.fft.rfft(x * np.hanning(len(x))))
+    return float(np.fft.rfftfreq(len(x), 1 / rate)[int(np.argmax(spectrum))])
+
+
+def test_each_engine_voice_also_comes_deeper_and_brighter_with_the_same_word_times(env, monkeypatch):
+    from clipfoundry.makers import local_engines, voice
+
+    engines = FakeEngines(env)
+    monkeypatch.setattr(local_engines, "module", lambda: engines)
+    listing = voice.voices()
+    ids = [v["id"] for v in listing]
+    assert ids == ["auto", "engine:nova", "engine:lumi", "engine:nova@deep", "engine:lumi@deep",
+                   "engine:nova@bright", "engine:lumi@bright"] + ids[7:]   # the engine's own voices stay first
+    deep = next(v for v in listing if v["id"] == "engine:nova@deep")
+    assert deep["name"] == "Nova, deeper" and deep["gender"] == "female" and deep["about"].startswith("Nova a little")
+    assert voice.default_voice() == "engine:nova"
+    plain = voice.speak("Hello world", env / "plain.wav", voice="engine:nova")
+    lower = voice.speak("Hello world", env / "deep.wav", voice="engine:nova@deep")
+    higher = voice.speak("Hello world", env / "bright.wav", voice="engine:nova@bright")
+    assert [c["voice"] for c in engines.calls] == ["nova"] * 3   # the engine reads with its own voice each time
+    assert (lower["voice"], lower["voice_id"], lower["fallback"]) == ("Nova, deeper", "engine:nova@deep", "")
+    assert _pitch(env / "deep.wav") == pytest.approx(220 * 2 ** (-2.5 / 12), rel=0.03)
+    assert _pitch(env / "bright.wav") == pytest.approx(220 * 2 ** (2 / 12), rel=0.03)
+    assert _pitch(env / "plain.wav") == pytest.approx(220, rel=0.03)
+    for got in (lower, higher):   # the same length and word times (within a frame): only the pitch moved
+        assert got["duration_s"] == pytest.approx(plain["duration_s"], abs=0.04)
+        assert [w["start"] for w in got["words"]] == pytest.approx([w["start"] for w in plain["words"]], abs=0.04)

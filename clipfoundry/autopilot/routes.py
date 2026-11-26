@@ -91,6 +91,69 @@ def live_streams() -> list[dict]:
     return submissions.live_items()
 
 
+def _live_dir(project_id: str) -> Path:
+    """The folder of a live stream's recording, as live.Session keeps it (its minutes are in live/). While the
+    stream is recorded the project has no source file yet, so the video's own face cam route can't find it."""
+    project = db.get_project(project_id)
+    pdir = config.projects_dir() / project["id"] if project and project.get("origin") == "live" else None
+    if not pdir or not (pdir / "live").is_dir():
+        raise HTTPException(404, "That is not a live stream's recording.")
+    return pdir
+
+
+@router.get("/submissions/live/{project_id}/frame", dependencies=READ)
+def live_frame(project_id: str):
+    """A picture from the newest whole recorded minute, to draw the face cam's box on while the stream is live."""
+    from fastapi.responses import FileResponse
+
+    from ..pipeline.ffmpeg_utils import ffmpeg_bin, run_process
+
+    pdir = _live_dir(project_id)
+    minutes = sorted((pdir / "live").glob("r*_*.mkv"), key=lambda path: path.name)
+    if not minutes:
+        raise HTTPException(404, "Nothing is recorded yet. Try again in a minute.")
+    newest = minutes[-2] if len(minutes) > 1 else minutes[-1]   # the last one is still being written
+    out = pdir / "live" / "facecam-frame.jpg"
+    out.unlink(missing_ok=True)   # never an older picture: FFmpeg can finish without writing one
+    for seek in ("2", "0"):       # a minute cut short (the recording started again) may be under 2 seconds
+        done = run_process([ffmpeg_bin(), "-y", "-v", "error", "-ss", seek, "-i", str(newest), "-frames:v", "1",
+                            "-q:v", "3", str(out)], timeout=30)
+        if done.returncode == 0 and out.is_file() and out.stat().st_size > 0:
+            break
+    else:
+        raise HTTPException(409, "No picture could be read from the newest minute yet. Try again in a minute.")
+    return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+class LiveCamBody(BaseModel):
+    box: list[float] | None = None
+
+
+def _live_cam(pdir: Path) -> dict:
+    from ..pipeline import facecam
+
+    found = facecam.found(pdir) or {}
+    return {"box": found.get("box"), "locked": bool(found.get("locked"))}
+
+
+@router.get("/submissions/live/{project_id}/facecam", dependencies=READ)
+def live_facecam(project_id: str) -> dict:
+    return _live_cam(_live_dir(project_id))
+
+
+@router.put("/submissions/live/{project_id}/facecam", dependencies=WRITE)
+def lock_live_facecam(project_id: str, body: LiveCamBody) -> dict:
+    """The face cam's box for every clip of this stream from now on ({"box": null}: find it again by itself)."""
+    from ..pipeline import facecam
+
+    pdir = _live_dir(project_id)
+    try:
+        facecam.set_lock(pdir, facecam.clean_box(body.box))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return _live_cam(pdir)
+
+
 @router.post("/submissions/file", dependencies=WRITE)
 def submit_file(file: UploadFile = File(...), options: str = Form("{}")) -> dict:
     from . import submissions
@@ -919,6 +982,12 @@ def _fields(item: dict, body: ApproveBody) -> dict:
 @router.post("/scheduled/{item_id}/approve", dependencies=WRITE)
 def approve_item(item_id: str, body: ApproveBody) -> dict:
     """Your explicit approval of this post, exactly as shown (required by YouTube and TikTok)."""
+    return approve_as(item_id, body, "you")
+
+
+def approve_as(item_id: str, body: ApproveBody, who: str) -> dict:
+    """approve_item, with who approved it in the post's history: "you", or "ClipForge AI" when the owner lets it act
+    on its own (brain/operations.py approve_post: YouTube only; TikTok needs the owner's own OK on every post)."""
     from ..publish import tiktok
     from ..publish.common import PublishError
     from . import bulk_review, packaging, scheduler
@@ -940,12 +1009,13 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     try:
         basis = bulk_review.resolve_reuse_basis(body.reuse_kind or "custom", body.reuse_basis)
         out = scheduler.approve(item_id, fields, creator, reuse_confirmed=body.reuse_confirmed,
-                                reuse_basis=basis)
+                                reuse_basis=basis, who=who)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     clip = db.get_clip(item["clip_id"])
     heard = " ".join(packaging.clip_sentences(clip)[0]) if clip else ""  # what is said in the file to be published
-    warnings = packaging.validate({"title": out["title"], "caption": out["description"]}, heard)
+    warnings = packaging.validate({"title": out["title"], "caption": out["description"]}, heard,
+                                  known=packaging.known_words(clip) if clip else frozenset())
     return {**_public_item(out, db.get_settings()), "warnings": warnings}
 
 
@@ -977,7 +1047,8 @@ def edit_item(item_id: str, body: EditBody) -> dict:
     clip = db.get_clip(item["clip_id"]) or {}
     return {**_public_item(out, db.get_settings()),
             "warnings": packaging.validate({"title": out["title"], "caption": out["description"]},
-                                           clip.get("caption_text") or "")}
+                                           clip.get("caption_text") or "",
+                                           known=packaging.known_words(clip) if clip else frozenset())}
 
 
 class RescheduleBody(BaseModel):

@@ -40,8 +40,8 @@ STEP_WORDS = {"ingest": "Getting the video", "transcribe": "Transcribing", "anal
 UNSUPPORTED = (
     "Publishing, scheduling and your accounts stay on this computer: finished clips are posted from here.",
     "Autopilot and live streams run on this computer.",
-    "Animated shorts, Text Stories, Make a YouTube video and FilmCraft run on this computer (their pictures and "
-    "video can use the cloud computer: Hybrid).",
+    "Animated shorts, Text Stories, Make a YouTube video and FilmCraft run on this computer; their pictures and "
+    "video are made on your cloud computer when one is set up (Settings → Cloud computer).",
     "Editing a clip and rendering it again run on this computer, from the video (a link's video comes back with the "
     "clips).",
     "The worker picks clips with its own transcription model and its own AI setup. This computer's Brain notes, "
