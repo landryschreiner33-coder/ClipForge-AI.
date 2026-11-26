@@ -79,11 +79,19 @@ REACTION_Z = 1.0          # louder than the stream's speech by this many standar
 REACTION_MIN = 0.4        # ... for at least this long, with nobody speaking: laughter, a shout, a crowd
 REACTION_AFTER = 3.0      # a reaction this soon after the cut belongs to the clip (reactions often come late)
 REACTION_KEEP = 3.0       # the cut keeps at most this much of it (a long stretch of music is not a reaction)
+HEARD_REACTIONS = ("laughter", "applause", "cheering", "screaming", "gasp", "boom", "crash")  # listen.py kinds
 
 
 def wordless_loud(words: list[dict], loud: Loudness, t0: float, t1: float) -> list[tuple[float, float]]:
-    """Loud stretches without words in [t0, t1): (start, end) in seconds. An estimate from loudness alone, the same
-    one deep.audio_features counts as reactions."""
+    """Reactions without words in [t0, t1): (start, end) in seconds, the same ones deep.audio_features counts.
+
+    When ClipForge AI listened to the video (listen.py; the Heard rides on `loud.heard`), these are the stretches
+    where it heard laughter, applause, cheering, screaming, a gasp, an explosion or a crash and nobody speaks: a
+    song, an engine or a door no longer passes for a reaction. Without it, loud stretches without words (an
+    estimate from loudness alone)."""
+    heard = getattr(loud, "heard", None)
+    if heard is not None:
+        return heard.reaction_runs(max(0.0, t0), t1, words, kinds=HEARD_REACTIONS)
     a, b = loud._idx(max(0.0, t0)), loud._idx(t1)  # noqa: SLF001
     if b - a < 2:
         return []
@@ -483,14 +491,19 @@ def blend_ai(r: dict, ai_factors: dict, weight: float = 0.6) -> dict:
 
 
 def no_speech(cand: dict) -> dict:
-    """Candidates found from loudness alone (no transcript): only the audio energy is known."""
+    """Candidates without a transcript: scored on the audio energy, or on what ClipForge AI saw and heard when it
+    watched and listened (candidates.fallback_windows puts that into "engagement")."""
     e = float(cand["criteria"].get("engagement", 0.5))
     factors = {k: 0.5 for k in FACTORS}
     factors.update({"emotion": e, "hook": 0.3 + 0.4 * e, "retention": 0.3 + 0.4 * e, "clarity": 0.5})
+    sensed = "seen_and_heard" in (cand.get("signals") or {})
     r = {"s0": -1, "s1": -1, "start": cand["start"], "end": cand["end"], "dur": cand["dur"], "factors": factors,
          "structure": {"hook": False, "context": False, "payoff": False, "complete": False,
-                       "label": "No speech (scored on audio energy)", "missing": []},
-         "flags": [], "signals": {"internal_uniqueness": 1.0}, "tf": Counter()}
+                       "label": "No speech (scored on what ClipForge AI saw and heard)" if sensed else
+                       "No speech (scored on audio energy)", "missing": []},
+         "flags": [], "signals": {"internal_uniqueness": 1.0,
+                                  **{k: cand["signals"][k] for k in ("seen_and_heard", "talk")
+                                     if k in (cand.get("signals") or {})}}, "tf": Counter()}
     finalize(r)
     r["viral_potential"] = round(35 + 40 * e, 1)
     return r

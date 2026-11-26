@@ -37,7 +37,8 @@ COLOUR_STEP = "Checking the colour"
 
 
 # ------------------------------------------------------------ timeline
-def heard(folder: str | Path, words: list[dict], start: float, end: float) -> list[tuple[float, float]]:
+def heard(folder: str | Path, words: list[dict], start: float, end: float,
+          settings: dict | None = None) -> list[tuple[float, float]]:
     """Loud stretches without words in [start, end] (a laugh, a shout, a crowd; virality.wordless_loud), from the
     loudness measured when the project's video was analyzed (`folder`: the project folder). Remove pauses keeps
     them: they are not silence."""
@@ -47,7 +48,25 @@ def heard(folder: str | Path, words: list[dict], start: float, end: float) -> li
     from .audio import Loudness
     from .virality import wordless_loud
 
-    return wordless_loud(words, Loudness(env), start, end)
+    runs = wordless_loud(words, Loudness(env), start, end)
+    sounds = Path(folder) / "sounds.json"
+    from . import listen
+
+    # what ClipForge AI heard there too (listen.py): a quiet laugh is not a pause either (not when Listening is off)
+    if sounds.is_file() and (settings is None or listen.enabled(settings)):
+        from .virality import HEARD_REACTIONS
+
+        got = listen.load(sounds)
+        if got is not None:
+            runs = sorted(runs + got.reaction_runs(start, end, words, kinds=HEARD_REACTIONS))
+            merged: list[tuple[float, float]] = []
+            for a, b in runs:
+                if merged and a <= merged[-1][1]:
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+                else:
+                    merged.append((a, b))
+            runs = merged
+    return runs
 
 
 def keep_segments(words: list[dict], start: float, end: float, mode: str, fps: float,

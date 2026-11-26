@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AiPreset, AiSetup, api, BuiltinAi, BuiltinTask, errorText, MeaningModel, Settings } from "../api";
+import { AiPreset, AiSetup, api, BuiltinAi, BuiltinTask, errorText, MeaningModel, SensesStatus, Settings } from "../api";
 import { Banner, Disclosure, Icon, LoadingPage, Pill, ProgressBar, Segmented, toast } from "./ui";
 
 const SAVED = "********";
@@ -172,8 +172,9 @@ export default function AiHelperSettings() {
         <h2 id="ai-now">ClipForge AI</h2>
         <p>ClipForge AI is the editor's assistant: it remembers what you tell it (Brain → Memory), makes the changes you
           ask for (or asks first: see below), and answers questions (Brain → Talk). It needs a model to read and write. Without one, ClipForge
-          still edits your videos and ClipForge AI still remembers, forgets, lists and explains. With one it also reads what is
-          said (as text, never the video or the sound) to choose better cuts, pictures and chapters, scores clips, understands
+          still edits your videos and ClipForge AI still remembers, forgets, lists and explains, and it still listens to every
+          video and watches it frame by frame (see Watching and listening below). With one it also reads what is said, looks at
+          the picture and says what happens in it, to choose better cuts, pictures and chapters, scores clips, understands
           more of what you ask, and answers questions. The built-in model comes with ClipForge and runs on this computer.
           Every choice here is free except the Claude API.</p>
         <div className="row wrap">
@@ -272,6 +273,7 @@ export default function AiHelperSettings() {
         {now === "custom" && <p className="small muted">You use your own server ({String(s.openai_url)}); its settings are on <a className="textlink" href="#/settings/advanced">Advanced</a>. Choosing one above replaces it.</p>}
       </section>
 
+      <SensesSetup s={s} onSaved={async () => { await load(); }} />
       <MeaningSetup s={s} onSaved={async () => { await load(); }} />
     </div>
   );
@@ -291,6 +293,68 @@ export function BuiltinProgress({ t, onCancel }: { t: BuiltinTask; onCancel: () 
       <div className="row wrap"><button type="button" className="btn btn-small" onClick={onCancel}>Cancel</button>
         <span className="small muted">You can keep working; a stopped download resumes where it stopped.</span></div>
     </div>
+  );
+}
+
+/**
+ * Watching and listening (docs/clipforge/WATCH_AND_LISTEN.md): the sound model names every sound, every frame is
+ * measured, and the built-in model says what happens in each part of the video. Each has its own switch; off, clip
+ * picking goes by the words and the loudness alone, as before.
+ */
+function SensesSetup({ s, onSaved }: { s: Settings; onSaved: () => Promise<void> }) {
+  const [st, setSt] = useState<SensesStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(() => api.senses().then(setSt).catch(() => undefined), []);
+  useEffect(() => { void refresh(); }, [refresh, s.ai_provider]);
+  const save = async (patch: Settings, done: string) => {
+    setBusy(true);
+    try {
+      await api.saveSettings(patch);
+      await onSaved();
+      await refresh();
+      toast(done);
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setBusy(false);
+  };
+  const listenOn = s.ai_listen !== false;
+  const watchOn = s.ai_watch !== false;
+  const l = st?.listen;
+  const d = st?.describe;
+  return (
+    <section className="panel" aria-labelledby="ai-senses">
+      <div className="panel-head"><h2 id="ai-senses">Watching and listening</h2>
+        {st && <Pill tone={listenOn || watchOn ? "good" : "info"} icon={listenOn || watchOn ? "check" : undefined}>
+          {listenOn && watchOn ? "Watches and listens" : listenOn ? "Listens only" : watchOn ? "Watches only" : "Off"}</Pill>}</div>
+      <p className="small">Before choosing clips, ClipForge AI listens to the whole sound track and watches the whole video, so it
+        knows what happens instead of guessing from the words and how loud it gets. A clip that ends on a real laugh, a cheer or
+        an explosion, or shows something happening, counts for more, and you can ask ClipForge AI what is seen or heard in any
+        clip or moment. Everything runs on this computer and is kept with the project, so making clips again is quick.</p>
+      <div className="stack-2">
+        <label className="row" style={{ gap: 6 }}>
+          <input type="checkbox" checked={listenOn} disabled={busy}
+            onChange={(e) => void save({ ai_listen: e.target.checked },
+              e.target.checked ? "ClipForge AI listens to every video." : "Listening is off: reactions are guessed from loudness.")} />
+          <span><b>Listen to the sound</b>: names every sound (laughter, applause, cheering, music, crashes, explosions, {l?.classes || 521} kinds)
+            with {l?.name || "YAMNet"} ({l?.license || "Apache-2.0"}, {l?.bytes ? mb(l.bytes) : "8 MB"}, comes with ClipForge). About a minute per hour of video.</span>
+        </label>
+        {listenOn && l && !l.usable && <Pill tone="warn" icon="alert">Cannot listen on this computer: {l.problem || "the sound model did not load"}</Pill>}
+        <label className="row" style={{ gap: 6 }}>
+          <input type="checkbox" checked={watchOn} disabled={busy}
+            onChange={(e) => void save({ ai_watch: e.target.checked },
+              e.target.checked ? "ClipForge AI watches every video." : "Watching is off: only the finalists' pictures are looked at.")} />
+          <span><b>Watch the video frame by frame</b>: {st ? st.watch.fps[0] : 2} frames a second (fewer for long videos), measuring movement,
+            cuts, faces and light in every frame. With the built-in model it also says in words what happens in each part,
+            most promising parts first.</span>
+        </label>
+        {watchOn && d && !d.on && <p className="small muted">{!d.builtin
+          ? "Saying what happens needs the built-in model (choose it above). Until then the picture is measured, not described."
+          : "Saying what happens is off because looking at the picture is off."}</p>}
+        {watchOn && d?.on && <p className="small muted">The model watches for at most {d.budget_s > 0 ? `${Math.round(d.budget_s / 60)} minutes`
+          : "40% of the video's length (between 1.5 and 10 minutes)"} per video; what it already watched is kept, so the next run adds to it.</p>}
+      </div>
+    </section>
   );
 }
 

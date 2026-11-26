@@ -85,8 +85,11 @@ def select(results: list[dict], count: int, min_score: float, sentences: list[di
         if not reasons:
             sims = [(c, similarity(r, c, sentences, emb)) for c in chosen]
             close = max(sims, key=lambda x: x[1]["combined"], default=None)
-            if close and close[1]["overlap"] > OVERLAP:
-                reasons.append(f"Overlaps a better clip (“{close[0].get('title', '')[:60]}”)")
+            # every chosen clip is checked for overlap: a clip with no words in common (a stretch of time built
+            # around a moment) can overlap one that is not the most alike
+            over = max(sims, key=lambda x: x[1]["overlap"], default=None)
+            if over and over[1]["overlap"] > OVERLAP:
+                reasons.append(f"Overlaps a better clip (“{over[0].get('title', '')[:60]}”)")
             elif close and close[1]["combined"] >= SIMILAR:
                 reasons.append(f"Too similar to a better clip (“{close[0].get('title', '')[:60]}”, "
                                f"{close[1]['combined']:.0%} alike)")
