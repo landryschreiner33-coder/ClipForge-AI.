@@ -254,65 +254,118 @@ def _span(phrase: str, rows: list[dict], verb: str, rest: str) -> list[dict]:
 # ------------------------------------------------------------------ rules: requests understood without AI
 def _clauses(text: str) -> list[str]:
     parts = re.split(r"\s*(?:;|\.\s+|,?\s+and then\s+|,?\s+then\s+|,?\s+and also\s+|,?\s+and\s+(?=(?:make|move|put|"
-                     r"remove|cut|lower|raise|turn|use|shorten|trim|delete|drop|switch|add|show|hide|set|end|"
-                     r"finish)\b))\s*",
+                     r"remove|cut|lower|raise|turn|use|shorten|trim|delete|drop|switch|add|show|hide|set)\b|"
+                     r"(?:end|finish) (?:it|them|the music|the song|the soundtrack|my music|my song)\b))\s*",
                      text.strip().rstrip("."))
     return [p for p in (x.strip(" ,") for x in parts) if p]
 
 
-_LAST_FRAME = re.compile(r"\b(?:(?:the )?(?:very )?(?:last|final) (?:frame|second|moment|shot)|"
-                         r"(?:the )?(?:very )?end of (?:the |my |this )?video|"
-                         r"(?:the |my |this )?video(?:'s| s)? (?:ends?|finishes|is over)|"
-                         r"with (?:the |my |this )?video|the (?:very )?end)\b")
-_ENDS = re.compile(r"\b(?:end|ends|ended|ending|finish|finishes|finished|finishing|land|lands|landing|"
-                   r"back[- ]?tim\w*)\b")
-_NOT = re.compile(r"\b(?:don'?t|do not|never|no longer|not|undo|turn off|switch off|untick|uncheck|without|stop)\b")
+_NOT_VIDEO = r"(?!\s+of\b(?!\s+(?:the |my |this )?video\b))"  # "the end of clip 2" is a part's end, not the video's
+_LAST_FRAME = re.compile(r"\b(?:(?:the )?(?:very )?(?:last|final) (?:frame|second|moment|shot)" + _NOT_VIDEO +
+                         r"|(?:the )?(?:very )?end of (?:the |my |this )?video"
+                         r"|(?:the |my |this )?video(?:'s| s)? (?:ends?|finishes|is over)"
+                         r"|(?:with|at the same time as) (?:the |my |this )?video"
+                         r"|the (?:very )?end" + _NOT_VIDEO + r")\b")
+_ENDS = re.compile(r"\b(?:end|ends|ended|ending|finish|finishes|finished|finishing|back[- ]?tim\w*)\b")
+# the music-level rule's words, a fade, new or other music, music over a shot, music that ends too early: not this
+# rule's (as before it)
+_NOT_THIS = re.compile(r"\b(?:before|early|earlier|too soon|cut off|"
+                       r"duck\w*|dip\w*|lower|louder|quieter|softer|reduce|less|turn (?:\w+ ){0,2}?(?:down|up)|"
+                       r"raise|increase|bring up|too loud|volume|mute\w*|fade\w*|db|add|replace|swap|change|use|pick|"
+                       r"choose|find|another|different|new|over (?:the|a|an|my|this|that))\b")
+_NEGATION = re.compile(r"n't\b|\b(?:not|never|no longer|without|stop|undo|instead)\b")
+_NEGATED_END = re.compile(r"(?:n't|\bnot|\bnever|\bno longer|\bstop)\s+"
+                          r"(?:end|ending|finish|finishing|back[- ]?tim\w*)\b")
+# the music itself ending ("so it ends with the video"), never "the end" as a place ("the music at the end")
+_MUSIC_ENDS = re.compile(r"\b(?:music|song|soundtrack|it)\b(?:\s+\w+){0,2}?\s+(?<!the )(?:end|ends|ending|finish|"
+                         r"finishes|finishing)\b|\b(?:end|finish)\s+(?:it|the music|the song|the soundtrack)\b")
+_SETTING = re.compile(r"\bend(?:s|ing)? on the last frame\b")  # the option's own name in Sound
+_TURN_ON = re.compile(r"\b(?:tick|check|turn on|switch on|enable)\b")
+_TURN_OFF = re.compile(r"\b(?:untick|uncheck|turn off|switch off|disable)\b")
 _OWN_START = re.compile(r"\bfrom (?:its|their) (?:own )?(?:start|beginning|top)\b|\bat (?:its|their) own "
                         r"(?:start|beginning)\b|\bfrom the (?:start|beginning|top) of the (?:song|music|track)\b")
 
 
 def _back_time_said(t: str) -> bool | None:
-    """True for "end the music on the last frame", False for "don't …" or "play the song from its start", None when
-    the clause says neither (the music's level, a fade at the end: other rules or the AI)."""
-    if re.search(r"\bback[- ]?tim\w*", t):
-        return not _NOT.search(t)
-    if _OWN_START.search(t) and re.search(r"\b(?:start|starts|begin|begins|play|plays|run|runs)\b", t):
+    """True for "end the music on the last frame", False for "don't end …" or "play the song from its start", None
+    for anything else, and for anything unclear: then the other rules (the music's level, as before) or the AI
+    answer it. A negation turns it off only right before the ending ("don't end", "no longer finish"); another one
+    ("…, not earlier", "without a hard cut") leaves the request to the AI."""
+    t = re.sub(r"\bthe end of (?:the |my |this )?(?:song|music|soundtrack|track)\b", "the music's ending", t)
+    if _NOT_THIS.search(t):
+        return None
+    if _SETTING.search(t) and (_TURN_ON.search(t) or _TURN_OFF.search(t)):  # "untick End on the last frame"
+        if _NEGATION.search(t) or (_TURN_ON.search(t) and _TURN_OFF.search(t)):
+            return None
+        return not _TURN_OFF.search(t)
+    back = re.search(r"\bback[- ]?tim\w*", t)
+    ending = bool(_LAST_FRAME.search(t)) and bool(_ENDS.search(_LAST_FRAME.sub(" ", t)))  # "the end" alone is a place
+    own_start = bool(_OWN_START.search(t)) and bool(re.search(r"\b(?:start|starts|begin|begins|play|plays)\b", t))
+    if own_start:
+        return None if back or ending or _NEGATION.search(t) else False
+    if not (back or ending):
+        return None
+    if _NEGATED_END.search(t) or (back and _TURN_OFF.search(t)):
         return False
-    if not _LAST_FRAME.search(t) or re.search(r"\b(?:before|too early|too soon|early|fade\w*|lower|quieter|"
-                                              r"louder|cut off)\b", t):
-        return None
-    if not _ENDS.search(_LAST_FRAME.sub(" ", t)):  # "the end" alone is where, not what: "lower the music at the end"
-        return None
-    return not _NOT.search(t)
+    return None if _NEGATION.search(t) or _TURN_OFF.search(t) else True
+
+
+def _is_own_music(item: dict, assets: dict[str, dict] | None) -> bool | None:
+    """Whether a music item is ClipForge's own (a library bed), None when its file is unknown."""
+    a = (assets or {}).get(item.get("asset_id"))
+    return str(a.get("filename") or "").startswith(sound_joins.LIBRARY_MUSIC_PREFIX) if a else None
 
 
 def _ends_on_last_frame(item: dict, assets: dict[str, dict] | None) -> bool | None:
     """Whether a music item is set to end on the video's last frame (sound_joins.back_times), None when unknown."""
     if item.get("back_time") is not None:
         return bool(item["back_time"])
-    a = (assets or {}).get(item.get("asset_id"))
-    return sound_joins.back_times(item, a.get("filename", "")) if a else None
+    own = _is_own_music(item, assets)
+    return None if own is None else own
 
 
 def _repeats_to_end(plan: dict) -> set[str]:
-    """Music items that can end on the last frame: set to Loop and playing to the video's end (engine._back_timed)."""
-    total = engine.duration_ms(plan)
-    return {p["audio_id"] for p in engine.audio_timeline(plan, None, total)
+    """Music items that can end on the last frame: set to Loop and playing to the video's end, on whole frames as the
+    render places them (engine.render: frame_map, render_timeline, then _back_timed)."""
+    fps = int((plan.get("output") or {}).get("fps") or 30)
+    els, _ = engine.frame_map(plan, fps)
+    if not els:
+        return set()
+    total = round(els[-1]["end_f"] / fps * 1000)
+    return {p["audio_id"] for p in engine.audio_timeline(plan, engine.render_timeline(plan, fps), total)
             if p["role"] == "music" and p["loop"] and p["out_end_ms"] >= total - 1}
 
 
-def _back_time(plan: dict, assets: dict[str, dict] | None, on: bool) -> tuple[list[dict], str, str]:
+def _why_not(item: dict, plan: dict) -> str:
+    """Why a music item cannot end on the last frame, in the Sound panel's words."""
+    if item.get("mute"):
+        return "it is muted (untick Mute in Sound first)"
+    anchor = item.get("anchor") or {}
+    if anchor and not any(c["id"] == anchor.get("clip_id") and c.get("include", True)
+                          for c in plan.get("clips") or []):
+        return "the clip it follows was removed, so it is not heard"
+    if not item.get("loop"):
+        return "it is not set to Loop (tick Loop on it in Sound first)"
+    return "it stops before the end of the video (set Plays for to 0 in Sound, so it plays to the end)"
+
+
+def _back_time(plan: dict, assets: dict[str, dict] | None, on: bool, t: str) -> tuple[list[dict], str, str]:
     music = [i for i in plan.get("audio") or [] if i.get("role") == "music"]
     if not music:
         raise _Explain("There is no music in this video yet. Add some in Sound first.")
+    # "my song" is the owner's own music, "ClipForge's music" the library's: the other one is left alone
+    if re.search(r"\bclipforge(?:'s)?\b", t):
+        music = [i for i in music if _is_own_music(i, assets) is not False] or music
+    elif re.search(r"\b(?:my|our) (?:own )?(?:songs?|music|soundtrack)\b|\bsongs?\b", t):
+        music = [i for i in music if _is_own_music(i, assets) is not True] or music
     ids = _repeats_to_end(plan)
     can = [i for i in music if i["id"] in ids]
     if not can:
         if not on:
             raise _Explain("No music here ends on the last frame: only music set to Loop that plays to the end of "
                            "the video can.")
-        raise _Explain("Only music set to Loop that plays to the end of the video can end on its last frame. Tick "
-                       "Loop on the music in Sound (and let it play to the end) first.")
+        why = "; ".join(f"“{_text(i.get('label'), 40)}”: {_why_not(i, plan)}" for i in music[:3])
+        raise _Explain(f"Only music set to Loop that plays to the end of the video can end on its last frame. {why}.")
     todo = [i for i in can if _ends_on_last_frame(i, assets) is not on]
     if not todo:
         raise _Explain("The music already ends on the video's last frame." if on else
@@ -357,10 +410,11 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str,
         return ([{"op": "shorten_intro", "seconds": secs}],
                 f"Shorten the introduction by up to {secs:g} s, cutting at a sentence start.", "")
     # music that ends on the video's last frame ("End on the last frame" in Sound, studio/sound_joins.py)
-    if re.search(r"\b(music|songs?|soundtrack)\b", t) or (subject == "music" and re.search(r"\b(it|its)\b", t)):
+    if re.search(r"\b(music|songs?|soundtrack)\b", t) or _SETTING.search(t) or \
+            (subject == "music" and re.search(r"\b(it|its)\b", t)):
         on = _back_time_said(t)
         if on is not None:
-            return _back_time(plan, assets, on)
+            return _back_time(plan, assets, on, t)
     # music under speech, music level
     if re.search(r"\bmusic\b", t):
         music = [i for i in plan.get("audio") or [] if i.get("role") == "music"]
@@ -369,6 +423,8 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str,
         louder = re.search(r"\b(raise|louder|turn up|increase|more music|bring up)\b", t)
         quieter = re.search(r"\b(lower|quieter|turn down|reduce|softer|less|too loud|duck|dip)\b", t)
         if under_speech or quieter or louder:
+            if _MUSIC_ENDS.search(t) and _LAST_FRAME.search(t):
+                raise LookupError("a level and the music's ending in one part: the AI, never half of it")
             if not music:
                 raise _Explain("There is no music in this video yet. Add some in Sound first.")
             if under_speech and not louder:
@@ -654,7 +710,8 @@ def _translate(p: dict, op: object) -> dict:
         if type(op.get("value")) is not bool:
             raise Invalid("“audio_back_time” needs a value of true or false.")
         if op.get("audio_id") not in _repeats_to_end(p):
-            raise Invalid("Only music set to Loop that plays to the end of the video can end on its last frame.")
+            raise Invalid("Only music set to Loop that plays to the end of the video, and is heard, can end on its "
+                          "last frame.")
         return {"op": "audio_set", "audio_id": op["audio_id"], "field": "back_time", "value": op["value"]}
     secs = op.get("seconds")
     if isinstance(secs, bool) or not isinstance(secs, (int, float)) or not 0.5 <= secs <= 120:
@@ -686,8 +743,9 @@ def check(plan: dict, ops: object, words: dict[str, list[dict]], assets: dict[st
     return p, notes
 
 
-def changes(old: dict, new: dict) -> list[str]:
-    """What the proposal changes, line by line, in the editor's own clip numbers."""
+def changes(old: dict, new: dict, assets: dict[str, dict] | None = None) -> list[str]:
+    """What the proposal changes, line by line, in the editor's own clip numbers. `assets` tell which music is
+    ClipForge's own (it ends on the last frame unless told not to), so a setting that changes nothing is no line."""
     out: list[str] = []
     before = {c["id"]: (k, c) for k, c in enumerate(old.get("clips") or [])}
     new_ids = {c["id"] for c in new.get("clips") or []}
@@ -735,9 +793,10 @@ def changes(old: dict, new: dict) -> list[str]:
         if o and bool(o.get("duck", True)) != bool(i.get("duck", True)):
             out.append(f"“{_text(i.get('label'), 40)}” {'dips' if i.get('duck', True) else 'no longer dips'} under "
                        "speech")
-        if o and o.get("back_time") != i.get("back_time") and i.get("back_time") is not None:
+        was, now = (_ends_on_last_frame(x, assets) for x in (o or {}, i))
+        if o and i.get("role") == "music" and now is not None and was is not now:
             out.append(f"“{_text(i.get('label'), 40)}” " + ("ends on the video's last frame (it starts inside the "
-                       "music and fades in)" if i["back_time"] else "starts at its own start"))
+                       "music and fades in)" if now else "starts at its own start"))
     oc2, nc2 = old.get("color") or {}, new.get("color") or {}
     if oc2 != nc2:
         out += _color_changes(oc2, nc2)
@@ -822,7 +881,7 @@ inside it; at most 12 operations):
 
 
 def build_prompt(text: str, plan: dict, rows: list[dict], guidance: dict, memories: str = "",
-                 knowhow: str = "") -> str:
+                 knowhow: str = "", assets: dict[str, dict] | None = None) -> str:
     """Everything the AI service is sent, bounded to CONTEXT_CHARS: no file paths, no keys, no media. `memories` is
     the brain's block for this request (brain.Recall.prompt), at most MEMORY_CHARS; `knowhow` the playbooks that fit
     it (brain.knowhow.Picked.prompt), at most KNOWHOW_CHARS."""
@@ -834,7 +893,7 @@ def build_prompt(text: str, plan: dict, rows: list[dict], guidance: dict, memori
              "music_level_db": next((i.get("gain_db") for i in plan.get("audio") or [] if i.get("role") == "music"),
                                     None),
              "music": [{"id": i["id"], "label": _text(i.get("label"), 60), "repeats_to_end": i["id"] in to_end,
-                        "ends_on_last_frame": i.get("back_time")}
+                        "ends_on_last_frame": _ends_on_last_frame(i, assets)}
                        for i in plan.get("audio") or [] if i.get("role") == "music"][:6],
              "aspect": (plan.get("output") or {}).get("aspect"), "length_ms": engine.duration_ms(plan),
              "color": plan.get("color") or "none (only phone HDR converted)"}
@@ -928,7 +987,8 @@ def _context(project: dict, revision: int) -> tuple[dict, dict, dict, list[dict]
 
 def _proposal(plan: dict, ops: list, words: dict, assets: dict, summary: str) -> dict:
     new, notes = check(plan, ops, words, assets)
-    return {"format": FORMAT, "summary": summary, "operations": ops, "notes": notes, "changes": changes(plan, new),
+    return {"format": FORMAT, "summary": summary, "operations": ops, "notes": notes,
+            "changes": changes(plan, new, assets),
             "duration_ms": [engine.duration_ms(plan), engine.duration_ms(new)]}
 
 
@@ -1009,19 +1069,19 @@ def ask(project_id: str, ws: str, text: str, base_revision: int | None = None) -
         know = _knowhow(text)
         try:
             try:
-                prompt = build_prompt(text, plan, rows, guidance, rec.prompt(), know.prompt())
+                prompt = build_prompt(text, plan, rows, guidance, rec.prompt(), know.prompt(), assets)
             except Invalid:
                 if rec.empty and know.empty:
                     raise
                 # a long video: the clips come first; the know-how is left out, then the memories
                 know = type(know)()
                 try:
-                    prompt = build_prompt(text, plan, rows, guidance, rec.prompt())
+                    prompt = build_prompt(text, plan, rows, guidance, rec.prompt(), assets=assets)
                 except Invalid:
                     if rec.empty:
                         raise
                     rec = type(rec)()
-                    prompt = build_prompt(text, plan, rows, guidance)
+                    prompt = build_prompt(text, plan, rows, guidance, assets=assets)
         except Invalid as exc:
             row.update(status="unsupported", message=str(exc))
             return _view(db.insert("edit_requests", row))
