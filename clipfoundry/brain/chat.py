@@ -485,8 +485,8 @@ def _talk(chat: dict, text: str, agent: dict | None) -> dict:
                 "status": "failed"}
     label = llm.provider_label(settings)
     what = ("the conversation, the memories, know-how and lines of your switched-on skills that fit it, your "
-            "project names, the details of the projects and clips it looks at and your posts' results when it reads "
-            "them. Never your files or their sound.")
+            "project names, the details of the projects and clips it looks at, your posts' results when it reads "
+            "them, and answers you marked 👍 or 👎 that fit it (with your reason). Never your files or their sound.")
     sent = (f"Stays on this computer: {label} answers it." if local else f"Sent over the internet to {label}: {what}")
     data: dict = {"tool": "talk", "provider": label, "sent": sent, "remote": not local}
     role = "ai"

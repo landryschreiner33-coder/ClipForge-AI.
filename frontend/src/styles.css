@@ -1105,6 +1105,11 @@ html[data-page-hidden="true"] .cfai-dots i { animation-play-state: paused; }
 .cfai-remembered .link-btn { font-size: var(--fs-tiny); }
 .cfai-meta { display: flex; gap: 6px; align-items: flex-start; margin: 0; font-size: var(--fs-tiny); color: var(--text-3); line-height: 1.45; }
 .cfai-meta .icon { margin-top: 1px; flex: none; }
+.cfai-rate { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: -2px; }
+.cfai-rate .btn-icon { color: var(--text-3); }
+.cfai-rate .btn-icon.on { color: var(--primary); background: var(--primary-tint); }
+.cfai-why { display: flex; flex: 1 1 220px; gap: var(--s1); min-width: 0; }
+.cfai-why input { flex: 1; min-width: 0; }
 /* above the conversation: no model yet, a better model, a problem */
 .cfai-setup {
   display: grid; gap: var(--s3); padding: var(--s4); border: 1px solid var(--line-strong); border-left: 4px solid var(--primary);

@@ -1001,6 +1001,24 @@ only the owner's own words (`brain/intents.py`):
 What a guard caught is saved with the message (`data.guards`, such as `["act", "fallback:results",
 "show:results"]`) and printed by the real-model check. The check gained turn 4, "How are my clips doing?".
 
+## Thumbs on answers (2026-11-26)
+
+Every finished answer of ClipForge AI, and of a helper talked to with "@Name", has 👍 and 👎 under it
+(`ClipForgeAI.tsx`, `Rate`). 👎 opens a short box, "What would have been better? (optional)". Pressing the same thumb
+again takes the rating back. `POST /api/brain/chats/{chat_id}/messages/{message_id}/rating` `{good: true|false|null,
+why?}` saves it in the answer's own message (`data.rating`: good, why, the owner's question it answered, when), so
+it goes with its chat: clearing or deleting the chat, or deleting its project, removes it too.
+
+`brain/ratings.py` (`taste`) adds to the system prompt, before "Right now" (at most ~1,500 characters):
+
+- the liked answer to the question most like the new one (at least two shared words and 30% of all words), as an
+  example of the way to answer, with a warning never to copy its facts, which come from the app as it is now;
+- the newest three reasons the owner gave for 👎 ("too long, give me three"), to avoid;
+- a disliked answer to a question very like the new one (50%), with "Answer differently".
+
+ClipForge AI's own answers teach ClipForge AI; a helper's teach that helper only. The chat's "Sent over the
+internet" line and the privacy page name the rated answers an online model may read.
+
 ## Acting without asking, and the new commands (2026-11-26)
 
 Landry asked for an assistant that can "do anything in the app" and then, on Nov 26, "no i want it to be able to do it

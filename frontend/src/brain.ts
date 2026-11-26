@@ -120,7 +120,9 @@ export type ChatData = { tool?: ChatTool; used?: UsedMemory[]; knowhow?: UsedKno
   /** work a command queued (a render, a project made again, a post moved): the chat follows its state */
   work?: ChatWork[];
   /** answered without a model: it offers to set up the built-in model */
-  setup?: boolean };
+  setup?: boolean;
+  /** your 👍 (good) or 👎 on this answer, with the reason you gave for 👎 (brain/ratings.py) */
+  rating?: { good: boolean; why: string; at: number } };
 export type ChatWork = { kind: "project" | "clip" | "post" | "job"; id: string; label: string; started: number };
 export type WorkState = { state: "queued" | "running" | "completed" | "failed" | "canceled"; progress: number;
   message: string; href: string };
@@ -166,6 +168,9 @@ export const chatApi = {
   /** Your OK (true) or no (false) for a change or delete ClipForge AI proposed. */
   decide: (chatId: string, messageId: string, actionId: string, doIt: boolean) =>
     req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/actions/${actionId}`, { do: doIt }),
+  /** 👍 (true) or 👎 (false) on an answer, with an optional reason for 👎; null takes it back. */
+  rate: (chatId: string, messageId: string, good: boolean | null, why = "") =>
+    req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/rating`, { good, why }),
 };
 
 // ------------------------------------------------------------------ helper agents (Brain → Agents)

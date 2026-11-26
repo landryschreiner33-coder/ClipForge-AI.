@@ -393,13 +393,25 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
       setActing(false);
     }
   };
+  /** 👍 or 👎 on an answer (brain/ratings.py); pressing the same thumb again takes it back. */
+  const rate = async (m: ChatMessage, good: boolean | null, why = "") => {
+    if (!chat) return;
+    try {
+      replace(await chatApi.rate(chat.id, m.id, good, why));
+      if (good === true) toast("Thanks: ClipForge AI will answer more like this.");
+      else if (good === false && why) toast("Thanks: ClipForge AI will keep that in mind.");
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+  };
   // Stable handles for the messages (they redraw only when their own message changes while an answer is written).
-  const latest = useRef({ act, send, decide });
-  latest.current = { act, send, decide };
+  const latest = useRef({ act, send, decide, rate });
+  latest.current = { act, send, decide, rate };
   const onAct = useCallback((m: ChatMessage, what: "apply" | "discard") => latest.current.act(m, what), []);
   const onSend = useCallback((words: string, keyboard = false, choice = false, forget?: string) =>
     latest.current.send(words, false, keyboard, choice, forget), []);
   const onDecide = useCallback((m: ChatMessage, a: ChatAction, doIt: boolean) => latest.current.decide(m, a, doIt), []);
+  const onRate = useCallback((m: ChatMessage, good: boolean | null, why?: string) => latest.current.rate(m, good, why), []);
   // "Clear this chat" goes with the messages, so the dialog cannot give the focus back to it: the conversation takes it.
   const cleared = useRef(false);
   const clear = async () => {
@@ -518,7 +530,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
         {msgs.map((m) => m.role === "owner"
           ? <Owner key={m.id} m={m} agents={agents} />
           : <Answer key={m.id} m={m} last={m.id === lastId} busy={locked} sending={sending || !!writing} onAct={onAct} onSend={onSend}
-            onDecide={onDecide} />)}
+            onDecide={onDecide} onRate={onRate} />)}
       </div>
       {lost && polling && <p className="cfai-meta"><Icon name="offline" className="xs" />ClipForge is not answering right now; trying again…</p>}
       {helpers.length > 0 && (
@@ -610,10 +622,10 @@ const Owner = memo(function Owner({ m, agents }: { m: ChatMessage; agents: ChatA
 type SendWords = (words: string, keyboard?: boolean, choice?: boolean, forget?: string) => Promise<void>;
 
 /** ClipForge AI's answer, or a helper's when you talked to it with @. It is drawn again only when it changes. */
-const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onDecide }: {
+const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onDecide, onRate }: {
   m: ChatMessage; last: boolean; busy: boolean; sending: boolean;
   onAct: (m: ChatMessage, what: "apply" | "discard") => Promise<void>; onSend: SendWords;
-  onDecide: (m: ChatMessage, a: ChatAction, doIt: boolean) => Promise<void>;
+  onDecide: (m: ChatMessage, a: ChatAction, doIt: boolean) => Promise<void>; onRate: RateAnswer;
 }) {
   const d: ChatData = m.data || {};
   const agent = m.role === "agent" ? d.agent || { id: "", name: "Helper", icon: "🤖" } : null;
@@ -649,10 +661,50 @@ const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onD
           {d.tool === "remember" && d.memory && <Remembered mem={d.memory} short />}
         </div>}
         {!thinking && <Meta d={d} failed={m.status === "failed"} />}
+        {!thinking && m.status === "done" && (m.text || (d.steps || []).length > 0) && d.tool !== "help" &&
+          <Rate m={m} onRate={onRate} />}
       </div>
     </div>
   );
 });
+
+type RateAnswer = (m: ChatMessage, good: boolean | null, why?: string) => Promise<void>;
+
+/** 👍 or 👎 on an answer: it teaches ClipForge AI (or the helper that wrote it) how you like answers. 👎 asks what
+ * would have been better, in a few words you may leave out. Pressing the same thumb again takes it back. */
+function Rate({ m, onRate }: { m: ChatMessage; onRate: RateAnswer }) {
+  const said = m.data?.rating;
+  const [asking, setAsking] = useState(false);
+  const [why, setWhy] = useState("");
+  const uid = useId();
+  const press = (good: boolean) => {
+    if (said && said.good === good) {
+      setAsking(false);
+      void onRate(m, null);
+    } else {
+      setAsking(!good);
+      void onRate(m, good);
+    }
+  };
+  return (
+    <div className="cfai-rate">
+      <button type="button" className={`btn btn-small btn-quiet btn-icon${said?.good === true ? " on" : ""}`}
+        aria-pressed={said?.good === true} aria-label="Helpful answer" title="Helpful"
+        onClick={() => press(true)}><Icon name="thumbup" /></button>
+      <button type="button" className={`btn btn-small btn-quiet btn-icon${said?.good === false ? " on" : ""}`}
+        aria-pressed={said?.good === false} aria-label="Not helpful" title="Not helpful"
+        onClick={() => press(false)}><Icon name="thumbdown" /></button>
+      {asking && said?.good === false ? (
+        <form className="cfai-why" onSubmit={(e) => { e.preventDefault(); void onRate(m, false, why).then(() => setAsking(false)); }}>
+          <label className="sr-only" htmlFor={`${uid}-why`}>What would have been better?</label>
+          <input id={`${uid}-why`} type="text" value={why} maxLength={300} autoFocus
+            placeholder="What would have been better? (optional)" onChange={(e) => setWhy(e.target.value)} />
+          <button type="submit" className="btn btn-small">Tell it</button>
+        </form>
+      ) : said?.good === false && said.why ? <span className="cfai-meta">You said: “{said.why}”</span> : null}
+    </div>
+  );
+}
 
 /** The dots while an answer is written; "Thinking…" before its first words. */
 function Typing({ quiet = false, label = "Thinking…" }: { quiet?: boolean; label?: string }) {

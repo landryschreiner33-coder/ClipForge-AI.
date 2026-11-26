@@ -948,8 +948,15 @@ def system_prompt(ws: str, chat: dict, text: str, tool_list: list[tools.Tool], s
                 "agent": name, "task": "Ideas for the owner's next video"}}]})
             examples += f"\nOwner: ask the {name} for ideas for my next video → {call}"
     alone = not agent and tools.acts_alone(settings)
+    try:  # the owner's 👍 and 👎 on earlier answers (brain/ratings.py)
+        from . import ratings
+
+        thumbs = ratings.taste(ws, text, agent["id"] if agent else "")
+    except Exception:  # noqa: BLE001 - reading them is a help, never a reason for the answer to fail
+        log.exception("reading the owner's ratings failed")
+        thumbs = ""
     parts = [who, FORMAT, ("Tools you can use:\n" + tools.describe(tool_list, alone)) if tool_list else
-             "You have no tools here: just answer.", examples,
+             "You have no tools here: just answer.", examples, thumbs,
              "Right now:\n" + app_context(ws, pid, b["context"]), rec.prompt(), know.prompt(), extra]
     return "\n\n".join(p for p in parts if p), rec, know
 
