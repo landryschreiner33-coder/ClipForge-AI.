@@ -1,5 +1,21 @@
 # AI handoff
 
+## Smoother motion without GSAP — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** the held Taser no longer twitches when it lunges, a zapped robot stops walking so the
+lightning stays on it, menus, dialogs, the small-window menu and notes ease in and out instead of blinking, the ship's
+camera glides between rooms and the Brain map's zoom and Fit glide, the caption preview pops each new line like the
+finished video, and moving a file or scene up or down slides it into place. GSAP was looked at and not added.
+
+- **Where things are:** `frontend/src/smooth.ts` (`useLeave` for closing pop-ups, `useSlide` for reordered lists),
+  space.css "pop-ups" (entrances), `OfficeMotion.stun`, OfficeMap `pickRoom` + the camera glide, BrainGraph
+  `glideTo`, StyleStudio `pops`/`grow`, TaserItem `LUNGE`.
+- **Worth knowing:** a closing pop-up is removed by React at once; `useLeave` clones it (inert, aria-hidden, no ids or
+  names, `.leaving`) for the fade, so tests that read text right after a close may briefly see the copy through
+  `getByText` (never through `getByRole`). Pop-ups with an iframe, video, audio, canvas, object or embed skip the
+  copy. The Taser's sway must stay on `rotate`/`translate` and the lunge on `transform`, or they fight again.
+  Everything checks `data-motion="reduced"` itself because Web Animations ignore the CSS kill switch.
+
 ## ClipForge AI watches and listens — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** before picking clips ClipForge now listens to every sound (a sound model that ships with

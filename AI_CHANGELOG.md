@@ -1,5 +1,32 @@
 # AI changelog
 
+## Smoother motion without GSAP: Taser, zapped robots, pop-ups, glides, caption pop, reordering — 2026-11-26 (Claude Code)
+
+Landry asked whether GSAP could improve anything. The answer was no (it can't reach the canvas and WebGL loops or the
+Python-rendered videos, ticks outside `document.getAnimations()` and the Reduced-motion switch, and has a
+proprietary licence), so the six rough spots found on the way were smoothed with the browser's own animations.
+Branch `claude/project-thread-wkj3fp`.
+
+- **Taser:** the held Taser's sway uses `rotate`/`translate` (space.css) and the lunge is a Web Animation on
+  `transform` (TaserItem.tsx), so they add up instead of fighting over one property (it used to snap about 3 degrees).
+  The lunge and the ship's jolt restart without a forced reflow.
+- **A zapped robot stands still** for its reaction (OfficeMotion.stun), so the lightning and words stay on it; its
+  job and route are untouched and it walks on afterwards. Not under Reduced motion (nothing walks then anyway).
+- **Pop-ups ease in and out** (`frontend/src/smooth.ts`, space.css "pop-ups"): dialogs rise in and fade out, menus
+  (Make, More, Brain) scale in and out, the small-window menu slides, notes slide up and fade. Closing never waits:
+  the real element is gone at once (focus, clicks, screen readers move on) and only an inert, aria-hidden copy with no
+  ids or names fades. Pop-ups holding a frame, video or canvas close at once. A note replaced by a new one replays
+  its entrance.
+- **Glides:** picking a room on the ship glides the camera there (450 ms, OfficeMap.tsx; not under Reduced motion or
+  Low power). The Brain graph's zoom buttons, arrow keys, 0 and Fit glide the view (260 ms, BrainGraph.tsx); a drag
+  stops a glide.
+- **Caption preview** (Brain → Styles) plays the export's pop on each new line (90 ms from the preset's `pop`,
+  captions.py) and High energy's bigger current word; it re-renders 20 times a second instead of every frame.
+- **Reordering slides:** files on Make a YouTube video and scenes of an animated short slide to their new place
+  (FLIP, `useSlide`).
+- Everything is instant under Reduced motion and visible to `document.getAnimations()` (the demo recorder and the
+  browser checks step it). No new dependency.
+
 ## ClipForge AI watches and listens — 2026-11-26 (Claude Code)
 
 Landry: "Make it so it can actually watch the videos frame by frame and listen to the audio or piece of media, so it

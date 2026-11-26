@@ -159,10 +159,17 @@ test("the graph exposes saved notes, shared topics and actual decision/result pr
   await expect(page.getByLabel("Graph zoom", { exact: true })).toHaveText("125%");
   await page.getByRole("button", { name: "Fit graph", exact: true }).click();
   await expect(page.getByLabel("Graph zoom", { exact: true })).toHaveText("100%");
+  // zooming, fitting and arrow-key pans glide (about a quarter of a second): read the view once the fit has settled
+  const settled = async () => {
+    const first = await graph.getAttribute("viewBox");
+    await page.waitForTimeout(100);
+    return first === await graph.getAttribute("viewBox");
+  };
+  await expect.poll(settled).toBe(true);
   const before = await graph.getAttribute("viewBox");
   await graph.focus();
   await graph.press("ArrowRight");
-  expect(await graph.getAttribute("viewBox")).not.toBe(before);
+  await expect.poll(() => graph.getAttribute("viewBox")).not.toBe(before);
   await page.getByLabel("Search knowledge graph", { exact: true }).fill("cooking");
   await expect(graph.getByRole("button", { name: "Note: The science of sleep", exact: true })).toHaveCount(0);
   await expect(graph.getByRole("button", { name: "Example: Cooking story", exact: true })).toBeVisible();

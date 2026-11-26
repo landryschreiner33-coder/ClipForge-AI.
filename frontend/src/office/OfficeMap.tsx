@@ -77,6 +77,29 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   const zoom = focused ? Math.min(VIEW.w / focused.w, VIEW.h / focused.h) * 0.84 : 1;
   const pan = focused ? `translate(${(VIEW.w / 2 - (focused.x - VIEW.x) - focused.w / 2) * scale * zoom}px, ${
     (VIEW.h / 2 - (focused.y - VIEW.y) - focused.h / 2) * scale * zoom}px)` : undefined;
+  // Picking a room (or Whole ship) glides there, like a camera move: the ship is laid out at its new size at once, and
+  // eases in from where it was on the screen, measured just before (so a pick during a glide carries on from there).
+  // At once under Reduced motion or Low power.
+  const camera = useRef<{ from: DOMRect | null; glide: Animation | null }>({ from: null, glide: null });
+  const pickRoom = (next: RoomId | "") => {
+    camera.current.from = world.current?.getBoundingClientRect() || null;
+    setFocus(next);
+  };
+  useLayoutEffect(() => {
+    const el = world.current, from = camera.current.from;
+    camera.current.from = null;
+    if (!el || !from) return;
+    camera.current.glide?.cancel();
+    camera.current.glide = null;
+    if (reduce || officeActivity === "low_power" || typeof el.animate !== "function" || !from.width) return;
+    const to = el.getBoundingClientRect(), end = new DOMMatrixReadOnly(pan || "none");
+    if (!to.width) return;
+    // the ship's own top-left corner (transform-origin 0 0), moved and scaled back to where it was drawn
+    const start = `translate(${from.left - to.left + end.e}px, ${from.top - to.top + end.f}px) scale(${
+      from.width / to.width})`;
+    camera.current.glide = el.animate([{ transform: start }, { transform: pan || "none" }],
+      { duration: 450, easing: "cubic-bezier(0.2, 0.75, 0.25, 1)" });
+  }, [focus]);  // eslint-disable-line react-hooks/exhaustive-deps
   const rows = useMemo(() => Object.fromEntries(snap.roles.map(r => [r.id, r])), [snap.roles]);
   const resting = Object.values(placements(snap.roles)).filter(p => p.lounge).length;
   const ratio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
@@ -165,6 +188,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         || ["paused", "pausing"].includes(state.snap.run.state);
       const lowPower = state.officeActivity === "low_power";
       const still = state.reduce || frozen || lowPower;
+      // a zapped robot stands still while its reaction plays, then walks on (OfficeMotion.stun)
+      for (const [id, z] of zaps) motion.stun(id, z.start + ZAP_MS[z.kind]);
       motion.tick(dt, now, state.reduce || lowPower, frozen, state.officeActivity === "full");
       // pixel crew step at about 12 frames a second; a still picture only needs to follow real changes. A Taser zap
       // plays smoothly, at 30 frames a second, even on a still ship (it is the person's own click).
@@ -265,7 +290,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       onPointerLeave={zapper.leave}>
       <div className="office-world" ref={world} data-smooth={effective < 1 ? "true" : "false"}
         style={{ width: VIEW.w * scale * zoom, height: VIEW.h * scale * zoom,
-          transform: pan, ["--s" as string]: scale * zoom } as React.CSSProperties}>
+          transform: pan, transformOrigin: "0 0", ["--s" as string]: scale * zoom } as React.CSSProperties}>
         {renderer === "ship" && <canvas key={renderer} ref={canvas} width={VIEW.w} height={VIEW.h}
           aria-hidden="true" />}
         {ROOMS.map(r => <button key={r.id} type="button" className={`room-hit${room === r.id ? " on" : ""}`}
@@ -305,7 +330,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
     <div className={`office-map-legend${simple ? " simple" : ""}`} aria-label="Ship view and robot states">
       {!simple && <span>{CAST.length} robots · {stale ? "Last known states" : "Live job states"}</span>}
       <label className="office-camera"><span className="sr-only">Ship view</span><select aria-label="Ship view"
-        value={focus} onChange={event => setFocus(event.target.value as RoomId | "")}>
+        value={focus} onChange={event => pickRoom(event.target.value as RoomId | "")}>
         <option value="">Whole ship</option>
         {ROOMS.map(r => <option key={r.id} value={r.id}>{ROOM_NAMES[r.id]}</option>)}
       </select></label>

@@ -57,6 +57,8 @@ export class OfficeMotion {
   private refOwners = new Map<string, Owner>();
   private cutoff: number;
   private lounge = new LoungeLife();
+  /** Robots stunned by the Taser (office/taser.ts) and until when: they stand still while their reaction plays. */
+  private stunned = new Map<string, number>();
   private stopped = false;
 
   constructor(snap: Snapshot) {
@@ -102,6 +104,13 @@ export class OfficeMotion {
     this.seen.clear();
     this.jobOwners.clear(); this.refOwners.clear();
     this.reconcile(snap, true);
+  }
+
+  /** A zapped robot stops where it is while its reaction plays (`until`, ms on the frame clock), so its lightning and
+   * words stay over it and a toppled robot does not slide along the floor; then it walks on. Its job is untouched:
+   * the Taser is play, and only where the robot is drawn waits. */
+  stun(id: string, until: number) {
+    if (this.actors.has(id)) this.stunned.set(id, until);
   }
 
   react(id: string, pose: Pose, now: number) {
@@ -151,12 +160,13 @@ export class OfficeMotion {
     if (frozen) return;
     if (!reduced && decorative) this.lounge.tick(dt, this.actors.values());
     else if (!decorative) this.lounge.reset();
+    for (const [id, until] of this.stunned) if (until <= now) this.stunned.delete(id);
     for (const a of this.actors.values()) {
       if (a.reaction && a.reaction.until < now) a.reaction = null;
       // Individually paused/unavailable workers may finish returning to a reserved resting place,
       // but only eligible workers rotate through decorative activities once they arrive.
       if (a.transfer === null) this.go(a, this.destination(a.id), reduced || this.atWork(a.id));
-      this.walk(a, dt, reduced);
+      if (reduced || !this.stunned.has(a.id)) this.walk(a, dt, reduced);
       this.faceBreak(a);
     }
     for (const tr of [...this.transfers.values()]) {
@@ -185,7 +195,8 @@ export class OfficeMotion {
   pose(a: MotionActor): Pose {
     const state = this.rows.get(a.id)?.state || "unavailable";
     const transfer = a.transfer === null ? null : this.transfers.get(a.transfer);
-    if (a.path.length) return a.card ? "carry" : "walk";
+    // a robot stunned on its way stands (its legs don't keep stepping on the spot)
+    if (a.path.length) return this.stunned.has(a.id) ? "idle" : a.card ? "carry" : "walk";
     if (this.blocked(a.id)) return POSE[state];
     if (transfer) {
       if (transfer.phase === "approach") return a.id === transfer.from ? "carry" : "wait";
