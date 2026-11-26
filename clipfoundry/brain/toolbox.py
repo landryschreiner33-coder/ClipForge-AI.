@@ -216,7 +216,8 @@ def _find_projects(ctx: Ctx, args: dict) -> Result:
                                                                       else "") + ":\n" + \
         "\n".join(line(p, now) for p in shown)
     return Result(clip(text), f"Looked at your projects ({len(every)})",
-                  {"links": [{"label": p["name"], "href": p["href"]} for p in shown[:4]]})
+                  {"links": [{"label": p["name"], "href": p["href"]} for p in shown[:4]]},
+                  show=clip("\n".join(line(p, now) for p in shown[:12])))
 
 
 def _open_project(ctx: Ctx, args: dict) -> Result:
@@ -230,8 +231,9 @@ def _recall(ctx: Ctx, args: dict) -> Result:
     found = [m for m in found if m.get("enabled", True) and not m.get("expired")]
     if not found:
         return Result("Nothing in the memory matches.", "Searched your memories: nothing")
-    return Result("\n".join(f"- [{m['kind']}] {one_line(m['text'])}" for m in found),
-                  f"Searched your memories ({len(found)} found)")
+    lines = [f"- [{m['kind']}] {one_line(m['text'])}" for m in found]
+    return Result("\n".join(lines), f"Searched your memories ({len(found)} found)",
+                  show="\n".join(f"- “{one_line(m['text'], 200)}”" for m in found))
 
 
 def _knowhow(ctx: Ctx, args: dict) -> Result:

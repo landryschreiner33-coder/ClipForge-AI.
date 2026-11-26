@@ -313,7 +313,7 @@ def run(ws: str, agent_id: str, task: str, *, context: str = "", chat: dict | No
     out = assistant.Outcome()
     try:
         assistant.think(settings, system, msgs, tool_list, ctx, max_tokens=RUN_TOKENS, max_steps=3, on_change=shown,
-                        out=out)
+                        out=out, said=task)
     except llm.Canceled:
         raise
     except (llm.ProviderError, assistant.Stopped) as exc:

@@ -69,6 +69,9 @@ class Result:
     summary: str = ""
     data: dict = field(default_factory=dict)
     ok: bool = True
+    show: str = ""
+    """What the owner should see of a looking tool's result (a list of projects, posts, results) when the model's
+    answer leaves it out: a small model can stop at "Here are your projects:" (assistant._show)."""
 
 
 @dataclass

@@ -82,7 +82,10 @@ EXAMPLES = (
     "\"args\": {}}]}\n"
     "Owner: never put music under my intros → {\"say\": \"Got it: no music under your intros from now on.\", "
     "\"do\": [{\"tool\": \"remember\", \"args\": {\"text\": \"never put music under my intros\", \"kind\": "
-    "\"rule\"}}]}")
+    "\"rule\"}}]}\n"
+    "Results: find_projects: 2 projects: - “Hike day” — clips project, 6 clips, ready - “Lake swim” — YouTube video "
+    "→ {\"say\": \"You have 2 projects: “Hike day” (6 clips, ready) and “Lake swim” (a YouTube video).\", "
+    "\"do\": []}")
 ASKING = ("- Changing or deleting the owner's things only happens when they press OK on the button your tool shows: "
           "say what will happen, never that it is done.")
 ALONE = ("- When the owner asks you to do something, do it with your commands: those marked \"Done at once\" "
@@ -101,6 +104,15 @@ def rules(settings: dict) -> str:
 
 
 RESULTS = "ClipForge's results (data from the app, not the owner's words):"
+NUDGE_ECHO = ("Your answer only repeated the owner's message. Do not repeat it: answer it, or do what it asks with "
+              "your tools.")
+NUDGE_ACT = ("You said you would look or do it, but you used no tool. Use the tool for it now, or answer the owner "
+             "directly.")
+NUDGE_SHORT = ("Your answer stopped where the list begins. Write the whole answer in \"say\", on one line, the items "
+               "separated by commas or semicolons, or use a tool to look them up.")
+NUDGE_EMPTY = "Your answer was empty. Answer the owner, or use a tool for what they asked."
+NUDGES = {"echo": NUDGE_ECHO, "act": NUDGE_ACT, "short": NUDGE_SHORT, "empty": NUDGE_EMPTY}
+_BRACKET = re.compile(r"^\s*\[[^\]\n]{1,48}\]\s*")  # "[Script writer] …": a helper's mark, never ClipForge AI's
 NEXT = ("Now reply to the owner using these results: give them what they asked for from the results (name the "
         "projects, say the facts). Do not repeat what you already said.")
 LAST = "Now reply to the owner. No more tools in this answer."
@@ -510,6 +522,8 @@ class Outcome:
     data: dict = field(default_factory=dict)        # links, helpers, request_id, memory
     ask: dict | None = None
     rounds: int = 0
+    shown: list = field(default_factory=list)       # (tool, its step line, what the owner should see of its result)
+    slips: list = field(default_factory=list)       # what a guard caught: "echo", "act", "fallback:<tool>", "handoff"
 
     @property
     def text(self) -> str:
@@ -693,6 +707,8 @@ def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome) -> tupl
     step = {"tool": name, "label": res.summary or tool.words(args), "ok": res.ok}
     _add_step(out, {**step, "why": why} if why else step)
     out.merge(res.data)
+    if res.ok and res.show and tool.risk == "look":
+        out.shown = [x for x in out.shown if x[0] != name] + [(name, step["label"], res.show)]
     return f"{name}: {res.text}", tool.risk == "look" or not res.ok
 
 
@@ -742,21 +758,92 @@ def model_failed(exc: BaseException) -> str:
     return f"My model could not answer: {tools.clip(exc, 300)}"
 
 
+def _slip(say: str, said: str) -> str:
+    """What is wrong with a round that used no tool, when nothing was done yet in this answer (intents.py): "echo"
+    (it only repeats the owner), "act" (it only says it will look), "short" (it stops where a list should begin),
+    "empty" (no words at all); "" for a real answer."""
+    from . import intents
+
+    if not say.strip():
+        return "empty"
+    if said and intents.echo(say, said):
+        return "echo"
+    if intents.stops_short(say):
+        return "short"
+    if intents.promise(say):
+        return "act"
+    return ""
+
+
+SHOW_CHARS = 2400  # the most of one tool's listing added to an answer that left it out
+_NAMED = re.compile(r"“([^”\n]{2,80})”")
+
+
+def _covered(text: str, show: str) -> bool:
+    """The answer already gives what the listing holds: at least half of the names it quotes (“Hike day”). A listing
+    without names ("nothing is running", "no post went out yet") is the model's to put in its own words."""
+    low = _fold(text).casefold()
+    names = list(dict.fromkeys(n.strip().casefold() for n in _NAMED.findall(show)))
+    return not names or sum(1 for n in names if _fold(n) in low) * 2 >= len(names)
+
+
+def _show(out: Outcome, said: str, wanted: set[str]) -> None:
+    """Add to the answer what a look tool found when the answer leaves it out: the answer is missing, only repeats
+    the owner, only says it will look, or stops at "Here are your projects:" (the real Basic model ends a string
+    where a list begins); or the owner plainly asked for that listing (`wanted`, intents.guess) and the answer
+    names too little of it. The owner then reads the app's own lines, never a guess."""
+    from . import intents
+
+    for name, label, show in out.shown:
+        real = [s for s in out.says if not (intents.promise(s) or (said and intents.echo(s, said)))]
+        broken = not real or intents.stops_short(out.text)
+        if not broken and not (name in wanted and not _covered(out.text, show)):
+            continue
+        if not real:  # only an echo or "let me look": the listing answers instead
+            out.says = []
+        body = tools.clip(show, SHOW_CHARS)
+        out.says.append(body if intents.stops_short(out.text) else f"{label}:\n{body}")
+        out.slips.append(f"show:{name}")
+
+
 def think(settings: dict, system: str, messages: list[dict], tool_list: list[tools.Tool], ctx: Ctx, *,
           max_tokens: int = 800, max_steps: int = MAX_STEPS, on_change: Callable[[Outcome], None] | None = None,
-          out: Outcome | None = None) -> Outcome:
+          out: Outcome | None = None, said: str = "", first: list[dict] | None = None,
+          fallback: dict | None = None) -> Outcome:
     """The rounds of one answer: ask the model, use the tools it asked for, give it their results, until it answers
     without needing more (or `max_steps` rounds, the last one without tools). `on_change(outcome)` is called while
     the answer is written and after every tool, so it can be shown as it grows. Raises llm.ProviderError (Canceled
     when stopped), Stopped when the turn's time is up before it started, and allowance.Reached when an online
-    model's requests for today are used up (each round is one request)."""
+    model's requests for today are used up (each round is one request).
+
+    Guards for a small model (docs/clipforge/CLIPFORGE_AI.md, "Guards for a small model"): `said` is the owner's
+    message (or a helper's job); `first` are tool calls the owner plainly asked for, run before the model's first
+    round as if it had asked for them (intents.handoff: a helper asked by name); `fallback` is the one tool call a
+    plainly phrased request has (intents.guess). A round that uses no tool before anything was done, and only
+    repeats `said`, only says it will look, stops at a colon or says nothing, runs `fallback` instead, or, without
+    one, is asked once more (NUDGE_ECHO, NUDGE_ACT). Its words are not kept, unless nothing better comes. A look
+    tool's listing that the answer leaves out is added to it (`_show`)."""
     from ..pipeline import llm
 
     out = out or Outcome()
     msgs = list(messages)
-    first = len(msgs)  # this answer's own rounds start here
+    start = len(msgs)  # this answer's own rounds start here
     room = budgets(settings)["read"]  # what one round may read in all
     last_write = [0.0]
+    held = ""          # the words of a round a guard caught: shown only if nothing better comes
+    nudged = False
+    wanted = {fallback["tool"]} if fallback else set()
+    if first:  # what the owner plainly asked for is done before the model's first round
+        lines = []
+        for call in first:
+            line, _read = use(tool_list, call, ctx, out)
+            lines.append(line)
+            if on_change:
+                on_change(out)
+        out.slips.append("handoff" if any(c["tool"] == "ask_agent" for c in first) else "first")
+        msgs += [{"role": "assistant", "content": tools.dumps({"say": "", "do": first})},
+                 {"role": "user", "content": RESULTS + "\n" + "\n".join(f"- {tools.clip(x)}" for x in lines) + "\n" +
+                  NEXT}]
 
     def streaming(raw: str) -> None:
         out.live = partial_say(raw)
@@ -774,7 +861,7 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
             if out.rounds:
                 break
             raise Stopped("No time left for this answer.")
-        first = _fit(system, msgs, first, room)
+        start = _fit(system, msgs, start, room)
         # an online model: one more request of today's allowance (raises allowance.Reached, sending nothing)
         allowance.take(ctx.ws, settings, "helper" if ctx.agent else "chat", ctx.message_id)
         raw = llm.converse(settings, msgs, system=system, json_schema=tools.reply_schema(offered),
@@ -782,9 +869,24 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
         out.rounds += 1
         reply = parse_reply(raw)
         out.live = ""
+        if not ctx.agent:  # "[Script writer] …": the model imitated a helper's line in the conversation
+            reply["say"] = _BRACKET.sub("", reply["say"], count=1)
+        calls = [] if final else reply["do"]
+        slip = "" if calls or out.steps or out.pending or out.says else _slip(reply["say"], said)
+        if slip and (fallback or not (nudged or final or step + 1 == max_steps - 1)):
+            held = held or ("" if slip == "echo" else reply["say"])
+            out.slips.append(slip)
+            if fallback:  # the one plain reading of the request: done as if the model had asked for it
+                calls, reply = [fallback], {**reply, "say": "", "do": [fallback]}
+                out.slips.append(f"fallback:{fallback['tool']}")
+                fallback = None
+            else:  # asked once more, with what went wrong
+                nudged = True
+                msgs += [{"role": "assistant", "content": tools.dumps({"say": reply["say"], "do": []})},
+                         {"role": "user", "content": NUDGES[slip]}]
+                continue
         if reply["say"]:
             out.says.append(reply["say"])
-        calls = [] if final else reply["do"]
         if not calls:
             out.ask = reply["ask"]
             break
@@ -805,6 +907,9 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
         msgs += [{"role": "assistant", "content": tools.dumps({"say": reply["say"], "do": calls})},
                  {"role": "user", "content": RESULTS + "\n" + "\n".join(f"- {tools.clip(x)}" for x in lines) + "\n" +
                   (LAST if step + 1 == max_steps - 1 else NEXT)}]
+    _show(out, said, wanted)
+    if held and not (out.text or out.steps or out.pending):  # nothing better came or was done
+        out.says.append(held)
     if on_change:
         on_change(out)
     return out
@@ -937,6 +1042,8 @@ def _save(message_id: str, out: Outcome | None = None, *, base: dict | None = No
         data = {**(base or {}), **out.data, "steps": out.steps, "pending": out.pending}
         if out.ask:
             data["ask"] = out.ask
+        if out.slips:  # what the guards for a small model caught (the real-model check reads it)
+            data["guards"] = list(out.slips)
         live = data.pop("helper_live", None)
         if live and status in ("", "thinking"):
             data["helper_live"] = live
@@ -1006,8 +1113,14 @@ def _turn(ws: str, chat: dict, text: str, message_id: str, agent: dict | None, b
         ctx = Ctx(ws=ws, chat=chat, project_id=chat.get("project_id") or "", message_id=message_id, agent=agent,
                   deadline=time.monotonic() + turn_seconds(settings), cancel=lambda: _stopped(message_id),
                   on_helper=on_helper, owner_text=owner_words(chat["id"], text, before=message_id))
+        from . import intents
+
+        names = {t.name for t in tool_list}
+        hand = intents.handoff(ws, text) if not agent and "ask_agent" in names else None
+        first = [{"tool": "ask_agent", "args": {"agent": hand[0]["name"], "task": hand[1]}}] if hand else None
         think(settings, system, msgs, tool_list, ctx, max_tokens=budgets(settings)["max_tokens"] + (
-            400 if agent else 0), on_change=lambda o: _save(message_id, o, base=base), out=out)
+            400 if agent else 0), on_change=lambda o: _save(message_id, o, base=base), out=out, said=text,
+            first=first, fallback=None if agent or first else intents.guess(text, names))
         out.data.pop("helper_live", None)
         if (not agent and not out.data.get("links") and library.howto(text) and know.hits
                 and know.hits[0].entry.source == "guide" and know.hits[0].score >= 1.0):

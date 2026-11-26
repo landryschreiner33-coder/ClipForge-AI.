@@ -970,6 +970,37 @@ Without a model, "how are my clips doing?", "show me my results" or "which clip 
 (`chat._RESULTS`). An online model sees the titles and numbers only when it uses the tool (the chat's "Sent over the
 internet" line and the privacy page say so).
 
+## Guards for a small model (2026-11-26)
+
+The real-model check (`assistant-check.yml`, Basic level, run 45768349779 on c89e5bb) showed the 2B model's slips:
+it answered "Hi! How are you today?" with the same words, "What projects do I have?" with "Let me look. Here are your
+projects:" and no names (a JSON string cannot hold a raw line break, so the grammar ends it at the colon), "Delete the
+project Old gear review" with "Let me look." and no tool, and "Ask the script writer for a title" with
+"[Script writer] Ask for a title …" instead of handing the job over. `assistant.think` now guards each answer, reading
+only the owner's own words (`brain/intents.py`):
+
+- **A helper asked by name** ("ask the Script writer …", "get my Critic to …", "have the Researcher …"; one of the
+  owner's switched-on helpers, `intents.handoff`): the job goes to that helper before the model's first round, as if
+  the model had used `ask_agent` with the owner's own words as the task; the model then reviews the helper's work, as
+  its rules always said. "What would the Critic say?" is left to the model.
+- **A round that does nothing with the request** (no tool used yet in this answer, and the words only repeat the
+  owner, only say it will look, stop at a colon, or are empty; `assistant._slip`): when the request is phrased so
+  plainly that it has one reading (`intents.guess`: "how are my clips doing?" → `results`, "what projects do I have?"
+  → `find_projects`, "show me my posts", "is anything stuck?", "list my missions", "delete the project X",
+  "rename X to Y", a link with "make clips"), that tool call is made instead; otherwise the model is asked once more,
+  told what went wrong (`NUDGE_ECHO`, `NUDGE_ACT`, `NUDGE_SHORT`, `NUDGE_EMPTY`). The caught words are shown only if
+  nothing better comes (never an echo). A delete it reads still only shows its card: deleting always waits for the OK.
+- **A listing the answer leaves out** (`assistant._show`): a look tool's result carries what the owner should see
+  (`tools.Result.show`: the projects, posts, work, missions, memories or results it found, each name in “quotes”).
+  When the answer is missing, only an echo or a promise, or stops at a colon, or the owner plainly asked for that
+  listing and the answer names under half of it, the app's own lines are added under the step's name ("Looked at your
+  projects (3):"). A tool the model used for its own reasoning (memories it read for an answer) is never listed.
+- **"[Name] …"** at the start of ClipForge AI's own words (it imitated a helper's line in the conversation) is
+  removed.
+
+What a guard caught is saved with the message (`data.guards`, such as `["act", "fallback:results",
+"show:results"]`) and printed by the real-model check. The check gained turn 4, "How are my clips doing?".
+
 ## Acting without asking, and the new commands (2026-11-26)
 
 Landry asked for an assistant that can "do anything in the app" and then, on Nov 26, "no i want it to be able to do it

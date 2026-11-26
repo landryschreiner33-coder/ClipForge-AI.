@@ -215,11 +215,12 @@ def _posts(ctx: Ctx, args: dict) -> Result:
     lines += [_post_line(i + 1, r, settings, clash) for i, r in enumerate(rows[:LIST_MAX])]
     if len(rows) > LIST_MAX:
         lines.append(f"…and {len(rows) - LIST_MAX} more.")
+    show = "\n".join(lines[1:])  # the owner's list, without the model's notes
     if clash and view != "published":
         lines.append(f"{len(clash)} post(s) are too close to another on the same account: fix_post_conflicts moves "
                      "them to the nearest free times.")
     return Result("\n".join(lines), f"Looked at your posts ({len(rows)})",
-                  {"links": [{"label": "Missions → Schedule", "href": "#/missions"}]})
+                  {"links": [{"label": "Missions → Schedule", "href": "#/missions"}]}, show=show)
 
 
 def _when_preview(item: dict, when: str, settings: dict) -> tuple[float, list[str]]:
@@ -742,7 +743,8 @@ def _work_list(ctx: Ctx, args: dict) -> Result:
     if not lines:
         lines.append("- Nothing" + (" matches those words." if want else " is running, waiting or failed."))
     return Result("\n".join([head, *lines[:LIST_MAX + 4]]), "Checked the work",
-                  {"links": [{"label": "Missions → Activity", "href": "#/missions/activity"}]})
+                  {"links": [{"label": "Missions → Activity", "href": "#/missions/activity"}]},
+                  show="\n".join([head, *lines[:LIST_MAX + 4]]))
 
 
 def _target(ctx: Ctx, args: dict) -> tuple[str, dict, str]:
@@ -1165,7 +1167,8 @@ def _missions(ctx: Ctx, args: dict) -> Result:
     lines = [f"- “{_mission_name(r)}”: uploads {'paused' if (r.get('settings') or {}).get('paused') else 'on'}"
              for r in rows[:LIST_MAX]] or ["- No missions yet."]
     return Result("Missions (the videos and streams ClipForge clips and posts for you):\n" + "\n".join(lines),
-                  "Looked at your missions", {"links": [{"label": "Missions", "href": "#/missions"}]})
+                  "Looked at your missions", {"links": [{"label": "Missions", "href": "#/missions"}]},
+                  show="\n".join(lines))
 
 
 def _pause_preview(ctx: Ctx, args: dict) -> dict:

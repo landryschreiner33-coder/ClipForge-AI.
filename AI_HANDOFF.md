@@ -1,5 +1,22 @@
 # AI handoff
 
+## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** the small built-in model sometimes repeated your message, said "Let me look." and never
+looked, stopped at "Here are your projects:" with no projects, or pretended to be a helper. Now ClipForge AI catches
+those slips: a plainly asked request ("how are my clips doing?", "what projects do I have?", "delete the project X")
+gets its one tool even when the model forgets, the model is asked once more when it only repeats you, a list it
+leaves out is added from the app's own data, and "ask the Script writer …" goes straight to that helper.
+
+- **Where things are:** `brain/intents.py` (`echo`, `promise`, `stops_short`, `handoff`, `guess`);
+  `assistant.think` (`said`, `first`, `fallback`, `_slip`, `NUDGES`, `_show`, `_covered`, `_BRACKET`);
+  `tools.Result.show` filled by find_projects, recall, posts, work, missions and results; docs in
+  docs/clipforge/CLIPFORGE_AI.md, "Guards for a small model".
+- **Worth knowing:** a guard only steps in when nothing was done yet in the answer and the round used no tool; it
+  never deletes (a delete it reads shows its card, which waits for the OK). `data.guards` on a chat message says what
+  was caught; scripts/assistant_check.py prints it. "Ask the critic …" now runs the helper before the model's first
+  round, so a test that wants the model itself to call ask_agent must phrase the request another way.
+
 ## ClipForge AI reads your results; ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** ClipForge AI and its helpers can now see how your posts did: totals, the best and weakest

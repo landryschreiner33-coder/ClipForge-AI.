@@ -1,5 +1,20 @@
 # AI changelog
 
+## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code)
+
+Same thread, after the real Basic model (Qwen3-VL 2B) check on GitHub's machines showed it echoing the owner,
+saying "Let me look." without looking, stopping at "Here are your projects:" and imitating "[Script writer]"
+instead of handing the job over. Details: docs/clipforge/CLIPFORGE_AI.md, "Guards for a small model".
+
+- `brain/intents.py` reads the owner's own words: a switched-on helper asked by name gets the job before the model's
+  first round (`handoff`); a plainly phrased request has its one tool call (`guess`), used only when the model's
+  round did nothing with it.
+- `assistant.think`: an echo, a promise without a tool, an answer that stops at a colon or an empty one is replaced
+  by that tool call, or the model is asked once more with what went wrong; "[Name] …" is removed from ClipForge AI's
+  words; a look tool's listing (`Result.show`) the answer leaves out is added. What a guard caught is saved as
+  `data.guards`.
+- The real-model check prints the guards and has a new turn, "How are my clips doing?".
+
 ## ClipForge AI reads your results; the ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code)
 
 Thread "Make ClipForge AI and agents smarter" (Landry: "make the AI way smarter and more useful same with the agents"),
