@@ -209,7 +209,11 @@ def test_backgrounds_must_be_your_own_videos_and_trims_stay_inside_them(env):
     assert c.patch(url, json={"backgrounds": [{"asset_id": "nope"}]}).status_code == 404
     assert c.patch(url, json={"backgrounds": [{"builtin": "lava"}]}).status_code == 422
     assert c.patch(url, json={"captions": {"style": "comic"}}).status_code == 422
-    assert c.patch(url, json={"script": "word " * 700}).status_code == 422
+    from clipfoundry.makers import textstory
+
+    # up to about ten minutes read aloud (Landry, 2026-11-26), and not a word more
+    assert c.patch(url, json={"script": "word " * textstory.MAX_WORDS}).status_code == 200
+    assert c.patch(url, json={"script": "word " * (textstory.MAX_WORDS + 1)}).status_code == 422
 
 
 # ------------------------------------------------------------------ the whole story

@@ -1,4 +1,6 @@
-"""Text Stories (the final-release prompt, section 8): a story read aloud over background video, with big captions.
+"""Text Stories (the final-release prompt, section 8): a story read aloud over background video, with big captions;
+or, as a story of the "chat" kind, a text-message conversation that appears a bubble at a time over the background, each
+message read aloud in its sender's voice (makers/chatstory.py, Landry 2026-11-26). Both kinds run up to ten minutes.
 
 The steps are the page's: script (pasted or written by ClipForge AI, which can also revise it) → voice (a voice, a
 style, speed, tone and pronunciations; makers/voice_styles.py) → background (your own uploaded clips, trimmed,
@@ -39,14 +41,15 @@ PREVIEW_SIZE = (360, 640)
 FPS = 30
 TAIL_S = 0.6               # the background runs on this long after the last word
 TITLE_HOLD_S = 0.35        # the title card stays this long after its last word
-MAX_SCRIPT = 6000          # characters
-MAX_WORDS = 650            # about 3.7 minutes at 175 words a minute
+MAX_SCRIPT = 16000         # characters
+MAX_WORDS = 1750           # about ten minutes at 175 words a minute (Landry, 2026-11-26: "up to 10")
 MAX_TITLE = 140
 MAX_NAME = 120
 MAX_BACKGROUNDS = 12
 MAX_PIECES = 5000          # a guard only: a looping clip is one input however often it plays (render())
 MIN_PIECE_S = 1.0
 RENDER_RECIPE = 2          # part of every render key: a changed recipe renders again
+KINDS = {"chat": "Text-message story", "narrated": "Narrated story"}
 WPM = 175
 CAPTION_STYLES = {"bold": "Bold", "clean": "Clean", "high_energy": "High energy"}
 CAPTION_PLACES = {"middle": "Middle", "raised": "Lower", "top": "Top"}
@@ -60,7 +63,9 @@ BUILTINS = {
 }
 # words in a video's name that say it was made to sit behind a story
 HINTS = ("gameplay", "minecraft", "parkour", "satisfying", "subway", "surfer", "driving", "drive", "racing", "race",
-         "slime", "asmr", "background", "broll", "b-roll", "loop", "game", "soap", "sand", "kinetic", "satisfy")
+         "slime", "asmr", "background", "broll", "b-roll", "loop", "game", "soap", "sand", "kinetic", "satisfy",
+         # the cooking and cutting clips text-message stories are told over
+         "cooking", "cook", "cutting", "slicing", "chopping", "knife", "chef", "kitchen", "recipe", "food", "cake")
 WORKING = ("writing", "voicing", "rendering")
 STUCK = "ClipForge stopped before it finished, and nothing new was kept. Press the button again to try once more."
 
@@ -110,6 +115,10 @@ def _hash(*parts) -> str:
 
 
 def words_of(story: dict) -> int:
+    if is_chat(story):
+        from . import chatstory
+
+        return chatstory.words_in(chatstory.parse(story.get("script") or ""))
     return len((story.get("title") or "").split()) + len((story.get("script") or "").split())
 
 
@@ -126,7 +135,7 @@ def spoken(story: dict) -> tuple[str, str]:
 
 # ------------------------------------------------------------------ the page's choices
 def options(workspace_id: str) -> dict:
-    from . import voice, writer
+    from . import chatstory, voice, writer
 
     try:
         voices = voice.voices()
@@ -149,6 +158,17 @@ def options(workspace_id: str) -> dict:
         "favourites": voice_styles.favourites(workspace_id),
         "limits": {"max_words": MAX_WORDS, "max_title": MAX_TITLE, "wpm": WPM, "max_backgrounds": MAX_BACKGROUNDS},
         "links": {"ai": "#/settings/ai", "makers": "#/settings/makers"},
+        "kinds": [{"id": k, "label": v} for k, v in KINDS.items()],
+        "chat": {"themes": [{"id": k, "label": v["label"],
+                             **{part: "#%02x%02x%02x" % rgb for part, rgb in v.items() if part != "label"}}
+                            for k, v in chatstory.THEMES.items()],
+                 "paces": [{"id": k, "label": v} for k, v in chatstory.PACE_LABELS.items()],
+                 "tones": [{"id": k, "label": v} for k, v in writer.CHAT_TONE_LABELS.items()],
+                 "lengths": [{"id": k, "label": v} for k, v in writer.CHAT_LENGTH_LABELS.items()],
+                 "limits": {"max_messages": chatstory.MAX_MESSAGES, "max_words": chatstory.MAX_WORDS,
+                            "max_message": chatstory.MAX_MESSAGE_CHARS, "max_seconds": chatstory.MAX_SECONDS,
+                            "max_people": chatstory.MAX_PEOPLE},
+                 "emoji_note": chatstory.platform_emoji_note()},
     }
 
 
@@ -157,25 +177,63 @@ def _starting_voice(workspace_id: str) -> dict:
     return voice_styles.clean_voice(fav) if fav else voice_styles.clean_voice({})
 
 
-def create(workspace_id: str, *, name: str = "", title: str = "", script: str = "") -> dict:
-    title, script = _clean_title(title), _clean_script(script)
+def create(workspace_id: str, *, name: str = "", title: str = "", script: str = "", kind: str = "narrated") -> dict:
+    from . import chatstory
+
+    if kind not in KINDS:
+        raise StoryError("Choose a text-message story or a narrated story.")
+    chat: dict = {}
+    if kind == "chat":
+        title, script = "", _clean_chat_script(script)
+        chat = chatstory.with_voices(script, dict(chatstory.DEFAULT_CHAT))
+    else:
+        title, script = _clean_title(title), _clean_script(script)
     story = db.insert("text_stories", {
         "id": "tst-" + os.urandom(6).hex(), "workspace_id": workspace_id, "name": " ".join(name.split())[:MAX_NAME],
+        "kind": kind, "chat": chat,
         "title": title, "script": script, "voice": _starting_voice(workspace_id), "pronunciations": [],
         "captions": dict(DEFAULT_CAPTIONS), "backgrounds": [], "narration": {}, "preview": {}, "export": {},
         "writer": {}, "status": "draft", "message": ""})
     return story
 
 
+def is_chat(story: dict) -> bool:
+    return story.get("kind") == "chat"
+
+
+def _clean_chat_script(value: object) -> str:
+    from . import chatstory
+
+    try:
+        return chatstory.clean_script(value)
+    except chatstory.ChatError as exc:
+        raise StoryError(str(exc), exc.status) from exc
+
+
 def list_stories(workspace_id: str) -> list[dict]:
     rows = db.select("text_stories", "workspace_id = ?", (workspace_id,), "updated_at DESC", 200)
     return [{"id": s["id"], "name": display_name(s), "status": s["status"], "words": words_of(s),
+             "kind": s.get("kind") or "narrated", "messages": _messages(s) if is_chat(s) else 0,
              "exported": _file_ok(s, "export"), "updated_at": s["updated_at"]} for s in rows]
+
+
+def _messages(story: dict) -> int:
+    from . import chatstory
+
+    return len(chatstory.parse(story.get("script") or ""))
 
 
 def display_name(story: dict) -> str:
     if story.get("name"):
         return story["name"]
+    if is_chat(story):
+        from . import chatstory
+
+        got = chatstory.resolve(story.get("script") or "", story.get("chat") or {})
+        if not got["messages"]:
+            return "New text-message story"
+        words = got["messages"][0]["text"].split()
+        return f"{got['contact']}: " + " ".join(words[:6]) + ("…" if len(words) > 6 else "")
     words = (story.get("title") or story.get("script") or "").split()
     return " ".join(words[:7]) + ("…" if len(words) > 7 else "") if words else "New text story"
 
@@ -263,14 +321,35 @@ def update(story: dict, body: dict) -> dict:
     """Change the story. Nothing changes while ClipForge is working on it (stop the work first)."""
     if story["status"] in WORKING:
         raise StoryError("ClipForge is working on this story. Wait for it to finish, or press Stop.", 409)
+    from . import chatstory
+
     ws = story["workspace_id"]
     fields: dict = {}
+    kind = story.get("kind") or "narrated"
+    if "kind" in body:
+        if body["kind"] not in KINDS:
+            raise StoryError("Choose a text-message story or a narrated story.")
+        kind = fields["kind"] = body["kind"]
     if "name" in body:
         fields["name"] = " ".join(str(body["name"] or "").split())[:MAX_NAME]
     if "title" in body:
         fields["title"] = _clean_title(body["title"])
-    if "script" in body:
-        fields["script"] = _clean_script(body["script"])
+    if "script" in body or "kind" in body:
+        raw = body.get("script", story.get("script") or "")
+        if "script" not in body and kind != (story.get("kind") or "narrated"):
+            # the same words in the other kind: a chat's messages become paragraphs, and paragraphs messages, so
+            # switching back gives the same chat
+            raw = str(raw or "")
+            raw = ("\n".join(" ".join(p.split()) for p in re.split(r"\n\s*\n", raw) if p.strip()) if kind == "chat"
+                   else "\n\n".join(line.strip() for line in raw.split("\n") if line.strip()))
+        fields["script"] = _clean_chat_script(raw) if kind == "chat" else _clean_script(raw)
+    if kind == "chat" and ("chat" in body or "script" in fields):
+        try:
+            chat = chatstory.clean_chat(body.get("chat") or {}, story.get("chat") or {})
+        except chatstory.ChatError as exc:
+            raise StoryError(str(exc), exc.status) from exc
+        # everyone in the script has a voice; people who left it lose theirs
+        fields["chat"] = chatstory.with_voices(fields.get("script", story.get("script") or ""), chat)
     if "voice" in body:
         raw = body["voice"]
         if isinstance(raw, dict) and "style" in raw and "voice" not in raw and \
@@ -395,19 +474,43 @@ def auto_backgrounds(story: dict) -> dict:
 def estimate_seconds(story: dict) -> float:
     narr = story.get("narration") or {}
     if narr.get("key") and narr.get("key") == narration_key(story):
-        return float(narr.get("duration") or 0.0) + TAIL_S
+        return total_seconds(story, narr)
+    if is_chat(story):
+        from . import chatstory
+
+        return chatstory.estimate(story.get("script") or "", story.get("chat") or {})
     speed = float((story.get("voice") or {}).get("speed") or 1.0)
     return round(words_of(story) / (WPM * speed) * 60.0 + TAIL_S, 1)
 
 
+def total_seconds(story: dict, narration: dict) -> float:
+    """The video's length once its voice is recorded: a chat's own timing (its last bubble stays a moment), a
+    narrated story's voice and TAIL_S."""
+    if is_chat(story):
+        return round(float(narration.get("total") or 0.0), 3)
+    return round(float(narration.get("duration") or 0.0) + TAIL_S, 3)
+
+
 # ------------------------------------------------------------------ the work
 def narration_key(story: dict) -> str:
+    if is_chat(story):
+        from . import chatstory
+
+        return chatstory.narration_key(story.get("script") or "", story.get("chat") or {},
+                                       story.get("pronunciations") or [])
     v = story.get("voice") or {}
     return _hash("narration", spoken(story)[0], v.get("voice"), v.get("speed"), v.get("tone"),
                  story.get("pronunciations") or [])
 
 
 def render_key(story: dict, mode: str) -> str:
+    if is_chat(story):
+        from . import chatstory
+
+        chat = story.get("chat") or {}
+        contact = chatstory.resolve(story.get("script") or "", chat)["contact"]
+        return _hash("render-chat", RENDER_RECIPE, chatstory.RECIPE, mode, narration_key(story),
+                     story.get("backgrounds") or [], chatstory.look_key(chat, contact))
     return _hash("render", RENDER_RECIPE, mode, narration_key(story), story.get("backgrounds") or [],
                  story.get("captions") or {}, story.get("title") or "")
 
@@ -441,15 +544,17 @@ def start(story: dict, what: str, body: dict | None = None) -> dict:
             raise StoryError("There is no script to revise yet. Write one first.")
         if not change and not topic:
             raise StoryError("Say what the story is about.")
-        ask = {"topic": topic, "change": change, "tone": body.get("tone") if body.get("tone") in writer.STORY_TONES
-               else "drama", "length": body.get("length") if body.get("length") in writer.STORY_LENGTHS
+        tones, lengths = ((writer.CHAT_TONES, writer.CHAT_LENGTHS) if is_chat(story) else
+                          (writer.STORY_TONES, writer.STORY_LENGTHS))
+        ask = {"topic": topic, "change": change, "tone": body.get("tone") if body.get("tone") in tones
+               else "drama", "length": body.get("length") if body.get("length") in lengths
                else "standard"}
         fields = {"writer": {**(story.get("writer") or {}), "ask": ask}, "status": "writing", "stage": "write",
                   "message": "ClipForge AI is revising the story" if change else "ClipForge AI is writing the story"}
         kind = "text_story_write"
     elif what in ("preview", "export"):
         if not words_of(story):
-            raise StoryError("Write or paste the story first.")
+            raise StoryError("Write or paste the chat first." if is_chat(story) else "Write or paste the story first.")
         if not story.get("backgrounds"):
             raise StoryError("Choose a background first, or let ClipForge pick one.")
         if current(story, what):
@@ -524,9 +629,9 @@ def _patch_working(story_id: str, job_id: str, **fields) -> dict | None:
 
 
 def _plain(exc: BaseException) -> str:
-    from . import voice, writer
+    from . import chatstory, voice, writer
 
-    if isinstance(exc, (voice.VoiceError, writer.WriterError, StoryError)):
+    if isinstance(exc, (voice.VoiceError, writer.WriterError, StoryError, chatstory.ChatError)):
         return str(exc)
     if isinstance(exc, ffmpeg_utils.FFmpegError):
         return "FFmpeg could not make the video. Try another background clip, or try again."
@@ -543,24 +648,53 @@ def write_job(job: dict, lease: Lease) -> dict:
     if story is None:
         return {"skipped": True}
     ask = (story.get("writer") or {}).get("ask") or {}
+    chat_fields: dict = {}
     try:
-        got = writer.write_story(ask.get("topic") or "", tone=ask.get("tone") or "drama",
-                                 length=ask.get("length") or "standard", settings=db.get_settings(),
-                                 workspace_id=story["workspace_id"], project_id=story["id"],
-                                 current={"title": story.get("title"), "script": story.get("script")}
-                                 if ask.get("change") else None, change=ask.get("change") or "",
-                                 cancel=lease.canceled, beat=lambda m: lease.progress(0.5, m), remember=False)
-        script = _clean_script(got["script"])
-        title = _clean_title(got["title"][:MAX_TITLE])
+        if is_chat(story):
+            from . import chatstory
+
+            chat = story.get("chat") or {}
+            current = {"script": story.get("script"), "title": story.get("name"),
+                       "me": chat.get("me") or chatstory.resolve(story.get("script") or "", chat)["me"],
+                       "contact": chat.get("contact")}
+            got = writer.write_chat(ask.get("topic") or "", tone=ask.get("tone") or "drama",
+                                    length=ask.get("length") or "standard", settings=db.get_settings(),
+                                    workspace_id=story["workspace_id"], project_id=story["id"],
+                                    current=current if ask.get("change") else None, change=ask.get("change") or "",
+                                    cancel=lease.canceled, beat=lambda m: lease.progress(0.5, m), remember=False)
+            script = _clean_chat_script(got["script"])
+            title = ""
+            if not ask.get("change"):
+                chat = {**chat, "contact": got.get("contact") or "", "me": "Me"}
+            else:
+                # "Automatic" (or a chosen person who has left the chat) picks the second person to write when nobody
+                # is Me: a revision that changes who writes first must not hand the phone to the other person
+                before = chatstory.resolve(story.get("script") or "", chat)["me"]
+                after = chatstory.resolve(script, chat)
+                if before and before != after["me"] and before in after["people"]:
+                    chat = {**chat, "me": before}
+            chat_fields = {"chat": chatstory.with_voices(script, chat)}
+            if not story.get("name") and got.get("title"):
+                chat_fields["name"] = " ".join(str(got["title"]).split())[:MAX_NAME]
+        else:
+            got = writer.write_story(ask.get("topic") or "", tone=ask.get("tone") or "drama",
+                                     length=ask.get("length") or "standard", settings=db.get_settings(),
+                                     workspace_id=story["workspace_id"], project_id=story["id"],
+                                     current={"title": story.get("title"), "script": story.get("script")}
+                                     if ask.get("change") else None, change=ask.get("change") or "",
+                                     cancel=lease.canceled, beat=lambda m: lease.progress(0.5, m), remember=False)
+            script = _clean_script(got["script"])
+            title = _clean_title(got["title"][:MAX_TITLE])
     except (Canceled, Cancelled):
         raise
     except Exception as exc:
         _patch_working(story["id"], job["id"], status="failed", stage="", message="", error=_plain(exc))
         raise
+    noun = "chat" if is_chat(story) else "story"
     if lease.canceled() or _patch_working(
-            story["id"], job["id"], title=title, script=script, status="draft", stage="", error="",
-            message=("ClipForge AI revised the story." if ask.get("change") else
-                     "ClipForge AI wrote the story. Read it through and change anything you like."),
+            story["id"], job["id"], title=title, script=script, status="draft", stage="", error="", **chat_fields,
+            message=(f"ClipForge AI revised the {noun}." if ask.get("change") else
+                     f"ClipForge AI wrote the {noun}. Read it through and change anything you like."),
             writer={"ask": ask, "notes": got["notes"], "model": got["model"], "local": got["local"],
                     "at": time.time()}) is None:
         raise Canceled()
@@ -568,7 +702,7 @@ def write_job(job: dict, lease: Lease) -> dict:
     writer.remember_story(story["workspace_id"], story["id"], got)
     if db.fetch("text_stories", story["id"]) is None:
         _forget(story["workspace_id"], story["id"])  # deleted while the note was written: delete() may have run first
-    return {"words": len(script.split())}
+    return {"words": words_of({**story, "script": script})}
 
 
 @handler("text_story_render")
@@ -578,7 +712,12 @@ def render_job(job: dict, lease: Lease) -> dict:
         return {"skipped": True}
     what = story.get("stage") if story.get("stage") in ("preview", "export") else "preview"
     try:
-        narration = make_narration(story, lease)
+        if is_chat(story):
+            from . import chatstory
+
+            narration = chatstory.make_voices(story, folder(story["id"]), lease)
+        else:
+            narration = make_narration(story, lease)
         # a Stop pressed as the voice finished has settled the story already: never write it back to working
         moved_on = lease.canceled() or None
         story = None if moved_on else _patch_working(  # type: ignore[assignment]
@@ -791,18 +930,21 @@ def render(story: dict, what: str, lease: Lease | None = None) -> dict:
         raise StoryError("The voice recording is missing. Press Preview again.")
     size = PREVIEW_SIZE if what == "preview" else SIZE
     w, h = size
-    total = round(float(narration.get("duration") or 0.0) + TAIL_S, 3)
+    chat = is_chat(story)
+    total = total_seconds(story, narration)
     plays = _runs(pieces(story.get("backgrounds") or [], total))
     if not plays:
         raise StoryError("Choose a background first, or let ClipForge pick one.")
     key = render_key(story, what)
     ass = d / f"{what}.ass"
+    cards = d / f"{what}-cards"
     tmp = d / f"{what}-{key}.part.mp4"
     made_parts: list[Path] = []
 
     def tidy() -> None:  # what this render made on the way (also when it stops or fails)
         for f in (ass, *made_parts):
             f.unlink(missing_ok=True)
+        shutil.rmtree(cards, ignore_errors=True)
 
     try:
         args: list[str] = []
@@ -819,12 +961,23 @@ def render(story: dict, what: str, lease: Lease | None = None) -> dict:
                           f"crop={w}:{h}:(in_w-{w})*{fx:.3f}:(in_h-{h})*{fy:.3f},setsar=1,fps={FPS},format=yuv420p,"
                           f"trim=duration={p['length']:.3f},setpts=PTS-STARTPTS[v{i}]")
         args += ["-i", str(voice_file)]
-        ass.write_text(story_ass(story, narration, w, h), encoding="utf-8")
         joined = "".join(f"[v{i}]" for i in range(len(plays)))
-        chains.append(f"{joined}concat=n={len(plays)}:v=1:a=0,tpad=stop_mode=clone:stop_duration={total:.3f},"
-                      f"trim=duration={total:.3f},setpts=PTS-STARTPTS,"
-                      f"ass={ffmpeg_utils.filter_path(ass, d)}:"
-                      f"fontsdir={ffmpeg_utils.filter_path(config.FONTS_DIR, d)},format=yuv420p[vout]")
+        background = (f"{joined}concat=n={len(plays)}:v=1:a=0,tpad=stop_mode=clone:stop_duration={total:.3f},"
+                      f"trim=duration={total:.3f},setpts=PTS-STARTPTS")
+        if chat:
+            from . import chatstory
+
+            # the chat card's pictures, each shown for as long as it stands, over the background
+            listing = chatstory.make_cards(story, narration, size, cards, lease)
+            args += ["-f", "concat", "-safe", "0", "-i", str(listing)]
+            x, y = chatstory.card_box(size)
+            chains.append(f"{background}[bg]")
+            chains.append(f"[{len(plays) + 1}:v]fps={FPS},format=rgba[cards]")
+            chains.append(f"[bg][cards]overlay=x={x}:y={y}:eof_action=repeat:format=auto,format=yuv420p[vout]")
+        else:
+            ass.write_text(story_ass(story, narration, w, h), encoding="utf-8")
+            chains.append(f"{background},ass={ffmpeg_utils.filter_path(ass, d)}:"
+                          f"fontsdir={ffmpeg_utils.filter_path(config.FONTS_DIR, d)},format=yuv420p[vout]")
         chains.append(f"[{len(plays)}:a]aresample=48000,apad[aout]")
         if what == "preview":
             video = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p"]
@@ -835,9 +988,12 @@ def render(story: dict, what: str, lease: Lease | None = None) -> dict:
                     f"{total:.3f}", "-r", str(FPS), *video, "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                     "-movflags", "+faststart", str(tmp)]
 
+        start = 0.45 if chat else 0.35
+
         def progress(frac: float) -> None:
             if lease:
-                lease.progress(0.35 + 0.63 * frac, "Making the preview" if what == "preview" else "Making the video")
+                lease.progress(start + (0.98 - start) * frac,
+                               "Making the preview" if what == "preview" else "Making the video")
 
         ffmpeg_utils.run(out_args, duration=total, progress=progress, cancel=lease.canceled if lease else None,
                          cwd=d)
@@ -879,8 +1035,20 @@ def view(story: dict) -> dict:
                       "url": f"/api/studio/text-stories/{story['id']}/file/{what}?v={m.get('key', '')}"
                       if _file_ok(story, what) else ""}
     v = story.get("voice") or {}
+    chat = None
+    if is_chat(story):
+        from . import chatstory
+
+        c = {**chatstory.DEFAULT_CHAT, **(story.get("chat") or {})}
+        got = chatstory.resolve(story.get("script") or "", c)
+        chat = {**c, "people": {n: (c.get("people") or {}).get(n) or {} for n in got["people"]},
+                "names": got["people"], "whose_phone": got["me"], "shown_contact": got["contact"],
+                "auto_phone": chatstory.whose_phone(got["people"]),
+                "group": got["group"], "messages": [{"who": m["who"], "text": m["text"], "side": m["side"],
+                                                     "label": m["label"]} for m in got["messages"]]}
     return {
         "id": story["id"], "name": display_name(story), "own_name": story.get("name") or "",
+        "kind": story.get("kind") or "narrated", "chat": chat,
         "title": story.get("title") or "", "script": story.get("script") or "", "words": words_of(story),
         "seconds": estimate_seconds(story), "voice": v, "pronunciations": story.get("pronunciations") or [],
         "captions": {**DEFAULT_CAPTIONS, **(story.get("captions") or {})}, "backgrounds": backgrounds,
@@ -889,11 +1057,14 @@ def view(story: dict) -> dict:
         "job": {"progress": float(job.get("progress") or 0.0), "message": job.get("message") or ""}
         if job and working else None,
         "narration": {"ready": fresh_voice, "voice": narr.get("voice") or "", "fallback": narr.get("fallback") or "",
+                      "messages": narr.get("messages"),
                       "timing": narr.get("timing") or "", "rule": narr.get("rule") or "",
                       "duration": narr.get("duration")} if narr else {"ready": False},
         "made": made, "writer": {k: (story.get("writer") or {}).get(k) for k in ("notes", "model", "local")},
         "project_id": editor_project(story), "updated_at": story["updated_at"],
-        "steps": {"script": words_of(story) > 0, "voice": bool(v.get("voice")), "background": bool(backgrounds),
+        "steps": {"script": words_of(story) > 0,
+                  "voice": bool(chat and chat["people"]) if chat is not None else bool(v.get("voice")),
+                  "background": bool(backgrounds),
                   "preview": made["preview"]["current"], "export": made["export"]["current"]},
     }
 

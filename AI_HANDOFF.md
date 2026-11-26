@@ -19,6 +19,33 @@ video. It learns from the owner's real results, within limits. Design and source
   for viral hooks" still finds skills and the hooks playbook. The "Make the AI really watch and listen" thread (PR #88)
   also adds a bounded term to `deep.clip_score`; the predictor does not read `p.senses` yet, so a later change could
   feed its watched/heard features into the channels (keep the bounds and avoid counting a moment twice).
+## Text-message stories, up to ten minutes — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** Text Stories can now be a text-message chat like the TikTok ones: a phone chat appears a
+bubble at a time over satisfying or gameplay footage and every message is read aloud in its sender's voice. Paste the
+chat or let ClipForge AI write it; chats and narrated stories run up to ten minutes.
+
+- **Where things are:** `makers/chatstory.py` (everything chat: script `parse`/`clean_script`/`resolve`, choices
+  `clean_chat`/`with_voices`, text runs and emoji fonts, the `Card` (header, bubbles, `layout` in pages, `state`), the
+  timing `timeline`/`estimate`, the voices `make_voices` (narration with `timing: "chat"`, `times`, `total`) and
+  `make_cards` (PNG states + ffconcat)); the chat branches in `makers/textstory.py` (`is_chat`, `KINDS`,
+  `total_seconds`, `render` overlays the cards, `view()["chat"]`); `writer.write_chat`, `_write_long_story`,
+  `_revise_long_story`; columns `text_stories.kind` and `text_stories.chat`; the page `ChatEditor` parts in
+  `frontend/src/pages/TextStories.tsx` (`ChatPreview`, `ChatPeople`, `ChatLook`).
+- **Worth knowing:** a chat video's length is the chat's own timing (`narration.total`, which already holds END_S),
+  never `duration + TAIL_S`. The narration key includes every message's text as shown (an emoji change re-renders)
+  and the render key adds the look (`look_key`). The card is drawn in the main thread only (FreeType fonts are not
+  shared between threads); PNG saving runs on a small pool. Colour emoji fonts only load at fixed sizes
+  (`EMOJI_SIZES`); with none, emoji are left out and the page says so (`platform_emoji_note`). The Inter files are
+  static 400/600 instances subset to Latin, Greek and Cyrillic; any other character is drawn with the first of
+  `OTHER_FONTS` that has it (`_path_for`, checked against the font's "missing" box), and a symbol the colour emoji
+  font lacks falls back the same way. eSpeak says nothing for "..." so messages without a letter or digit are not
+  read (they stay up for a reading time). Line breaks and pages come from `bubble_lines` at 1080 for every size, so
+  never break lines at the preview's size (a bubble's width also takes its words as drawn at its size: without raqm
+  small text comes out wider). The first bubble is capped at `first_lines` so it stays under the header. `lines/` keeps `<hash>.wav` + `<hash>.json` (voice id, licence rule) only for
+  lines the chosen voice read; a stand-in voice's line is used once. The card list carries `option framerate 30`
+  when the FFmpeg takes it (`_concat_takes_options`, probed once). Scripts the writer builds go through
+  `chatstory.write_line` (it round-trips `//` and `\` messages).
 
 ## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code, cloud session)
 

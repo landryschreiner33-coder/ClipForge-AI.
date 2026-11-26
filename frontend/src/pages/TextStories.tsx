@@ -1,18 +1,20 @@
-import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import { CSSProperties, Fragment, ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { errorText } from "../api";
 import { Banner, EmptyState, Icon, PageHead, Segmented, Skel, toast } from "../components/ui";
 import { navigate } from "../router";
 import { cancelUpload, MediaResult, studio, uploadFile } from "../studio";
 import {
-  Background, BackgroundChoice, clock, Story, StoryListItem, StoryOptions, StoryPatch, StoryVoice, textStories,
+  Background, BackgroundChoice, ChatPatch, clock, PersonVoice, Story, StoryChat, StoryKind, StoryListItem,
+  StoryOptions, StoryPatch, StoryVoice, textStories,
 } from "../textStories";
 import "./stories.css";
 
 /**
- * Text Stories (main navigation): write or paste a story, or let ClipForge AI write and revise it; choose a voice
- * style and hear it; put your own clips behind it (trimmed, looped, moved in the frame) or let ClipForge pick; preview
- * it small and fast, then export the full video. The work runs in ClipForge's job line, so Stop always works and a
- * restart carries on.
+ * Text Stories (+ Make → Make a text story): a text-message story (a phone chat that appears a bubble at a time, each
+ * message read aloud in its sender's voice, the way they look on TikTok) or a narrated story (read aloud with big
+ * captions). Write or paste it, or let ClipForge AI write and revise it (up to ten minutes); choose the voices; put
+ * your own clips behind it (trimmed, looped, moved in the frame) or let ClipForge pick; preview it small and fast,
+ * then export the full video. The work runs in ClipForge's job line, so Stop always works and a restart carries on.
  */
 export default function TextStories({ id }: { id: string }) {
   return id ? <StoryEditor id={id} key={id} /> : <StoryList />;
@@ -28,10 +30,10 @@ function StoryList() {
   useEffect(() => {
     textStories.list().then((r) => setList(r.stories)).catch((e) => setProblem(errorText(e)));
   }, []);
-  const start = async () => {
+  const start = async (kind: StoryKind) => {
     setBusy(true);
     try {
-      const s = await textStories.create();
+      const s = await textStories.create({ kind });
       navigate(`stories/${s.id}`);
     } catch (e) {
       toast(errorText(e), true);
@@ -39,23 +41,28 @@ function StoryList() {
     }
   };
   const newButton = (
-    <button type="button" className="btn btn-primary btn-large" disabled={busy} onClick={() => void start()}>
-      <Icon name="plus" />New text story
-    </button>
+    <div className="row wrap">
+      <button type="button" className="btn btn-primary btn-large" disabled={busy} onClick={() => void start("chat")}>
+        <Icon name="chat" />New text-message story
+      </button>
+      <button type="button" className="btn btn-large" disabled={busy} onClick={() => void start("narrated")}>
+        <Icon name="story" />New narrated story
+      </button>
+    </div>
   );
   return (
     <div className="page narrow stories">
       <PageHead kind="Make" title="Text Stories" actions={newButton}
-        sub={"A story read aloud over background video, with big captions: write it, pick a voice and a background, "
-          + "preview, export."} />
+        sub={"A text-message chat that pops up a bubble at a time, each message read aloud, or a story read aloud "
+          + "with big captions; over satisfying footage, gameplay or any background. Up to ten minutes."} />
       {problem && <Banner tone="bad" title="Your stories could not be loaded">{problem}</Banner>}
       {!list && !problem && (
         <div className="stack-3" aria-hidden="true"><Skel className="skel-block" /><Skel className="skel-block" /></div>
       )}
       {list && list.length === 0 && (
         <EmptyState icon="story" title="No text stories yet">
-          Paste a story or let ClipForge AI write one. Your own gameplay or satisfying clips go behind it, or
-          ClipForge picks.
+          Start a text-message story: paste the chat (Sienna: Be honest. / Me: …) or let ClipForge AI write one.
+          Cooking, cutting, gameplay or other satisfying clips go behind it, or ClipForge picks.
         </EmptyState>
       )}
       {list && list.length > 0 && (
@@ -63,10 +70,11 @@ function StoryList() {
           {list.map((s) => (
             <li key={s.id}>
               <a href={`#/stories/${s.id}`} className="story-row">
-                <Icon name="story" />
+                <Icon name={s.kind === "chat" ? "chat" : "story"} />
                 <span className="grow"><b>{s.name}</b>
                   <span className="small muted">
-                    {s.words} words · {STATUS[s.status] || s.status}{s.exported ? " · exported" : ""}
+                    {s.kind === "chat" ? `Text messages · ${s.messages} messages` : `Narrated · ${s.words} words`}
+                    {" · "}{STATUS[s.status] || s.status}{s.exported ? " · exported" : ""}
                   </span>
                 </span>
                 <Icon name="chev" className="sm" />
@@ -137,18 +145,23 @@ function StoryEditor({ id }: { id: string }) {
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const typed = useRef(false);
+  const edits = useRef(0);   // counts keystrokes, so a save knows whether more was typed while it was on its way
+  const latest = useRef({ title: "", script: "", name: "" });
   const audio = useAudio();
 
-  const take = useCallback((s: Story) => {
+  // the story as saved; its title, script and name come into the fields only when they changed elsewhere (the
+  // first load, ClipForge AI's writing), never as the answer to saving what is being typed
+  const take = useCallback((s: Story, texts = false) => {
     setStory(s);
-    if (!typed.current) {
+    if (texts && !typed.current) {
       setTitle(s.title);
       setScript(s.script);
       setName(s.own_name);
+      latest.current = { title: s.title, script: s.script, name: s.own_name };
     }
   }, []);
   useEffect(() => {
-    textStories.get(id).then(take).catch((e) => setProblem(errorText(e)));
+    textStories.get(id).then((s) => take(s, true)).catch((e) => setProblem(errorText(e)));
     textStories.options().then(setOpts).catch((e) => setProblem(errorText(e)));
   }, [id, take]);
   // while ClipForge works on it, follow the work
@@ -158,7 +171,7 @@ function StoryEditor({ id }: { id: string }) {
     const t = window.setInterval(() => {
       textStories.get(id).then((s) => {
         if (!s.working) typed.current = false;  // what was written comes in
-        take(s);
+        take(s, true);
       }).catch(() => {});
     }, 1200);
     return () => window.clearInterval(t);
@@ -180,10 +193,11 @@ function StoryEditor({ id }: { id: string }) {
   const textTimer = useRef<number | undefined>(undefined);
   const saveText = useCallback(async (now: { title: string; script: string; name: string }) => {
     window.clearTimeout(textTimer.current);
+    const sent = edits.current;
     setSaving(true);
     try {
       const s = await textStories.change(id, now);
-      typed.current = false;
+      if (edits.current === sent) typed.current = false;
       take(s);
     } catch (e) {
       toast(errorText(e), true);
@@ -191,9 +205,16 @@ function StoryEditor({ id }: { id: string }) {
       setSaving(false);
     }
   }, [id, take]);
+  // leaving the page before the moment is up: what was typed is saved all the same
+  useEffect(() => () => {
+    window.clearTimeout(textTimer.current);
+    if (typed.current) void textStories.change(id, latest.current).catch(() => {});
+  }, [id]);
   const typing = (next: Partial<{ title: string; script: string; name: string }>) => {
     typed.current = true;
+    edits.current += 1;
     const now = { title, script, name, ...next };
+    latest.current = now;
     if (next.title !== undefined) setTitle(next.title);
     if (next.script !== undefined) setScript(next.script);
     if (next.name !== undefined) setName(next.name);
@@ -207,7 +228,9 @@ function StoryEditor({ id }: { id: string }) {
   const act = async (what: "preview" | "export" | "stop") => {
     if (typed.current) await saveText({ title, script, name });
     try {
-      take(await textStories[what](id));
+      // the story as it is now, its texts too (Stop as ClipForge AI finished writing: what it wrote comes in);
+      // take() still leaves alone anything typed while this was on its way
+      take(await textStories[what](id), true);
     } catch (e) {
       toast(errorText(e), true);
     }
@@ -229,15 +252,20 @@ function StoryEditor({ id }: { id: string }) {
       </div>
     );
   }
-  const words = script.split(/\s+/).filter(Boolean).length + title.split(/\s+/).filter(Boolean).length;
+  const chat = story.kind === "chat" ? story.chat : null;
+  const words = chat ? story.words
+    : script.split(/\s+/).filter(Boolean).length + title.split(/\s+/).filter(Boolean).length;
   const locked = story.working;
   const progress = story.job ? Math.round(story.job.progress * 100) : 0;
+  const changeChat = (patch: ChatPatch) => change({ chat: patch });
+  const sub = chat ? `Text-message story · ${chat.messages.length} messages · about ${clock(story.seconds)}`
+    : `${words} words · about ${clock(story.seconds)} read aloud`;
 
   return (
     <div className="page narrow stories">
       <PageHead kind="Text story" title={story.name}
         crumbs={[{ label: "Text Stories", href: "#/stories" }, { label: story.name }]}
-        sub={`${words} words · about ${clock(story.seconds)} read aloud${saving ? " · saving…" : ""}`} />
+        sub={`${sub}${saving ? " · saving…" : ""}`} />
 
       {story.working && (
         <div className="story-work" role="status" aria-live="polite">
@@ -253,6 +281,43 @@ function StoryEditor({ id }: { id: string }) {
       {!story.working && story.error && <Banner tone="bad" title="That did not work">{story.error}</Banner>}
       {!story.working && !story.error && story.message && <Banner tone="info">{story.message}</Banner>}
 
+      {chat ? <>
+        <Step n={1} id={`${ids}-chat`} title="Chat" done={story.steps.script}>
+          <div className="chat-write">
+            <div className="stack-3 grow">
+              <label className="field"><span>Messages <span className="muted">(one a line: name, colon,
+                message)</span></span>
+                <textarea className="story-script chat-script" rows={16} value={script} disabled={locked} spellCheck
+                  placeholder={CHAT_EXAMPLE} onChange={(e) => typing({ script: e.target.value })} onBlur={flush} />
+              </label>
+              <p className="small muted">{chat.messages.length} of {opts.chat.limits.max_messages} messages
+                · {words} words · about {clock(story.seconds)} (up to {clock(opts.chat.limits.max_seconds)}).</p>
+              <p className="small muted">Me (or I) is whose phone it is: blue bubbles on the right. Everyone else is
+                grey on the left; with three or more people it is a group chat with names. A line without a name
+                adds a message from the last person.</p>
+            </div>
+            <ChatPreview chat={chat} opts={opts} />
+          </div>
+          <Writer story={story} opts={opts} locked={locked} onStory={(s) => { typed.current = false; take(s, true); }} />
+          <label className="field story-name"><span>Name (optional)</span>
+            <input type="text" value={name} maxLength={120} disabled={locked} placeholder="Named from the chat"
+              onChange={(e) => typing({ name: e.target.value })} onBlur={flush} /></label>
+        </Step>
+
+        <Step n={2} id={`${ids}-people`} title="People and voices" done={story.steps.voice}>
+          <ChatPeople story={story} chat={chat} opts={opts} locked={locked} audio={audio} onChat={changeChat}
+            onRules={(pronunciations) => change({ pronunciations })} />
+        </Step>
+
+        <Step n={3} id={`${ids}-bg`} title="Background" done={story.steps.background}>
+          <Backgrounds story={story} opts={opts} locked={locked} onChange={(backgrounds) => change({ backgrounds })}
+            onStory={take} />
+        </Step>
+
+        <Step n={4} id={`${ids}-look`} title="Look and sound" done={story.steps.script}>
+          <ChatLook chat={chat} opts={opts} locked={locked} onChat={changeChat} />
+        </Step>
+      </> : <>
       <Step n={1} id={`${ids}-script`} title="Script" done={story.steps.script}>
         <label className="field"><span>Title <span className="muted">(read first, shown on a card)</span></span>
           <input type="text" value={title} maxLength={opts.limits.max_title} disabled={locked}
@@ -265,7 +330,7 @@ function StoryEditor({ id }: { id: string }) {
         <p className="small muted">{words} words of {opts.limits.max_words} · about {clock(story.seconds)}. A blank
           line
           starts a new paragraph; the narrator pauses at full stops and commas.</p>
-        <Writer story={story} opts={opts} locked={locked} onStory={(s) => { typed.current = false; take(s); }} />
+        <Writer story={story} opts={opts} locked={locked} onStory={(s) => { typed.current = false; take(s, true); }} />
         <label className="field story-name"><span>Name (optional)</span>
           <input type="text" value={name} maxLength={120} disabled={locked} placeholder="Named from the title"
             onChange={(e) => typing({ name: e.target.value })} onBlur={flush} /></label>
@@ -299,6 +364,7 @@ function StoryEditor({ id }: { id: string }) {
         </div>
         <p className="small muted">The word being said lights up. The title shows on a white card while it is read.</p>
       </Step>
+      </>}
 
       <Step n={5} id={`${ids}-pre`} title="Preview" done={story.made.preview.current}>
         <div className="story-out">
@@ -311,7 +377,9 @@ function StoryEditor({ id }: { id: string }) {
             </div>
           )}
           <div className="stack-3">
-            <p className="small muted">A small, quick version to check the voice, the timing and the background.</p>
+            <p className="small muted">A small, quick version to check the {chat ? "voices" : "voice"}, the timing
+              and the background.</p>
+            {chat && opts.chat.emoji_note && <p className="small muted">{opts.chat.emoji_note}</p>}
             {story.made.preview.ready && !story.made.preview.current && (
               <p className="small story-stale"><Icon name="alert" className="sm" />Made before your last changes.</p>)}
             {story.narration.fallback && <p className="small muted">{story.narration.fallback}</p>}
@@ -356,15 +424,19 @@ function StoryEditor({ id }: { id: string }) {
 function Writer({ story, opts, locked, onStory }: { story: Story; opts: StoryOptions; locked: boolean;
   onStory: (s: Story) => void }) {
   const ids = useId();
+  const chat = story.kind === "chat";
+  const tones = chat ? opts.chat.tones : opts.tones;
+  const lengths = chat ? opts.chat.lengths : opts.lengths;
+  const noun = chat ? "chat" : "story";
   const [topic, setTopic] = useState("");
-  const [tone, setTone] = useState(opts.tones[0]?.id || "drama");
+  const [tone, setTone] = useState(tones[0]?.id || "drama");
   const [length, setLength] = useState("standard");
   const [ask, setAsk] = useState("");
   const [busy, setBusy] = useState(false);
   const has = story.script.trim().length > 0;
   if (!opts.writer.configured) {
     return (
-      <Banner tone="neutral" title="ClipForge AI can write and revise stories"
+      <Banner tone="neutral" title={`ClipForge AI can write and revise ${chat ? "chats" : "stories"}`}
         actions={<a className="btn btn-small" href={opts.links.ai}><Icon name="settings" />Set up ClipForge AI</a>}>
         Set it up once in Settings (a free model on this computer works), or keep writing your own.
       </Banner>
@@ -389,31 +461,34 @@ function Writer({ story, opts, locked, onStory }: { story: Story; opts: StoryOpt
         <div className="row wrap">
           <label className="field grow"><span className="sr-only">What to change</span>
             <input type="text" value={ask} maxLength={400} disabled={locked || busy}
-              placeholder="Make the ending scarier"
+              placeholder={chat ? "Make her replies meaner and add a twist at the end" : "Make the ending scarier"}
               onChange={(e) => setAsk(e.target.value)} /></label>
           <button type="button" className="btn" disabled={locked || busy || !ask.trim()}
             onClick={() => void go({ change: ask.trim() })}><Icon name="edit" />Revise</button>
         </div>
       ) : null}
       <details open={!has}>
-        <summary className="small">{has ? "Or write a new story from a topic" : "Write it for me"}</summary>
+        <summary className="small">{has ? `Or write a new ${noun} from a topic` : "Write it for me"}</summary>
         <div className="stack-3 story-writer-new">
           <label className="field"><span>Topic</span>
             <input type="text" value={topic} maxLength={300} disabled={locked || busy}
-              placeholder="A neighbour who keeps stealing packages"
+              placeholder={chat ? "My best friend texts me by mistake about my surprise party"
+                : "A neighbour who keeps stealing packages"}
               onChange={(e) => setTopic(e.target.value)} /></label>
           <div className="row wrap">
-            <label className="field"><span>Kind of story</span>
+            <label className="field"><span>Kind of {noun}</span>
               <select value={tone} disabled={locked || busy} onChange={(e) => setTone(e.target.value)}>
-                {opts.tones.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                {tones.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select></label>
             <div className="field"><span id={`${ids}-len`}>Length</span>
               <Segmented labelledBy={`${ids}-len`} value={length} onChange={setLength} disabled={locked || busy}
-                options={opts.lengths.map((l) => ({ value: l.id, label: l.label }))} /></div>
+                options={lengths.map((l) => ({ value: l.id, label: l.label }))} /></div>
           </div>
           <button type="button" className="btn" disabled={locked || busy || !topic.trim()}
             onClick={() => void go({ topic: topic.trim(), tone, length })}>
-            <Icon name="spark" />{has ? "Write a new story (replaces this one)" : "Write it for me"}</button>
+            <Icon name="spark" />{has ? `Write a new ${noun} (replaces this one)` : "Write it for me"}</button>
+          {length === lengths[lengths.length - 1]?.id && <span className="small muted">A long {noun} is written a
+            part at a time, so it takes a few minutes; Stop keeps what was there before.</span>}
         </div>
       </details>
       <span className="small muted">Written by {opts.writer.label} {where}.
@@ -429,8 +504,6 @@ function VoicePicker({ story, opts, locked, audio, sample, onChange, onRules, on
   onRules: (r: Story["pronunciations"]) => Promise<boolean>; onOpts: (o: StoryOptions) => void }) {
   const ids = useId();
   const v = story.voice;
-  const [rules, setRules] = useState(story.pronunciations);
-  useEffect(() => setRules(story.pronunciations), [story.pronunciations]);
   const words = sample.split(/\s+/).slice(0, 24).join(" ");
   const favourite = async (scope: string, on: boolean, voiceId = v.voice, quiet = false) => {
     try {
@@ -502,6 +575,17 @@ function VoicePicker({ story, opts, locked, audio, sample, onChange, onRules, on
         + "sets the speed and tone." : "Picking a style brings its favourite voice when it has one."}</p>
       <p className="small muted">Tone moves the voice higher or lower and works with every voice. Only voices ClipForge
         may use are listed: the voices of this computer and the voice engine you set up.</p>
+      <Pronunciations story={story} locked={locked} onRules={onRules} />
+    </div>
+  );
+}
+
+/** Words the voice should say another way (GIF → jif); the captions and bubbles still show them as written. */
+function Pronunciations({ story, locked, onRules }: { story: Story; locked: boolean;
+  onRules: (r: Story["pronunciations"]) => Promise<boolean> }) {
+  const [rules, setRules] = useState(story.pronunciations);
+  useEffect(() => setRules(story.pronunciations), [story.pronunciations]);
+  return (
       <details>
         <summary className="small">Pronunciations{rules.length ? ` (${rules.length})` : ""}</summary>
         <div className="stack-2 story-rules">
@@ -525,10 +609,228 @@ function VoicePicker({ story, opts, locked, audio, sample, onChange, onRules, on
             </button>
           </div>
           <span className="small muted">
-            For example GIF → jif. The captions still show the word as you wrote it.
+            For example GIF → jif. {story.kind === "chat" ? "The bubbles" : "The captions"} still show the word as
+            you wrote it.
           </span>
         </div>
       </details>
+  );
+}
+
+const CHAT_EXAMPLE = "Sienna: Be honest. Did you eat my leftovers?\nMe: Which leftovers\n"
+  + "Sienna: The pasta. With my NAME on it 😤\nMe: There was a name on it?";
+const PREVIEW_MESSAGES = 80;   // the page's chat shows this many; the video shows them all
+
+/** The chat as the video shows it (the colours of the look chosen): the header with the name and the unread number,
+ * then the bubbles, theirs grey on the left and whose phone it is on the right. */
+function ChatPreview({ chat, opts }: { chat: StoryChat; opts: StoryOptions }) {
+  const t = opts.chat.themes.find((x) => x.id === chat.theme) || opts.chat.themes[0];
+  const look = t ? {
+    "--c-card": t.card, "--c-head": t.head, "--c-rule": t.rule, "--c-them": t.them, "--c-them-text": t.them_text,
+    "--c-me": t.me, "--c-me-text": t.me_text, "--c-name": t.name, "--c-accent": t.accent, "--c-muted": t.muted,
+  } as CSSProperties : undefined;
+  const shown = chat.messages.slice(0, PREVIEW_MESSAGES);
+  const name = chat.shown_contact || "Unknown";
+  return (
+    <figure className="chat-phone" style={look} aria-label="How the chat looks in the video">
+      <div className="chat-head" aria-hidden="true">
+        <span className="chat-back"><Icon name="back" />{chat.badge > 0 && <b>{chat.badge}</b>}</span>
+        <Icon name="video" className="chat-cam" />
+        <span className="chat-avatar">{Array.from(name)[0]?.toUpperCase()}</span>
+        <span className="chat-name">{name}<Icon name="chev" /></span>
+      </div>
+      <div className="chat-body">
+        {shown.length === 0 && <p className="chat-empty">The messages show up here as you write them.</p>}
+        {shown.map((m, i) => {
+          const first = i === 0 || shown[i - 1].who !== m.who;
+          const last = i === shown.length - 1 || shown[i + 1].who !== m.who;
+          return (
+            <Fragment key={i}>
+              {m.label && m.side === "them" && <span className="chat-sender">{m.label}</span>}
+              <p className={`chat-bubble ${m.side}${last ? " tail" : ""}${first && i > 0 ? " turn" : ""}`}>{m.text}</p>
+            </Fragment>
+          );
+        })}
+        {chat.messages.length > shown.length && (
+          <p className="chat-empty">and {chat.messages.length - shown.length} more messages</p>)}
+      </div>
+    </figure>
+  );
+}
+
+/** A field saved a moment after typing stops, and when the page closes. `saved` is what the story has; it comes
+ * into the field only when it changed elsewhere (`same` says when two values are the same once tidied). */
+function useFieldSave(saved: string, commit: (value: string) => void, same: (a: string, b: string) => boolean,
+  wait = 700) {
+  const [value, setValue] = useState(saved);
+  const latest = useRef(saved);
+  const sent = useRef(saved);
+  const save = useRef(commit);
+  save.current = commit;
+  const tidy = useRef(same);
+  tidy.current = same;
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!tidy.current(saved, sent.current)) {
+      setValue(saved);
+      latest.current = saved;
+    }
+    sent.current = saved;
+  }, [saved]);
+  const flush = useCallback(() => {
+    window.clearTimeout(timer.current);
+    if (!tidy.current(latest.current, sent.current)) {
+      sent.current = latest.current;
+      save.current(latest.current);
+    }
+  }, []);
+  useEffect(() => flush, [flush]);
+  const type = (v: string) => {
+    setValue(v);
+    latest.current = v;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(flush, wait);
+  };
+  return { value, type, flush, show: setValue };
+}
+
+const tidyText = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
+const badgeNumber = (s: string) => Math.max(0, Math.min(999, Math.round(Number(s) || 0)));
+
+/** Whose phone it is, the name at the top, and a voice for everyone in the chat. */
+function ChatPeople({ story, chat, opts, locked, audio, onChat, onRules }: { story: Story; chat: StoryChat;
+  opts: StoryOptions; locked: boolean; audio: Audio; onChat: (c: ChatPatch) => Promise<boolean>;
+  onRules: (r: Story["pronunciations"]) => Promise<boolean> }) {
+  const contact = useFieldSave(chat.contact, (value) => void onChat({ contact: value }),
+    (a, b) => tidyText(a) === tidyText(b));
+  // a slider's value while it moves: saved a moment after it stops (and when the page closes)
+  const [moving, setMoving] = useState<Record<string, PersonVoice>>({});
+  const pending = useRef<Record<string, PersonVoice>>({});
+  const timer = useRef<number | undefined>(undefined);
+  const save = useRef(onChat);
+  save.current = onChat;
+  const send = useCallback(() => {
+    window.clearTimeout(timer.current);
+    const people = pending.current;
+    pending.current = {};
+    if (Object.keys(people).length === 0) return;
+    void save.current({ people }).finally(() => setMoving({ ...pending.current }));
+  }, []);
+  useEffect(() => send, [send]);
+  const slide = (who: string, patch: PersonVoice) => {
+    pending.current = { ...pending.current, [who]: { ...pending.current[who], ...patch } };
+    setMoving({ ...pending.current });
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(send, 450);
+  };
+  const theme = opts.chat.themes.find((x) => x.id === chat.theme) || opts.chat.themes[0];
+  if (chat.names.length === 0) {
+    return <p className="small muted">Write the chat first: everyone in it shows up here with a voice of their own.</p>;
+  }
+  const said = (who: string) => chat.messages.filter((m) => m.who === who && /[\p{L}\p{N}]/u.test(m.text))
+    .slice(0, 2).map((m) => m.text).join(" ") || `Hi, it's ${who}.`;
+  return (
+    <div className="stack-4">
+      <div className="story-rows">
+        {chat.names.length > 1 && (
+          <label className="story-row-pick"><span className="label">Whose phone it is</span>
+            <select value={chat.names.includes(chat.me) ? chat.me : ""} disabled={locked}
+              onChange={(e) => void onChat({ me: e.target.value })}>
+              <option value="">Automatic: {chat.auto_phone || "nobody"}</option>
+              {chat.names.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select></label>
+        )}
+        <label className="story-row-pick"><span className="label">Name at the top</span>
+          <input type="text" value={contact.value} maxLength={40} disabled={locked}
+            placeholder={chat.shown_contact || "Unknown"} onChange={(e) => contact.type(e.target.value)}
+            onBlur={contact.flush} onKeyDown={(e) => { if (e.key === "Enter") contact.flush(); }} /></label>
+      </div>
+      <ul className="chat-people" aria-label="Voices">
+        {chat.names.map((n) => {
+          const v = { voice: opts.default_voice, speed: 1, tone: 0, ...chat.people[n], ...moving[n] };
+          const mine = n === chat.whose_phone;
+          return (
+            <li key={n} className="chat-person">
+              <span className="chat-dot" style={{ background: mine ? theme?.me : theme?.them }} aria-hidden="true" />
+              <span className="chat-who"><b>{n}</b><span className="small muted">
+                {mine ? "whose phone it is (right)" : chat.group ? "in the group (left)" : "the contact (left)"}
+              </span></span>
+              <select aria-label={`${n}'s voice`} value={v.voice} disabled={locked}
+                onChange={(e) => void onChat({ people: { [n]: { voice: e.target.value } } })}>
+                {opts.voices.map((x) => (
+                  <option key={x.id} value={x.id}>{x.about ? `${x.name} · ${x.about}` : x.name}</option>
+                ))}
+              </select>
+              <label className="small chat-slide">Speed <span className="muted tnum">{v.speed.toFixed(2)}×</span>
+                <input type="range" min={opts.speed_range[0]} max={opts.speed_range[1]} step={0.02} value={v.speed}
+                  aria-label={`${n}'s speed`} aria-valuetext={`${v.speed.toFixed(2)} times`}
+                  disabled={locked} onChange={(e) => slide(n, { speed: Number(e.target.value) })} /></label>
+              <label className="small chat-slide">Tone <span className="muted tnum">{v.tone > 0 ? `+${v.tone}` : v.tone}
+              </span>
+                <input type="range" min={opts.tone_range[0]} max={opts.tone_range[1]} step={0.5} value={v.tone}
+                  aria-label={`${n}'s tone`}
+                  aria-valuetext={`${v.tone > 0 ? "+" : ""}${v.tone} semitone${Math.abs(v.tone) === 1 ? "" : "s"}`}
+                  disabled={locked} onChange={(e) => slide(n, { tone: Number(e.target.value) })} /></label>
+              <button type="button" className="btn btn-small hear-btn" aria-label={`Hear ${n}`}
+                onClick={() => void audio.play(`person:${n}`,
+                  { voice: v.voice, speed: v.speed, tone: v.tone, text: said(n) })}>
+                {audio.playing === `person:${n}` ? <><Icon name="stop" />Stop</> : <><Icon name="play" />Hear</>}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <label className="choice"><input type="checkbox" checked={chat.read_aloud} disabled={locked}
+        onChange={(e) => void onChat({ read_aloud: e.target.checked })} />
+        <span>Read every message aloud in its sender's voice</span></label>
+      <p className="small muted">{chat.read_aloud ? "Each person gets a different voice to start with. Tone moves a "
+        + "voice higher or lower, so two people can share one." : "Without voices each message stays on screen long "
+        + "enough to read it (with the pop and whoosh sounds when they are on)."}</p>
+      <Pronunciations story={story} locked={locked} onRules={onRules} />
+    </div>
+  );
+}
+
+/** The chat's look (dark, light, green bubbles), its pace and sounds, and the unread number by the back arrow. */
+function ChatLook({ chat, opts, locked, onChat }: { chat: StoryChat; opts: StoryOptions; locked: boolean;
+  onChat: (c: ChatPatch) => Promise<boolean> }) {
+  const ids = useId();
+  const badge = useFieldSave(String(chat.badge), (value) => void onChat({ badge: badgeNumber(value) }),
+    (a, b) => badgeNumber(a) === badgeNumber(b));
+  const saveBadge = () => {
+    badge.flush();
+    badge.show(String(badgeNumber(badge.value)));
+  };
+  return (
+    <div className="stack-4">
+      <div className="chat-themes" role="radiogroup" aria-label="Look">
+        {opts.chat.themes.map((t) => (
+          <label key={t.id} className={`chat-theme${chat.theme === t.id ? " on" : ""}`}>
+            <input type="radio" name={`${ids}-theme`} checked={chat.theme === t.id} disabled={locked}
+              onChange={() => void onChat({ theme: t.id })} />
+            <span className="chat-theme-sample" style={{ background: t.card, borderColor: t.rule }} aria-hidden="true">
+              <i style={{ background: t.them }} /><i style={{ background: t.me }} />
+            </span>
+            <span className="small">{t.label}</span>
+          </label>
+        ))}
+      </div>
+      <div className="story-rows">
+        <div className="story-row-pick"><span className="label" id={`${ids}-pace`}>Pace</span>
+          <Segmented labelledBy={`${ids}-pace`} value={chat.pace} disabled={locked}
+            onChange={(pace) => void onChat({ pace })}
+            options={opts.chat.paces.map((x) => ({ value: x.id, label: x.label }))} /></div>
+        <label className="story-row-pick"><span className="label">Unread number</span>
+          <input type="number" className="chat-badge-input" min={0} max={999} value={badge.value} disabled={locked}
+            onChange={(e) => badge.type(e.target.value)} onBlur={saveBadge}
+            onKeyDown={(e) => { if (e.key === "Enter") saveBadge(); }} /></label>
+      </div>
+      <label className="choice"><input type="checkbox" checked={chat.sounds} disabled={locked}
+        onChange={(e) => void onChat({ sounds: e.target.checked })} />
+        <span>A pop when a message comes in and a whoosh when one is sent</span></label>
+      <p className="small muted">Pace sets the pauses between messages. The unread number sits by the back arrow (0
+        hides it). The chat sits in the middle of the video, clear of the app buttons at the top and the caption at
+        the bottom, and a new page of the chat starts when it fills up.</p>
     </div>
   );
 }
@@ -540,7 +842,8 @@ function swapUp<T>(all: T[], i: number): T[] {
   return all.map((x, k) => (k === i - 1 ? all[i] : k === i ? all[i - 1] : x));
 }
 
-const FOOTAGE_IDEAS = ["parkour", "satisfying", "minecraft parkour", "slime", "subway train", "ocean waves"];
+const FOOTAGE_IDEAS = ["satisfying", "cooking", "cutting food", "soap cutting", "kinetic sand", "parkour",
+  "minecraft parkour", "slime", "subway train", "ocean waves"];
 
 /** Search the free footage sources (Settings → Media sources) for a background, and use one: it is copied into
  * your videos with where it came from and its license, and goes behind the story. Only footage whose license lets
@@ -710,8 +1013,9 @@ function Backgrounds({ story, opts, locked, onChange, onStory }: { story: Story;
   };
   return (
     <div className="stack-4">
-      {list.length === 0 && <p className="small muted">Gameplay, parkour, satisfying clips or anything with steady
-        motion works best. The background's own sound is left out, so the voice stays clear.</p>}
+      {list.length === 0 && <p className="small muted">Satisfying clips (cooking, cutting, soap, sand), gameplay,
+        parkour or anything with steady motion works best. The background's own sound is left out, so the voice stays
+        clear.</p>}
       {list.map((b, i) => {
         const length = b.duration || 0;
         return (
