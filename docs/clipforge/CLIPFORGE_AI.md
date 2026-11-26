@@ -1185,6 +1185,45 @@ on its own you dont have to say ok". So:
   lists what it leaves out and why; its result says "Posting now" only when `now: true` posted them. OK runs the one-post command for
   each (`_bulk_run`); one that cannot change any more (it went out meanwhile) is named, and the others still change.
 
+## A video's music ending, in words (2026-11-26)
+
+Editing batch 3 (PR #83) gave music set to Loop a choice, **End on the last frame** (`back_time` on the audio item,
+`studio/sound_joins.py`): the music starts inside itself and fades in, so its own ending plays as the video ends.
+ClipForge's own music does it unless it is unticked; the owner's songs only when it is ticked. ClipForge AI can now
+set it from words, on the video's page and in the chat about a video (`chat._rules_change`):
+
+- **Rules, no model** (`edit_requests._back_time_said`): "end the music on the last frame", "make the song end
+  with the video", "the end of the song should line up with the end of the video", "back-time the music", "turn on
+  End on the last frame" turn it on; "don't end the music on the last frame", "the music shouldn't end on the last
+  frame", "untick End on the last frame", "play the song from its start" turn it off. The rules only answer what is
+  clear; everything else is left to the other rules (as before) or the model:
+  - a negation turns it off only right before the ending ("don't end", "no longer finish"); one about something
+    else ("…, not earlier", "without a hard cut", "so it doesn't stop abruptly") is the model's;
+  - a part's end is not the video's ("end the music at the end of clip 2", "the last frame of clip 3");
+  - the music-level rule's words keep their meaning ("duck the music at the end so my last words finish clearly",
+    "lower the music at the end"), and so do fades, new or other music ("add a song that ends with the video"),
+    music over a shot, and music that ends too early ("the music ends before the video ends"); a level and the
+    music's own ending in one part ("lower the music so it ends with the video") go to the model, never half done;
+  - "… and end it on the last frame" starts its own part of the request ("lower the music and end it on the last
+    frame" does both), but "at the start and end" stays one part.
+- **Which music:** "my song" (or "song") is the owner's own music, "ClipForge's music" the library's; otherwise all
+  music that can. Only music set to Loop that plays to the end can (`_repeats_to_end`, on whole frames as the render
+  places it, so a 39.99 s video rendered as 40.00 s is read the same way). Otherwise it says why, in the Sound
+  panel's words: muted, following a removed clip, not set to Loop, or stopping before the end ("Plays for"). Music
+  that already does it is not changed again; which music is ClipForge's own (on by default) is read from its file
+  name (`sound_joins.back_times`), so `by_rules`, `changes` and `build_prompt` take the project's files (`assets`).
+- **The model** (an AI service in Settings) sees each music item with `repeats_to_end` and `ends_on_last_frame`
+  (the real setting, default included) and may answer `{"op": "audio_back_time", "audio_id": ID, "value":
+  true|false}`; `_translate` refuses it for music that cannot, and an answer that changes nothing audible is "would
+  not change anything".
+- **The proposal** lists "“song.m4a” ends on the video's last frame (it starts inside the music and fades in)" or
+  "… starts at its own start", and Apply makes it a version Undo reverts, like every change.
+- **The app guide** (`appguide`, "A full video's sound and music") tells the chat where Sound, Loop and End on the
+  last frame are, and that cuts no longer click and titles and photos get room sound.
+- **Reviewed** before merging (2 reviewers, 15 findings with probes, all fixed with tests: the cases above).
+
+Tests: `tests/test_studio_edit_requests.py` (the music-ending tests: phrases, parts, which music, reasons, frames, the AI).
+
 ## API
 
 - `GET /api/brain/memories?q=&kind=&project_id=&limit=` (`project_id`: the memories kept for that video or for every video, by their scope) · `POST /api/brain/memories` `{text, kind?, scope?, project_id?, platform?, tags?}` · `PATCH /api/brain/memories/{memory_id}` · `DELETE /api/brain/memories/{memory_id}` · `POST /api/brain/memories/{memory_id}/confirm` · `POST /api/brain/memories/{memory_id}/undo` `{words}` (a chat chip's Undo: forgets the memory only while it is as that answer added it, revision 1 and the same words; 404 when it is gone, 409 when it changed since) · `GET /api/brain/memories/{memory_id}/uses`
