@@ -1,5 +1,27 @@
 # AI handoff
 
+## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** in full videos the sound now flows across cuts: the next room is heard a few frames early
+where there is room for it, recordings cross over without clicks, titles and photos carry room sound instead of
+silence, and ClipForge's music beds end on the last frame.
+
+- **Where things are:** `studio/sound_joins.py` (constants and pure functions: `split_edits`, `clear`,
+  `tone_candidates`, `loop_tone_blocks`, `back_time_offset`, `back_times`, `uncovered_ms`, `duck_gain`); the engine's
+  sound section in `studio/engine.py` (`_own_sound`, `_room_tones`, `_voiceovers`, `_narrated`, `_back_timed`,
+  `_one_pass`, `_write_tone`,
+  the `xfades`/`tone_lead`/`tone_tail` maps, power ramps in `mix`); `engine.sound_joins_in_use` decides FilmCraft
+  routing in `video_flow._craft_render`.
+- **Worth knowing:** splits need the frames that change hands plus 0.1 s free of words on both sides; the app's own
+  edits keep only 0.10-0.16 s around words, so most app-made cuts get only the 40 ms crossfade (deliberate: the
+  margin protects word tails from transcript timing). Room tone goes on the free bus (never ducks music). With
+  "auto", almost every multi-recording video or one with a title or photo that found room tone now renders its
+  final on the built-in engine (FilmCraft has none of the sound joins; the preview's `info["sound_joins"]` decides
+  room tone and moved music, `video_flow._preview_joins`); FilmCraft chosen in Settings lists what it skipped.
+  Looping music is never looped by FFmpeg on the file itself (`-stream_loop` on AAC/MP3 drifts and pads in silence):
+  `_one_pass` decodes one pass and the raw pass is looped. Interchange (OTIO) exports do not carry split edits or
+  room tone.
+
 ## Editing quality, batch 2: short clips — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** short clips now punch in on every jump cut, change framing at least every 5 s, push in on

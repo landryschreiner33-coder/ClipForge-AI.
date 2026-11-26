@@ -1,5 +1,26 @@
 # Implementation status
 
+## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 2. Full videos get split edits (J and L cuts) where no word
+changes hands, 40 ms equal-power crossfades between recordings, room tone under titles, photos and silent videos,
+and ClipForge's music beds back-timed to end on the last frame
+([docs/clipforge/LONG_EDITING.md](clipforge/LONG_EDITING.md)). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | `pytest tests/test_sound_joins.py` | 12 passed (9 fast, 3 real renders); each render test fails with its feature turned off |
+| 2026-11-26 | Independent review (2 reviewers) | 9 findings, all handled (see the changelog); 2 confirmed by a verifier before the usage limit stopped the rest |
+| 2026-11-26 | Second review (3 reviewers, a verifier per finding) | 5 more findings (3 confirmed by verifiers, 2 checked by hand), all fixed |
+| 2026-11-26 | `pytest -m "not slow"` (before the second review) | 3,514 passed, 2 skipped (one edit-request test followed the new hard-cut default) |
+| 2026-11-26 | `pytest -m slow` (before the second review) | 40 passed, 1 skipped |
+| 2026-11-26 | `pytest` (fast and slow, final code) | 3,554 passed, 3 skipped, 1 failed: the shorts routing test called `_craft_render` with an empty job, fixed; then `test_studio_shorts_captions.py`, `test_craft.py`, `test_studio_filmcraft.py` and the release line's `test_assistant_guards.py`: 77 passed, 1 skipped |
+| 2026-11-26 | GitHub filmcraft-check on PR #83 (macos-15, ubuntu) | passed |
+
+Not verified: real recordings with real room noise (the cloud has no sample footage), FilmCraft itself (its routing is
+tested with a stand-in), the Mac.
+
 ## Editing quality, batch 2: short clips — 2026-11-26 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on top of batch 1. Short clips punch in on jump cuts, change framing at least

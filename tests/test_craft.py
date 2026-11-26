@@ -605,7 +605,7 @@ class _Lease:
 def test_final_render_engine_choice_and_backup(env, monkeypatch):  # noqa: F811
     from clipfoundry.craft import apps, finish
     from clipfoundry.craft.runner import CraftError
-    from clipfoundry.studio import video_flow
+    from clipfoundry.studio import engine, video_flow
 
     project = _video(env)
     plan, assets, words = _inputs(project)
@@ -626,7 +626,40 @@ def test_final_render_engine_choice_and_backup(env, monkeypatch):  # noqa: F811
     assert video_flow._craft_render(project, job, looked, assets, words, out, {"edit_engine": "filmcraft"},
                                     _Lease(), False)[0]["colour_skipped"].startswith("FilmCraft rendered")
     plan["color"] = {"auto": False, "match": False, "look": "natural", "strength": 100, "clean": False}
-    assert video_flow._craft_render(*args, {"edit_engine": "auto"}, _Lease(), False) == ({"engine": "filmcraft"}, "")
+    # nor ClipForge's sound joins (studio/sound_joins.py): this plan has a title card and a photo (room tone under
+    # them), so with "auto" its final stays on the built-in engine too; FilmCraft by hand says what it skipped
+    assert video_flow._craft_render(*args, {"edit_engine": "auto"}, _Lease(), False) == (None, "")
+    made = video_flow._craft_render(*args, {"edit_engine": "filmcraft"}, _Lease(), False)[0]
+    assert any("split edits" in t for t in made["craft_skipped"])
+    assert video_flow._made_with(made)["skipped"] == made["craft_skipped"]
+    # one recording, no title, photo or ClipForge music bed: nothing for the sound joins to do, so FilmCraft
+    plain = {**plan, "title": {**plan["title"], "enabled": False},
+             "clips": [c for c in plan["clips"] if c["id"] == "c1"]}
+    assert not engine.sound_joins_in_use(plain, assets, words)
+    assert video_flow._craft_render(project, job, plain, assets, words, out, {"edit_engine": "auto"}, _Lease(),
+                                    False) == ({"engine": "filmcraft"}, "")
+    # whether room tone was found (or the music moved) is only known by measuring, which the preview of the same
+    # version did: a title over a recording whose pauses held no usable room sound goes to FilmCraft after all
+    from clipfoundry import db
+
+    titled = {**plain, "title": plan["title"]}
+    nothing = {"split_edits": [], "room_tone_s": 0, "music_back_timed_s": {}}
+    assert engine.sound_joins_in_use(titled, assets, words)  # no preview yet: it could get room tone
+    assert not engine.sound_joins_in_use(titled, assets, words, nothing)
+    assert engine.sound_joins_in_use(titled, assets, words, {**nothing, "room_tone_s": 2.5})
+    assert engine.sound_joins_in_use(titled, assets, words, {**nothing, "music_back_timed_s": {"m": 1.2}})
+    assert video_flow._craft_render(project, job, titled, assets, words, out, {"edit_engine": "auto"}, _Lease(),
+                                    False) == (None, "")
+    db.execute("INSERT INTO studio_artifacts (id, project_id, revision, kind, path, sha256, info, created_at) VALUES "
+               "(?, ?, ?, ?, ?, ?, ?, ?)", ("art-preview", project["id"], job["revision"], "preview", str(out),
+                                            "0" * 64, json.dumps({"sound_joins": nothing}), 0.0))
+    assert video_flow._craft_render(project, job, titled, assets, words, out, {"edit_engine": "auto"}, _Lease(),
+                                    False) == ({"engine": "filmcraft"}, "")
+    # two recordings joined by a straight cut get a crossfade (and maybe a split edit): built-in engine again
+    cut = {**plain, "transition": {"type": "cut", "ms": 0},
+           "clips": [c for c in plan["clips"] if c["id"] in ("c1", "c3")]}
+    assert engine.sound_joins_in_use(cut, assets, words)
+    args = (project, job, plain, assets, words, out)
     assert video_flow._craft_render(*args, {"edit_engine": "ffmpeg"}, _Lease(), False) == (None, "")
     assert video_flow._craft_render(*args, {"edit_engine": "auto"}, _Lease(), True) == (None, "")  # previews: quick
 

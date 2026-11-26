@@ -108,7 +108,7 @@ def test_cf09_mixed_media_assembly_edits_reopen_and_server_render(env):
     assert any("boring part" in n for n in plan["notes"])  # the avoid request removed that sentence
     c_parts = [c for c in plan["clips"] if c["asset_id"] == ids["c"]]
     assert len(c_parts) == 2 and c_parts[0]["out_ms"] < c_parts[1]["in_ms"]
-    assert plan["transition"] == {"type": "dissolve", "ms": 400}
+    assert plan["transition"] == {"type": "cut", "ms": 0}  # balanced: hard cuts (calm keeps its dissolves)
     music = [i for i in plan["audio"] if i["role"] == "music"]  # the brief's music is an item on the music track
     assert [(m["asset_id"], m["loop"], m["duck"]) for m in music] == [(ids["music"], True, True)]
     assert [s["name"] for s in api.get("/api/studio/styles").json()] == ["Trip style"]  # Remember this style

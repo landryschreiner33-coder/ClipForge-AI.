@@ -139,7 +139,9 @@ export type SmartReport = { level: SmartLevel; options: Record<string, unknown>;
 export type AudioRole = "voiceover" | "music" | "effect";
 export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: string; start_ms: number; in_ms: number;
   out_ms: number | null; length_ms: number | null; gain_db: number; mute: boolean; fade_in_ms: number; fade_out_ms: number;
-  duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null; auto?: boolean };
+  duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null; auto?: boolean;
+  /** Music set to repeat ends on the video's last frame (engine sound joins); unset: only ClipForge's own beds. */
+  back_time?: boolean };
 export type TrackName = "source" | "voiceover" | "music" | "effects";
 /** A video's colour choices (engine plan "color"); a plan made before colour existed has none. */
 export type PlanColour = { auto: boolean; match: boolean; look: string; strength: number; clean: boolean };
@@ -159,12 +161,16 @@ export type Segment = { clip_id: string; asset_id: string; kind: string; src_in_
   out_start_ms: number; out_end_ms: number };
 export type Placed = { audio_id: string; asset_id: string; role: AudioRole; track: TrackName; out_start_ms: number;
   out_end_ms: number; src_in_ms: number; loop: boolean; cut_ms: number };
+export type SoundJoins = { split_edits?: { at_s: number; j_frames: number; l_frames: number }[]; room_tone_s?: number;
+  music_back_timed_s?: Record<string, number> };
 export type Video = { id: string; name: string; status: string; message: string; asset_ids: string[];
   brief: Record<string, unknown>; plan_revision: number; rendered_revision: number; guidance: Snapshot; plan: Plan | null;
   duration: number; assets: Asset[]; bin: string[]; timeline: Segment[]; audio_timeline: Placed[];
   artifacts: ({ id: string; revision: number; kind: string; sha256: string; duration: number; audio_ok: boolean;
     /** What the render did to each recording's colour, by asset id. */
-    colour?: Record<string, ColourReport> } & MadeWith)[];
+    colour?: Record<string, ColourReport>;
+    /** How the render joined the sound (engine sound_joins): split edits, room tone, back-timed music. */
+    sound_joins?: SoundJoins } & MadeWith)[];
   preview: { revision: number; stale: boolean } | null;
   jobs: { id: string; kind: string; revision: number; status: string; progress: number; message: string; error: string }[];
   revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];
@@ -252,7 +258,9 @@ export type ChangeRequest = { id: string; project_id: string; base_revision: num
     question?: string; choices?: { label: string; request: string }[]; duration_ms?: [number, number] } };
 
 /** Which editor made a rendered version, and what FilmCraft, EffectCraft and the AI did in it. */
-export type MadeWith = { engine?: string; fallback?: string; filmcraft?: { hand_edited: boolean; steps: number;
+export type MadeWith = { engine?: string; fallback?: string;
+  /** What of ClipForge's own editing FilmCraft could not apply (colour step, sound joins), in sentences. */
+  skipped?: string[]; filmcraft?: { hand_edited: boolean; steps: number;
   failed: number; shots: { what: string; app: string; use: string }[]; notes: string[];
   ai: { used: boolean; summary: string; provider: string; steps: number; refused: number } | null } };
 

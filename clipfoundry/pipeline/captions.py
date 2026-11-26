@@ -215,7 +215,8 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     if hook_on:
         text = _escape(hook_text.strip())
         hook_end = end = min(duration, hook_secs)
-        lines.append(f"Dialogue: 2,{_ass_time(0)},{_ass_time(end)},Hook,,0,0,0,,{{\\fad(120,250)}}{text}")
+        # the hook is already drawn on frame 0 (the first frame is what the feed shows): no fade in, a soft fade out
+        lines.append(f"Dialogue: 2,{_ass_time(0)},{_ass_time(end)},Hook,,0,0,0,,{{\\fad(0,250)}}{text}")
     # captions at the top go under the headline while it shows ("Part N" on a story part shows the whole time)
     below = under_hook if align == POSITIONS["top"][0] and under_hook > margin_v else 0
 
