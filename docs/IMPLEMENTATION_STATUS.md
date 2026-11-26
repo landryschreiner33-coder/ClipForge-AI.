@@ -10,8 +10,11 @@ a moment, and one camera or picture small in a corner
 | When | Command | Result |
 | --- | --- | --- |
 | 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
-| 2026-11-26 | `pytest tests/test_multicam.py` (fast and slow) | 27 passed (25 fast, 2 real renders) |
-| 2026-11-26 | `pytest tests/test_studio_edit_requests.py` | 51 passed |
+| 2026-11-26 | Review (3 reviewers with probes) | 12 problems confirmed, all fixed with tests (AI_CHANGELOG.md, "Review") |
+| 2026-11-26 | `pytest -m "slow or not slow"` on d0fb474 (final code merged with the release line at cc71e90) | 3,742 passed, 3 skipped (1 h 08 min) |
+| 2026-11-26 | GitHub check on PR #90 (macos-15, ubuntu) | passed on 43b8bb0 and d0fb474 |
+| 2026-11-26 | `pytest tests/test_multicam.py` (fast and slow) | 55 passed (52 fast, 3 real renders) |
+| 2026-11-26 | `pytest tests/test_multicam.py tests/test_studio_edit_requests.py tests/test_studio_editor.py tests/test_studio_smart_edit.py tests/test_retime.py tests/test_craft.py -m "not slow"` | 300 passed, 1 skipped |
 
 Not verified: real podcast footage with one microphone per person (the speaker test uses made-up levels), real
 cameras' clock drift, the Cameras panel in a browser beyond the demo.
