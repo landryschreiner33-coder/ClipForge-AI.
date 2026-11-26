@@ -545,8 +545,7 @@ const FOOTAGE_IDEAS = ["parkour", "satisfying", "minecraft parkour", "slime", "s
 /** Search the free footage sources (Settings → Media sources) for a background, and use one: it is copied into
  * your videos with where it came from and its license, and goes behind the story. Only footage whose license lets
  * it be trimmed and used in a video for any purpose is offered. */
-function FreeFootage({ title, onUse, close }: { title: string; onUse: (b: Partial<Background>) => void;
-  close: () => void }) {
+function FreeFootage({ onUse, close }: { onUse: (b: Partial<Background>) => void; close: () => void }) {
   const [query, setQuery] = useState(FOOTAGE_IDEAS[0]);
   const [found, setFound] = useState<MediaResult[] | null>(null);
   const [note, setNote] = useState("");
@@ -605,9 +604,9 @@ function FreeFootage({ title, onUse, close }: { title: string; onUse: (b: Partia
         <button type="button" className="btn btn-small btn-quiet" onClick={close}>Close</button>
       </form>
       <div className="row wrap" role="group" aria-label="Ideas">
-        {[...FOOTAGE_IDEAS.slice(1), ...(title.trim() ? [title.trim().split(/\s+/).slice(0, 3).join(" ")] : [])]
-          .map((idea) => <button key={idea} type="button" className="btn btn-small btn-quiet"
-            onClick={() => void search(idea)}>{idea}</button>)}
+        {/* the kinds of footage stories are told over; a story's own words make poor searches ("I worked one") */}
+        {FOOTAGE_IDEAS.slice(1).map((idea) => <button key={idea} type="button" className="btn btn-small btn-quiet"
+          onClick={() => void search(idea)}>{idea}</button>)}
       </div>
       {note && <p className="small muted" role="status">{note}</p>}
       {found && found.length > 0 && (
@@ -776,7 +775,7 @@ function Backgrounds({ story, opts, locked, onChange, onStory }: { story: Story;
           if (f) void sendFile(f);
         }} />
       </div>
-      {finding && !locked && <FreeFootage title={story.title} onUse={(b) => { add(b); setFinding(false); }}
+      {finding && !locked && <FreeFootage onUse={(b) => { add(b); setFinding(false); }}
         close={() => setFinding(false)} />}
       {upload && <p className="small row wrap" role="status">{upload}
         {sending.current && !sending.current.canceled && <button type="button" className="btn btn-small"

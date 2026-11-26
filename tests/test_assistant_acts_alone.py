@@ -332,3 +332,13 @@ def test_starting_a_project_with_clips_again_waits_for_the_ok(data, monkeypatch)
     act = m["data"]["pending"][0]
     assert act["tool"] == "restart_work" and act["state"] == "waiting" and not act.get("alone")
     assert len(db.list_clips(p["id"])) == 1 and db.get_project(p["id"])["status"] == "error"
+
+
+def test_settings_say_it_acts_on_its_own_with_a_switch_to_ask_first():
+    """Settings → ClipForge AI: the switch, and an intro that no longer says it only proposes changes."""
+    from pathlib import Path
+
+    page = (Path(__file__).resolve().parents[1] / "frontend/src/components/AiHelperSettings.tsx").read_text()
+    assert '"Do it without asking"' in page and '"Ask me first (OK button)"' in page
+    assert "api.saveSettings({ ai_acts_alone: v === \"alone\" })" in page
+    assert "proposes the changes you" not in page and "makes the changes you" in page

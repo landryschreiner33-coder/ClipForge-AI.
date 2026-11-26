@@ -40,3 +40,12 @@ def test_an_imported_video_is_a_background_the_story_accepts(tmp_path, monkeypat
                                                    "why": "Free footage from Wikimedia Commons (CC BY 4.0)."}])
     assert got[0]["asset_id"] == asset["id"] and got[0]["out_s"] <= 6 and got[0]["why"].startswith("Free footage")
     assert any(b["asset_id"] == asset["id"] for b in textstory.usable_backgrounds("local"))
+
+
+def test_the_footage_ideas_are_kinds_of_footage_not_the_storys_first_words():
+    """A story's first words ("I worked one") make a poor footage search: the ideas are the kinds stories are told
+    over (parkour, satisfying, slime, ...)."""
+    page = PAGE.read_text(encoding="utf-8")
+    finder = page[page.index("function FreeFootage"):page.index("/** One of ClipForge's own backgrounds")]
+    assert "FOOTAGE_IDEAS.slice(1).map((idea)" in finder and "title.trim()" not in finder
+    assert "function FreeFootage({ onUse, close }:" in finder and "<FreeFootage onUse=" in page
