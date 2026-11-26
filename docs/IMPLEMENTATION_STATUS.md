@@ -15,10 +15,12 @@ ok"); deletes, TikTok posts and replacing a project's clips still wait for the o
 | 2026-11-26 | Live face cam with real FFmpeg minutes (a minute still being written, a one-second minute after a restart, an unreadable minute) using only the test's temporary folder | passed: the picture is always the newest whole minute's own, never an older one (409 instead) |
 | 2026-11-26 | Voice pitch variants (deeper, brighter) with the real local voice engine | same length within 0.04 s; word times kept |
 | 2026-11-26 | Review of the batch (4 read-only reviewers by area, every finding checked again) | 21 problems confirmed and fixed in 202063c, each with a test; 1 refuted |
+| 2026-11-26 | The review fixes' tests (17 new, 2 changed) run on the code before the fixes (7864c51) in a separate worktree | all 19 failed; on 202063c all pass |
 | 2026-11-26 | GitHub "Native Mac desktop app" run 45744125325 on 9653278 | Mac build, bundled tools, Keychain and WebView passed; slow suite passed; fast suite 3,369 passed, 1 failed (`test_upload_cancels` read the studio import in a fixed order; fixed in 7864c51) |
 | 2026-11-26 | GitHub "Animated shorts check" on 202063c (Linux, Mac, Windows) | passed |
 | 2026-11-26 | `pytest -m slow` on this cloud machine on 202063c | 36 passed, 1 skipped |
 | 2026-11-26 | GitHub "Native Mac desktop app" run 45748846037 on 202063c | Mac build, bundled tools, Keychain and WebView passed; slow suite passed; fast suite 3,386 passed, 2 skipped, 1 failed: `test_macos_support` still expected one Keychain item, and the review fix saves a new key under both names on purpose; the test now checks both names hold the same key (`test_macos_support` + `test_clipforge_name`: 12 passed) |
+| 2026-11-26 | The app on a seeded demo folder: Settings → ClipForge AI, Defaults, Customize colours; a live stream's Draw the face cam (two real recorded minutes of a test picture with a drawn cam); the clip editor's trims; Text Stories' Find free footage | 8 screenshots in `/mnt/project-files/final-release/batch5/`; they showed two wording problems, fixed in PR #73 (two tests that fail before the fix; 145 tests that read the page code passed) |
 
 Not verified: ClipForge AI's new commands with a real model (tests use a scripted model), a real live stream's face
 cam, FLUX.2 klein drawing the main character from the first scene's picture (the graph is checked, the model is not
