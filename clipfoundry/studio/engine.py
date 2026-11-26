@@ -791,7 +791,8 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
         if timing:  # each source frame to its time in the video, then whole output frames (repeated or dropped)
             lines.append(f"{src}{timing},fps={fps}[sp{idx}]")
             src = f"[sp{idx}]"
-    move = retime.motion_filter(clip, rel_frame, e["frames"], width, height)
+    # (the whole element's length: a move runs over the clip, not over each piece of it)
+    move = retime.motion_filter(clip, rel_frame, e.get("frames", rel_frame + frames), width, height)
     if move:  # a slow camera move: the framing window, per frame and by fractions of a pixel
         lines.append(f"{src}{move}[mv{idx}]")
         src = f"[mv{idx}]"
