@@ -182,7 +182,7 @@ function Shell({ me }: { me: Me }) {
       <NavLink href="#/" icon="clapper" label="Studio" on={active === "studio"} />
       <NavLink href="#/brain/talk" icon="chat" label="Talk to AI" on={active === "talk"} />
       <NavLink href="#/projects" icon="folder" label="Projects" on={active === "projects"} />
-      <NavLink href="#/missions" icon="satellite" label="Missions" on={active === "missions"} />
+      <NavLink href="#/missions" icon="missions" label="Missions" on={active === "missions"} />
       <NavLink href="#/brain/styles" icon="brain" label="Brain" on={active === "brain"} />
       <NavLink href="#/publishing/review" icon="layers" label="Publishing" on={active === "publishing"}
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>

@@ -65,6 +65,24 @@ anything yet only merge what's done". Branch `claude/project-thread-gjc836`. The
   `/mnt/project-files/text-stories/text-message-story-demo.mp4`. Not verified: a real model writing a ten-minute
   chat, Mac and Windows voices and emoji fonts (the cloud has eSpeak and Noto Color Emoji only).
 
+## The Taser gets Landry's picture, the Missions logo, and bigger zaps — 2026-11-26 (Claude Code)
+
+Landry sent two pictures: "Use this as the tazer design and the other as the missions logo and improve the getting
+taxed animations".
+
+- **The Taser is Landry's pixel-art picture** (`public/space/taser.png`, with its prong sparks split out as
+  `taser-sparks.png` so they crackle, and its cyan light turning amber while it recharges), on the charger and in your
+  hand. Held, it hangs under the pointer, so the zapped robot stays in view.
+- **The Missions logo** in the side bar is Landry's orbit with a star (`ui.tsx`, icon `missions`).
+- **Bigger zaps:** every zap opens with a shock (the robot rattles, its skeleton and a white flash take turns, sparks
+  burst), lightning runs from the prongs over the robot, and a comic "BZZZT!" (or "ZAP!", "KRZZT!"…, never the same
+  twice in a row) pops up. Then comes one of twelve reactions, the nine before plus three new ones: a glitch (the
+  robot splits into colour bands with pixels flying), a reboot (it slumps dark, a loading bar fills, it powers back
+  on) and a rocket (it blasts up on a flame and lands). The four biggest (falling over, overcharge, reboot, rocket)
+  jolt the whole ship for a moment. Under Reduced motion there is no lightning or jolt: a still spark and the words.
+- Tests: `tests/test_taser.py` (12 reactions dealt fairly, the shock in every one, the new reactions' pieces, sound
+  words, lightning lines, the pictures in the app and the built app, the Missions logo).
+
 ## ClipForge AI sets "End on the last frame" from words — 2026-11-26 (Claude Code)
 
 After editing batch 3 (PR #83) added "End on the last frame" for music set to Loop, ClipForge AI can set it: "end

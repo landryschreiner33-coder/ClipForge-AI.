@@ -377,9 +377,25 @@ export class StudioScene {
       ctx.translate(x + OX + zap.dx, y + OY + zap.dy + (seated ? 4 : 0));
       if (zap.rot) ctx.rotate(zap.rot);
       ctx.scale(zap.sx * (zap.flip ? -1 : 1), zap.sy);
-      const look = zap.tint || zap.xray ? this.tinted(sx, sy, art.w, art.h - cut, art.cx, zap) : null;
-      if (look) ctx.drawImage(look, 0, 0, art.w, art.h - cut, -art.cx, -art.foot, art.w, art.h - cut);
-      else ctx.drawImage(this.art.crew, sx, sy, art.w, art.h - cut, -art.cx, -art.foot, art.w, art.h - cut);
+      const w = art.w, h = art.h - cut;
+      if (zap.glitch > 0 && zap.bands) {
+        // a glitch: a magenta and a cyan ghost either side, and the robot cut into bands that slide sideways
+        for (const [color, shift] of [["#ff2bd6", -3], ["#2bf3ff", 3]] as const) {
+          const ghost = this.tinted(sx, sy, w, h, art.cx, { ...zap, xray: false, tint: { color, alpha: 1 } });
+          ctx.globalAlpha = dim * .6;
+          ctx.drawImage(ghost, 0, 0, w, h, -art.cx + shift * zap.glitch, -art.foot, w, h);
+        }
+        ctx.globalAlpha = dim;
+        const band = Math.ceil(h / zap.bands.length);
+        zap.bands.forEach((shift, i) => {
+          const top = i * band, tall = Math.min(band, h - top);
+          if (tall > 0) ctx.drawImage(this.art.crew, sx, sy + top, w, tall, -art.cx + shift, -art.foot + top, w, tall);
+        });
+      } else {
+        const look = zap.tint || zap.xray ? this.tinted(sx, sy, w, h, art.cx, zap) : null;
+        if (look) ctx.drawImage(look, 0, 0, w, h, -art.cx, -art.foot, w, h);
+        else ctx.drawImage(this.art.crew, sx, sy, w, h, -art.cx, -art.foot, w, h);
+      }
       ctx.restore();
     } else {
       ctx.drawImage(this.art.crew, sx, sy, art.w, art.h - cut, Math.round(x - art.cx + OX),
@@ -445,7 +461,7 @@ export class StudioScene {
     const at = (px: number, py: number, ground = false) => ground
       ? [x + OX + pose.dx + px, y + OY + py]
       : [x + OX + pose.dx + px * cos - py * sin, y + OY + pose.dy + px * sin + py * cos];
-    if (z.kind === "overcharge") this.light(x, y - height * .5, 30, "#ffd23f", .55 * (1 - z.ms / 1800));
+    if (z.kind === "overcharge" && pose.tint) this.light(x, y - height * .5, 32, "#ffd23f", pose.tint.alpha);
     else if (pose.tint && (pose.tint.color === "#9ff3ff" || pose.tint.color === "#ffffff")) {
       this.light(x + pose.dx, y + pose.dy - height * .5, 26, "#59e8ff", pose.tint.alpha * .6);
     }
@@ -488,6 +504,26 @@ export class StudioScene {
           const [px, py] = at(p.x, p.y, p.kind === "dust");
           ctx.fillStyle = p.kind === "smoke" ? "#3b3744" : "#c9c2d9";
           ctx.beginPath(); ctx.arc(px, py, p.size * (p.kind === "dust" ? .6 : 1), 0, Math.PI * 2); ctx.fill();
+          break;
+        }
+        case "pixel": {
+          const [px, py] = at(p.x, p.y);
+          ctx.fillStyle = p.color; ctx.fillRect(Math.round(px), Math.round(py), p.size, p.size);
+          break;
+        }
+        case "flame": {
+          const [px, py] = at(p.x, p.y);
+          ctx.fillStyle = "#ff7a2f"; ctx.beginPath(); ctx.arc(px, py, p.size, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "#ffe14d"; ctx.beginPath(); ctx.arc(px, py - p.size * .2, p.size * .5, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
+        case "bar": {
+          // a loading bar over the robot's head while it reboots
+          const [px, py] = at(p.x, p.y, true), left = Math.round(px - p.w / 2), top = Math.round(py + pose.dy);
+          ctx.fillStyle = "#0b0f1e"; ctx.fillRect(left - 1, top - 1, p.w + 2, 6);
+          ctx.fillStyle = "#59e8ff"; ctx.fillRect(left, top, Math.round(p.w * p.progress), 4);
+          ctx.strokeStyle = "#d7dbe8"; ctx.lineWidth = 1; ctx.strokeRect(left - .5, top - .5, p.w + 1, 5);
           break;
         }
         case "ring": {

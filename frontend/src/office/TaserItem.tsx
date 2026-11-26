@@ -1,8 +1,10 @@
 /** The Taser as a thing on the ship (the owner, 2026-11-26: "make it an actual item you can grab with animations and
- * make sure when you taze them its animated"). It lies on its charger on the Control room floor. Pick it up and it
- * follows the pointer over the ship, swaying in your hand with its prongs crackling; click a robot and the Taser
- * lunges, the robot reacts (taser.ts deals one of nine reactions, StudioScene draws it) and the Taser recharges for a
- * moment. Escape, the charger or the button under the ship puts it back, and it glides home.
+ * make sure when you taze them its animated", then "Use this as the tazer design ... and improve the getting taxed
+ * animations": the picture is public/space/taser.png). It lies on its charger on the Control room floor. Pick it up
+ * and it follows the pointer over the ship, swaying in your hand with its prongs crackling; click a robot and the
+ * Taser lunges, lightning runs over the robot with a "BZZZT!", the robot reacts (taser.ts deals one of twelve
+ * reactions, StudioScene draws it), the biggest ones jolt the whole ship, and the Taser recharges for a moment.
+ * Escape, the charger or the button under the ship puts it back, and it glides home.
  *
  * With a keyboard the charger and the robots are buttons: Enter picks the Taser up, Tab to a robot and Enter zaps it,
  * Escape puts it back. Nothing is sent anywhere and every robot's job carries on. */
@@ -10,44 +12,38 @@ import { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, RefOb
   useState } from "react";
 import { createPortal } from "react-dom";
 import { VIEW } from "./world";
-import { RECHARGE_MS, ZAP_MS, ZapPicker, ZapReaction, zapSound } from "./taser";
+import { BIG_ZAPS, RECHARGE_MS, SHOCK_MS, ZAP_MS, ZapKind, ZapPicker, ZapReaction, boltPoints,
+  zapSound } from "./taser";
 
 /** The charger, in world units: on the Control room floor, left of COMMAND's platform. */
-export const TASER_DOCK = { x: 1252, y: 236, w: 48, h: 30 };
-/** Where the Taser's sparking prongs are in its picture (fractions of it), so it zaps right at the pointer. */
-const TIP = { x: 3.5 / 32, y: 6.5 / 18 };
+export const TASER_DOCK = { x: 1250, y: 222, w: 50, h: 44 };
+/** The Taser's picture (public/space/taser.png, 400 × 350, prongs to the left) and where its prongs are in it
+ * (fractions of it), so it zaps right at the pointer. */
+const ART = { w: 400, h: 350 };
+const TIP = { x: .13, y: .23 };
 const pct = (value: number, total: number) => `${value / total * 100}%`;
 
 export interface ZapFx { kind: ZapReaction; start: number; seed: number }
-export interface Burst { key: number; id: string; x: number; y: number; kind: ZapReaction | "miss"; words: string }
+/** A spark over the ship: the robot's words, the sound written in big letters and the lightning (three takes of each
+ * bolt, shown in turn so it flickers), all relative to (x, y). */
+export interface Burst { key: number; id: string; x: number; y: number; kind: ZapReaction | "miss"; words: string;
+  sfx: string; bolts: string[][] }
 type Pt = { x: number; y: number };
 
-/** The Taser in pixel art: yellow and black, silver prongs, a light that is green when charged and amber while it
- * recharges, and two arcs that crackle between the prongs. */
+/** The Taser: the owner's pixel-art picture (yellow and dark grey, a bolt on its side), its prongs' sparks as a
+ * second layer that crackles, and its light, cyan when charged and amber while it recharges. */
 export function TaserArt({ className = "" }: { className?: string }) {
-  return <svg className={`taser-art${className ? ` ${className}` : ""}`} viewBox="-6 -2 32 18"
-    shapeRendering="crispEdges" aria-hidden="true" focusable="false">
-    <polyline className="arc" points="-1,2.5 -4,3.4 -1.5,4.4 -4.5,5.5 -1,6.5" />
-    <polyline className="arc arc-2" points="-1,2.5 -3,3.8 -0.5,4.6 -3.5,5.6 -1,6.5" />
-    <rect x="0" y="2" width="4" height="1" fill="#cfd6e6" /><rect x="0" y="6" width="4" height="1" fill="#cfd6e6" />
-    <rect x="0" y="2" width="1" height="1" fill="#ffffff" /><rect x="0" y="6" width="1" height="1" fill="#ffffff" />
-    <polygon points="15,8 21,8 24,15 18,15" fill="#16171d" />
-    <polygon points="16,8 20,8 22.5,14 18.8,14" fill="#2b2e3a" />
-    <rect x="18" y="10" width="3" height="1" fill="#454a5c" /><rect x="19" y="12" width="3" height="1" fill="#454a5c" />
-    <rect x="12" y="8" width="1" height="3" fill="#cfd6e6" /><rect x="12" y="10" width="3" height="1" fill="#cfd6e6" />
-    <rect x="3" y="0" width="21" height="9" fill="#16171d" />
-    <rect x="4" y="1" width="3" height="7" fill="#2b2e3a" /><rect x="4" y="1" width="3" height="1" fill="#454a5c" />
-    <rect x="7" y="1" width="13" height="7" fill="#ffd23f" />
-    <rect x="7" y="1" width="13" height="1" fill="#fff0a0" /><rect x="7" y="7" width="13" height="1" fill="#d9a400" />
-    <polygon points="11.5,2 9,5 11,5 10,7.5 13.5,4 11.5,4 13,2" fill="#16171d" />
-    <rect className="led" x="16" y="3" width="2" height="2" />
-    <rect x="20" y="1" width="3" height="7" fill="#2b2e3a" /><rect x="20" y="1" width="3" height="1" fill="#454a5c" />
-  </svg>;
+  return <span className={`taser-art${className ? ` ${className}` : ""}`} aria-hidden="true">
+    <img className="taser-body" src="/space/taser.png" alt="" width={ART.w} height={ART.h} draggable={false} />
+    <img className="taser-sparks" src="/space/taser-sparks.png" alt="" width={ART.w} height={ART.h}
+      draggable={false} />
+    <span className="taser-led" />
+  </span>;
 }
 
 /** The Taser's state and actions for the ship (OfficeMap). `fx` holds the zaps the ship is drawing. */
-export function useTaser({ enabled, sounds, robots, world, name }: {
-  enabled: boolean; sounds: boolean;
+export function useTaser({ enabled, sounds, reduce, robots, world, name }: {
+  enabled: boolean; sounds: boolean; reduce: boolean;
   robots: RefObject<Map<string, HTMLButtonElement>>; world: RefObject<HTMLDivElement>;
   name: (id: string) => string;
 }) {
@@ -59,7 +55,7 @@ export function useTaser({ enabled, sounds, robots, world, name }: {
   const picker = useRef<ZapPicker | null>(null);
   if (!picker.current) picker.current = new ZapPicker();
   const hand = useRef<HTMLDivElement>(null), dock = useRef<HTMLButtonElement>(null);
-  const pointer = useRef<Pt | null>(null), holding = useRef(false), returning = useRef(false);
+  const pointer = useRef<Pt | null>(null), holding = useRef(false), returning = useRef(false), aimed = useRef<Pt>();
   const chargedAt = useRef(0), count = useRef(0), glideUntil = useRef(0), timers = useRef(new Set<number>());
   holding.current = held;
 
@@ -77,6 +73,7 @@ export function useTaser({ enabled, sounds, robots, world, name }: {
       glideUntil.current = performance.now() + 260;
       later(() => { if (performance.now() >= glideUntil.current - 5) el.classList.remove("gliding"); }, 270);
     }
+    aimed.current = at;
     el.classList.toggle("gliding", glide || performance.now() < glideUntil.current);
     el.style.transform = `translate(${Math.round(at.x - el.offsetWidth * TIP.x)}px, ${
       Math.round(at.y - el.offsetHeight * TIP.y)}px)`;
@@ -121,8 +118,27 @@ export function useTaser({ enabled, sounds, robots, world, name }: {
     el.classList.remove("lunge"); void el.offsetWidth; el.classList.add("lunge");
     later(() => el.classList.remove("lunge"), 300);
   };
-  /** Zaps a robot: the Taser lunges, the robot plays its reaction and says something, and the Taser recharges.
-   * Zapping again before it has recharged only fizzles. */
+  /** The whole ship shakes for a moment (only for the biggest reactions, never under Reduced motion). */
+  const jolt = () => {
+    const ship = world.current;
+    if (!ship || reduce) return;
+    ship.classList.remove("ship-jolt"); void ship.offsetWidth; ship.classList.add("ship-jolt");
+    later(() => ship.classList.remove("ship-jolt"), SHOCK_MS + 40);
+  };
+  /** Lightning from the Taser's prongs over the robot: to its head, its feet and its far side, three takes each. */
+  const lightning = (robot: HTMLElement, at: Pt, x: number, y: number): string[][] => {
+    const ship = world.current, box = ship?.getBoundingClientRect();
+    if (!ship || !box || !ship.offsetWidth) return [];
+    const k = box.width / ship.offsetWidth;
+    const tip = { x: (at.x - box.left) / k - x, y: (at.y - box.top) / k - y };
+    const left = robot.offsetLeft - x, top = robot.offsetTop - y, w = robot.offsetWidth, h = robot.offsetHeight;
+    const far = tip.x > left + w / 2 ? left + w * .1 : left + w * .9;
+    const ends = [{ x: left + w / 2, y: top + h * .1 }, { x: left + w / 2, y: top + h * .9 },
+      { x: far, y: top + h * .45 }];
+    return [0, 1, 2].map(() => ends.map(end => boltPoints(tip, end, 6, Math.max(4, w * .16))));
+  };
+  /** Zaps a robot: the Taser lunges, lightning runs over the robot, it plays its reaction and says something, and the
+   * Taser recharges. Zapping again before it has recharged only fizzles. */
   const zap = (id: string, fromKeyboard: boolean) => {
     const robot = robots.current?.get(id);
     if (!robot || !holding.current || returning.current) return;
@@ -130,18 +146,19 @@ export function useTaser({ enabled, sounds, robots, world, name }: {
     const kind: ZapReaction = weak ? "fizzle" : picker.current!.next();
     if (!weak) chargedAt.current = now + RECHARGE_MS;
     fx.current.set(id, { kind, start: now, seed: Math.floor(Math.random() * 1e6) });
-    const key = ++count.current, words = picker.current!.line(kind);
+    const el = hand.current, shown = el?.dataset.shown === "true";
+    const r = robot.getBoundingClientRect(), side = { x: r.right - r.width * .2, y: r.top + r.height * .55 };
+    const at = fromKeyboard || !shown ? side : aimed.current || side;
+    const key = ++count.current, words = picker.current!.line(kind), sfx = picker.current!.sound(kind);
     const x = robot.offsetLeft + robot.offsetWidth / 2, y = robot.offsetTop + robot.offsetHeight * .35;
-    setBursts(list => [...list.filter(b => b.id !== id), { key, id, x, y, kind, words }]);
+    const bolts = weak || reduce ? [] : lightning(robot, at, x, y);
+    setBursts(list => [...list.filter(b => b.id !== id), { key, id, x, y, kind, words, sfx, bolts }]);
     later(() => setBursts(list => list.filter(b => b.key !== key)), ZAP_MS[kind] + 500);
     setSaid(`${name(id)}: ${words}`);
     if (sounds) zapSound(kind);
-    const el = hand.current;
+    if (BIG_ZAPS.includes(kind as ZapKind)) jolt();
     if (!el) return;
-    if (fromKeyboard || el.dataset.shown !== "true") {
-      const r = robot.getBoundingClientRect();
-      aim({ x: r.right - r.width * .2, y: r.top + r.height * .55 }, true);
-    }
+    if (fromKeyboard || !shown) aim(side, true);
     lunge();
     el.dataset.charge = weak ? "low" : "charging";
     later(() => { if (performance.now() >= chargedAt.current - 5) el.dataset.charge = "ready"; },
@@ -155,7 +172,7 @@ export function useTaser({ enabled, sounds, robots, world, name }: {
     const x = keyboard ? target.offsetLeft + target.offsetWidth / 2 : event.clientX - box.left;
     const y = keyboard ? target.offsetTop + target.offsetHeight / 2 : event.clientY - box.top;
     const key = ++count.current;
-    setBursts(list => [...list, { key, id: "", x, y, kind: "miss", words: "" }]);
+    setBursts(list => [...list, { key, id: "", x, y, kind: "miss", words: "", sfx: "", bolts: [] }]);
     later(() => setBursts(list => list.filter(b => b.key !== key)), 650);
     if (sounds) zapSound("fizzle");
     lunge();
@@ -210,18 +227,25 @@ export function TaserDock({ taser }: { taser: Taser }) {
 /** The Taser in your hand: it follows the pointer over the ship (drawn above the page, so nothing clips it). */
 export function HeldTaser({ taser, width }: { taser: Taser; width: number }) {
   return createPortal(<div ref={taser.hand} className={`taser-held${taser.held ? " in-hand" : ""}`}
-    style={{ width, height: Math.round(width * 18 / 32) }} aria-hidden="true"><TaserArt /></div>, document.body);
+    style={{ width, height: Math.round(width * ART.h / ART.w) }} aria-hidden="true"><TaserArt /></div>, document.body);
 }
 
-/** The flash and the robot's words over the robot that was zapped (a still spark under Reduced motion). */
+/** The flash, the lightning, the sound in big letters and the robot's words over the robot that was zapped (a still
+ * spark and the words under Reduced motion). */
 export function TaserBursts({ taser }: { taser: Taser }) {
   return <>{taser.bursts.map(b => <span key={b.key} className="taser-zap" data-kind={b.kind}
     data-robot={b.id || undefined} style={{ left: b.x, top: b.y }} aria-hidden="true">
-    <svg viewBox="0 0 64 64" width="64" height="64">
+    {b.bolts.length > 0 && <svg className="taser-bolts" width="1" height="1">
+      {b.bolts.map((take, i) => <g key={i} className={`take take-${i}`}>
+        {take.map((points, j) => <polyline key={j} points={points} />)}
+      </g>)}
+    </svg>}
+    <svg className="taser-flash" viewBox="0 0 64 64" width="64" height="64">
       <polyline points="30,2 22,26 34,28 20,62 44,24 32,22 40,2" />
       <polyline className="arc" points="6,30 14,26 10,36 18,32" />
       <polyline className="arc" points="58,30 50,24 54,36 46,32" />
     </svg>
+    {b.sfx && <span className="taser-sfx">{b.sfx}</span>}
     {b.words && <span className="taser-words">{b.words}</span>}
   </span>)}</>;
 }
