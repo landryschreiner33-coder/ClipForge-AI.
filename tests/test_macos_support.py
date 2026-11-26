@@ -16,7 +16,10 @@ def test_mac_keychain_roundtrip_authenticated_and_no_plaintext_fallback(monkeypa
     monkeypatch.setattr(secure.sys, "platform", "darwin")
     first, second = secure.seal("private-token"), secure.seal("private-token")
     assert first.startswith("keychain:v1:") and first != second
-    assert "private-token" not in first and len(values) == 1
+    assert "private-token" not in first
+    # One key, saved under the new name and the old one (a copy of the app from before the rename reads the old).
+    assert {service for service, _ in values} == {macos_secrets.SERVICE, macos_secrets.OLD_SERVICE}
+    assert len({account for _, account in values}) == 1 and len(set(values.values())) == 1
     assert secure.unseal(first) == secure.unseal(second) == "private-token"
     damaged = first[:-4] + "AAAA"
     with pytest.raises(secure.SecretError):

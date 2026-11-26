@@ -1,5 +1,33 @@
 # Implementation status
 
+## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code)
+
+Shipped from `claude/project-thread-8ua98o` (PR #72) on the release line at 3baaa34. A check of the batch 4 head
+against Landry's updated list of Nov 26 found what had not shipped; this batch builds it, keeping the current look.
+ClipForge AI now acts on its own (Landry, Nov 26: "no i want it to be able to do it on its own you dont have to say
+ok"); deletes, TikTok posts and replacing a project's clips still wait for the owner's OK. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` (after every frontend change) | passed |
+| 2026-11-26 | 62 new tests: `test_assistant_acts_alone` (17), `test_titles_hashtags`, `test_clipforge_name` (5), `test_live_facecam` (6), `test_text_story_footage`, `test_upload_cancels`, `test_one_sign_in`, `test_blueprint`, `test_studio_shorts_parts` / `_cast` / `_voice`, `test_full_cloud` | passed |
+| 2026-11-26 | Live face cam with real FFmpeg minutes (a minute still being written, a one-second minute after a restart, an unreadable minute) using only the test's temporary folder | passed: the picture is always the newest whole minute's own, never an older one (409 instead) |
+| 2026-11-26 | Voice pitch variants (deeper, brighter) with the real local voice engine | same length within 0.04 s; word times kept |
+| 2026-11-26 | Review of the batch (4 read-only reviewers by area, every finding checked again) | 21 problems confirmed and fixed in 202063c, each with a test; 1 refuted |
+| 2026-11-26 | GitHub "Native Mac desktop app" run 45744125325 on 9653278 | Mac build, bundled tools, Keychain and WebView passed; slow suite passed; fast suite 3,369 passed, 1 failed (`test_upload_cancels` read the studio import in a fixed order; fixed in 7864c51) |
+| 2026-11-26 | GitHub "Animated shorts check" on 202063c (Linux, Mac, Windows) | passed |
+| 2026-11-26 | `pytest -m slow` on this cloud machine on 202063c | 36 passed, 1 skipped |
+| 2026-11-26 | GitHub "Native Mac desktop app" run 45748846037 on 202063c | Mac build, bundled tools, Keychain and WebView passed; slow suite passed; fast suite 3,386 passed, 2 skipped, 1 failed: `test_macos_support` still expected one Keychain item, and the review fix saves a new key under both names on purpose; the test now checks both names hold the same key (`test_macos_support` + `test_clipforge_name`: 12 passed) |
+
+Not verified: ClipForge AI's new commands with a real model (tests use a scripted model), a real live stream's face
+cam, FLUX.2 klein drawing the main character from the first scene's picture (the graph is checked, the model is not
+in the cloud), the Keychain copy and the Finder/Dock name refresh on Landry's Mac (the GitHub Mac build compiles and
+runs the Keychain test), Full Cloud pictures on a rented cloud computer, free footage from a real media source.
+Not built: tone styles for animated shorts' voices, live hashtag trend data, the 12-pair pilot, Full Cloud for
+Missions and Autopilot, a worker Dockerfile, the "eyes" check on live finalists. Needs Landry: built-in Google and
+TikTok sign-in secrets, a Windows branch, a real stream test, an Apple Developer ID.
+
 ## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code)
 
 Built on `claude/project-thread-hqwolr`, shipped from `claude/project-thread-8ua98o` on top of batch 3 (PR #70).
