@@ -161,6 +161,19 @@ SECTIONS: tuple[Section, ...] = (
         "A script you drop is followed line by line, using the cleanest take of each line."),
         ("youtube video", "full video", "long form", "long-form", "edit my video", "footage", "rough cut", "script",
          "plan", "build my video", "vlog", "render", "version", "versions", "timeline"), "make_video"),
+    Section("video_sound", "A full video's sound and music", (
+        "On the video's page, Sound lists the music, voiceovers and effects; Change on each one sets its volume, "
+        "the fades, Mute, Dips while people speak and Loop.",
+        "Music set to Loop that plays to the end has End on the last frame: it starts inside the music and fades in, "
+        "so its own ending plays as the video ends. ClipForge's own music does this unless you untick it; your own "
+        "songs start at their start unless you tick it.",
+        "Cuts between two recordings cross over so they never click, and titles, photos and silent clips get the "
+        "room sound of the nearest recording instead of silence.",
+        "On a video you can also tell me: “end the music on the last frame” or “lower the music while I'm "
+        "talking”."),
+        ("music", "song", "songs", "soundtrack", "background music", "fade", "fade in", "fade out", "loop",
+         "looping", "last frame", "end on the last frame", "music ends", "cut off", "ending", "room tone",
+         "room sound", "click", "clicks", "dips", "ducking", "voiceover track", "sound panel"), "projects"),
     Section("make_short", "Making an animated short", (
         "Make → Make an animated short. Paste my script or Write it for me (a topic, a tone and a length).",
         "Choose the look, the voice (Hear it plays a sample), the speed, the music and the captions, and camera "
