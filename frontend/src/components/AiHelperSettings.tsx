@@ -170,8 +170,8 @@ export default function AiHelperSettings() {
     <div className="stack-4">
       <section className="panel" aria-labelledby="ai-now">
         <h2 id="ai-now">ClipForge AI</h2>
-        <p>ClipForge AI is the editor's assistant: it remembers what you tell it (Brain → Memory), proposes the changes you
-          ask for on a video, and answers questions (Brain → Talk). It needs a model to read and write. Without one, ClipForge
+        <p>ClipForge AI is the editor's assistant: it remembers what you tell it (Brain → Memory), makes the changes you
+          ask for (or asks first: see below), and answers questions (Brain → Talk). It needs a model to read and write. Without one, ClipForge
           still edits your videos and ClipForge AI still remembers, forgets, lists and explains. With one it also reads what is
           said (as text, never the video or the sound) to choose better cuts, pictures and chapters, scores clips, understands
           more of what you ask, and answers questions. The built-in model comes with ClipForge and runs on this computer.
