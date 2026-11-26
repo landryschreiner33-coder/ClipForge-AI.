@@ -1068,7 +1068,11 @@ def _freeze(p: dict, edit: dict, assets: dict[str, dict]) -> str:
     at = c["out_ms"] - 1 if at is None else int(_ms(at, "The moment to freeze"))
     if not c["in_ms"] <= at <= c["out_ms"]:
         raise VideoError("Freeze a moment inside the clip.")
-    where = "end" if at >= c["out_ms"] - 500 else "start" if at <= c["in_ms"] + 500 else "inside"
+    near_end, near_start = at >= c["out_ms"] - 500, at <= c["in_ms"] + 500
+    if near_end and near_start:  # a short clip: the nearer of its ends
+        where = "start" if at - c["in_ms"] < c["out_ms"] - at else "end"
+    else:
+        where = "end" if near_end else "start" if near_start else "inside"
     if where == "start":  # the first frame the clip shows (a seek keeps the first frame starting at or after it)
         start = math.ceil(c["in_ms"] / fm - 1e-6) * fm if not retime.retimed(c) else c["in_ms"]
         start = retime.frame_start_ms(a, start)
@@ -1076,9 +1080,11 @@ def _freeze(p: dict, edit: dict, assets: dict[str, dict]) -> str:
         start = retime.frame_start_ms(a, min(at, c["out_ms"] - 1))
     moment = min(int(math.ceil(start - 1e-6)), c["out_ms"])  # inside the held frame: the engine holds the frame there
     trimmed = ""
-    if where == "end" and math.ceil(start + fm - 1e-6) < c["out_ms"]:
-        # a moment just before the clip's end: the clip ends on the held frame (it never jumps back to it)
-        c["out_ms"] = int(math.ceil(start + fm - 1e-6))
+    new_out = int(math.ceil(start + fm - 1e-6))
+    if where == "end" and new_out < c["out_ms"] and engine._dur({**c, "out_ms": new_out}) >= 500:  # noqa: SLF001
+        # a moment just before the clip's end: the clip ends on the held frame (it never jumps back to it), as long
+        # as it still plays for half a second
+        c["out_ms"] = new_out
         _outline_length(p, c)
         trimmed = f"; {c['label']} now ends there"
     taken = {x["id"] for x in p["clips"]}
@@ -1091,7 +1097,8 @@ def _freeze(p: dict, edit: dict, assets: dict[str, dict]) -> str:
         # where the second half starts so that its first frame is the held one: at normal speed a seek keeps the
         # first frame starting at or after the cut, a sped-up or slowed half shows the frame on screen there
         split = int(math.floor(start + 1e-6)) if not retime.retimed(c) else moment
-        if not c["in_ms"] + 500 <= split <= c["out_ms"] - 500:
+        # the moment is at least half a second inside; its frame may start up to a frame earlier
+        if not c["in_ms"] + 500 - fm <= split <= c["out_ms"] - 500:
             raise VideoError("Freeze a moment at least half a second inside the clip, or at its start or end.")
         share = retime.out_at(c, split - c["in_ms"]) / max(1.0, retime.out_exact_ms(c))
         moving = retime.held_motion(c, share)
@@ -2030,6 +2037,9 @@ def view(project: dict) -> dict:
             "duration": engine.duration_ms(plan) / 1000 if plan else 0,
             "timeline": engine.timeline(plan) if plan else [],
             "audio_timeline": engine.audio_timeline(plan) if plan else [],
+            # where each attached sound starts from its clip's start, in the video's time (also when it is muted,
+            # its clip is removed or it starts after the end): the editor's "Starts after its clip"
+            "anchor_ms": engine.anchor_times(plan) if plan else {},
             "assets": [uploads.asset_view(a) for a in assets.values()],
             "bin": [aid for aid in project["asset_ids"] if aid in assets],
             "artifacts": [{"id": a["id"], "revision": a["revision"], "kind": a["kind"], "sha256": a["sha256"],

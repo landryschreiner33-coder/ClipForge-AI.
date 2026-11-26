@@ -7,6 +7,7 @@ AI service stands in for every provider: nothing here leaves the machine.
 """
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import time
@@ -546,6 +547,22 @@ def test_timing_rules_leave_other_requests_to_clipforge_ai_and_read_clips_by_pla
     assert "photo already stands still" in rules("speed up the photos")["explain"]
     assert "no frame to freeze" in rules("freeze the photos")["explain"]
     assert "There is no clip 12" in rules("speed up clip 12")["question"]
+    # "from the video" means every clip that has it; "from it" is ClipForge AI's (never "remove a part")
+    assert ops("remove the slow motion from the video") == [{"clip_id": "c2", "field": "speed", "value": 1}]
+    assert rules("remove the slow motion from it") is None and rules("drop the freeze frame from it") is None
+    assert "no frame to freeze" in rules("freeze the ending")["explain"]  # the video ends on a photo
+    # a clip named "intro" is the intro wherever it is; places count the clips still in the video
+    named = copy.deepcopy(plan)
+    named["clips"][2]["label"] = "intro.mp4"
+    named["clips"][0]["include"] = False
+    named_rows = er.clip_rows(named, words)
+    assert er.by_rules("speed up the intro", named, named_rows)["operations"][0]["clip_id"] == "c3"
+    assert er.by_rules("freeze the intro", named, named_rows)["operations"][0] == {
+        "op": "freeze", "clip_id": "c3", "length_ms": 2000, "at_ms": 0}
+    second = [er.by_rules(f"speed up the {w} clip", named, named_rows)["operations"][0]["clip_id"]
+              for w in ("2nd", "second")]
+    assert second == ["c3", "c3"]
+    assert "it has 4 clips in it now" in er.by_rules("speed up the fifth clip", named, named_rows)["question"]
 
     def refuse(*_a):
         raise vf.VideoError("Only a video clip can change speed.")

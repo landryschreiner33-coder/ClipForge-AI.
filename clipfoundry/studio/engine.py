@@ -547,6 +547,13 @@ def anchor_out_ms(clip: dict, anchor: dict) -> int:
     return offset_out_ms(clip, anchor.get("offset_ms")) - anchor_lead_ms(anchor)
 
 
+def anchor_times(plan: dict) -> dict[str, int]:
+    """{audio id: anchor_out_ms} for every sound attached to a clip of the plan, heard or not."""
+    clips = {c.get("id"): c for c in plan.get("clips") or []}
+    return {i["id"]: anchor_out_ms(clips[i["anchor"]["clip_id"]], i["anchor"]) for i in plan.get("audio") or []
+            if isinstance(i.get("anchor"), dict) and i["anchor"].get("clip_id") in clips}
+
+
 def audio_timeline(plan: dict, segs: list[dict] | None = None, total_ms: int | None = None) -> list[dict]:
     """Where each audio item plays in the output (ms). An item attached to a clip follows that clip; an item whose
     clip is removed is silent; anything past the end of the video is cut (and reported in `cut_ms`)."""

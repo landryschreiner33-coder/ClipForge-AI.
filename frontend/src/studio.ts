@@ -178,6 +178,8 @@ export type SoundJoins = { split_edits?: { at_s: number; j_frames: number; l_fra
 export type Video = { id: string; name: string; status: string; message: string; asset_ids: string[];
   brief: Record<string, unknown>; plan_revision: number; rendered_revision: number; guidance: Snapshot; plan: Plan | null;
   duration: number; assets: Asset[]; bin: string[]; timeline: Segment[]; audio_timeline: Placed[];
+  /** Where each attached sound starts from its clip's start, in the video's time, heard or not. */
+  anchor_ms?: Record<string, number>;
   artifacts: ({ id: string; revision: number; kind: string; sha256: string; duration: number; audio_ok: boolean;
     /** What the render did to each recording's colour, by asset id. */
     colour?: Record<string, ColourReport>;

@@ -34,7 +34,10 @@ Batch 4a of Landry's "majorly improve the editing" (plan in
   video time (negative offsets, the swish's new anchor `lead_ms`), and the editor's "Starts after its clip" is video
   time (`audio_move.out_offset_ms`, `audio_timeline[].clip_ms`); the speed and camera-move rules take only phrases
   that name clips (numbers in words, ordinals, the intro, the ending), refuse photos in words, undo only the right
-  direction and also clear a punch-in. List in docs/clipforge/RANGE_EDITING.md, "Review".
+  direction and also clear a punch-in. List in docs/clipforge/RANGE_EDITING.md, "Review". A second review of the
+  fixes found 8 more (undo "from the video" or "from it", a clip named "intro", photo and freeze answers, "2nd" vs
+  "second", muted sounds in the editor field via the view's new `anchor_ms`, freezes at the start of short clips and
+  just past half a second), all fixed with tests.
 
 ## ClipForge AI sets "End on the last frame" from words — 2026-11-26 (Claude Code)
 

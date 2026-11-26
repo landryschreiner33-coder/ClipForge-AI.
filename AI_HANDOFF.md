@@ -21,7 +21,8 @@ plain words.
   chapters stay FILE time from the in point (video time on a freeze) and are mapped with `engine.offset_out_ms`, so
   old plans read the same at speed 1. A negative offset (a lead before the clip) is video time 1:1, and an anchor's
   optional `lead_ms` starts a sound that much video time before its moment (the swish before a picture). The
-  editor's attached-sound field sends `audio_move.out_offset_ms` (video time) and reads `audio_timeline[].clip_ms`.
+  editor's attached-sound field sends `audio_move.out_offset_ms` (video time) and reads the video view's
+  `anchor_ms` ({audio id: video-time start from its clip's start}, also for muted sounds).
 - **Worth knowing:** past a clip's ends the edge speed continues (fades, crossfade handles). Setting `zoom` > 1 drops
   `motion` and setting `motion` drops `zoom`. Split edits are skipped next to a retimed clip. FilmCraft gets retimed
   finals only when chosen by hand. The AI thread owns `brain/operations.py`: the new clip_set fields (`speed`,

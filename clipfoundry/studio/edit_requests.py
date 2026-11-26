@@ -181,8 +181,10 @@ NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, 
 ORDINALS = {"second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9,
             "tenth": 10, "eleventh": 11, "twelfth": 12}
 _CLIP_NO = (r"(?:the )?(?:clip|part|shot) (?:number )?(\d+|" + "|".join(NUMBER_WORDS) +
-            r")|(?:the )?(\d+)(?:st|nd|rd|th)? clip")
-_CLIP_AT = r"(?:the )?(first|opening|last|final|closing|" + "|".join(ORDINALS) + r") (?:clip|part|shot)"
+            r")|(?:the )?(\d+) clip")
+# a place among the clips still in the video: "the second clip" and "the 2nd clip" are the same one
+_CLIP_AT = (r"(?:the )?(first|opening|last|final|closing|" + "|".join(ORDINALS) +
+            r"|\d+(?:st|nd|rd|th)) (?:clip|part|shot)")
 CLIP_REF = _CLIP_NO + "|" + _CLIP_AT  # a clip named by its number or its place, never by what is said in it
 
 
@@ -202,7 +204,7 @@ def _match(phrase: str, rows: list[dict]) -> tuple[list[dict], str]:
         word = m.group(1)
         if word in ("last", "final", "closing"):
             return included[-1:], "the last clip"
-        k = 1 if word in ("first", "opening") else ORDINALS[word]
+        k = 1 if word in ("first", "opening") else ORDINALS.get(word) or int(word[:-2])
         return included[k - 1:k], f"the {word} clip"
     keys = [_stem(t) for t in _tokens(p) if t not in FILLER]
     if not keys:
@@ -249,8 +251,10 @@ class _Explain(Exception):
 def _one_part(phrase: str, rows: list[dict], verb: str, rest: str) -> list[dict]:
     hits, looked = _match(phrase, rows)
     if not hits and re.fullmatch(CLIP_REF, _norm(phrase)):
-        raise _Ask(f"There is no {looked.removeprefix('the ')} in this video: it has clips 1 to {len(rows)}. Which one "
-                   f"do you mean? For "
+        playing = sum(1 for r in rows if r["included"])
+        has = (f"it has clips 1 to {len(rows)}" if re.fullmatch(_CLIP_NO, _norm(phrase)) else
+               f"it has {playing} clip{'' if playing == 1 else 's'} in it now")
+        raise _Ask(f"There is no {looked.removeprefix('the ')} in this video: {has}. Which one do you mean? For "
                    f"example “{verb} clip {min(3, len(rows)) or 1}{rest}”.")
     if not hits:
         raise _Ask(f"Which part do you mean by “{_text(phrase, 60)}”? Nothing said in the video or in a clip's name "
@@ -267,12 +271,20 @@ def _one_part(phrase: str, rows: list[dict], verb: str, rest: str) -> list[dict]
 
 def _video_end(x: str, rows: list[dict]) -> tuple[str, dict] | None:
     """("start", the first playing clip) for "the intro", "the opening" or "the beginning"; ("end", the last one)
-    for "the ending", "the end" or "the outro". None for any other phrase."""
+    for "the ending", "the end" or "the outro". A clip whose name or outline says "intro" (or "opening", "ending",
+    "outro") is that clip instead, wherever it is (words said in clips do not count: "the end" is said often).
+    None for any other phrase."""
     p = _norm(x)
     which = "start" if re.fullmatch(OPENING, p) else "end" if re.fullmatch(CLOSING, p) else None
     if not which:
         return None
     playing = [r for r in rows if r["included"] and r["kind"] != "freeze"]
+    word = _stem(p.split()[-1])
+    if word in ("intro", "open", "end", "outro"):  # stems of intro, opening, ending, outro
+        named = [r for r in playing if word in {_stem(t) for t in _tokens(r["label"] + " " + r["summary"])}
+                 and (word != "end" or "ending" in _tokens(r["label"] + " " + r["summary"]))]
+        if len(named) == 1:
+            return which, named[0]
     if not playing:
         raise _Explain("There is no clip in the video to change.")
     return which, playing[0] if which == "start" else playing[-1]
@@ -681,6 +693,9 @@ def _color_rule(t: str, plan: dict) -> tuple[list[dict], str, str] | None:
 # a phrase about one of these is not a clip to retime (it goes to other rules or to ClipForge AI)
 NOT_A_PART = (r"\b(music|song|soundtrack|captions?|subtitles?|pace|pacing|cuts|editing|transitions?|voice|talking|"
               r"volume|gain|loudness|audio|sound|brightness|contrast|saturation|exposure|colou?rs?)\b")
+# the whole video: "remove the slow motion from the video" means from every clip that has it
+WHOLE_VIDEO = (r"(?:the |my |this )?(?:whole |entire )?(?:video|edit)|everything|every clip|all(?: of)? (?:the )?"
+               r"clips|all of it|everywhere")
 # words that point at something the rules cannot see ("make it faster", "speed up the video"): ClipForge AI's
 PRONOUNS = (r"(?:it|this|that|these|those|them|everything|all of (?:it|them)|(?:the |my |this )?(?:whole |entire )?"
             r"(?:video|thing|edit))")
@@ -782,8 +797,13 @@ def _targets(x: str | None, rows: list[dict], verb: str, rest: str, kinds=("vide
     group = [end[1]] if end else _span(x, rows, verb, rest)
     wrong = [r for r in group if r["kind"] not in kinds]
     if wrong:
-        what = {"image": "a photo", "freeze": "a freeze frame", "video": "a video clip"}.get(wrong[0]["kind"], "clip")
-        can = "Only video can change speed." if kinds == ("video",) else "That does not work on it."
+        kind = wrong[0]["kind"]
+        what = {"image": "a photo", "freeze": "a freeze frame", "video": "a video clip"}.get(kind, "clip")
+        if "freeze" in verb:
+            can = "It already holds one frame." if kind == "freeze" else "A photo already stands still, so it has " \
+                "no frame to freeze."
+        else:
+            can = "Only video can change speed." if kinds == ("video",) else "That does not work on it."
         raise _Explain(f"Clip {wrong[0]['n']} is {what}. {can}")
     return group
 
@@ -823,7 +843,12 @@ def _timing_rule(t: str, plan: dict, rows: list[dict]) -> tuple[list[dict], str,
     """Speed (slow motion, faster, a ramp), freeze frames and slow camera moves, in words (studio/retime.py)."""
     by_id = {c["id"]: c for c in plan.get("clips") or []}
     m = re.fullmatch(UNDO_RE, t)
-    if m and _names_clips(m.group("x"), rows):
+    if m and m.group("x") and re.fullmatch(WHOLE_VIDEO, _norm(m.group("x"))):
+        m = re.fullmatch(UNDO_RE, t[:m.start("x")].rstrip().rsplit(" ", 1)[0])  # "from the video": every clip
+    elif m and not _names_clips(m.group("x"), rows):
+        # "remove the slow motion from it": ClipForge AI's, never the rule that removes a part of the video
+        raise LookupError(t)
+    if m:
         what, x = m.group("what"), m.group("x")
         verb = "remove the " + what
         if what.startswith("freeze"):

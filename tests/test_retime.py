@@ -266,6 +266,8 @@ def test_leads_before_a_moment_are_video_time_at_any_speed(tmp_path):
     p, _ = vf.apply_edit(plan, {"op": "audio_move", "audio_id": "s", "clip_id": "b", "out_offset_ms": 1000}, {})
     assert p["audio"][0]["anchor"] == {"clip_id": "b", "offset_ms": 250}
     assert engine.audio_timeline(p)[0]["clip_ms"] == 1000 and engine.audio_timeline(p)[0]["out_start_ms"] == 3000
+    p["audio"][0].update(mute=True, anchor={"clip_id": "b", "offset_ms": 1000, "lead_ms": 270})
+    assert engine.audio_timeline(p) == [] and engine.anchor_times(p) == {"s": 4000 - 270}  # muted: still shown
     with pytest.raises(vf.VideoError, match="at most 10 s before"):
         vf.apply_edit(p, {"op": "audio_move", "audio_id": "s", "clip_id": "b", "out_offset_ms": -20000}, {})
     (tmp_path / "fx.m4a").write_bytes(b"x")
@@ -294,6 +296,16 @@ def test_freeze_frames_land_on_the_files_own_frames(tmp_path):
     p, said = vf.apply_edit(_plan([_clip("a", "c24", a=0, b=3000)]),
                             {"op": "freeze", "clip_id": "a", "at_ms": 2700}, {}, assets)
     assert p["clips"][0]["out_ms"] == 2709 and p["clips"][1]["in_ms"] == 2667 and "now ends there" in said
+    # a short (or slowed) clip: the nearer end wins, and a clip is never trimmed under half a second
+    for b, extra in ((1400, {}), (1200, {"speed": 0.25})):
+        p, said = vf.apply_edit(_plan([_clip("s", "c24", a=1000, b=b, **extra)]),
+                                {"op": "freeze", "clip_id": "s", "at_ms": 1000}, {}, assets)
+        assert [c["id"] for c in p["clips"]] == ["f2", "s"] and p["clips"][1]["out_ms"] == b, said
+    # half a second in, whose frame starts a little earlier: still a freeze inside
+    p, said = vf.apply_edit(_plan([_clip("i", "c24", a=1010, b=3000)]),
+                            {"op": "freeze", "clip_id": "i", "at_ms": 1511}, {}, assets)
+    assert [(c["id"], c["in_ms"], c["out_ms"]) for c in p["clips"]] == [("i", 1010, 1500), ("f2", 1500, 1500),
+                                                                        ("is", 1500, 3000)], said
     moving = _clip("m", "c24", a=0, b=3000, motion=retime.motion_value("zoom_in"))
     p, _ = vf.apply_edit(_plan([moving]), {"op": "freeze", "clip_id": "m", "at_ms": 1500}, {}, assets)
     held = p["clips"][1]

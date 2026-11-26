@@ -10,6 +10,7 @@ freeze frames and slow zooms and pans, with the voice kept at its pitch
 | --- | --- | --- |
 | 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
 | 2026-11-26 | Review (real renders, a verifier per finding) | 15 problems confirmed, all fixed with tests (RANGE_EDITING.md, "Review") |
+| 2026-11-26 | Second review of the fixes (2 reviewers with probes) | 8 more, all fixed with tests |
 | 2026-11-26 | `pytest tests/test_retime.py` (fast and slow) | 23 passed (16 fast, 7 real renders) |
 | 2026-11-26 | `pytest tests/test_retime.py tests/test_studio_edit_requests.py tests/test_studio_editor.py tests/test_craft.py tests/test_studio_smart_edit.py tests/test_sound_joins.py -m "not slow"` | passed |
 

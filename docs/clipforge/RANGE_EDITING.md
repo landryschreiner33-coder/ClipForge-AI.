@@ -28,12 +28,13 @@ seconds", "freeze frame at the end of clip 2", "slowly zoom in on clip 2", "pan 
 slow motion from clip 3" (also: normal speed, no freeze frame, no zoom). The change list after an edit says what
 moved, for example "Clip 2 “Jump”: 0.5× (was normal speed), 10.0 s → 20.0 s".
 
-The rules read a clip by number ("clip 3", "clip three"), by place ("the second clip", "the last clip"), as the
-intro or the ending (the first or last playing clip), as the photos, or by words said in it or in its name. Any other
-phrase ("set the volume of clip 3 to 50%", "make it faster", "zoom in on my face at 0:30") goes to ClipForge AI,
-which reads the request whole. "Remove the slow motion" only touches slowed clips, "remove the fast forward" only
-sped-up ones, and "remove the zoom" also takes off a still punch-in. A photo asked to change speed or freeze gets
-a plain answer.
+The rules read a clip by number ("clip 3", "clip three"), by place among the clips still in the video ("the second
+clip" = "the 2nd clip", "the last clip"), as the intro or the ending (a clip whose name or outline says "intro" or
+"ending", else the first or last playing clip), as the photos, or by words said in it or in its name. Any other
+phrase ("set the volume of clip 3 to 50%", "make it faster", "zoom in on my face at 0:30", "remove the slow motion
+from it") goes to ClipForge AI, which reads the request whole. "Remove the slow motion" (also "from the video") only
+touches slowed clips, "remove the fast forward" only sped-up ones, and "remove the zoom" also takes off a still
+punch-in. A photo or a freeze frame asked to change speed or freeze gets a plain answer.
 
 ## What happens
 
@@ -126,6 +127,13 @@ A review of the batch with real renders found 15 problems, all fixed before merg
   "make it faster") were caught by the speed rules and answered with a wrong question; "zoom in clip 2", "the second
   clip", "the intro" and "freeze frame for 3 seconds" were not understood; "remove the slow motion" also reset
   sped-up clips, and "remove the zoom" missed a still punch-in.
+
+A second, shorter review of the fixes found 8 more, also fixed with tests: "remove the slow motion from the video"
+could fall through to removing a clip that says those words; a clip named "intro" was not the intro; freezing a
+photo answered about speed; "the 2nd clip" and "the second clip" differed once a clip was removed, and the "no fifth
+clip" answer counted removed clips; the attached-sound field showed file time for a muted sound (the editor now gets
+`anchor_ms` for every attached sound); a freeze at the start of a clip under 1 s was taken as its end and trimmed
+the clip to one frame; a freeze just over half a second in was refused when its frame started a little earlier.
 
 The added tests: exact splits for every ramp preset and moves, attached things through a freeze, leads at 0.25× to
 4×, 24 fps freezes (file end, inside, near the end, moving clip), the rules' review cases; and three real renders
