@@ -430,10 +430,12 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     editor shares); the black hole also holds still off screen and for a while once a computer draws it too slowly. Pages and tabs fade up as they arrive (transitions.ts), never delaying or hiding
     content, and arrive at once under Reduced motion. The galaxy behind the Brain graph is painted once and holds still.
     The office's Taser (the owner, 2026-11-25/26; office/taser.ts, TaserItem.tsx) is play, not work: it lies on its
-    charger in the Control room, the person carries it and clicks a robot, and the robot plays one of nine reactions
-    (dealt so none repeats in a row) for about two seconds. A zap shows no job state and never touches a job; it
-    plays only after the person's own click (so also under Low power or a paused feed) and is a still spark with the
-    robot's words under Reduced motion. The setting Settings → Appearance → Taser hides it.
+    charger in the Control room, the person carries it and clicks a robot, and the robot plays a shock (lightning and a
+    "BZZZT!") and then one of twelve reactions (dealt so none repeats in a row) for about two seconds; the four biggest
+    jolt the ship for a moment. A zap shows no job state and never touches a job; it plays only after the person's
+    own click (so also under Low power or a paused feed) and is a still spark with the robot's words under Reduced
+    motion (no lightning, no jolt). The Taser is the owner's picture (public/space/taser.png). The setting
+    Settings → Appearance → Taser hides it.
     Anything painted once onto a canvas (a picture, a sprite, a still frame) paints itself again on `contextrestored`:
     Chromium on Windows draws canvases on the graphics chip, and a reset of the chip gives them back empty.
     The owner's later 2026-11-19 request ("make the brain lines and balls look like lighting and make sure its

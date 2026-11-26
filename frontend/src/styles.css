@@ -260,6 +260,7 @@ h1[tabindex="-1"]:focus { outline: none; }  /* route changes move focus to the t
 .icon.xs { width: 14px; height: 14px; }
 .icon.lg { width: 28px; height: 28px; }
 .icon.fill { fill: currentColor; stroke: none; }
+.icon .icon-solid { fill: currentColor; stroke-width: .6; }
 
 /* ------------------------------------------------------------------ buttons: lifted controls, one accent for the forward action */
 .btn {
