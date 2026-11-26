@@ -26,6 +26,7 @@ import Feedback from "./pages/Feedback";
 import Brain from "./pages/Brain";
 import Setup from "./pages/Setup";
 import Create from "./pages/Create";
+import CheckVideo from "./pages/CheckVideo";
 import ProjectView from "./pages/ProjectView";
 import ClipEditor from "./pages/ClipEditor";
 import PublishPage from "./pages/Publish";
@@ -58,6 +59,7 @@ function page(route: Route) {
     case "dev": return <RobotGallery />;
     case "setup": return <Setup step={id} />;
     case "create": return id === "video" ? <MakeVideo key={route.parts[2] || "new"} id={route.parts[2] || ""} /> : id === "short" ? <MakeShort /> : id === "transcript" ? <Create />
+      : id === "check" ? <CheckVideo id={route.parts[2] || ""} />
       : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
     case "stories": return <TextStories id={id || ""} />;
@@ -256,6 +258,7 @@ function Shell({ me }: { me: Me }) {
                   <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
                   <a role="menuitem" href="#/stories" onClick={() => setMakeOpen(false)}><b>Make a text story</b><span>A text-message chat that pops up a bubble at a time, or a story read aloud, over satisfying clips or gameplay</span></a>
                   <a role="menuitem" href="#/missions/live" onClick={() => setMakeOpen(false)}><b>Clip a live stream</b><span>Clips while it is live, one or several streams at once</span></a>
+                  <a role="menuitem" href="#/create/check" onClick={() => setMakeOpen(false)}><b>Check a video</b><span>Predict how a video will do: viral score, hook, how long people stay, what to fix</span></a>
                 </div>
               )}
             </div>

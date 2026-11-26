@@ -1228,6 +1228,20 @@ CREATE TABLE IF NOT EXISTS reference_videos (  -- example videos the Brain measu
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reference_videos_ws ON reference_videos(workspace_id, updated_at);
+CREATE TABLE IF NOT EXISTS viral_checks (  -- Check a video: the viral predictor on an uploaded video (predictor/checks.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,                   -- the owner's private file: never placed in a project by itself
+    title TEXT NOT NULL,
+    status TEXT DEFAULT 'queued',             -- queued | checking | ready | failed | canceled
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    round INTEGER DEFAULT 1,                  -- one studio job per round; Check again starts the next round
+    result TEXT DEFAULT '{}',                 -- the prediction (score, hook, hold curve, heatmap, reasons, fixes)
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_viral_checks_ws ON viral_checks(workspace_id, updated_at);
 CREATE TABLE IF NOT EXISTS reference_analyses (  -- immutable: Reanalyze adds a revision
     reference_id TEXT NOT NULL,
     revision INTEGER NOT NULL,
@@ -1418,6 +1432,7 @@ JSON_FIELDS = {
     "robot_names": set(),
     "link_imports": set(),
     "reference_videos": {"likes", "ranges", "modes"},
+    "viral_checks": {"result"},
     "reference_analyses": {"coverage", "measured", "observations", "applicable", "unsupported"},
     "asset_sources": {"terms"},
     "media_imports": set(),

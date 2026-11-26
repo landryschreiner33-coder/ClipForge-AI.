@@ -1,5 +1,29 @@
 # AI handoff
 
+## The viral predictor — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** every clip now gets a prediction after it renders (viral score, hook, how long people stay,
+strongest moment, a heatmap) with fixes ClipForge already tried on it, and any video can be checked on Make → Check a
+video. It learns from the owner's real results, within limits. Design and sources: docs/clipforge/VIRAL_PREDICTOR.md.
+
+- **Where things are:** `clipfoundry/predictor/` (`signals.py` measure, `model.py` predict, `fixes.py`, `learn.py`,
+  `checks.py`, `routes.py`, `__init__.py` with `run`, `moment`, `for_render`, `stored`, `predict_clip`, `snapshot`,
+  `summary`); hooks in `pipeline/render.py` (after artifact.record), `pipeline/deep.py` (step 5c, `clip_score` adj_p),
+  `autopilot/scheduler.py` (`_predicted_watch`), `autopilot/learner.py` (status `predictor`), `publish/jobs.py`
+  (`feature_snapshot.prediction`); frontend `src/predictor.ts`, `components/predictor.tsx` (+ `.css`),
+  `pages/CheckVideo.tsx`.
+- **Worth knowing:** a stored prediction counts only while its `file_sha256` matches the artifact and `MODEL_VERSION`
+  matches; bump `MODEL_VERSION` when the model changes (it also drops learned weights). Fixes are re-predicted on the
+  clip and dropped if they lower the score or cost more than 3 points of hook. The predictor's CSS uses `vp-*` classes
+  only (global `.drop` and `.grid` collided). The app guide section uses phrase-only words (`=viral score`) so "tips
+  for viral hooks" still finds skills and the hooks playbook. `GET /api/clips/{id}/prediction` without `version_id`
+  means the posted file; `version_id=` (empty) means the clip's own file (the editor always sends it). A review round
+  fixed: trims judged with the lines around the cut (`content.trim_flags`), the Shortest-clip floor for every fix,
+  live renders' `source_offset`, weights that move only on 10 new posts, and Check a video's drop zone staying
+  mounted while it uploads. PR #88 (watch and listen, merged first) adds its own bounded
+  senses term to `deep.clip_score`; both terms are summed, each within its own bounds. The predictor does not read
+  `p.senses` yet, so a later change could feed its watched/heard features into the channels (keep the bounds and
+  avoid counting a moment twice).
 ## ClipForge AI watches and listens — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** before picking clips ClipForge now listens to every sound (a sound model that ships with
