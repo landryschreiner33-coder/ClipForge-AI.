@@ -1,5 +1,36 @@
 # AI changelog
 
+## Editing quality, batch 1: colour (phone HDR, automatic correction, matching, looks) — 2026-11-26 (Claude Code)
+
+Landry asked for deep research on how videos are edited and for much better editing. The research and the five-batch
+plan are in [docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md); this is batch 1,
+from `claude/project-thread-c3hbwh` on the release line at c89e5bb. Details:
+[docs/clipforge/COLOUR.md](docs/clipforge/COLOUR.md).
+
+- **Phone HDR video looks right:** HLG (iPhone and most Android phones) and PQ are tone-mapped to normal video in
+  clips and full videos; before, they came out flat and grey. Untagged HD video is read as BT.709 (FFmpeg alone
+  reads BT.601) and every output is tagged BT.709.
+- **Automatic colour** (Settings → Defaults, on): white balance from the greyest pixels (a blue sky is not a cast),
+  levels only when clearly off and changing brightness only, vibrance on washed-out colour, skin protected; a game or
+  screen recording is half corrected; measured once per recording or clip, cached, never per frame.
+- **Matching:** in a full video, recordings of people are nudged toward the one that plays longest.
+- **Looks:** Natural, Clean and bright, Warm, Cool, Film, Teal and orange, Moody, Vintage, Black and white, with a
+  strength. **Clean up grainy footage:** measured noise picks nothing, `atadenoise` or `fftdnoiz`.
+- **Where:** a Colour tab in the clip editor, a Colour panel in Make a YouTube video, Settings → Defaults, and edit
+  requests in plain words ("make it black and white", "fix the colours", "tone down the look"). The full-video plan
+  keeps `color`; `color_grade` is now a real edit.
+- **How:** `pipeline/grade.py` bakes everything for a recording into one 33³ `.cube` applied by `lut3d` (in every
+  FFmpeg build, including the Mac one without zscale); the grade's hash is part of the engine's piece key.
+- **Full Cloud** jobs carry the colour choices (`worker_api.SETTING_KEYS`), and the Mac desktop check asserts the
+  bundled FFmpeg has `lut3d`, `atadenoise` and `fftdnoiz` and that a render reports its colour step.
+- **Review fixes** (an independent six-area review before the PR): full-range video (many Android phones, OBS,
+  drones) and JPEG photos keep their blacks in both renderers, in previews and in the "fit" layout; untagged HD is
+  measured the way it is rendered; HDR10 peaks are read; a cancelled or failed measurement is never cached; grain
+  cleanup follows the size shown; colour words inside other requests are left alone; under "auto", finals whose
+  colour step does something stay on the built-in engine (FilmCraft does not run it).
+- **Tests:** `tests/test_grade.py` (25, fast) and `tests/test_grade_render.py` (2, slow); see the test log in
+  `docs/IMPLEMENTATION_STATUS.md`. Not verified: real phone HDR footage and low-light grain, the Mac itself.
+
 ## Guards, second round: what the real built-in model still got wrong — 2026-11-26 (Claude Code)
 
 Same thread. The real-model check on PR #79 (Basic level, run 45777094657) showed the first guards working (no echo,
@@ -78,6 +109,7 @@ branch `claude/project-thread-st8tpc` from the release line at c89e5bb.
   the Script writer opens the project. Helpers added before and left unchanged are upgraded once
   (`agents.EARLIER`, `_upgrade`); whatever the owner changed stays.
 - The chat's "Sent over the internet" line and the privacy page name the results an online model may read.
+
 
 ## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code)
 

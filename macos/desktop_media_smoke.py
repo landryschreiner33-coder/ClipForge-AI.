@@ -17,6 +17,9 @@ def main():
 
     decoders = subprocess.check_output([ffmpeg_bin(), '-hide_banner', '-decoders'], stderr=subprocess.STDOUT).decode()
     assert 'libdav1d' in decoders, 'AV1 inputs need the bundled software decoder'
+    filters = subprocess.check_output([ffmpeg_bin(), '-hide_banner', '-filters'], stderr=subprocess.STDOUT).decode()
+    for name in ('lut3d', 'atadenoise', 'fftdnoiz'):  # the colour step (pipeline/grade.py)
+        assert f' {name} ' in filters, f'The colour step needs the bundled FFmpeg filter {name}'
     av1 = Path(__file__).parent / 'desktop/av1-smoke.ivf'
     subprocess.run([ffmpeg_bin(), '-hide_banner', '-loglevel', 'error', '-c:v', 'libdav1d', '-i', str(av1),
                     '-f', 'null', '-'], check=True, timeout=15)
@@ -51,6 +54,7 @@ def main():
         assert rms(.15, .45) > .005
         assert .90 < rms(.15, .45) / rms(1.2, 1.5) < 1.10, 'Audio changed level after startup'
         assert result['render_info']['audio_processing']['packet_timing']['valid']
+        assert result['render_info']['colour']['look'] == 'natural', result['render_info'].get('colour')
     print('Bundled production renderer: 1080x1920 captions, stable startup audio and raw AAC timing passed.', flush=True)
     link_import_joins_separate_streams()
 

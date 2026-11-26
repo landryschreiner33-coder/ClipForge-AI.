@@ -865,7 +865,7 @@ def plan_skeleton(project: dict, values: dict, assets: dict[str, dict], clips: l
                          "size": values.get("caption_size", "medium")},
             "audio": audio, "tracks": engine.default_tracks(), "word_fixes": {},
             "ducking": {"depth_db": float(values.get("duck_depth_db", engine.DUCK_DEPTH_DB))},
-            "overlays": [], "outline": outline, "notes": notes}
+            "color": engine.default_color(values), "overlays": [], "outline": outline, "notes": notes}
 
 
 def add_sound(plan: dict, assets: dict[str, dict], values: dict, ctx: dict, opts: dict, feel: str, stats: dict,

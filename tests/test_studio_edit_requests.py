@@ -346,7 +346,8 @@ def test_timeouts_failures_cancels_restarts_and_limits_leave_the_editor_working(
     # AI switched off: rules and manual edits still work, nothing is sent
     db.save_settings({"ai_provider": "heuristic"})
     assert er.ask(pid, "local", "remove clip 2")["status"] == "ready"
-    assert er.ask(pid, "local", "Make it more cinematic")["status"] == "unsupported"
+    assert er.ask(pid, "local", "Make it more cinematic")["status"] == "ready"  # a look, from the rules alone
+    assert er.ask(pid, "local", "Add a laser show over the ending")["status"] == "unsupported"
     video_flow.edit(pid, 1, {"op": "remove", "clip_id": "c3"})
     assert _order(pid) == ["c1", "c2", "c4"] and len(fake.prompts) == 3
 

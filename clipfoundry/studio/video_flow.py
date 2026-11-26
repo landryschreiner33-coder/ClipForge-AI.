@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import config, db
-from ..pipeline import artifact
+from ..pipeline import artifact, grade
 from ..pipeline.ffmpeg_utils import extract_audio
 from . import engine, guidance, prefs, styles, uploads
 from .jobs import Lease, enqueue, handler, on_stop
@@ -461,7 +461,7 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
                          "size": values.get("caption_size", "medium")},
             "audio": audio, "tracks": engine.default_tracks(), "word_fixes": {},
             "ducking": {"depth_db": float(values.get("duck_depth_db", engine.DUCK_DEPTH_DB))},
-            "outline": outline, "notes": notes}
+            "color": engine.default_color(values), "outline": outline, "notes": notes}
     total = engine.duration_ms(plan) / 1000
     target = float(values.get("target_duration_s") or 0)
     if target and total > target * 1.1:
@@ -691,7 +691,7 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
     return ctx
 
 
-SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound")
+SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound", "color")
 
 
 def is_short(project: dict) -> bool:
@@ -1270,13 +1270,47 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
             p["title"].update(text=value.strip() or p["title"]["text"], enabled=bool(value.strip()))
         elif field == "title_card" and type(value) is bool:
             p["title"]["enabled"] = value
+        elif field in COLOR_FIELDS:
+            return p, _set_color(p, field, value)
         else:
             raise VideoError(f"“{field}” cannot be set to that.")
         return p, f"Changed {str(field).replace('_', ' ')}"
-    if op in engine.UNSUPPORTED or op in ("color_grade", "effects"):
+    if op == "color_grade":  # a look (and how strong), in one edit
+        _set_color(p, "look", edit.get("look"))
+        if edit.get("strength") is not None:
+            _set_color(p, "look_strength", edit.get("strength"))
+        c = p["color"]
+        return p, f"Look: {grade.LOOKS[c['look']]}" + (f" at {c['strength']} %" if c["strength"] != 100 else "")
+    if op in engine.UNSUPPORTED or op == "effects":
         label = engine.UNSUPPORTED.get(op, "effects")
         raise VideoError(f"{label.capitalize()} is not supported by this editor yet.")
     raise VideoError("Unknown edit.")
+
+
+COLOR_FIELDS = {"look": "look", "look_strength": "strength", "auto_color": "auto", "match_color": "match",
+                "clean_picture": "clean"}
+
+
+def _set_color(p: dict, field: str, value) -> str:
+    """One colour choice of the plan. A plan made before colour existed starts from what it rendered with (phone HDR
+    converted, nothing else), so only the choice you make changes."""
+    c = dict(p.get("color") or {"auto": False, "match": False, "look": "natural", "strength": 100, "clean": False})
+    if field == "look":
+        if value not in config.LOOKS:
+            raise VideoError("Unknown look. Choose one of: " + ", ".join(grade.LOOKS[k] for k in config.LOOKS) + ".")
+        c["look"] = value
+        said = f"Look: {grade.LOOKS[value]}"
+    elif field == "look_strength":
+        c["strength"] = round(_number(value, 0, 100, "The look's strength"))
+        said = f"Look strength {c['strength']} %"
+    elif type(value) is bool:
+        c[COLOR_FIELDS[field]] = value
+        said = {"auto_color": "Automatic colour", "match_color": "Matching the recordings' colour",
+                "clean_picture": "Cleaning up picture noise"}[field] + (" on" if value else " off")
+    else:
+        raise VideoError(f"“{field}” is either on or off.")
+    p["color"] = c
+    return said
 
 
 def _use_take(p: dict, edit: dict) -> tuple[dict, str]:
@@ -1576,6 +1610,19 @@ def _reuse(project: dict, revision: int, kind: str, digest: str, folder: Path) -
     return None
 
 
+def _pieces(project: dict, preview: bool) -> Path:
+    """The engine's pieces folder for this project's previews or finals (its colour measurements are kept there)."""
+    return video_dir(project["id"]) / f"pieces-{'preview' if preview else 'final'}"
+
+
+def _colour_skipped(info: dict, plan: dict, assets: dict, project: dict) -> dict:
+    """A FilmCraft render says so when the plan's colour choices were not applied (FilmCraft cannot apply them)."""
+    if engine.colour_in_use(plan, assets, _pieces(project, False)):
+        info["colour_skipped"] = ("FilmCraft rendered this version without ClipForge's colour step (correction, "
+                                  "look, phone HDR). Choose the built-in editor in Settings, Editing apps, to use it.")
+    return info
+
+
 def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dict, out: Path, settings: dict,
                   lease: Lease, preview: bool) -> tuple[dict | None, str]:
     """The final video edited and rendered in FilmCraft (craft/finish.py: ClipForge's look and sound with
@@ -1593,6 +1640,12 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         return None, ""
     if not hand and choice == "auto" and plan.get("maker") == "animated_short":
         return None, ""  # FilmCraft's captions cannot highlight the word being said; the built-in engine keeps them
+    if not hand and choice == "auto" and engine.colour_in_use(plan, assets, _pieces(project, preview),
+                                                               lease.canceled):
+        # FilmCraft cannot apply ClipForge's colour step (pipeline/grade.py: phone HDR, correction, matching, the
+        # look): when that step changes the picture, the built-in engine renders the final so it looks like the
+        # preview the owner approved (a well-shot video with no look still goes to FilmCraft)
+        return None, ""
     if not apps.find_cli("filmcraft"):
         if hand:
             raise VideoError("This version was finished in FilmCraft's editor, and FilmCraft is not set up here to "
@@ -1617,11 +1670,13 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         saved = filmcraft_saves(project["id"]) / f"{hand.get('project', '')}.fcproj"
         if not re.fullmatch(r"[0-9a-f]{64}", str(hand.get("project", ""))) or not saved.is_file():
             raise VideoError("The FilmCraft edit of this version is missing; go back to the version before.")
-        return finish.render_saved(saved, plan, words, out, preview=preview, cancelled=stop, progress=report), ""
+        info = finish.render_saved(saved, plan, words, out, preview=preview, cancelled=stop, progress=report)
+        return _colour_skipped(info, plan, assets, project), ""
     try:
-        return finish.render(plan, assets, words, out, name=project.get("name") or "Video", revision=job["revision"],
+        info = finish.render(plan, assets, words, out, name=project.get("name") or "Video", revision=job["revision"],
                              settings=settings, cancelled=stop, progress=report,
-                             context={"workspace_id": project["workspace_id"], "project_id": project["id"]}), ""
+                             context={"workspace_id": project["workspace_id"], "project_id": project["id"]})
+        return _colour_skipped(info, plan, assets, project), ""
     except Exception as exc:
         if choice == "filmcraft" or lease.canceled():
             raise
@@ -1659,7 +1714,7 @@ def _render(job: dict, lease: Lease, preview: bool) -> dict:
                 info = engine.render(plan, assets, words, out, preview=preview, settings=settings,
                                      progress=lambda f: lease.progress(f * 0.95, "Rendering preview" if preview else
                                                                        "Rendering"),
-                                     cancelled=lease.canceled, cache_dir=video_dir(project["id"]) / f"pieces-{kind}")
+                                     cancelled=lease.canceled, cache_dir=_pieces(project, preview))
             if fallback:
                 info["filmcraft_fallback"] = fallback
         except BaseException as exc:
@@ -1755,6 +1810,7 @@ def view(project: dict) -> dict:
             "artifacts": [{"id": a["id"], "revision": a["revision"], "kind": a["kind"], "sha256": a["sha256"],
                            "duration": (a.get("info") or {}).get("duration"),
                            "audio_ok": ((a.get("info") or {}).get("audio_timing") or {}).get("valid"),
+                           "colour": (a.get("info") or {}).get("colour") or {},
                            **_made_with(a.get("info") or {})}
                           for a in arts],
             "preview": {"revision": shown["revision"], "stale": stale} if shown else None,

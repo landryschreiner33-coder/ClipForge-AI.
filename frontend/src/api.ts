@@ -83,6 +83,14 @@ export interface ClipEdit {
   normalize_audio?: boolean;
   /** off | auto | gentle | strong: background noise, hum, breaths, levels and voice polish */
   clean_sound?: string;
+  /** White balance, brightness and contrast measured once and corrected (pipeline/grade.py). */
+  auto_color?: boolean;
+  /** natural | bright | warm | cool | film | teal_orange | moody | vintage | mono (looks.ts) */
+  look?: string;
+  /** 0-100 % of the look. */
+  look_strength?: number;
+  /** Clean up visible grain (low light) only. */
+  clean_picture?: boolean;
   speed?: number;
   remove_fillers?: boolean;
   caption_emphasis?: boolean;
