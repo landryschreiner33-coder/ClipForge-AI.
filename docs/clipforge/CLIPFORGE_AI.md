@@ -1082,6 +1082,10 @@ helper=True)`: its rounds and what `_ask_agent` reports) any sentence that start
 promise only says more of what it will do, as long as no quotes or new lines hold the work. ClipForge AI's own
 words are read as before.
 
+In the check on that change (run 45794338079, every must-check passed) the Script writer, asked once more, answered
+"I'm ready to write the hook, title, plan, and review for your mountain biking video. …", the examples the nudge
+listed. `NUDGE_DO` now lists none: the answer must be the work itself, starting with its first words.
+
 A small review of these last fixes (each finding shown with a probe) found, and now:
 
 - The conversation keeps an answer whose notes are long (helpers' work) when it does not fit whole: its words and its

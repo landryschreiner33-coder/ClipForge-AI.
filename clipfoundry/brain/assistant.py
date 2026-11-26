@@ -111,8 +111,10 @@ NUDGE_ACT = ("You said you would look or do it, but you used no tool. Use the to
 NUDGE_SHORT = ("Your answer stopped where the list begins. Write the whole answer in \"say\", on one line, the items "
                "separated by commas or semicolons, or use a tool to look them up.")
 NUDGE_EMPTY = "Your answer was empty. Answer the owner, or use a tool for what they asked."
-NUDGE_DO = ("You only said what you would do. Do it now, in this answer: write the whole thing you were asked for "
-            "(the hook, the title, the plan, the review), or use a tool if you need one first.")
+# no list of examples here: the real Basic model copied one back ("I'm ready to write the hook, title, plan, and
+# review for your mountain biking video.", run 45794338079)
+NUDGE_DO = ("You only said what you would do. Now do it: this answer must be the work itself, starting with its "
+            "first words, with no sentence about what you will do. Use a tool first only if you need one.")
 NUDGES = {"echo": NUDGE_ECHO, "act": NUDGE_ACT, "short": NUDGE_SHORT, "empty": NUDGE_EMPTY}
 _BRACKET = re.compile(r"^\s*\[[^\]\n]{1,48}\]\s*")  # "[Script writer] …": a helper's mark, never ClipForge AI's
 # "[Waiting for the owner's OK: …]": the app's own note on a card (_pending_note), never part of an answer
