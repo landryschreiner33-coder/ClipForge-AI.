@@ -43,6 +43,13 @@ recording's white balance, exposure and contrast are corrected once (measured ov
 next to the pieces), with `color.match` the recordings are nudged toward the one that plays longest, and
 `color.look`/`strength` add a style. All of that is one 3D colour table per recording, applied to the body of each
 piece after framing. A plan made before colour existed has no `color` and only gets the HDR conversion.
+
+Speed and motion (studio/retime.py): a clip may play at `speed` (0.25 to 4, pitch kept) or follow a `speed_ramp`, a
+freeze clip (kind "freeze") holds one frame of a video, and `motion` moves the framing slowly over a clip, photo or
+freeze. Every place that turns file time into video time goes through retime's one map (picture, sound, captions,
+overlays, attached sounds, chapters), so at speed 1 nothing changes. An overlay's or attached sound's `offset_ms`
+counts in its clip's file time from the in point (on a freeze frame: in video time), so it stays on the moment it was
+attached to whatever the speed.
 """
 from __future__ import annotations
 
@@ -58,7 +65,7 @@ from typing import Callable
 
 from .. import config
 from ..pipeline import audio_timing, cleanup, grade
-from . import sound_joins
+from . import retime, sound_joins
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
 from ..pipeline.common import Cancelled
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
@@ -84,7 +91,8 @@ DUCK_FRAME = 480              # 10 ms analysis frames
 DUCK_ATTACK_S, DUCK_HOLD_S, DUCK_RELEASE_S = 0.06, 0.25, 0.45
 SUPPORTED = {"clips", "trim", "reorder", "include", "image", "transition", "title", "captions", "audio_tracks",
              "voiceover", "music", "effects", "gain", "mute", "fades", "ducking", "aspect", "layout", "insert",
-             "replace", "split", "word_fixes", "joins", "zoom", "overlays", "clean_sound", "color"}
+             "replace", "split", "word_fixes", "joins", "zoom", "overlays", "clean_sound", "color", "speed",
+             "speed_ramp", "freeze", "motion"}
 ZOOM_RANGE = (1.0, 1.5)       # a clip's punch-in
 OVERLAY_KINDS = ("image", "video")
 OVERLAY_MOTIONS = ("still", "zoom")
@@ -92,8 +100,7 @@ OVERLAY_FITS = ("fill", "fit")
 OVERLAY_MIN_MS = 500
 OVERLAY_PUSH = 0.08           # how far a "zoom" overlay pushes in over its whole length
 OVERLAY_FADE_S = 0.2
-UNSUPPORTED = {"keyframes": "keyframed motion", "pip": "picture in picture",
-               "speed": "speed changes", "effects_plugins": "effects plugins", "multicam": "multicam"}
+UNSUPPORTED = {"pip": "picture in picture", "effects_plugins": "effects plugins", "multicam": "multicam"}
 MIX_BLOCK = SR * 10  # samples per mixing block (bounded memory whatever the length)
 
 
@@ -109,6 +116,10 @@ def capabilities() -> dict:
             "zoom_range": list(ZOOM_RANGE), "overlays": {"kinds": list(OVERLAY_KINDS), "motions": list(OVERLAY_MOTIONS),
                                                          "min_ms": OVERLAY_MIN_MS},
             "clean_sound": list(config.CLEAN_SOUND_MODES), "unsupported": UNSUPPORTED,
+            "speed_range": list(retime.SPEED_RANGE),
+            "speed_ramps": {k: v[0] for k, v in retime.RAMPS.items()},
+            "motions": {k: v[0] for k, v in retime.MOTIONS.items()}, "motion_zoom": list(retime.MOTION_ZOOM),
+            "freeze": {"min_ms": retime.FREEZE_MIN_MS, "default_ms": retime.FREEZE_DEFAULT_MS},
             "color": {"looks": {k: grade.LOOKS[k] for k in config.LOOKS}, "strength": [0, 100],
                       "auto": "white balance, exposure and contrast once per recording; phone HDR always converted",
                       "match": "recordings matched to the one that plays longest"},
@@ -143,7 +154,8 @@ def upgrade(plan: dict | None) -> dict | None:
 
 
 def _dur(c: dict) -> int:
-    return int(c["out_ms"]) - int(c["in_ms"])
+    """How long a clip plays in the video (ms): its file range at its speed, or a freeze frame's hold."""
+    return retime.out_len_ms(c)
 
 
 def _length(a: dict) -> int:
@@ -243,16 +255,20 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
             out.append(f"“{a['filename']}” is not a video or image.")
         if not Path(a["path"]).is_file():
             out.append(f"The original file “{a['filename']}” is missing on the server. Upload it again.")
-        if _dur(c) < 200:
+        timing = retime.problems(c, a, 1000 / float((a.get("probe") or {}).get("fps") or 30))
+        out += timing
+        if timing:
+            continue
+        if not retime.is_freeze(c) and _dur(c) < 200:
             out.append(f"Clip “{name}” is shorter than 0.2 s.")
-        if a["kind"] == "video":
+        if a["kind"] == "video" and not retime.is_freeze(c):
             length = _length(a)
             if c["in_ms"] < 0 or (length and c["out_ms"] > length + 50):
                 out.append(f"Clip “{name}” is trimmed outside its file.")
         if c.get("layout") not in (None, *LAYOUTS):
             out.append(f"Clip “{name}” has an unknown framing.")
         fades = int(c.get("fade_in_ms") or 0), int(c.get("fade_out_ms") or 0)
-        if min(fades) < 0 or sum(fades) > _dur(c):
+        if min(fades) < 0 or sum(fades) > _dur(c):  # fades are in video time (they shape the output samples)
             out.append(f"The sound fades of “{name}” are longer than the clip.")
         if not _gain_ok(float(c.get("gain_db") or 0)):
             out.append(f"The volume of “{name}” is outside {GAIN_RANGE[0]:.0f} to +{GAIN_RANGE[1]:.0f} dB.")
@@ -319,22 +335,28 @@ def grades(plan: dict, assets: dict[str, dict], cache: Path, cancelled=None) -> 
     plays (clips and video overlays) and matched to the recording that plays longest."""
     opts = color_options(plan)
     ranges: dict[str, list[tuple[float, float]]] = {}
+    shown: dict[str, float] = {}  # seconds each recording is on screen (a slowed clip and a freeze count longer)
     for c in plan.get("clips") or []:
         a = assets.get(c.get("asset_id"))
         if c.get("include", True) and a and a.get("kind") == "video":
-            ranges.setdefault(c["asset_id"], []).append((int(c["in_ms"]) / 1000, int(c["out_ms"]) / 1000))
+            at = int(c["in_ms"]) / 1000
+            # a freeze frame is measured on a short stretch from its frame on (the colour of that moment)
+            end = at + 0.2 if retime.is_freeze(c) else int(c["out_ms"]) / 1000
+            ranges.setdefault(c["asset_id"], []).append((at, end))
+            shown[c["asset_id"]] = shown.get(c["asset_id"], 0.0) + _dur(c) / 1000
     for o in plan.get("overlays") or []:
         a = assets.get(o.get("asset_id"))
         if a and a.get("kind") == "video" and not o.get("hide"):
             at = int(o.get("in_ms") or 0)
             ranges.setdefault(o["asset_id"], []).append((at / 1000, (at + int(o.get("length_ms") or 0)) / 1000))
+            shown[o["asset_id"]] = shown.get(o["asset_id"], 0.0) + int(o.get("length_ms") or 0) / 1000
     out: dict[str, dict] = {}
     for aid, spans in ranges.items():
         _check(cancelled)
         g, stats = grade.for_footage(assets[aid]["path"], spans, opts, cache=cache / f"grade-{aid}.json",
                                      cancelled=cancelled)
         out[aid] = {"grade": g, "stats": stats, "denoise": grade.denoise_for(stats, opts),
-                    "seconds": sum(b - a for a, b in spans)}
+                    "seconds": shown.get(aid, 0.0)}
     people = {aid: r for aid, r in out.items() if (r["stats"] or {}).get("skin", 0) >= grade.MATCH_SKIN}
     if opts["match"] and opts["auto_color"] and len(people) > 1:
         # only recordings of people are matched to each other: a screen recording keeps its own colours
@@ -433,8 +455,22 @@ def timeline(plan: dict) -> list[dict]:
         start = pos - joins[c["id"]][0]
         out.append({"clip_id": c["id"], "asset_id": c["asset_id"], "kind": c.get("kind", "video"),
                     "src_in_ms": int(c["in_ms"]), "src_out_ms": int(c["out_ms"]), "out_start_ms": start,
-                    "out_end_ms": start + _dur(c)})
+                    "out_end_ms": start + _dur(c), **_timing(c)})
         pos = start + _dur(c)
+    return out
+
+
+def _timing(c: dict) -> dict:
+    """What a time-map entry says about a clip that does not play at normal speed (nothing when it does): its
+    speed (a ramp's average), whether it ramps, a freeze frame's hold. Readers of an EDL must not assume 1:1."""
+    if not retime.retimed(c):
+        return {}
+    if retime.is_freeze(c):
+        return {"freeze": True, "hold_ms": _dur(c)}
+    span = int(c["out_ms"]) - int(c["in_ms"])
+    out = {"speed": round(span / max(1e-9, retime.out_exact_ms(c)), 4)}
+    if retime.ramp_points(c):
+        out["ramp"] = True
     return out
 
 
@@ -469,9 +505,16 @@ def render_timeline(plan: dict, fps: int) -> list[dict]:
     """The time map of the rendered file: like timeline(), on whole output frames."""
     els, _ = frame_map(plan, fps)
     return [{"clip_id": e["clip_id"], "asset_id": e["asset_id"], "kind": e["kind"], "src_in_ms": e["src_in_ms"],
-             "src_out_ms": e["src_in_ms"] + round(e["frames"] * 1000 / fps),
-             "out_start_ms": round(e["start_f"] * 1000 / fps), "out_end_ms": round(e["end_f"] * 1000 / fps)}
+             "src_out_ms": e["src_in_ms"] + round(retime.src_at(e["clip"], e["frames"] * 1000 / fps)),
+             "out_start_ms": round(e["start_f"] * 1000 / fps), "out_end_ms": round(e["end_f"] * 1000 / fps),
+             **_timing(e["clip"])}
             for e in els if e["kind"] != "title"]
+
+
+def offset_out_ms(clip: dict, offset_ms) -> int:
+    """Where something attached to a clip at `offset_ms` (an overlay, a sound, a chapter: file time from the in
+    point, video time on a freeze frame) plays, in ms from the clip's start in the video."""
+    return round(retime.out_at(clip, float(offset_ms or 0)))
 
 
 def audio_timeline(plan: dict, segs: list[dict] | None = None, total_ms: int | None = None) -> list[dict]:
@@ -480,6 +523,7 @@ def audio_timeline(plan: dict, segs: list[dict] | None = None, total_ms: int | N
     segs = timeline(plan) if segs is None else segs
     total = duration_ms(plan) if total_ms is None else total_ms
     starts = {s["clip_id"]: s["out_start_ms"] for s in segs}
+    clips = {c.get("id"): c for c in plan.get("clips") or []}
     out = []
     for item in plan.get("audio") or []:
         if item.get("mute"):
@@ -488,7 +532,7 @@ def audio_timeline(plan: dict, segs: list[dict] | None = None, total_ms: int | N
         if anchor:
             if anchor.get("clip_id") not in starts:
                 continue
-            start = starts[anchor["clip_id"]] + int(anchor.get("offset_ms") or 0)
+            start = starts[anchor["clip_id"]] + offset_out_ms(clips[anchor["clip_id"]], anchor.get("offset_ms"))
         else:
             start = int(item.get("start_ms") or 0)
         start = max(0, start)
@@ -510,6 +554,7 @@ def overlay_timeline(plan: dict, segs: list[dict] | None = None) -> list[dict]:
     overlays."""
     segs = timeline(plan) if segs is None else segs
     by = {s["clip_id"]: s for s in segs}
+    clips = {c.get("id"): c for c in plan.get("clips") or []}
     joins = _joins(plan)
     out: list[dict] = []
     last_end: dict[str, int] = {}
@@ -519,7 +564,8 @@ def overlay_timeline(plan: dict, segs: list[dict] | None = None) -> list[dict]:
         s = by[o["clip_id"]]
         ov_in, ov_out = joins.get(o["clip_id"], (0, 0))
         lo, hi = s["out_start_ms"] + ov_in, s["out_end_ms"] - ov_out
-        start = max(lo, s["out_start_ms"] + int(o.get("offset_ms") or 0), last_end.get(o["clip_id"], lo))
+        start = max(lo, s["out_start_ms"] + offset_out_ms(clips[o["clip_id"]], o.get("offset_ms")),
+                    last_end.get(o["clip_id"], lo))
         end = min(hi, start + int(o.get("length_ms") or 0))
         if end - start < 300:
             continue
@@ -552,7 +598,8 @@ def _overlay_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dic
         e = els[k]
         b0 = e["start_f"] + e["ov_in"]
         b1 = e["end_f"] - (els[k + 1]["ov_in"] if k + 1 < len(els) else 0)
-        start = max(b0, e["start_f"] + round(int(o.get("offset_ms") or 0) * fps / 1000), last_end.get(k, b0))
+        start = max(b0, e["start_f"] + round(offset_out_ms(e["clip"], o.get("offset_ms")) * fps / 1000),
+                    last_end.get(k, b0))
         end = min(b1, start + round(int(o.get("length_ms") or 0) * fps / 1000))
         if end - start < max(1, round(0.3 * fps)):
             continue
@@ -583,10 +630,17 @@ def output_words(plan: dict, words_by_asset: dict[str, list[dict]], segs: list[d
     let a word's end run on into the silence after it, and a cut made in that silence must not drop the word from
     the captions (its shown end is then the clip's end)."""
     fixes = plan.get("word_fixes") or {}
+    clips = {c.get("id"): c for c in plan.get("clips") or []}
     out = []
     for seg in timeline(plan) if segs is None else segs:
+        clip = clips.get(seg["clip_id"]) or {}
+        if retime.is_freeze(clip):
+            continue  # a held frame says nothing
         a, b = seg["src_in_ms"] / 1000, seg["src_out_ms"] / 1000
         shift = seg["out_start_ms"] / 1000 - a
+        # through the clip's speed: a word's time in the file -> its time in the video
+        at = (lambda t, c=clip, a=a, o=seg["out_start_ms"] / 1000: o + retime.out_at(c, (t - a) * 1000) / 1000) \
+            if retime.retimed(clip) else (lambda t, s=shift: t + s)
         mine = fixes.get(seg["asset_id"]) or {}
         for w in words_by_asset.get(seg["asset_id"]) or []:
             if not (a - 0.01 <= w["start"] < b):
@@ -599,7 +653,7 @@ def output_words(plan: dict, words_by_asset: dict[str, list[dict]], segs: list[d
             text = mine.get(str(int(round(w["start"] * 1000))), w["w"])
             if not text.strip():
                 continue  # a word you deleted from the captions
-            out.append({"w": text, "start": round(w["start"] + shift, 3), "end": round(end + shift, 3),
+            out.append({"w": text, "start": round(at(w["start"]), 3), "end": round(at(end), 3),
                         "clip_id": seg["clip_id"], "src_start": w["start"], "src_end": w["end"]})
     return out
 
@@ -719,15 +773,30 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
                  f"x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,setsar=1,fps={fps},settb=AVTB,setpts=PTS-STARTPTS,"
                  f"tpad=stop=-1:stop_mode=clone{label}"])
     path = e["path"]
-    if e["kind"] == "image":
-        args = ["-loop", "1", "-framerate", str(fps), "-t", f"{secs:.3f}", "-i", path]
-    else:
-        start = e["src_in_ms"] / 1000 + rel_frame / fps
-        args = ["-ss", f"{start:.6f}", "-t", f"{secs:.3f}", "-i", path]
-    layout = (e.get("clip") or {}).get("layout") or layout
+    clip = e.get("clip") or {}
     lines = []
     src = f"[{idx}:v]"
-    zoom = float((e.get("clip") or {}).get("zoom") or 1.0)
+    if e["kind"] == "image":
+        args = ["-loop", "1", "-framerate", str(fps), "-t", f"{secs:.3f}", "-i", path]
+    elif e["kind"] == "freeze":  # one frame, held (every piece of a freeze reads the same frame)
+        args = ["-ss", f"{e['src_in_ms'] / 1000:.6f}", "-t", "1", "-i", path]
+        lines.append(f"{src}trim=end_frame=1,setpts=PTS-STARTPTS,fps={fps},tpad=stop=-1:stop_mode=clone[fr{idx}]")
+        src = f"[fr{idx}]"
+    else:
+        # the source moment at this piece's first frame, and as much file as its frames show at this speed
+        u0 = retime.src_at(clip, rel_frame * 1000 / fps)
+        span = retime.src_at(clip, (rel_frame + frames) * 1000 / fps) - u0
+        args = ["-ss", f"{(e['src_in_ms'] + u0) / 1000:.6f}", "-t", f"{span / 1000 + 0.5:.3f}", "-i", path]
+        timing = retime.setpts(clip, u0)
+        if timing:  # each source frame to its time in the video, then whole output frames (repeated or dropped)
+            lines.append(f"{src}{timing},fps={fps}[sp{idx}]")
+            src = f"[sp{idx}]"
+    move = retime.motion_filter(clip, rel_frame, e["frames"], width, height)
+    if move:  # a slow camera move: the framing window, per frame and by fractions of a pixel
+        lines.append(f"{src}{move}[mv{idx}]")
+        src = f"[mv{idx}]"
+    layout = clip.get("layout") or layout
+    zoom = float(clip.get("zoom") or 1.0)
     if zoom > 1.001:  # punch in on the centre (hides a jump cut)
         lines.append(f"{src}crop=trunc(iw/{zoom:.4f}/2)*2:trunc(ih/{zoom:.4f}/2)*2[zm{idx}]")
         src = f"[zm{idx}]"
@@ -808,6 +877,13 @@ def _shown_at(look: dict | None, colour: dict, width: int, height: int) -> dict 
     return {**look, "denoise": grade.denoise_for(look.get("stats"), {}, scale)}
 
 
+def retiming_in_use(plan: dict) -> bool:
+    """Whether a clip of the video plays at another speed, ramps, is a freeze frame or has a camera move. FilmCraft's
+    timeline carries a speed only as a constant time effect (no ramps, no room sound under a freeze, no camera
+    move), so with the editing app on "auto" such a final is rendered by the built-in engine, like the preview."""
+    return any(retime.retimed(c) or retime.motion_keys(c) for c in plan.get("clips") or [] if c.get("include", True))
+
+
 def colour_in_use(plan: dict, assets: dict[str, dict], cache: Path | None = None, cancelled=None) -> bool:
     """Whether the plan's colour step changes the picture: a look, a phone HDR recording (always converted), or a
     correction or cleanup that the recordings really need. With `cache` (the render's pieces folder) the recordings
@@ -847,6 +923,21 @@ def _grade_key(item: dict) -> dict:
     return out
 
 
+def _timing_key(e: dict) -> dict:
+    """What of an element's speed, freeze and camera move changes a piece's pixels (nothing at normal speed and
+    without a move, so old cached pieces stay valid)."""
+    clip = e.get("clip") or {}
+    out = {}
+    if retime.retimed(clip):
+        ramp = retime.ramp_points(clip)  # a ramp's points are shares of the whole range: its end matters too
+        out["time"] = {"speed": retime.speed(clip), "ramp": ramp, "out": int(clip["out_ms"]) if ramp else None,
+                       "freeze": retime.is_freeze(clip)}
+    if retime.motion_keys(clip):
+        out["motion"] = {"keys": retime.motion_keys(clip), "ease": (clip.get("motion") or {}).get("ease"),
+                         "frames": e.get("frames")}
+    return out
+
+
 def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layout: str, kind: str | None,
            encode: list[str], ass: str, cache: Path, tmp: Path, cancelled) -> Path:
     """One piece of the picture, cached by everything that changes its pixels."""
@@ -858,6 +949,7 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
                            "layout": (els[k].get("clip") or {}).get("layout"),
                            **({"zoom": (els[k].get("clip") or {}).get("zoom")}
                               if float((els[k].get("clip") or {}).get("zoom") or 1.0) > 1.001 else {}),
+                           **_timing_key(els[k]),
                            # a piece read from a proxy is never reused for the original, or the other way round
                            **({"src": "proxy"} if els[k].get("src") == "proxy" else {}),
                            **_grade_key(els[k])}
@@ -952,6 +1044,34 @@ def _one_pass(path: str, out: Path, cancelled) -> int:
     run(["-i", str(path), "-vn", "-map", "0:a:0", "-af", NORMALISE, "-f", "f32le", "-ac", "2", "-ar", str(SR),
          str(out)], cancel=cancelled, cwd=out.parent)
     return out.stat().st_size // 8
+
+
+def _retimed_sound(e: dict, rel0: int, n: int, sound: list[str], chain: str, out: Path, cancelled) -> Path:
+    """`n` samples of a sped-up, slowed or ramped element's own sound from `rel0` output samples after its start
+    (negative: a lead-in before it), on the same time map as its picture (retime): the file range those samples
+    show is decoded at normal speed, then time-stretched with the pitch kept. Past either end of the clip its edge
+    speed continues (crossfade margins). The clip's own fades are applied to the result, in video time."""
+    import numpy as np
+
+    clip = e["clip"]
+    first = e["src_in_ms"] * SR / 1000
+
+    def position(j):
+        return first + retime.src_positions(clip, (np.asarray(j, dtype=np.float64) + rel0) * 1000 / SR) * SR / 1000
+    lo, hi = position([0.0, float(n)])
+    margin = retime.WSOLA_FRAME + retime.WSOLA_TOL + SR // 10
+    a0 = max(0, int(math.floor(lo)) - margin)
+    m = max(1, int(math.ceil(hi)) + margin - a0)
+    src = _raw_audio(["-ss", f"{a0 / SR:.6f}", "-t", f"{m / SR + 0.5:.6f}", *sound], chain, m,
+                     out.with_suffix(".src.raw"), cancelled)
+    try:
+        _check(cancelled)
+        ms = SR / 1000
+        retime.stretch(src, m, n, lambda j: position(j) - a0, out,
+                       round(int(clip.get("fade_in_ms") or 0) * ms), round(int(clip.get("fade_out_ms") or 0) * ms))
+    finally:
+        src.unlink(missing_ok=True)
+    return out
 
 
 def _own_sound(els: list[dict], assets: dict[str, dict], src_track: dict) -> list[bool]:
@@ -1265,8 +1385,8 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                      src="proxy" if picture != a["path"] else "original")
     overlays = _overlay_frames(plan, els, fps, assets, use_proxies)
     looks = grades(plan, assets, cache, cancelled)
-    for item in [e for e in els if e["kind"] == "video"] + [o for items in overlays.values() for o in items
-                                                             if o["kind"] == "video"]:
+    for item in [e for e in els if e["kind"] in ("video", "freeze")] + \
+            [o for items in overlays.values() for o in items if o["kind"] == "video"]:
         # the original's colour tags: a proxy is a smaller copy of the same picture and keeps its matrix and
         # transfer (its range is limited whatever the original's: the filters read the range from each frame)
         item["colour"] = grade.source_colour(assets[item["asset_id"]]["path"])
@@ -1370,12 +1490,16 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             shift = (lag - lead) / fps
             p_e, q_e = els[k - 1], els[k]
             # a side may reach past its own edge only into room sound (never a cut-out word); a split edit is
-            # clear of words by construction, room tone always
+            # clear of words by construction, room tone always. A sped-up or slowed side reaches its edge speed
+            # times as far into its file.
+            p_c, q_c = p_e.get("clip") or {}, q_e.get("clip") or {}
+            p_end = p_e["src_in_ms"] + retime.src_at(p_c, p_e["frames"] * 1000 / fps)
+            p_far, q_far = xf / SR * retime.edge_speeds(p_c)[1], xf / SR * retime.edge_speeds(q_c)[0]
             after = k in splits or not own[k - 1] or sound_joins.clear(
-                words_by_asset.get(p_e["asset_id"]), (p_e["src_in_ms"] + p_e["frames"] * 1000 / fps) / 1000 + shift,
-                xf / SR, lengths.get(p_e["asset_id"], 0) / 1000)
+                words_by_asset.get(p_e["asset_id"]), p_end / 1000 + shift, p_far,
+                lengths.get(p_e["asset_id"], 0) / 1000)
             before = k in splits or not own[k] or sound_joins.clear(
-                words_by_asset.get(q_e["asset_id"]), q_e["src_in_ms"] / 1000 + shift - xf / SR, xf / SR,
+                words_by_asset.get(q_e["asset_id"]), q_e["src_in_ms"] / 1000 + shift - q_far, q_far,
                 lengths.get(q_e["asset_id"], 0) / 1000)
             xfades[k] = (xf // 2, xf - xf // 2, xf) if before and after else (0, xf, xf) if after else \
                 (xf, 0, xf) if before else (0, 0, xf // 2)  # neither: a quick dip, like a jump cut's
@@ -1393,13 +1517,17 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                 clip = e.get("clip") or {}
                 a = assets[e["asset_id"]]
                 gain = float(clip.get("gain_db") or 0) + float(src_track.get("gain_db") or 0)
-                src = e["src_in_ms"] * SR // 1000 + (start - e["start_f"] * spf)  # the source sample at `start`
-                skip = max(0, -src)  # before the file's start (a crossfade at its very first sample): silence
-                raw = _raw_audio(["-ss", f"{max(0, src) / SR:.6f}", "-t", f"{(n - skip) / SR + 0.5:.6f}",
-                                  *source_sound(e, a)],
-                                 f"{NORMALISE},volume={gain:.2f}dB" + (f",adelay={skip}S:all=1" if skip else "") +
-                                 _fades(int(clip.get("fade_in_ms") or 0), int(clip.get("fade_out_ms") or 0), n / SR),
-                                 n, tmp / f"el{k}.raw", cancelled)
+                if retime.retimed(clip):  # faster or slower, the voice at its own pitch (retime.stretch)
+                    raw = _retimed_sound(e, start - e["start_f"] * spf, n, source_sound(e, a),
+                                         f"{NORMALISE},volume={gain:.2f}dB", tmp / f"el{k}.raw", cancelled)
+                else:
+                    src = e["src_in_ms"] * SR // 1000 + (start - e["start_f"] * spf)  # the source sample at `start`
+                    skip = max(0, -src)  # before the file's start (a crossfade at its very first sample): silence
+                    raw = _raw_audio(["-ss", f"{max(0, src) / SR:.6f}", "-t", f"{(n - skip) / SR + 0.5:.6f}",
+                                      *source_sound(e, a)],
+                                     f"{NORMALISE},volume={gain:.2f}dB" + (f",adelay={skip}S:all=1" if skip else "")
+                                     + _fades(int(clip.get("fade_in_ms") or 0), int(clip.get("fade_out_ms") or 0),
+                                              n / SR), n, tmp / f"el{k}.raw", cancelled)
                 bus = speech
             else:  # silent where a voiceover plays
                 quiet = [(round(a * SR / 1000) - start, round(b * SR / 1000) - start) for a, b in voiced

@@ -139,7 +139,7 @@ def test_the_handoffs_examples_work_without_any_ai_and_apply_as_undoable_revisio
     prop = r["proposal"]
     assert prop["format"] == "clipforge.edit-proposal/v1"
     assert prop["operations"] == [{"op": "trim", "clip_id": "c1", "in_ms": 2150, "out_ms": 10000}]
-    assert "Clip 1 “morning.mp4” starts 2.1 s later" in prop["changes"]
+    assert "Clip 1 “morning.mp4” starts 2.1 s later in the file" in prop["changes"]
     assert prop["duration_ms"][0] - prop["duration_ms"][1] == 2150
     before = db.fetch("studio_projects", pid)["plan_revision"]
     assert _plan(pid)["clips"][0]["in_ms"] == 0  # nothing changes until Apply
@@ -442,3 +442,51 @@ def test_the_ai_reads_the_owners_memories_and_the_outcome_is_remembered(env, mon
                for e in brain.list_("local", kind="episode"))
     r3 = er.ask(pid, "local", "remove clip 3")
     assert r3["source"] == "rules" and r3["memories"] == []
+
+
+def test_speed_slow_motion_ramps_freeze_frames_and_camera_moves_in_plain_words(env, monkeypatch):
+    """Editing upgrade batch 4 (studio/retime.py), with rules alone: each request becomes the editor's own edit,
+    checked like a manual one, and says how long the part plays before and after."""
+    from clipfoundry.studio import edit_requests as er
+    from clipfoundry.studio import engine
+
+    calls = _no_ai(monkeypatch)
+    pid = _project(env)["id"]
+
+    def ask(text: str) -> dict:
+        r = er.ask(pid, "local", text)
+        assert r["status"] == "ready" and r["source"] == "rules", (text, r)
+        return r["proposal"]
+
+    prop = ask("put clip 2 in slow motion")
+    assert prop["operations"] == [{"op": "clip_set", "clip_id": "c2", "field": "speed", "value": 0.5}]
+    assert "half speed (slow motion): 10.0 s → 20.0 s" in prop["summary"]
+    assert any("Clip 2 “lake.mp4”: 0.5× (was normal speed), 10.0 s → 20.0 s" == c for c in prop["changes"])
+    assert prop["duration_ms"][1] - prop["duration_ms"][0] == 10000
+    assert ask("speed up clip 3 by 2x")["operations"][0]["value"] == 2
+    assert ask("play clip 4 at 1.5x")["operations"][0]["value"] == 1.5
+    assert ask("slow down the summit to quarter speed")["operations"] == [
+        {"op": "clip_set", "clip_id": "c3", "field": "speed", "value": 0.25}]
+    prop = ask("add a speed ramp to clip 1")
+    assert prop["operations"][0]["value"] == "fast_slow_fast" and "fast, slow, fast" in prop["summary"]
+    prop = ask("freeze the last frame for 3 seconds")
+    assert prop["operations"] == [{"op": "freeze", "clip_id": "c4", "at_ms": 9960, "length_ms": 3000}]
+    assert any(c.startswith("New freeze frame") for c in prop["changes"])
+    assert prop["duration_ms"][1] - prop["duration_ms"][0] == 3000
+    prop = ask("slowly zoom in on clip 2 and pan left on clip 3")
+    assert [o["value"] for o in prop["operations"]] == ["zoom_in", "pan_left"]
+    # two requests in one sentence; the speed applies through the same edit as the inspector
+    prop = ask("slow down clip 3 and speed up clip 4")
+    assert [o["value"] for o in prop["operations"]] == [0.5, 2.0]
+    done = er.apply(er.ask(pid, "local", "put clip 2 in slow motion")["id"], "local")
+    assert done["status"] == "applied"
+    plan = _plan(pid)
+    assert plan["clips"][1]["speed"] == 0.5 and engine.timeline(plan)[1]["speed"] == 0.5
+    assert ask("remove the slow motion")["operations"] == [
+        {"op": "clip_set", "clip_id": "c2", "field": "speed", "value": 1}]
+    # what cannot be done is explained, not guessed
+    r = er.ask(pid, "local", "play clip 2 at 9x")
+    assert r["status"] == "unsupported" and "0.25× (slow motion) to 4× speed" in r["message"]
+    r = er.ask(pid, "local", "remove the freeze frame")
+    assert r["status"] == "unsupported" and "no freeze frame" in r["message"]
+    assert calls == []

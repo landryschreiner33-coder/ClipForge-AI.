@@ -1,5 +1,31 @@
 # AI changelog
 
+## Editing quality, batch 4a: speed, speed ramps, freeze frames, slow zooms and pans — 2026-11-26 (Claude Code)
+
+Batch 4a of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 3 (PR #83). Details:
+[docs/clipforge/RANGE_EDITING.md](docs/clipforge/RANGE_EDITING.md).
+
+- **Speed** per clip in full videos, 0.25× to 4× (`clip.speed`), and **speed ramps** with smooth easing between 2 to 8
+  points (`clip.speed_ramp`, four presets). One time map per clip (`studio/retime.py`) drives the picture (FFmpeg
+  `setpts` + `fps`), captions, overlays, anchored sound, chapters, the cold open and picture placement.
+- **Sound keeps its pitch:** a retimed clip's sound is stretched with WSOLA (`retime.stretch`); normal speed is exact.
+  No split edits next to a retimed clip.
+- **Freeze frames** (`kind: "freeze"`, `hold_ms`, new edit op `freeze`): "Freeze here" inside a clip splits it, "Hold
+  the last frame" adds one after it; room tone plays under them like under a photo.
+- **Slow camera moves** (`clip.motion`: 2 to 6 keys of zoom 1.0-1.5 and centre, smooth or linear) on recordings,
+  freezes and photos: zoom in or out, pan left, right, up or down.
+- **Editor:** Speed, Speed ramp, Split or freeze and Camera move in the clip panel; lengths shown as they play.
+  **Plain words:** "put clip 3 in slow motion", "speed up the intro", "add a speed ramp to the jump", "freeze the last
+  frame for 2 seconds", "slowly zoom in on clip 2", "remove the slow motion" (`studio/edit_requests.py`).
+- **FilmCraft:** with "auto", finals that use any of this stay on the built-in engine (`engine.retiming_in_use`); a
+  FilmCraft render says what it skipped. The timeline export carries speed as a linear time warp and freezes as
+  freeze-frame effects and lists the rest as not carried.
+- **Tests:** `tests/test_retime.py` (12 fast, 4 real renders read frame by frame from a numbered test video), plain
+  words in `tests/test_studio_edit_requests.py`, routing in `tests/test_craft.py`. Not verified: real speech at
+  extreme speeds, phone footage with variable frame rate.
+
 ## Editing quality, batch 3: full videos (split edits, room tone, music that ends on time) — 2026-11-26 (Claude Code)
 
 Batch 3 of Landry's "majorly improve the editing" (plan in

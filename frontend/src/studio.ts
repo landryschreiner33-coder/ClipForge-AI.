@@ -116,12 +116,21 @@ export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: stri
 export type PlanClip = { id: string; asset_id: string; kind: string; in_ms: number; out_ms: number; label: string;
   gain_db: number; include: boolean; must_keep?: string[]; mute?: boolean; fade_in_ms?: number; fade_out_ms?: number;
   layout?: string | null; join?: "cut"; zoom?: number;
+  /** Speed (0.25 to 4, the voice keeps its pitch); a speed ramp instead (points: share of the clip 0..1, speed). */
+  speed?: number; speed_ramp?: ClipRamp | null;
+  /** A slow eased camera move over the clip (video, photo or freeze frame). */
+  motion?: ClipMotion | null;
+  /** kind "freeze": one frame (in_ms of the file) held this long. */
+  hold_ms?: number;
   /** The cold open: the strongest line, playing first (it plays again where it was said). */
   hook?: boolean;
   /** Script mode: the lines this clip plays (with each line's bounds), or the line it is another take of,
    * or speech that is not in the script. */
   take_of?: { lines?: number[]; takes?: Record<string, { in_ms: number; out_ms: number; coverage?: number; quality?: number }>;
     line?: number; coverage?: number; quality?: number; off_script?: boolean } };
+export type ClipRamp = { preset?: string; points: { at: number; speed: number }[] };
+/** Not Overlay.motion ("still" | "zoom"): keys at shares of the clip's length, zoom 1 to 1.5, x/y the framing's centre. */
+export type ClipMotion = { preset?: string; ease?: "smooth" | "linear"; keys: { at: number; zoom: number; x: number; y: number }[] };
 /** A picture (or muted video) shown over a clip while its sound goes on. */
 export type Overlay = { id: string; asset_id: string; clip_id: string; offset_ms: number; length_ms: number;
   motion: "still" | "zoom"; fit?: "fill" | "fit"; label: string; auto?: boolean; why?: string };
@@ -157,8 +166,9 @@ export type Plan = { schema: number; output: { aspect: string; fps: number }; la
   script?: { filename: string; stats: Record<string, number>; lines: ScriptMatch[] };
   /** Set on a version finished by hand in FilmCraft's editor (rendered by FilmCraft from that save). */
   filmcraft?: { project: string; saved_at: number; opened_on: number } };
+/** Where a clip plays. At another speed src_out_ms - src_in_ms is not out_end_ms - out_start_ms: never assume 1:1. */
 export type Segment = { clip_id: string; asset_id: string; kind: string; src_in_ms: number; src_out_ms: number;
-  out_start_ms: number; out_end_ms: number };
+  out_start_ms: number; out_end_ms: number; speed?: number; ramp?: boolean; freeze?: boolean; hold_ms?: number };
 export type Placed = { audio_id: string; asset_id: string; role: AudioRole; track: TrackName; out_start_ms: number;
   out_end_ms: number; src_in_ms: number; loop: boolean; cut_ms: number };
 export type SoundJoins = { split_edits?: { at_s: number; j_frames: number; l_frames: number }[]; room_tone_s?: number;
@@ -176,7 +186,9 @@ export type Video = { id: string; name: string; status: string; message: string;
   revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];
   can_undo: boolean; can_redo: boolean;
   capabilities: { tracks: Record<TrackName, string>; caption_sizes: string[]; caption_positions: string[]; fps: number[];
-    duck_depth_db: { default: number; range: [number, number] }; limits: string };
+    duck_depth_db: { default: number; range: [number, number] }; limits: string;
+    speed_range?: [number, number]; speed_ramps?: Record<string, string>; motions?: Record<string, string>;
+    freeze?: { min_ms: number; default_ms: number } };
   sources?: Record<string, AssetSource[]>; credits?: Credit[]; media_rules?: MediaRules;
   overlay_timeline?: { overlay_id: string; asset_id: string; clip_id: string; out_start_ms: number; out_end_ms: number }[];
   chapters?: { title: string; ms: number }[]; smart?: SmartReport | null;
