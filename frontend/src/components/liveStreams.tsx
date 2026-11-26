@@ -1,4 +1,4 @@
-import { FormEvent, useId, useState } from "react";
+import { FormEvent, useEffect, useId, useState } from "react";
 import { errorText } from "../api";
 import { ap } from "../autopilot";
 import { plural, when } from "../format";
@@ -6,6 +6,7 @@ import {
   channelNames, LIVE_FRAMINGS, LIVE_PICKS, LiveFraming, LivePick, LiveStream, submissions,
 } from "../submissions";
 import { nameList } from "./channelPicker";
+import { Box, FaceCamBox, START } from "./faceCam";
 import { Banner, ConfirmDialog, Icon, IconName, Pill, Skel, toast, Tone, usePoll } from "./ui";
 import { UploadChoice, useUploadChoice } from "./uploadChoice";
 
@@ -248,6 +249,8 @@ function StreamRow({ item, timezone, disabled, act }: {
   const p = item.submission.progress;
   const title = item.title || "Live stream";
   const ended = item.live.ended && ["ready", "finished"].includes(item.status);
+  const [drawing, setDrawing] = useState(false);
+  const canDraw = Boolean(item.project_id) && item.live.recording && item.live.framing !== "off";
   return <article className="ap-link-row" aria-label={title}>
     <div className="row wrap top">
       <div className="stack grow">
@@ -278,9 +281,71 @@ function StreamRow({ item, timezone, disabled, act }: {
         onClick={() => act("finish")}><Icon name="stop" />Stop recording</button>}
       {item.can_stop_clipping && <button type="button" className="btn btn-small" disabled={disabled}
         onClick={() => act("stop_clipping")}><Icon name="scissors" />Stop clipping</button>}
+      {canDraw && !drawing && <button type="button" className="btn btn-small" onClick={() => setDrawing(true)}>
+        <Icon name="screen" />Draw the face cam</button>}
       {item.can_retry && <button type="button" className="btn btn-small" disabled={disabled} onClick={() => act("retry")}>Try again</button>}
       {item.can_cancel && <button type="button" className="btn btn-small btn-quiet" disabled={disabled}
         onClick={() => act("cancel")}>Cancel stream</button>}
     </div>
+    {canDraw && drawing && <LiveFaceCam projectId={item.project_id!} title={title} close={() => setDrawing(false)} />}
   </article>;
+}
+
+/** Draw where the streamer's face cam is on a picture from the newest recorded minute. Live clips made from now on
+ * put that part of the picture in their split view's cam spot (the stream's own folder, cam.json). */
+function LiveFaceCam({ projectId, title, close }: { projectId: string; title: string; close: () => void }) {
+  const [src, setSrc] = useState("");
+  const [aspect, setAspect] = useState(16 / 9);
+  const [box, setBox] = useState<Box>(START);
+  const [locked, setLocked] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = () => {
+    setError("");
+    const url = submissions.liveFrame(projectId);
+    const picture = new Image();
+    picture.onload = () => { setAspect(picture.naturalWidth / Math.max(1, picture.naturalHeight)); setSrc(url); };
+    picture.onerror = () => setError("No picture from the stream yet. Wait a minute while it records, then press "
+      + "New picture.");
+    picture.src = url;
+  };
+  useEffect(() => {
+    load();
+    submissions.liveFacecam(projectId).then((cam) => {
+      if (cam.box) setBox(cam.box);
+      setLocked(cam.locked);
+    }).catch(() => undefined);
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async (next: Box | null) => {
+    setBusy(true);
+    try {
+      const cam = await submissions.lockLiveFacecam(projectId, next);
+      setLocked(cam.locked);
+      if (cam.box) setBox(cam.box);
+      toast(next ? "Face cam saved. Clips made from now on put this part of the picture in the cam spot."
+        : "ClipForge looks for the face cam by itself again.");
+      if (next) close();
+    } catch (err) {
+      toast(errorText(err), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <section className="stack" aria-label={`Face cam for ${title}`}>
+    <p className="small">Drag a box around the streamer's face cam. Live clips with a split view use it from now on.</p>
+    {error ? <Banner tone="info">{error}</Banner>
+      : src ? <FaceCamBox image src={src} time={0} aspect={aspect} box={box} onChange={setBox} label="Face cam box" />
+        : <Skel style={{ height: 180, maxWidth: 520 }} />}
+    <div className="row wrap">
+      <button type="button" className="btn btn-small btn-primary" disabled={busy || !src} onClick={() => save(box)}>
+        <Icon name="check" />Use this box</button>
+      <button type="button" className="btn btn-small" disabled={busy} onClick={load}><Icon name="refresh" />New picture</button>
+      {locked && <button type="button" className="btn btn-small btn-quiet" disabled={busy} onClick={() => save(null)}>
+        Let ClipForge find it</button>}
+      <button type="button" className="btn btn-small btn-quiet" onClick={close}>Close</button>
+    </div>
+  </section>;
 }

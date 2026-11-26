@@ -5,15 +5,17 @@ import { api, CamCheck, Clip, errorText, FaceCamState, Project, uploadCamera, Up
 /** A box drawn over a video's picture, in shares of it: [x0, y0, x1, y1]. */
 export type Box = number[];
 const MIN = 0.05;                          // the server refuses a box narrower than 0.04 of the picture
-const START: Box = [0.02, 0.6, 0.28, 0.95]; // where a face cam usually is: bottom left
+export const START: Box = [0.02, 0.6, 0.28, 0.95]; // where a face cam usually is: bottom left
 const clamp = (v: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
 const round = (b: Box) => b.map((v) => Math.round(v * 1000) / 1000);
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 /** The picture of a video at `time`, with a box to move (drag it, or arrow keys), resize (the corner, or Shift +
  * arrow keys) or draw again (drag anywhere else). */
-export function FaceCamBox({ src, time, aspect, box, onChange, label }: {
+export function FaceCamBox({ src, time, aspect, box, onChange, label, image = false }: {
   src: string; time: number; aspect: number; box: Box; onChange: (b: Box) => void; label: string;
+  /** `src` is a still picture (a live stream's newest minute), not a video. */
+  image?: boolean;
 }) {
   const area = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -69,7 +71,8 @@ export function FaceCamBox({ src, time, aspect, box, onChange, label }: {
   return (
     <div className="cam-editor" ref={area} style={{ aspectRatio: String(aspect) }} onPointerDown={down}
       onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
-      <video ref={video} src={src} muted playsInline preload="auto" aria-hidden="true" />
+      {image ? <img src={src} alt="" aria-hidden="true" draggable={false} />
+        : <video ref={video} src={src} muted playsInline preload="auto" aria-hidden="true" />}
       <div className="cam-box" tabIndex={0} role="group" onKeyDown={key}
         aria-label={`${label}: ${pct(box[0])} from the left, ${pct(box[1])} from the top, ${pct(box[2] - box[0])} `
           + `wide, ${pct(box[3] - box[1])} high. Arrow keys move it; Shift and arrow keys change its size.`}

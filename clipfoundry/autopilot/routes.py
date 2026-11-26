@@ -91,6 +91,65 @@ def live_streams() -> list[dict]:
     return submissions.live_items()
 
 
+def _live_dir(project_id: str) -> Path:
+    """The folder of a live stream's recording, as live.Session keeps it (its minutes are in live/). While the
+    stream is recorded the project has no source file yet, so the video's own face cam route can't find it."""
+    project = db.get_project(project_id)
+    pdir = config.projects_dir() / project["id"] if project and project.get("origin") == "live" else None
+    if not pdir or not (pdir / "live").is_dir():
+        raise HTTPException(404, "That is not a live stream's recording.")
+    return pdir
+
+
+@router.get("/submissions/live/{project_id}/frame", dependencies=READ)
+def live_frame(project_id: str):
+    """A picture from the newest whole recorded minute, to draw the face cam's box on while the stream is live."""
+    from fastapi.responses import FileResponse
+
+    from ..pipeline.ffmpeg_utils import ffmpeg_bin, run_process
+
+    pdir = _live_dir(project_id)
+    minutes = sorted((pdir / "live").glob("r*_*.mkv"), key=lambda path: path.name)
+    if not minutes:
+        raise HTTPException(404, "Nothing is recorded yet. Try again in a minute.")
+    newest = minutes[-2] if len(minutes) > 1 else minutes[-1]   # the last one is still being written
+    out = pdir / "live" / "facecam-frame.jpg"
+    done = run_process([ffmpeg_bin(), "-y", "-v", "error", "-ss", "2", "-i", str(newest), "-frames:v", "1",
+                        "-q:v", "3", str(out)], timeout=30)
+    if done.returncode != 0 or not out.is_file():
+        raise HTTPException(409, "No picture could be read from the newest minute yet. Try again in a minute.")
+    return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+class LiveCamBody(BaseModel):
+    box: list[float] | None = None
+
+
+def _live_cam(pdir: Path) -> dict:
+    from ..pipeline import facecam
+
+    found = facecam.found(pdir) or {}
+    return {"box": found.get("box"), "locked": bool(found.get("locked"))}
+
+
+@router.get("/submissions/live/{project_id}/facecam", dependencies=READ)
+def live_facecam(project_id: str) -> dict:
+    return _live_cam(_live_dir(project_id))
+
+
+@router.put("/submissions/live/{project_id}/facecam", dependencies=WRITE)
+def lock_live_facecam(project_id: str, body: LiveCamBody) -> dict:
+    """The face cam's box for every clip of this stream from now on ({"box": null}: find it again by itself)."""
+    from ..pipeline import facecam
+
+    pdir = _live_dir(project_id)
+    try:
+        facecam.set_lock(pdir, facecam.clean_box(body.box))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return _live_cam(pdir)
+
+
 @router.post("/submissions/file", dependencies=WRITE)
 def submit_file(file: UploadFile = File(...), options: str = Form("{}")) -> dict:
     from . import submissions
