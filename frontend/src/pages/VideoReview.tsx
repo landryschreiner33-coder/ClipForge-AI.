@@ -11,6 +11,7 @@ import { ShortScenes } from "../components/ShortScenes";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
 import { redirect } from "../router";
+import { colourLine, LOOKS, lookOf } from "../looks";
 import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, studio, TrackName, uploadIds, Video } from "../studio";
 
 const PAGE = 60;  // sequence rows drawn at a time (the list stays light however long the project is)
@@ -46,6 +47,47 @@ function Gain({ label, value, min, max, onCommit, disabled }: { label: string; v
     <label className="field"><span>{label} ({v > 0 ? "+" : ""}{v} dB)</span>
       <input type="range" min={min} max={max} step={1} value={v} disabled={disabled} onChange={(e) => setV(Number(e.target.value))}
         onPointerUp={commit} onKeyUp={commit} onBlur={commit} /></label>
+  );
+}
+
+const STRENGTHS = [25, 50, 75, 100];
+
+/** The picture's colour: automatic correction, matching the recordings, a look and grain cleanup (engine plan
+ * "color"); the last render says what it changed in each recording. */
+function ColourPanel({ v, plan, edit, busy }: { v: Video; plan: Plan; edit: EditFn; busy: boolean }) {
+  const c = plan.color ?? { auto: false, match: false, look: "natural", strength: 100, clean: false };
+  const set = (field: string, value: unknown) => edit({ op: "set", field, value });
+  const shown = v.preview ? v.artifacts.find((a) => a.kind === "preview" && a.revision === v.preview!.revision) : undefined;
+  const reports = Object.entries(shown?.colour || {});
+  const name = (id: string) => v.assets.find((a) => a.id === id)?.filename || "A recording";
+  const strengths = STRENGTHS.includes(c.strength) ? STRENGTHS : [...STRENGTHS, c.strength].sort((a, b) => a - b);
+  return (
+    <section className="panel" aria-labelledby="vr-colour">
+      <h2 id="vr-colour">Colour</h2>
+      {!plan.color && <p className="small muted">This video was made before colour choices existed: only phone HDR
+        video is converted. Any choice below applies from now on.</p>}
+      <div className="row wrap top">
+        <label className="field"><span>Look</span>
+          <select value={c.look} disabled={busy} onChange={(e) => set("look", e.target.value)}>
+            {LOOKS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}</select>
+          <span className="small muted">{lookOf(c.look).what}</span></label>
+        <label className="field"><span>Strength</span>
+          <select value={c.strength} disabled={busy || c.look === "natural"}
+            onChange={(e) => set("look_strength", Number(e.target.value))}>
+            {strengths.map((n) => <option key={n} value={n}>{n} %</option>)}</select></label>
+      </div>
+      <div className="stack-3">
+        <label><input type="checkbox" checked={c.auto} disabled={busy} onChange={(e) => set("auto_color", e.target.checked)} />{" "}
+          Correct each recording's white balance, brightness and contrast</label>
+        <label><input type="checkbox" checked={c.auto && c.match} disabled={busy || !c.auto}
+          onChange={(e) => set("match_color", e.target.checked)} />{" "}
+          Match the recordings of people to the one that plays longest</label>
+        <label><input type="checkbox" checked={c.clean} disabled={busy} onChange={(e) => set("clean_picture", e.target.checked)} />{" "}
+          Clean up grainy footage (only where grain is visible)</label>
+      </div>
+      {reports.length > 0 && <ul className="small">{reports.map(([id, r]) =>
+        <li key={id}><b>{name(id)}:</b> {colourLine(r)}</li>)}</ul>}
+    </section>
   );
 }
 
@@ -481,6 +523,7 @@ export default function VideoReview({ id }: { id: string }) {
               {plan.notes.length > 0 && <ul className="small">{plan.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
             </section>
             <Pictures v={v} plan={plan} edit={edit} busy={busy} />
+            <ColourPanel v={v} plan={plan} edit={edit} busy={busy} />
             <section className="panel" aria-labelledby="vr-audio">
               <h2 id="vr-audio">Sound</h2>
               <div className="track-grid">

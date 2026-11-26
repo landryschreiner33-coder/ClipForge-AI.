@@ -18,9 +18,10 @@ import { FaceCamPanel } from "../components/faceCam";
 import { learnedApi } from "../brain";
 import { useLeaveGuard } from "../router";
 import { fmtTime, STORY_MAX_S } from "../studio";
+import { colourLine, ColourReport, LOOKS, lookOf } from "../looks";
 import "./editor.css";
 
-type Group = "trim" | "captions" | "layout" | "audio" | "post";
+type Group = "trim" | "captions" | "layout" | "colour" | "audio" | "post";
 type Key = Exclude<keyof ClipEdit, "caption_words">;
 type Words = Awaited<ReturnType<typeof api.clipWords>>;
 
@@ -28,6 +29,7 @@ const GROUPS: { id: Group; label: string; what: string }[] = [
   { id: "trim", label: "Trim", what: "the trim" },
   { id: "captions", label: "Captions", what: "the captions or hook" },
   { id: "layout", label: "Layout", what: "the layout" },
+  { id: "colour", label: "Colour", what: "the colour" },
   { id: "audio", label: "Audio", what: "the audio" },
   { id: "post", label: "Post text", what: "the post text" },
 ];
@@ -36,6 +38,7 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
   captions: ["captions_enabled", "caption_style", "caption_position", "caption_size", "caption_emphasis",
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
   layout: ["tracking", "crop_x", "layout", "split_game", "cam_box", "pip_corner", "zoom", "auto_zoom"],
+  colour: ["auto_color", "look", "look_strength", "clean_picture"],
   audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
@@ -45,6 +48,7 @@ const FALLBACK: Partial<Record<Key, unknown>> = {
   captions_enabled: true, caption_style: "bold", caption_position: "bottom", caption_size: 1, caption_emphasis: false,
   highlight_words: true, highlight_color: "", hook_overlay: true, hook_seconds: 3,
   gain_db: 0, normalize_audio: true, clean_sound: "auto", silence: "light", remove_fillers: true, speed: 1,
+  auto_color: true, look: "natural", look_strength: 100, clean_picture: true,
 };
 const TITLE_MAX = 100;
 const CAPTION_MAX = 2200;
@@ -517,6 +521,8 @@ export default function ClipEditor({ id }: { id: string }) {
   const gain = num("gain_db");
   const cleanNote = String((ri.audio_processing as { clean_sound?: { summary?: string } } | undefined)
     ?.clean_sound?.summary || "");
+  const strength = num("look_strength");
+  const styled = str("look") !== "natural";
 
   const panels: Record<Group, ReactElement> = {
     trim: (
@@ -720,6 +726,35 @@ export default function ClipEditor({ id }: { id: string }) {
             {ri.cuts ? `, ${plural(Number(ri.cuts), "scene cut")}` : ", no scene cuts"}.
           </p>
         )}
+      </>
+    ),
+    colour: (
+      <>
+        <Check label="Correct the colour automatically" on={bool("auto_color")}
+          onChange={(v) => set({ auto_color: v })} />
+        <p className="hint">
+          White balance, brightness and contrast are measured once for this clip and gently corrected; skin tones stay
+          natural and a game's or app's own colours are only half corrected. Phone HDR video is always turned into
+          normal video so it never looks grey.
+        </p>
+        <div className="field">
+          <label htmlFor={`${uid}-look`}>Look</label>
+          <select id={`${uid}-look`} value={str("look") || "natural"} onChange={(e) => set({ look: e.target.value })}>
+            {LOOKS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+          </select>
+          <p className="hint">{lookOf(str("look")).what}</p>
+        </div>
+        <div className="field">
+          <label htmlFor={`${uid}-strength`}>
+            Look strength <span className="faint tnum">{styled ? `${strength} %` : "(choose a look first)"}</span>
+          </label>
+          <input id={`${uid}-strength`} type="range" min={0} max={100} step={5} value={strength} disabled={!styled}
+            aria-valuetext={`${strength} percent`} onChange={(e) => set({ look_strength: +e.target.value })} />
+        </div>
+        <Check label="Clean up grainy footage (low light)" on={bool("clean_picture")}
+          onChange={(v) => set({ clean_picture: v })} />
+        <p className="hint">Only a picture with visible grain is cleaned; a clean picture is left as it is.</p>
+        {ri.colour ? <p className="hint">Last render: {colourLine(ri.colour as ColourReport)}</p> : null}
       </>
     ),
     audio: (

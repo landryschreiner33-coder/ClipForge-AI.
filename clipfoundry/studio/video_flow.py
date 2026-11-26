@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import config, db
-from ..pipeline import artifact
+from ..pipeline import artifact, grade
 from ..pipeline.ffmpeg_utils import extract_audio
 from . import engine, guidance, prefs, styles, uploads
 from .jobs import Lease, enqueue, handler, on_stop
@@ -461,7 +461,7 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
                          "size": values.get("caption_size", "medium")},
             "audio": audio, "tracks": engine.default_tracks(), "word_fixes": {},
             "ducking": {"depth_db": float(values.get("duck_depth_db", engine.DUCK_DEPTH_DB))},
-            "outline": outline, "notes": notes}
+            "color": engine.default_color(values), "outline": outline, "notes": notes}
     total = engine.duration_ms(plan) / 1000
     target = float(values.get("target_duration_s") or 0)
     if target and total > target * 1.1:
@@ -691,7 +691,7 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
     return ctx
 
 
-SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound")
+SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound", "color")
 
 
 def is_short(project: dict) -> bool:
@@ -1270,13 +1270,47 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
             p["title"].update(text=value.strip() or p["title"]["text"], enabled=bool(value.strip()))
         elif field == "title_card" and type(value) is bool:
             p["title"]["enabled"] = value
+        elif field in COLOR_FIELDS:
+            return p, _set_color(p, field, value)
         else:
             raise VideoError(f"“{field}” cannot be set to that.")
         return p, f"Changed {str(field).replace('_', ' ')}"
-    if op in engine.UNSUPPORTED or op in ("color_grade", "effects"):
+    if op == "color_grade":  # a look (and how strong), in one edit
+        _set_color(p, "look", edit.get("look"))
+        if edit.get("strength") is not None:
+            _set_color(p, "look_strength", edit.get("strength"))
+        c = p["color"]
+        return p, f"Look: {grade.LOOKS[c['look']]}" + (f" at {c['strength']} %" if c["strength"] != 100 else "")
+    if op in engine.UNSUPPORTED or op == "effects":
         label = engine.UNSUPPORTED.get(op, "effects")
         raise VideoError(f"{label.capitalize()} is not supported by this editor yet.")
     raise VideoError("Unknown edit.")
+
+
+COLOR_FIELDS = {"look": "look", "look_strength": "strength", "auto_color": "auto", "match_color": "match",
+                "clean_picture": "clean"}
+
+
+def _set_color(p: dict, field: str, value) -> str:
+    """One colour choice of the plan. A plan made before colour existed starts from what it rendered with (phone HDR
+    converted, nothing else), so only the choice you make changes."""
+    c = dict(p.get("color") or {"auto": False, "match": False, "look": "natural", "strength": 100, "clean": False})
+    if field == "look":
+        if value not in config.LOOKS:
+            raise VideoError("Unknown look. Choose one of: " + ", ".join(grade.LOOKS[k] for k in config.LOOKS) + ".")
+        c["look"] = value
+        said = f"Look: {grade.LOOKS[value]}"
+    elif field == "look_strength":
+        c["strength"] = round(_number(value, 0, 100, "The look's strength"))
+        said = f"Look strength {c['strength']} %"
+    elif type(value) is bool:
+        c[COLOR_FIELDS[field]] = value
+        said = {"auto_color": "Automatic colour", "match_color": "Matching the recordings' colour",
+                "clean_picture": "Cleaning up picture noise"}[field] + (" on" if value else " off")
+    else:
+        raise VideoError(f"“{field}” is either on or off.")
+    p["color"] = c
+    return said
 
 
 def _use_take(p: dict, edit: dict) -> tuple[dict, str]:
@@ -1755,6 +1789,7 @@ def view(project: dict) -> dict:
             "artifacts": [{"id": a["id"], "revision": a["revision"], "kind": a["kind"], "sha256": a["sha256"],
                            "duration": (a.get("info") or {}).get("duration"),
                            "audio_ok": ((a.get("info") or {}).get("audio_timing") or {}).get("valid"),
+                           "colour": (a.get("info") or {}).get("colour") or {},
                            **_made_with(a.get("info") or {})}
                           for a in arts],
             "preview": {"revision": shown["revision"], "stale": stale} if shown else None,

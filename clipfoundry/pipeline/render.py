@@ -20,7 +20,7 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, audio_timing, captions, cleanup, facecam, reframe, trims
+from . import artifact, audio_timing, captions, cleanup, facecam, grade, reframe, trims
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, FFmpegError, MediaWatchdog, delivery_args, ffmpeg_bin,
@@ -34,6 +34,7 @@ PLAN_VERSION = 3  # moving-content fallback and recovery after prolonged face dr
 CAM_FILE = facecam.CAM_FILE  # in the project's folder: the face cam found in this video (find_cam's hint)
 CAPTIONS_STEP = "Writing captions"  # progress messages that tell the office which part of the render runs
 FRAMES_STEP = "Rendering"
+COLOUR_STEP = "Checking the colour"
 
 
 # ------------------------------------------------------------ timeline
@@ -307,7 +308,7 @@ def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> lis
 def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
     keys = ["caption_style", "caption_position", "highlight_words", "tracking", "layout", "silence", "auto_zoom",
             "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis", "clean_sound",
-            "split_view", "split_game"]
+            "split_view", "split_game", "auto_color", "look", "look_strength", "clean_picture"]
     opts = {k: settings.get(k) for k in keys}
     opts.update({k: v for k, v in (project_opts or {}).items() if k in keys and v is not None})
     opts.update({k: v for k, v in (edit or {}).items() if v is not None})
@@ -509,6 +510,14 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     else:
         asked = layout
 
+    # ---- colour (pipeline/grade.py): phone HDR converted, the clip's own white balance, exposure and contrast
+    # corrected and a look added; measured once per clip (cached with its framing) so the picture never flickers
+    ctx.progress(0.03, COLOUR_STEP)
+    colour = grade.source_colour(src)
+    look, look_stats = grade.for_footage(src, [(start, end)], opts, cache=clip_dir / "grade.json",
+                                        screen=plan.faces_found == 0, cancelled=ctx.cancelled)
+    denoise = grade.denoise_for(look_stats, opts)
+
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
     ctx.progress(0.03, CAPTIONS_STEP)
     keywords = {t.lstrip("#").lower() for t in ((clip.get("post") or {}).get("hashtags") or clip.get("hashtags") or [])}
@@ -563,13 +572,21 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         t_cam = start + float(camera["offset"])
         cam_lead = int(round(max(0.0, -t_cam) * fps))  # frames before the camera started: dark
         cam_shape, cam_bytes = (cdh, cdw), cdw * cdh * 3
+        # the camera's own recording: read in its own colours (a phone's HDR converted), with the clip's look
+        cam_file = str(Path(project["dir"]) / camera["file"])
+        cam_colour = grade.source_colour(cam_file)
+        cam_look = grade.Grade(hdr=grade.hdr_kind(cam_colour), max_cll=float(cam_colour.get("max_cll") or 0),
+                               look=look.look, strength=look.strength)
         cam_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", f"{max(0.0, t_cam):.3f}",
-                   "-i", str(Path(project["dir"]) / camera["file"]), "-t", f"{end - start + 0.5:.3f}", "-map", "0:v:0",
-                   "-an", "-sn", "-vf", f"fps={fps},scale={cdw}:{cdh}:flags=bicubic", "-f", "rawvideo",
-                   "-pix_fmt", "bgr24", "pipe:1"]
+                   "-i", cam_file, "-t", f"{end - start + 0.5:.3f}", "-map", "0:v:0", "-an", "-sn",
+                   "-vf", f"fps={fps},scale={cdw}:{cdh}:flags=bicubic,"
+                          f"{grade.rgb_filters(cam_colour, cam_look, '', clip_dir, camera['size'][1])}",
+                   "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
     dec_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", src,
                "-t", f"{end - start + 0.5:.3f}", "-map", "0:v:0", "-an", "-sn",
-               "-vf", f"fps={fps},scale={dw}:{dh}:flags=bicubic", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
+               "-vf", f"fps={fps},scale={dw}:{dh}:flags=bicubic,"
+                      f"{grade.rgb_filters(colour, look, denoise, clip_dir, src_h)}",
+               "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
 
     enc_args, encoder = video_encoder_args(settings)
     fonts = filter_path(config.FONTS_DIR, out_dir)
@@ -609,9 +626,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         if encoder == "h264_nvenc" else nullcontext()
     with hold_gpu, open(log_path, "wb") as logf, MediaWatchdog(ctx.cancelled, max(1800.0, tl.duration * 60)) as watch:
         dec = watch.add(subprocess.Popen(dec_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
-                                         bufsize=frame_bytes))
+                                         bufsize=frame_bytes, cwd=str(clip_dir)))
         cam_dec = watch.add(subprocess.Popen(cam_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
-                                             bufsize=cam_bytes)) if cam_cmd else None
+                                             bufsize=cam_bytes, cwd=str(clip_dir))) if cam_cmd else None
         cam_last = np.zeros((*cam_shape, 3), np.uint8) if cam_cmd else None
         enc = watch.add(subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=logf,
                                          cwd=str(out_dir), creationflags=NO_WINDOW))
@@ -709,6 +726,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                         "fps": fps, "segments": len(segs),
                         "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),
                         "fillers_removed": fillers_cut, "speed": tl.speed, "emphasis_words": len(emphasis),
+                        "colour": {**look.summary(), "denoise": bool(denoise),
+                                   "noise": round(float((look_stats or {}).get("noise") or 0), 2)},
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
                         "snapped_to_cut": snapped, "edit_hash": edit_hash(clip.get("edit") or {}),
                         "artifact": record},

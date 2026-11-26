@@ -27,7 +27,8 @@ import re
 import threading
 import time
 
-from .. import db
+from .. import config, db
+from ..pipeline import grade
 from . import engine
 from . import video_flow as vf
 
@@ -42,13 +43,13 @@ KNOWHOW_CHARS = 900       # ClipForge AI's built-in know-how for the request (br
 CLIP_WORDS_CHARS = 900    # at most this much of what is said in one clip before the budget is shared out
 OPEN = ("thinking",)
 SETTABLE = {"captions", "caption_size", "caption_position", "transition", "duck_depth_db", "music_level_db", "title",
-            "title_card"}
+            "title_card", "look", "look_strength", "auto_color", "match_color", "clean_picture"}
 CLIP_FIELDS = {"gain_db", "mute", "fade_in_ms", "fade_out_ms", "layout"}
 OPS = {"remove", "restore", "trim", "split", "move", "set", "clip_set", "track_set", "shorten_intro"}
 RULE_EXAMPLES = ("remove the long silence at the beginning", "shorten the intro by 3 seconds",
                  "move the summit part before lunch", "move clip 4 before clip 2", "remove clip 3",
                  "lower the music while I'm talking", "make the captions smaller", "move the captions up",
-                 "use dissolves")
+                 "use dissolves", "make it black and white", "fix the colours", "make the look subtler")
 
 _think_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="edit-request")
 _call_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="edit-request-ai")
@@ -360,6 +361,10 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str) -> tuple[list
             return ops, "; ".join(said) + ".", "captions"
         if said:
             raise _Explain("; ".join(said) + ".")
+    # colour and look
+    found = _color_rule(t, plan)
+    if found:
+        return found
     # transitions
     m = re.search(r"\b(?:use|switch to|change to|go with) (?:only )?(?:hard |straight |simple )?(dissolves?|crossfades?|"
                   r"fades?(?: to black)?|cuts)\b", t) or \
@@ -398,6 +403,67 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str) -> tuple[list
         group = _span(m.group("x"), rows, "Remove", "")
         return ([{"op": "remove", "clip_id": r["id"]} for r in group], f"Remove {_describe(group)}.", "")
     raise LookupError(clause)
+
+
+LOOK_PHRASES = (  # (pattern, look); the first that matches wins
+    (r"\b(black and white|black & white|b ?& ?w|monochrome|grayscale|greyscale|no colou?r)\b", "mono"),
+    (r"\bteal (and|&) orange\b", "teal_orange"),
+    (r"\b(vintage|retro|old[- ]school|faded|old film|throwback)\b", "vintage"),
+    (r"\b(cinematic|filmic|film look|like a (film|movie))\b", "film"),
+    (r"\b(moody|dark(er)? look|darker and moodier|gloomy)\b", "moody"),
+    (r"\b(warmer|warm look|golden|more orange|less blue|cozier|cosier)\b", "warm"),
+    (r"\b(cooler|colder|cool look|cold look|bluer|less orange|less yellow)\b", "cool"),
+    (r"\b(brighter|bright look|airy|clean and bright|more vibrant|punchier colou?rs?)\b", "bright"),
+    (r"\b(natural colou?rs?|normal colou?rs?|no look|remove the look|without a look|plain colou?rs?)\b", "natural"),
+)
+
+
+def _color_rule(t: str, plan: dict) -> tuple[list[dict], str, str] | None:
+    """A request about the picture's colour: a look, its strength, automatic correction, matching or noise."""
+    if re.search(r"\b(music|sound|audio|voice|captions?|subtitles?|title)\b", t):
+        return None
+    c = plan.get("color") or {"auto": False, "match": False, "look": "natural", "strength": 100, "clean": False}
+    colour = re.search(r"\b(colou?rs?|colou?r grad(e|ing)|white balance|grade|look|tint|picture|image|footage)\b", t)
+    off = re.search(r"\b(turn off|switch off|stop|no|don't|do not|without|disable|remove|keep the original|"
+                    r"leave the)\b", t)
+    if re.search(r"\b(noise|noisy|grain|grainy|speckles?)\b", t):
+        want = not re.search(r"\b(keep|leave|add|more)\b", t)
+        if bool(c.get("clean")) == want:
+            raise _Explain(f"Picture noise cleanup is already {'on' if want else 'off'}.")
+        return ([{"op": "set", "field": "clean_picture", "value": want}],
+                "Clean up picture noise." if want else "Leave the picture's grain as it is.", "")
+    if colour and re.search(r"\b(match|same|consistent|even out)\b", t):
+        if c.get("match") and c.get("auto"):
+            raise _Explain("The recordings' colours are already matched to each other.")
+        ops = [{"op": "set", "field": "match_color", "value": True}]
+        ops += [] if c.get("auto") else [{"op": "set", "field": "auto_color", "value": True}]
+        return ops, "Match the recordings' colours to each other.", ""
+    if colour and re.search(r"\b(fix|correct|correction|balance|auto|improve|better|off|wrong|weird|orange|yellow|"
+                            r"blue|green|original|untouched)\b", t) and not re.search(r"\b(look|style|teal)\b", t):
+        want = not off or bool(re.search(r"\b(fix|correct|improve)\b", t) and not re.search(r"\bcorrection\b", t))
+        if bool(c.get("auto")) == want:
+            raise _Explain(f"Automatic colour correction is already {'on' if want else 'off'}.")
+        return ([{"op": "set", "field": "auto_color", "value": want}],
+                ("Correct each recording's white balance, exposure and contrast." if want else
+                 "Keep each recording's original colours."), "")
+    if re.search(r"\b(subtler|softer|lighter|less|weaker|tone (it )?down|more|stronger|heavier|push)\b", t) and \
+            re.search(r"\b(look|grade|style|effect|filter)\b", t):
+        if c.get("look", "natural") == "natural":
+            raise _Explain("There is no look on this video yet. Choose one first, for example “make it cinematic”.")
+        step = -25 if re.search(r"\b(subtler|softer|lighter|less|weaker|tone)\b", t) else 25
+        new = max(0, min(100, int(c.get("strength", 100)) + step))
+        if new == c.get("strength", 100):
+            raise _Explain(f"The look is already at {new} %.")
+        return ([{"op": "set", "field": "look_strength", "value": new}],
+                f"Set the look's strength to {new} % (was {c.get('strength', 100)} %).", "")
+    for pattern, look in LOOK_PHRASES:
+        if re.search(pattern, t):
+            if c.get("look") == look and c.get("strength", 100) == 100:
+                raise _Explain(f"The look is already {grade.LOOKS[look]}.")
+            ops = [{"op": "set", "field": "look", "value": look}]
+            ops += [{"op": "set", "field": "look_strength", "value": 100}] if c.get("strength", 100) != 100 else []
+            return ops, f"Use the {grade.LOOKS[look]} look ({grade.LOOK_WORDS[look]}).", ""
+    return None
 
 
 def by_rules(text: str, plan: dict, rows: list[dict]) -> dict | None:
@@ -552,6 +618,9 @@ def changes(old: dict, new: dict) -> list[str]:
         if o and bool(o.get("duck", True)) != bool(i.get("duck", True)):
             out.append(f"“{_text(i.get('label'), 40)}” {'dips' if i.get('duck', True) else 'no longer dips'} under "
                        "speech")
+    oc2, nc2 = old.get("color") or {}, new.get("color") or {}
+    if oc2 != nc2:
+        out += _color_changes(oc2, nc2)
     ot, nt = old.get("tracks") or {}, new.get("tracks") or {}
     for track, row in nt.items():
         if row != ot.get(track):
@@ -563,6 +632,19 @@ def changes(old: dict, new: dict) -> list[str]:
     a, b = engine.duration_ms(old), engine.duration_ms(new)
     if a != b:
         out.append(f"Length {_fmt(a)} → {_fmt(b)}")
+    return out
+
+
+def _color_changes(old: dict, new: dict) -> list[str]:
+    out = []
+    if old.get("look", "natural") != new.get("look", "natural"):
+        out.append(f"Look: {grade.LOOKS.get(old.get('look', 'natural'))} → {grade.LOOKS.get(new.get('look'))}")
+    if old.get("strength", 100) != new.get("strength", 100):
+        out.append(f"Look strength {new.get('strength')} % (was {old.get('strength', 100)} %)")
+    for key, label in (("auto", "Automatic colour"), ("match", "Matching the recordings' colour"),
+                       ("clean", "Cleaning up picture noise")):
+        if bool(old.get(key)) != bool(new.get(key)):
+            out.append(f"{label} {'on' if new.get(key) else 'off'}")
     return out
 
 
@@ -606,7 +688,10 @@ inside it; at most 12 operations):
 {"op": "set", "field": F, "value": V}                F: captions (true/false), caption_size (small|medium|large),
      caption_position (bottom|raised|middle|top; raised = above an app's bottom controls), transition
      (cut|dissolve|fade), duck_depth_db (0 to 30: how far music dips under speech), music_level_db (-36 to -6),
-     title (text, up to 120 characters), title_card (true/false)
+     title (text, up to 120 characters), title_card (true/false),
+     look (natural|bright|warm|cool|film|teal_orange|moody|vintage|mono), look_strength (0 to 100),
+     auto_color (true/false: correct white balance, exposure and contrast), match_color (true/false: recordings
+     matched to each other), clean_picture (true/false: remove picture noise)
 {"op": "clip_set", "clip_id": ID, "field": F, "value": V}  F: gain_db (-12 to 12), mute (true/false),
      fade_in_ms, fade_out_ms, layout (fit|fill|follow)
 {"op": "track_set", "track": "source"|"voiceover"|"music"|"effects", "field": "gain_db"|"mute", "value": V}
@@ -624,7 +709,8 @@ def build_prompt(text: str, plan: dict, rows: list[dict], guidance: dict, memori
              "duck_depth_db": (plan.get("ducking") or {}).get("depth_db", engine.DUCK_DEPTH_DB),
              "music_level_db": next((i.get("gain_db") for i in plan.get("audio") or [] if i.get("role") == "music"),
                                     None),
-             "aspect": (plan.get("output") or {}).get("aspect"), "length_ms": engine.duration_ms(plan)}
+             "aspect": (plan.get("output") or {}).get("aspect"), "length_ms": engine.duration_ms(plan),
+             "color": plan.get("color") or "none (only phone HDR converted)"}
     from ..brain import knowhow as _knowhow_mod
     from ..brain import memories as _memories
 

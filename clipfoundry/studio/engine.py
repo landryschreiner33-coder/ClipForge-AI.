@@ -36,6 +36,13 @@ Smart editing (studio/smart_edit.py) adds three plan features:
   attached to a clip at an offset, stays inside that clip's own part of the picture (never over a transition), can
   push in slowly ("zoom") and fades in and out. A render cuts the clip's body at the overlay's edges, so an overlay is
   always exactly one cached piece with one extra input.
+
+Colour (pipeline/grade.py, plan key `color`): every video recording is read with its own colour matrix and range and
+leaves as BT.709 limited range. Phone HDR (HLG/PQ) is always tone-mapped to normal video. With `color.auto` each
+recording's white balance, exposure and contrast are corrected once (measured over the parts the plan uses, cached
+next to the pieces), with `color.match` the recordings are nudged toward the one that plays longest, and
+`color.look`/`strength` add a style. All of that is one 3D colour table per recording, applied to the body of each
+piece after framing. A plan made before colour existed has no `color` and only gets the HDR conversion.
 """
 from __future__ import annotations
 
@@ -50,7 +57,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import config
-from ..pipeline import audio_timing, cleanup
+from ..pipeline import audio_timing, cleanup, grade
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
 from ..pipeline.common import Cancelled
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
@@ -76,7 +83,7 @@ DUCK_FRAME = 480              # 10 ms analysis frames
 DUCK_ATTACK_S, DUCK_HOLD_S, DUCK_RELEASE_S = 0.06, 0.25, 0.45
 SUPPORTED = {"clips", "trim", "reorder", "include", "image", "transition", "title", "captions", "audio_tracks",
              "voiceover", "music", "effects", "gain", "mute", "fades", "ducking", "aspect", "layout", "insert",
-             "replace", "split", "word_fixes", "joins", "zoom", "overlays", "clean_sound"}
+             "replace", "split", "word_fixes", "joins", "zoom", "overlays", "clean_sound", "color"}
 ZOOM_RANGE = (1.0, 1.5)       # a clip's punch-in
 OVERLAY_KINDS = ("image", "video")
 OVERLAY_MOTIONS = ("still", "zoom")
@@ -84,7 +91,7 @@ OVERLAY_FITS = ("fill", "fit")
 OVERLAY_MIN_MS = 500
 OVERLAY_PUSH = 0.08           # how far a "zoom" overlay pushes in over its whole length
 OVERLAY_FADE_S = 0.2
-UNSUPPORTED = {"color_grade": "colour grading", "keyframes": "keyframed motion", "pip": "picture in picture",
+UNSUPPORTED = {"keyframes": "keyframed motion", "pip": "picture in picture",
                "speed": "speed changes", "effects_plugins": "effects plugins", "multicam": "multicam"}
 MIX_BLOCK = SR * 10  # samples per mixing block (bounded memory whatever the length)
 
@@ -101,6 +108,9 @@ def capabilities() -> dict:
             "zoom_range": list(ZOOM_RANGE), "overlays": {"kinds": list(OVERLAY_KINDS), "motions": list(OVERLAY_MOTIONS),
                                                          "min_ms": OVERLAY_MIN_MS},
             "clean_sound": list(config.CLEAN_SOUND_MODES), "unsupported": UNSUPPORTED,
+            "color": {"looks": {k: grade.LOOKS[k] for k in config.LOOKS}, "strength": [0, 100],
+                      "auto": "white balance, exposure and contrast once per recording; phone HDR always converted",
+                      "match": "recordings matched to the one that plays longest"},
             "limits": "No fixed number of files, clips or audio items. Free disk space is checked before a "
                       "render; each step opens at most two media files.",
             "notes": "Renders from the full original files on the server; previews use the same plan at 360p and "
@@ -262,7 +272,78 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
         out.append("Unknown caption position.")
     if captions.get("highlight", False) not in (True, False):
         out.append("Highlighting the spoken word is either on or off.")
+    color = plan.get("color")
+    if color is not None:
+        if not isinstance(color, dict):
+            out.append("Unknown colour choice.")
+        else:
+            if color.get("look", "natural") not in config.LOOKS:
+                out.append("Unknown look.")
+            strength = color.get("strength", 100)
+            if isinstance(strength, bool) or not isinstance(strength, (int, float)) or not 0 <= strength <= 100:
+                out.append("The look's strength must be between 0 and 100.")
+            for key in ("auto", "match", "clean"):
+                if color.get(key, True) not in (True, False):
+                    out.append("Automatic colour, matching and noise cleanup are each either on or off.")
+                    break
     return out + _validate_audio(plan, assets) + _validate_overlays(plan, assets)
+
+
+def default_color(values: dict | None = None) -> dict:
+    """A new plan's colour choices from resolved guidance values (or Settings)."""
+    v = values or {}
+    look = v.get("look") if v.get("look") in config.LOOKS else "natural"
+    try:
+        strength = max(0, min(100, int(float(v.get("look_strength", 100)))))
+    except (TypeError, ValueError):
+        strength = 100
+    return {"auto": v.get("auto_color", True) is not False, "match": True, "look": look, "strength": strength,
+            "clean": v.get("clean_picture", True) is not False}
+
+
+def color_options(plan: dict) -> dict:
+    """The plan's colour choices as grade options. A plan made before colour existed has none: only phone HDR is
+    converted (its picture would be grey otherwise), nothing else changes."""
+    c = plan.get("color")
+    if not isinstance(c, dict):
+        return {"auto_color": False, "look": "natural", "look_strength": 100, "clean_picture": False,
+                "match": False}
+    return {"auto_color": c.get("auto", True) is not False, "look": c.get("look", "natural"),
+            "look_strength": c.get("strength", 100), "clean_picture": c.get("clean", True) is not False,
+            "match": c.get("match", True) is not False}
+
+
+def grades(plan: dict, assets: dict[str, dict], cache: Path, cancelled=None) -> dict[str, dict]:
+    """Each video recording's grade (asset id -> {"grade", "denoise", "stats"}), measured over the parts the plan
+    plays (clips and video overlays) and matched to the recording that plays longest."""
+    opts = color_options(plan)
+    ranges: dict[str, list[tuple[float, float]]] = {}
+    for c in plan.get("clips") or []:
+        a = assets.get(c.get("asset_id"))
+        if c.get("include", True) and a and a.get("kind") == "video":
+            ranges.setdefault(c["asset_id"], []).append((int(c["in_ms"]) / 1000, int(c["out_ms"]) / 1000))
+    for o in plan.get("overlays") or []:
+        a = assets.get(o.get("asset_id"))
+        if a and a.get("kind") == "video" and not o.get("hide"):
+            at = int(o.get("in_ms") or 0)
+            ranges.setdefault(o["asset_id"], []).append((at / 1000, (at + int(o.get("length_ms") or 0)) / 1000))
+    out: dict[str, dict] = {}
+    for aid, spans in ranges.items():
+        _check(cancelled)
+        g, stats = grade.for_footage(assets[aid]["path"], spans, opts, cache=cache / f"grade-{aid}.json",
+                                     cancelled=cancelled)
+        out[aid] = {"grade": g, "stats": stats, "denoise": grade.denoise_for(stats, opts),
+                    "seconds": sum(b - a for a, b in spans)}
+    people = {aid: r for aid, r in out.items() if (r["stats"] or {}).get("skin", 0) >= grade.MATCH_SKIN}
+    if opts["match"] and opts["auto_color"] and len(people) > 1:
+        # only recordings of people are matched to each other: a screen recording keeps its own colours
+        ref = max(people, key=lambda aid: people[aid]["seconds"])
+        target = grade.corrected_stats(people[ref]["stats"], people[ref]["grade"])
+        for aid, r in people.items():
+            mine = grade.corrected_stats(r["stats"], r["grade"]) if aid != ref else None
+            if target and mine:
+                grade.match(r["grade"], mine, target)
+    return out
 
 
 def _validate_overlays(plan: dict, assets: dict[str, dict]) -> list[str]:
@@ -649,13 +730,19 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
                      f"boxblur=20:2[bg{idx}]")
         lines.append(f"[fgs{idx}]scale={width}:{height}:force_original_aspect_ratio=decrease[fg{idx}]")
         chain = f"[bg{idx}][fg{idx}]overlay=(W-w)/2:(H-h)/2"
-    lines.append(f"{chain},fps={fps},format=yuv420p,setsar=1,settb=AVTB,setpts=PTS-STARTPTS,"
+    if e["kind"] == "image":  # a photo's own colours (BT.601 JPEG, RGB PNG) into the output's BT.709
+        colour = "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p"
+    else:
+        look = e.get("grade") or {}
+        colour = grade.yuv_filters(e.get("colour") or {}, look.get("grade") or grade.Grade(), look.get("denoise", ""),
+                                   cwd, int((e.get("colour") or {}).get("height") or 0))
+    lines.append(f"{chain},{colour},fps={fps},format=yuv420p,setsar=1,settb=AVTB,setpts=PTS-STARTPTS,"
                  f"tpad=stop=-1:stop_mode=clone{label}")
     return args, lines
 
 
 def _overlay_input(ov: dict, frames: int, fps: int, width: int, height: int, idx: int,
-                   label: str) -> tuple[list[str], list[str]]:
+                   label: str, cwd: Path | None = None) -> tuple[list[str], list[str]]:
     """(input arguments, filter lines) for one picture over the video, exactly `frames` long, fading in and out."""
     secs = frames / fps + 0.5
     if ov["kind"] == "image":
@@ -677,6 +764,12 @@ def _overlay_input(ov: dict, frames: int, fps: int, width: int, height: int, idx
     if push:
         chain += (f",zoompan=z='1+{OVERLAY_PUSH}*on/{max(1, frames)}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
                   f":d=1:s={width}x{height}:fps={fps}")
+    if ov["kind"] == "video" and cwd is not None:
+        look = ov.get("grade") or {}
+        chain += "," + grade.yuv_filters(ov.get("colour") or {}, look.get("grade") or grade.Grade(),
+                                         look.get("denoise", ""), cwd, int((ov.get("colour") or {}).get("height") or 0))
+    elif ov["kind"] == "image":
+        chain += ",scale=out_color_matrix=bt709:out_range=tv"
     chain += f",fps={fps},setsar=1,settb=AVTB,setpts=PTS-STARTPTS,tpad=stop=-1:stop_mode=clone"
     fade = min(round(OVERLAY_FADE_S * fps), frames // 4)
     if fade > 0:
@@ -696,10 +789,26 @@ def _encode_args(preview: bool, settings: dict | None, fps: int = 30) -> list[st
             "-pix_fmt", "yuv420p"]
 
 
+def _grade_key(item: dict) -> dict:
+    """What of a picture's colour changes its pixels (for the piece cache)."""
+    look = item.get("grade") or {}
+    g = look.get("grade")
+    out = {}
+    if g is not None and g.active():
+        out["grade"] = g.key()
+    if look.get("denoise"):
+        out["denoise"] = look["denoise"]
+    colour = item.get("colour") or {}
+    if colour:
+        out["matrix"] = (grade.input_matrix(colour), grade.input_range(colour))
+    return out
+
+
 def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layout: str, kind: str | None,
            encode: list[str], ass: str, cache: Path, tmp: Path, cancelled) -> Path:
     """One piece of the picture, cached by everything that changes its pixels."""
-    key_src = {"engine": ENGINE, "rel": spec["rel"], "frames": spec["frames"], "w": width, "h": height, "fps": fps,
+    key_src = {"engine": ENGINE, "colour": f"bt709-v{grade.VERSION}", "rel": spec["rel"], "frames": spec["frames"],
+               "w": width, "h": height, "fps": fps,
                "layout": layout, "kind": kind if len(spec["els"]) == 2 else None, "enc": encode, "ass": ass,
                "inputs": [{"kind": els[k]["kind"], "sha": els[k].get("sha256", ""), "in": els[k]["src_in_ms"],
                            "title": els[k].get("title", ""),
@@ -707,11 +816,12 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
                            **({"zoom": (els[k].get("clip") or {}).get("zoom")}
                               if float((els[k].get("clip") or {}).get("zoom") or 1.0) > 1.001 else {}),
                            # a piece read from a proxy is never reused for the original, or the other way round
-                           **({"src": "proxy"} if els[k].get("src") == "proxy" else {})}
+                           **({"src": "proxy"} if els[k].get("src") == "proxy" else {}),
+                           **_grade_key(els[k])}
                           for k in spec["els"]]}
     if spec.get("ov"):
         ov = spec["ov"]
-        key_src["overlay"] = {k: ov[k] for k in ("kind", "sha", "fit", "motion", "src_in_ms")}
+        key_src["overlay"] = {**{k: ov[k] for k in ("kind", "sha", "fit", "motion", "src_in_ms")}, **_grade_key(ov)}
         if ov.get("src") == "proxy":
             key_src["overlay"]["src"] = "proxy"
     key = hashlib.sha256(json.dumps(key_src, sort_keys=True).encode()).hexdigest()[:32]
@@ -730,7 +840,7 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
         last = "[s0]"
     if spec.get("ov"):
         n = len(spec["els"])
-        args, chain = _overlay_input(spec["ov"], spec["frames"], fps, width, height, n, f"[o{n}]")
+        args, chain = _overlay_input(spec["ov"], spec["frames"], fps, width, height, n, f"[o{n}]", tmp)
         inputs += args
         lines += chain
         lines.append(f"{last}[o{n}]overlay=0:0:format=auto,format=yuv420p[ov]")
@@ -973,6 +1083,12 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             e.update(path=picture, sound_path=a["path"], sha256=a.get("sha256", ""),
                      src="proxy" if picture != a["path"] else "original")
     overlays = _overlay_frames(plan, els, fps, assets, use_proxies)
+    looks = grades(plan, assets, cache, cancelled)
+    for item in [e for e in els if e["kind"] == "video"] + [o for items in overlays.values() for o in items
+                                                             if o["kind"] == "video"]:
+        # the original's colour tags: a proxy is a smaller copy of the same picture and keeps them
+        item["colour"] = grade.source_colour(assets[item["asset_id"]]["path"])
+        item["grade"] = looks.get(item["asset_id"])
     for aid in [e["asset_id"] for e in els if e.get("src") == "proxy"] + \
             [o["asset_id"] for items in overlays.values() for o in items if o["src"] == "proxy"]:
         if aid not in proxied:
@@ -1123,4 +1239,5 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             "overlays": [{"overlay_id": o["id"], "start_f": o["start_f"], "end_f": o["end_f"]}
                          for k in sorted(overlays) for o in overlays[k]],
             "captions": bool(events), "clean_sound": {aid: r.report for aid, r in cleaned.items()},
+            "colour": {aid: {**r["grade"].summary(), "denoise": bool(r["denoise"])} for aid, r in looks.items()},
             "pieces": len(used), "frames": total_f, "proxied": proxied}

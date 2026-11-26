@@ -41,6 +41,8 @@ LIVE_PICKS = ["best", "balanced", "most"]   # how picky a live stream is (autopi
 LIVE_FRAMINGS = ["auto", "split", "pip", "game", "off"]
 SILENCE_MODES = ["off", "light", "aggressive"]
 CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
+# Looks (pipeline/grade.py): "natural" is the corrected picture with no added style
+LOOKS = ["natural", "bright", "warm", "cool", "film", "teal_orange", "moody", "vintage", "mono"]
 AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]
 BUILTIN_AI_LEVELS = ["auto", "basic", "standard", "pro"]
 EDIT_ENGINES = ("auto", "filmcraft", "ffmpeg")
@@ -148,6 +150,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "hook_seconds": 3.0,
     "normalize_audio": True,
     "clean_sound": "auto",            # off | auto | gentle | strong: noise, hum, breaths, levels, voice polish
+    # Colour (pipeline/grade.py): phone HDR is always converted; this corrects white balance, exposure and contrast
+    # once per recording, and a look adds a style on top (0-100 % of its designed strength)
+    "auto_color": True,
+    "look": "natural",
+    "look_strength": 100,
+    "clean_picture": True,            # measured noise (low light, webcams) is cleaned up
     "meaning_model": True,            # the small sentence-meaning model (embedder.py): downloaded once (90 MB)
     "encoder": "auto",                # auto | nvenc | videotoolbox | x264
     "crf": 20,
@@ -368,6 +376,10 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "clean_sound" and v not in CLEAN_SOUND_MODES:
             continue
+        elif key == "look" and v not in LOOKS:
+            continue
+        elif key == "look_strength":
+            v = max(0, min(100, v))
         elif key == "ai_provider" and v not in AI_PROVIDERS:
             continue
         elif key == "edit_engine" and v not in EDIT_ENGINES:

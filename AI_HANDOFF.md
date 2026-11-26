@@ -1,5 +1,27 @@
 # AI handoff
 
+## Editing quality, batch 1: colour — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** phone HDR video no longer comes out grey, each recording's white balance, brightness and
+contrast are gently corrected once (a good picture is left alone), recordings in a full video are matched, and nine
+looks with a strength are a choice in Settings, the clip editor, the video editor and plain-word edit requests.
+Batches 2-5 (shorts, long videos, range, quality checks) are planned in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md).
+
+- **Where things are:** everything in `pipeline/grade.py` (`for_footage` measures and decides, `apply` is the colour
+  maths, `lut_file` the cached table, `rgb_filters` for the clip renderer, `yuv_filters` for the full-video engine);
+  the clip renderer's decode chain in `pipeline/render.py` (step "Checking the colour", before the captions step so
+  the office's stage mapping is unchanged); the engine's `grades`, `color_options`, `default_color` and
+  `_grade_key` in `studio/engine.py`; the edits in `studio/video_flow.py` (`_set_color`, `COLOR_FIELDS`,
+  `color_grade`); plain-word rules in `studio/edit_requests.py` (`_color_rule`, `LOOK_PHRASES`); the UI in
+  `frontend/src/looks.ts`, `ClipEditor.tsx` (Colour tab), `VideoReview.tsx` (`ColourPanel`), `Settings.tsx`.
+- **Worth knowing:** a plan without `color` (made before this) only gets the HDR conversion, so old videos render as
+  before; `_set_color` on such a plan starts from that, so one choice changes only that. A proxy keeps the original's
+  colour values, so the grade is always computed from the original's tags. Compare decoded pictures through
+  `format=gbrp16le` (swscale's packed-RGB path upsamples colour edges differently, up to 100 codes on test patterns).
+  The skin mask is broad (yellow and grass count), so it only protects, it never steers the white balance. ClipForge
+  AI's own commands (brain/operations.py) do not offer the colour choices yet; the AI thread owns that file.
+
 ## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** the gaps from Landry's Nov 26 list. ClipForge AI now acts without an OK (deletes and
