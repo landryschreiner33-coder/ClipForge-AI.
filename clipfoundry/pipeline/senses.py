@@ -29,6 +29,7 @@ ANCHOR_LIMIT = 24          # new candidate clips made from what was seen and hea
 TALK_LOW = 0.5             # a clip talked through less than this share of its time says less with its words ...
 SHOW_WEIGHT = 0.5          # ... so its score moves this far toward what happens in it (at no talk at all) ...
 SHOW_MAX = 12.0            # ... by at most this many points
+HOT_ACTION = 5.0            # an exciting tag counts only for a part the model rated at least this lively (of 10)
 LONG = 120.0                # a stretch longer than this is summed up per kind of sound (Senses.summary)
 SEEN_NOTE_CHARS = 110
 
@@ -167,7 +168,7 @@ class Senses:
                            "action": round(max(p.get("action", 0) for p in parts), 1),
                            "action_mean": round(sum(p.get("action", 0) * (min(t1, p["end"]) - max(t0, p["start"]))
                                                     for p in parts) / max(0.1, covered), 1),
-                           "exciting": sorted({t for t in tags if t in EXCITING_TAGS}),
+                           "exciting": sorted({t for p in parts for t in _hot(p, EXCITING_TAGS)}),
                            "nothing": round(sum(1 for p in parts if "nothing happens" in (p.get("tags") or []))
                                             / len(parts), 2),
                            "text": next((p["text"] for p in parts if p.get("text")), ""),
@@ -315,7 +316,7 @@ class Senses:
         from .eyes import EXCITING_TAGS
 
         for p in self.seen:
-            hot = [t for t in p.get("tags") or [] if t in EXCITING_TAGS]
+            hot = _hot(p, EXCITING_TAGS)
             if p.get("action", 0) >= 7 or hot:
                 out.append({"at": p["start"], "until": p["end"], "kind": "seen",
                             "strength": min(1.0, 0.1 * p.get("action", 0) + 0.15 * len(hot)), "end_after": False,
@@ -391,6 +392,14 @@ class Senses:
         if s.get("picture"):
             lines.append("Picture: " + s["picture"])
         return lines
+
+
+def _hot(part: dict, exciting) -> list[str]:
+    """The exciting tags of a described part, believed only when the model also rated it lively (action at least
+    HOT_ACTION of 10): a small model tags a man at a desk "fall or crash" with an action of 3."""
+    if float(part.get("action") or 0) < HOT_ACTION:
+        return []
+    return list(dict.fromkeys(t for t in part.get("tags") or [] if t in exciting))
 
 
 def talk_share(words: list[dict], t0: float, t1: float) -> float:

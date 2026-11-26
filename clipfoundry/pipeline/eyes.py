@@ -219,7 +219,9 @@ def _read_answer(raw: str) -> dict | None:
         action = max(0, min(10, int(data.get("action") or 0)))
     except (TypeError, ValueError):
         return None
-    tags = [t for t in (data.get("tags") or []) if t in TAGS][:5] if isinstance(data.get("tags"), list) else []
+    # known tags only, each once (a small model pads the list with repeats: "fall or crash" five times)
+    tags = list(dict.fromkeys(t for t in data.get("tags") if t in TAGS))[:5] \
+        if isinstance(data.get("tags"), list) else []
     return {"what": _clean(data.get("what"), 140), "tags": tags, "people": people, "action": action,
             "text": _clean(data.get("text_on_screen"), 80)}
 

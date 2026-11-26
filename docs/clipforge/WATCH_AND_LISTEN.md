@@ -96,7 +96,9 @@ asks about the parts not yet described. Without the built-in model the picture i
    - watched, at most ±3: action and opening action against this video's own usual; −2 for a picture that stands
      still without a face; −1 when it is mostly dark;
    - seen, at most ±4 (only when the model described at least 30% of the clip): the model's action against 4,
-     +1.2 per exciting tag (at most 2), −3 × the share of parts where "nothing happens";
+     +1.2 per exciting tag (at most 2), −3 × the share of parts where "nothing happens". An exciting tag counts
+     only for a part the model also rated at least 5 of 10 for action (`senses.HOT_ACTION`), and repeats count once:
+     on GitHub the 2B model tagged a man at a desk "fall or crash" five times with an action of 3;
    - all three together at most ±9 (when the parts add up to more, a line says what the cap took off, so the
      lines always add up to the points);
    - **little talk**: words say less about a clip that is talked through less than half of its time, so its score

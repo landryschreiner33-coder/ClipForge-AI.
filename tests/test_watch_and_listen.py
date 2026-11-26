@@ -527,6 +527,20 @@ def test_a_whole_video_answer_names_every_kind_of_sound():
     assert "laughter" in short and "times" not in short            # a short stretch keeps its moment-by-moment lines
 
 
+def test_an_exciting_tag_counts_only_when_the_model_also_saw_action():
+    """Real answers from the 2B model on GitHub: a man at a control room, tagged "fall or crash" five times with an
+    action of 3. The repeats are read once and the tag is not believed without action; a real fight still counts."""
+    raw = json.dumps({"what": "A man with glasses sits in a control room", "people": 1, "action": 3,
+                      "tags": ["fall or crash"] * 5, "text_on_screen": ""})
+    got = eyes._read_answer(raw)
+    assert got["tags"] == ["fall or crash"]
+    desk = {"start": 0, "end": 8, "what": got["what"], "tags": got["tags"], "action": 3, "people": 1, "text": ""}
+    fight = {"start": 20, "end": 28, "what": "two men fight", "tags": ["fight"], "action": 8, "people": 2, "text": ""}
+    s = Senses(None, None, [desk, fight])
+    assert s.features(0, 8)["seen"]["exciting"] == [] and s.features(20, 28)["seen"]["exciting"] == ["fight"]
+    assert [a["at"] for a in s.anchors() if a["kind"] == "seen"] == [20]
+
+
 # ------------------------------------------------------------------ answers about a clip
 def test_chat_answers_what_is_seen_and_heard(tmp_path):
     from clipfoundry.brain import toolbox
