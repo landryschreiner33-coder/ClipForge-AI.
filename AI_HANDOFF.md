@@ -17,6 +17,12 @@ that too, and ClipForge AI can answer what is seen and heard in a clip or at a m
   The Clip Score's senses part is `adjust` (±9) plus `show_adjust` (±12, only when under half the clip is talk).
   `ai_eyes` off also stops the describing. The appguide has no section for this on purpose: any new section shifts
   the guide search's tuned results (tests/test_assistant_library.py).
+- **Rules from the review (keep them):** a switched-off sense leaves out saved files too (`Senses.load(pdir,
+  settings)`; the model's words only for the same model, `Senses.saved_seen`); a time window (s0 = -1 with
+  `signals.talk`) is scored once (`judge_clip(blend=False)`, `deep._timed`) and only when ≥ 60/100 happens
+  (`candidates.TIME_MIN_SHOW`); at most "at least three" deep places for sensed moments (never more evictions);
+  Autopilot/post-live with "Require a complete story" leave time windows out (`process.story_screened`);
+  `diversity.select` checks overlap against every chosen clip; `Watched.action` works with 2 frames.
 
 ## Text-message stories, up to ten minutes — 2026-11-26 (Claude Code, cloud session)
 

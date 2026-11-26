@@ -13,7 +13,11 @@ chosen. Now three senses run over the whole video before any clip is picked, eve
 | **Seeing** | the built-in model is shown every part of the video (4 frames per part, at most 8 seconds a part) and says what happens in it, most promising parts first, within a time budget | `pipeline/eyes.describe_video` | `seen.json` |
 
 `pipeline/senses.py` puts the three together and is what the rest of ClipForge reads. Each sense is optional: off in
-Settings, a missing model or a failure leaves it out, and clip picking goes on exactly as before without it.
+Settings, a missing model or a failure leaves it out, and clip picking goes on exactly as before without it. A sense
+switched off also leaves out what an earlier run saved (`Senses.load(pdir, settings)`, `render.heard(...,
+settings)`), and the model's descriptions count for clip picking only while the built-in model may describe the
+video now and only the same model's words (`Senses.saved_seen`); ClipForge AI's chat may read them whichever
+model wrote them, while Watching is on.
 
 ## The sound model
 
@@ -93,14 +97,19 @@ asks about the parts not yet described. Without the built-in model the picture i
      still without a face; −1 when it is mostly dark;
    - seen, at most ±4 (only when the model described at least 30% of the clip): the model's action against 4,
      +1.2 per exciting tag (at most 2), −3 × the share of parts where "nothing happens";
-   - all three together at most ±9;
+   - all three together at most ±9 (when the parts add up to more, a line says what the cap took off, so the
+     lines always add up to the points);
    - **little talk**: words say less about a clip that is talked through less than half of its time, so its score
      moves toward how much happens in it (`senses.show`, 0-100 from the same three senses), by up to half the
      difference when nobody talks at all, at most ±12, with its own line ("little is said here (12% of the time), so
      it is judged more on what happens in it"). A clip that is talked through keeps its words' score. A stretch of
      time built around a moment is already scored on what happens in it, so it is not moved a second time; its line
      says so ("little is said here (0% of the time), so it is scored on what happens in it (87/100 ...)").
-4. **The model reads it too.** The scout's transcript lines carry ⟨seen: …; heard: laughter⟩ notes (only when
+4. **Autopilot and post-live.** With "Require a complete story" on, Autopilot keeps only clips whose transcript tells
+   a story (hook, context, payoff), after the selection. A stretch of time built around a moment has no lines to
+   tell one, so in those runs it does not compete for a place (`process.story_screened`); the talk clips keep
+   theirs. With the setting off, it competes like any other clip.
+5. **The model reads it too.** The scout's transcript lines carry ⟨seen: …; heard: laughter⟩ notes (only when
    something new is seen or heard), and the judge sees "Seen" and "Heard" lines under each finalist. The finalists'
    picture check (`eyes.look`) is shown the frames that show the clip best and told what was heard.
 
@@ -110,7 +119,9 @@ asks about the parts not yet described. Without the built-in model the picture i
   cable"; "What is heard: 0:07 laughter"), and "Built around a moment" for a clip made from one.
 - ClipForge AI's `clip` tool includes the same lines, and the new `watch` tool answers about a whole video, a clip or
   a moment ("what happens at 4:10?", "is there applause in clip 2?"); with the built-in model and a question it also
-  looks at the frames again.
+  looks at the frames again. About a whole video (anything over two minutes) it names every kind of sound with how
+  often and when ("laughter 55 times, 0:09 to 54:09"), and a list it shortens says how much it left out; a moment
+  past the end gets "the video is only 1:00 long".
 - Settings → ClipForge AI → **Watching and listening**: a switch for each (`ai_listen`, `ai_watch`), whether the
   sound model runs on this computer, and whether the model describes the parts.
 

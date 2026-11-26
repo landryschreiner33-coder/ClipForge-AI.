@@ -249,12 +249,18 @@ def sense(src: Path, wav: Path, meta: dict, pdir: Path, settings: dict, info: di
             log.exception("watching failed")
         took["watch_s"] = round(time.monotonic() - t0, 1)
     ctx.check()
-    seen = (read_json(files["seen"], {}) or {}).get("parts") if files["seen"].is_file() else None
-    got = Senses(heard, watched, [x for x in seen or [] if isinstance(x, dict)])
+    got = Senses(heard, watched, Senses.saved_seen(files["seen"], settings, meta))   # off in Settings: left out
     info["senses"] = {**took, "heard": heard is not None, "watched": watched is not None,
                       **({"sounds": [n for n, _ in heard.top_sounds(0, heard.duration, 6)]} if heard else {}),
                       **({"shots": len(watched.shots()), "frames": watched.n} if watched else {})}
     return got
+
+
+def story_screened(p: Prepared) -> bool:
+    """The clips of this run pass Autopilot's transcript story check after they are chosen (hunter.screen_stories,
+    live post-live): projects Autopilot or a live stream made, with "Require a complete story" on."""
+    return (p.project.get("origin") in ("autopilot", "live")
+            and bool(p.settings.get("discovery_require_complete_clips", True)))
 
 
 def load_prepared(project_id: str) -> Prepared | None:
@@ -271,7 +277,7 @@ def load_prepared(project_id: str) -> Prepared | None:
     words = transcribe.flatten_words(transcript)
     info = project.get("info") or {}
     meta = {k: info.get(k, project.get(k)) for k in ("duration", "width", "height", "fps", "has_audio", "has_video")}
-    senses = Senses.load(pdir)
+    senses = Senses.load(pdir, settings, meta)
     loud = Loudness(env)
     loud.heard = senses.heard
     return Prepared(project, settings, _options(project, settings, words=words), pdir, meta, info, words,
@@ -353,6 +359,11 @@ def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywo
     """Stage 5: evaluate the pool and choose the clips (quality first; never padded with weak ones)."""
     p.stage("scoring", P_ANALYZE, "Scoring candidates")
     min_score = float(p.opts.get("min_score", 50))
+    if p.sentences and story_screened(p):
+        # Autopilot and post-live keep only complete transcript stories when "Require a complete story" is on
+        # (autopilot/scout.clip_reason, after this selection): a stretch of time built around a moment has no
+        # lines to tell one, so it would be declined there and its place lost. It does not compete for one.
+        cands = [c for c in cands if not (c.get("s0", 0) < 0 and c.get("sense"))]
     if p.opts.get("deep_analysis"):
         from . import deep
 

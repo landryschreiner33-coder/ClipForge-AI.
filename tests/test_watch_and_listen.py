@@ -261,7 +261,9 @@ def test_the_senses_never_move_a_score_more_than_nine_points():
             "seen": {"coverage": 1.0, "action_mean": 10, "exciting": ["fight", "fall or crash"], "nothing": 0,
                      "lines": []}}
     pts, why = Senses().adjust(most, 0.0)
-    assert pts == 9.0 and [w.split()[0] for w in why] == ["+5.0", "+3.0", "+4.0"]   # each within its own bound
+    # each within its own bound, and the cap says what it took off, so the lines add up to the points
+    assert pts == 9.0 and [w.split()[0] for w in why] == ["+5.0", "+3.0", "+4.0", "-3.0"]
+    assert "at most ±9 in all" in why[-1] and sum(float(w.split()[0]) for w in why) == pts
     dull = Senses(heard_with(60, silence=[(0, 60, 0.9)]), watched_with(60, faces=False),
                   [{"start": 0, "end": 60, "what": "an empty room", "tags": ["nothing happens"], "action": 0,
                     "people": 0, "text": ""}])
@@ -341,6 +343,188 @@ def test_moments_seen_and_heard_never_push_out_the_best_talk_clips():
     gave = [c for c in notes["candidates"] if any("gave its place to a moment ClipForge AI saw or heard" in r
                                                   for r in c["reasons"])]
     assert not gave, gave
+
+
+# ------------------------------------------------------------------ review fixes (PR #88)
+def test_a_sense_switched_off_leaves_out_what_an_earlier_run_saved(tmp_path):
+    """Watching off (or another model) after a run with the built-in model: the saved descriptions no longer add
+    clips or points; listening off: sounds.json is not read for picking or for the cut's pauses either."""
+    from clipfoundry.pipeline import llm, render
+
+    pdir = tmp_path / "proj"
+    pdir.mkdir()
+    heard = heard_with(60, laughter=[(20, 22, 0.8)])
+    (pdir / "sounds.json").write_text(json.dumps({"key": {}, "heard": heard.to_json()}))
+    on = {"ai_provider": "builtin", "ai_eyes": True, "ai_watch": True, "ai_listen": True}
+    (pdir / "seen.json").write_text(json.dumps({"key": {"model": llm.provider_label(on)}, "parts": [
+        {"id": "a", "start": 10, "end": 18, "what": "a fight", "tags": ["fight"], "action": 9, "people": 2,
+         "text": ""}]}))
+    meta = {"width": 1280, "has_video": True}
+    assert Senses.load(pdir, on, meta).seen and Senses.load(pdir, on, meta).heard is not None
+    assert Senses.load(pdir).seen                                         # no settings: everything, as before
+    for off in ({**on, "ai_watch": False}, {**on, "ai_eyes": False}, {**on, "ai_provider": "heuristic"}):
+        assert Senses.load(pdir, off, meta).seen == [], off
+    other = {**on, "builtin_ai_level": "standard" if "basic" in llm.provider_label(on).lower() else "basic"}
+    if llm.provider_label(other) != llm.provider_label(on):
+        assert Senses.load(pdir, other, meta).seen == []                  # another model's words do not count
+    assert Senses.load(pdir, {**on, "ai_watch": False}, meta, any_model=True).seen == []
+    assert Senses.load(pdir, {**on, "ai_provider": "heuristic"}, meta, any_model=True).seen   # chat may read them
+    assert Senses.load(pdir, {**on, "ai_listen": False}, meta).heard is None
+    words = [{"w": "so", "start": 18.0, "end": 19.9}]
+    (pdir / "loudness.json").write_text(json.dumps({"hop": 0.1, "db": [-40.0] * 600}))
+    assert render.heard(pdir, words, 15, 30, on) and not render.heard(pdir, words, 15, 30, {"ai_listen": False})
+
+
+def test_a_video_with_two_frames_does_not_fail_the_job():
+    """A 1-second video (or a podcast whose picture is a 2-second card): too few frames to smooth over, but the
+    action curve is still one value per frame and clip picking goes on."""
+    for dur, fps in ((1.0, 2.0), (1.5, 2.0), (2.0, 2.0), (2.0, 1.0), (4.0, 0.5)):
+        w = watched_with(dur, fps=fps, busy=(0, 0.6))
+        assert len(w.action()) == w.n, (dur, fps)
+        s = Senses(None, w)
+        s.anchors()
+        s.features(0, dur)
+    big = watched_with(30, busy=(10, 14))
+    a = big.action()
+    win = int(round(big.fps))
+    z = np.clip(big._z(), 0.0, 6.0) / 6.0
+    same = np.convolve(z, np.ones(2 * win + 1) / (2 * win + 1), mode="same")
+    assert np.allclose(a, np.clip(0.75 * same, 0, 1) + np.minimum(a - 0.75 * same, 0.75), atol=1e-5)
+
+
+def test_stopping_while_the_model_watches_keeps_what_it_described(tmp_path):
+    if not _ffmpeg():
+        pytest.skip("ffmpeg is needed")
+    from clipfoundry.pipeline.common import Cancelled
+
+    video = make_video(tmp_path / "v.mp4", 40.0, size="160x90", fps=5, audio=False)
+    w = watched_with(40, busy=(30, 34), cuts=[float(c) for c in range(4, 40, 4)])
+    answered = []
+
+    class StopAfterThree(JobContext):
+        def check(self):
+            if len(answered) >= 3:
+                raise Cancelled()
+
+    def fake(opts, prompt, **kw):
+        answered.append(prompt)
+        return json.dumps({"what": "a man juggles", "tags": [], "people": 1, "action": 5, "text_on_screen": ""})
+
+    o = {"ai_provider": "builtin", "ai_eyes": True}
+    with pytest.raises(Cancelled):
+        eyes.describe_video(str(video), w, o, StopAfterThree(), cache=tmp_path / "seen.json", complete=fake,
+                            budget=60)
+    kept = json.loads((tmp_path / "seen.json").read_text())["parts"]
+    assert len([p for p in kept if not p.get("same")]) == 3
+    again = []
+    eyes.describe_video(str(video), w, o, JobContext(), cache=tmp_path / "seen.json",
+                        complete=lambda *a, **k: again.append(1) or fake(*a, **k), budget=60)
+    assert len(again) == len(w.segments()) - len(kept) or len(again) < len(w.segments())
+
+
+def test_autopilot_with_complete_stories_only_does_not_lose_a_place_to_a_wordless_moment(monkeypatch):
+    """Autopilot and post-live decline clips without a transcript story after the selection ("Require a complete
+    story"): a time window built around a moment does not compete for a place there."""
+    from types import SimpleNamespace
+
+    from clipfoundry.pipeline import process
+
+    seen_by_deep = []
+
+    def fake_deep(*a, **k):
+        seen_by_deep.append(a[6])
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(deep, "evaluate_select", fake_deep)
+    talk_clip = {"s0": 0, "s1": 2, "start": 0.0, "end": 20.0}
+    timed = {"s0": -1, "s1": -1, "start": 40.0, "end": 70.0, "sense": {"kind": "action"}, "signals": {"talk": 0.1}}
+    for origin, require, kept in (("autopilot", True, 1), ("live", True, 1), ("autopilot", False, 2),
+                                  (None, True, 2)):
+        p = SimpleNamespace(project={"origin": origin, "name": "x"}, settings={"discovery_require_complete_clips":
+                                                                               require},
+                            opts={"deep_analysis": True}, sentences=[{"text": "hi"}], stage=lambda *a: None,
+                            words=[], loud=None, meta={}, brief=None, pdir=Path("."), senses=None)
+        with pytest.raises(RuntimeError):
+            process.evaluate_select(p, [dict(talk_clip), dict(timed)], JobContext())
+        assert len(seen_by_deep[-1]) == kept, (origin, require)
+
+
+def test_a_clip_overlapping_any_chosen_clip_is_turned_away():
+    """The time window (no words) is chosen first; a talk clip overlapping it by 30% is turned away even when
+    another chosen talk clip is more alike in words."""
+    from clipfoundry.pipeline import diversity
+
+    def r(start, end, score, text, s0):
+        return {"start": start, "end": end, "score": score, "clip_score": score, "caption_text": text, "s0": s0,
+                "s1": s0, "title": text[:10], "analysis": {"flags": []}}
+
+    x = r(100, 130, 90, "", -1)
+    y = r(300, 330, 85, "the dragon story with the dragon and the castle", 0)
+    z = r(121, 151, 80, "the dragon story with the dragon and the castle again", 1)
+    sentences = [{"text": y["caption_text"], "start": 300, "end": 330},
+                 {"text": z["caption_text"], "start": 121, "end": 151}]
+    chosen, rejected = diversity.select([x, y, z], 5, 0, sentences)
+    assert [c["start"] for c in chosen] == [100, 300]
+    assert any(c["start"] == 121 and any("Overlaps" in w for w in c["reasons"]) for c in rejected)
+
+
+def test_a_lone_line_between_long_silences_is_not_a_two_second_clip():
+    words = [{"w": "ha!", "start": 200.0, "end": 201.9}]
+    words += [{"w": "far", "start": 20.0, "end": 20.5}, {"w": "away.", "start": 20.6, "end": 21.0}]
+    words.sort(key=lambda w: w["start"])
+    sentences = build_sentences(words)
+    end = 400.0
+    s = Senses(heard_with(end, laughter=[(202.0, 204.0, 0.9)]), watched_with(end))
+    loud = Loudness({"hop": 0.1, "db": [-20.0] * int(10 * end)})
+    o = opts(min_duration=20.0, max_duration=60.0, target_duration=30.0)
+    added = cand_mod.from_senses(sentences, cand_mod.sentence_features(sentences, words), loud, o, s, [], words, end)
+    assert all(c["dur"] >= max(5.0, 0.75 * o["min_duration"]) for c in added), added
+
+
+def test_a_shot_cut_inside_the_cheer_does_not_cut_the_cheer_short():
+    end = 300.0
+    w = watched_with(end, busy=(180, 205), cuts=[201.5])
+    s = Senses(heard_with(end, cheering=[(199.7, 203.0, 0.9)], boom=[(190, 191, 0.9)]), w)
+    a = {"at": 199.7, "until": 203.0, "kind": "cheering", "why": "x", "strength": 0.9, "end_after": True}
+    got = cand_mod._time_window(a, [], s, opts(min_duration=10.0, max_duration=60.0, target_duration=30.0), end,
+                                s.base_action())
+    assert got is not None and got["end"] >= 203.0
+
+
+def test_a_no_speech_video_shorter_than_a_window_gets_no_window_past_its_end():
+    s = Senses(heard_with(3.0, laughter=[(1.0, 2.5, 0.9)]), None)
+    loud = Loudness({"hop": 0.1, "db": [-20.0] * 30})
+    got = cand_mod.fallback_windows(loud, 3.0, opts(), 8, senses=s)
+    assert all(w["end"] <= 3.0 for w in got)
+
+
+def test_the_watch_tool_says_a_moment_is_past_the_end(tmp_path):
+    from clipfoundry.brain import toolbox
+    from clipfoundry.brain.tools import Ctx, ToolError
+
+    assert toolbox._seconds("1:75") is None and toolbox._seconds("1:75:00") is None
+    assert toolbox._seconds("1:15") == 75 and toolbox._seconds("1:02:03") == 3723 and toolbox._seconds("83 s") == 83
+    pdir = tmp_path / "p"
+    pdir.mkdir()
+    (pdir / "source.mp4").write_bytes(b"0")
+    (pdir / "sounds.json").write_text(json.dumps({"key": {}, "heard": heard_with(60, laughter=[(20, 22, .8)])
+                                                  .to_json()}))
+    project = db.create_project("Short one", duration=60, source_path=str(pdir / "source.mp4"))
+    ctx = Ctx(ws=project.get("workspace_id") or "local", project_id=project["id"])
+    with pytest.raises(ToolError, match="only 1:00 long"):
+        toolbox._watch(ctx, {"at": "45:00"})
+
+
+def test_a_whole_video_answer_names_every_kind_of_sound():
+    """A one-hour show with a laugh every minute: the answer about the whole video still names the explosion near
+    the end and the applause at the very end, and says how often each was heard."""
+    end = 3600.0
+    s = Senses(heard_with(end, laughter=[(60.0 * k + 9, 60.0 * k + 11, 0.8) for k in range(55)],
+                          boom=[(3300, 3301.5, 0.9)], applause=[(3500, 3504, 0.8)]), None)
+    text = " ".join(s.describe(0, end, False))
+    assert "laughter 55 times" in text and "explosion" in text and "applause" in text
+    short = " ".join(s.describe(0, 100, False))
+    assert "laughter" in short and "times" not in short            # a short stretch keeps its moment-by-moment lines
 
 
 # ------------------------------------------------------------------ answers about a clip

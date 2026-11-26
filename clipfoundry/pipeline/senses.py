@@ -29,6 +29,7 @@ ANCHOR_LIMIT = 24          # new candidate clips made from what was seen and hea
 TALK_LOW = 0.5             # a clip talked through less than this share of its time says less with its words ...
 SHOW_WEIGHT = 0.5          # ... so its score moves this far toward what happens in it (at no talk at all) ...
 SHOW_MAX = 12.0            # ... by at most this many points
+LONG = 120.0                # a stretch longer than this is summed up per kind of sound (Senses.summary)
 SEEN_NOTE_CHARS = 110
 
 
@@ -45,12 +46,38 @@ class Senses:
         return {"heard": pdir / "sounds.json", "watched": pdir / "watch.json", "seen": pdir / "seen.json"}
 
     @staticmethod
-    def load(pdir: Path) -> "Senses":
+    def load(pdir: Path, settings: dict | None = None, meta: dict | None = None,
+             any_model: bool = False) -> "Senses":
+        """What earlier runs heard, watched and saw, read back. With `settings`, a sense switched off there is left
+        out (ai_listen, ai_watch): see `saved_seen` for the model's descriptions."""
         f = Senses.files(pdir)
-        seen = read_json(f["seen"], {}) or {}
-        return Senses(listen.load(f["heard"]) if f["heard"].is_file() else None,
-                      watch.load(f["watched"]) if f["watched"].is_file() else None,
-                      [p for p in (seen.get("parts") or []) if isinstance(p, dict)])
+        on_l = settings is None or listen.enabled(settings)
+        on_w = settings is None or watch.enabled(settings)
+        return Senses(listen.load(f["heard"]) if on_l and f["heard"].is_file() else None,
+                      watch.load(f["watched"]) if on_w and f["watched"].is_file() else None,
+                      Senses.saved_seen(f["seen"], settings, meta, any_model))
+
+    @staticmethod
+    def saved_seen(path: Path, settings: dict | None, meta: dict | None = None,
+                   any_model: bool = False) -> list[dict]:
+        """The parts the model described in an earlier run. For clip picking (the default) only while it may
+        describe them now (the built-in model, ai_eyes and ai_watch on) and only that same model's words, so a
+        switch turned off really leaves them out. `any_model` (ClipForge AI answering in chat): whenever Watching
+        is on, whichever model described them. Without `settings`, all of them."""
+        if not path.is_file():
+            return []
+        saved = read_json(path, {}) or {}
+        if not isinstance(saved, dict):
+            return []
+        if settings is not None:
+            from . import eyes, llm
+
+            if not watch.enabled(settings):
+                return []
+            if not any_model and (not eyes.describe_configured(settings, meta)
+                                  or (saved.get("key") or {}).get("model") != llm.provider_label(settings)):
+                return []
+        return [p for p in saved.get("parts") or [] if isinstance(p, dict)]
 
     def any(self) -> bool:
         return bool(self.heard is not None or self.watched is not None or self.seen)
@@ -198,8 +225,10 @@ class Senses:
                                                              else "")
                 why.append(f"{pts:+.1f} ClipForge AI watched it" + (f" ({what[:90]})" if what else ""))
             total += pts
-        total = max(-TOTAL_WEIGHT, min(TOTAL_WEIGHT, total))
-        return round(total, 1), why
+        capped = max(-TOTAL_WEIGHT, min(TOTAL_WEIGHT, total))
+        if abs(capped - total) >= 0.05:   # the lines above add up to more: say what the cap took off
+            why.append(f"{capped - total:+.1f} what was seen and heard counts at most ±{TOTAL_WEIGHT:.0f} in all")
+        return round(capped, 1), why
 
     def show(self, f: dict, base_action: float | None = None) -> float | None:
         """0-100: how much happens in a clip by what was seen and heard alone (None without any sense). It speaks
@@ -301,13 +330,37 @@ class Senses:
         return picked
 
     # -------------------------------------------------- for people and models
+    def heard_kinds(self, t0: float, t1: float, rel: bool = True) -> list[str]:
+        """Every kind of sound heard in a long stretch, with how often and when first and last ("laughter 12 times,
+        0:09 to 58:20"), most frequent first: nothing late in a long video is left out."""
+        if self.heard is None:
+            return []
+        kinds: dict[str, list[float]] = {}
+        for e in self.heard.events_in(t0, t1, listen.NOTE_KINDS):
+            kinds.setdefault(e["kind"], []).append(max(0.0, e["start"] - t0) if rel else e["start"])
+        out = []
+        for kind, at in sorted(kinds.items(), key=lambda kv: (-len(kv[1]), kv[1][0])):
+            word = listen.WORDS[kind]
+            out.append(f"{word} at {listen.stamp(at[0])}" if len(at) == 1 else
+                       f"{word} {len(at)} times, {listen.stamp(at[0])} to {listen.stamp(at[-1])}")
+        music = self.heard.share("music", t0, t1)
+        if music >= 0.3:
+            out.append(f"music under {round(100 * music)}% of it")
+        return out
+
     def summary(self, t0: float, t1: float, rel: bool = True) -> dict:
-        """Lines for the clip's "Why" and for ClipForge AI's answers: seen, heard, picture."""
+        """Lines for the clip's "Why" and for ClipForge AI's answers: seen, heard, picture. A long stretch (over
+        LONG seconds, such as a whole video) lists every kind of sound heard in it, and a list cut short says how
+        many lines it left out."""
         out: dict = {}
-        seen = self.seen_lines(t0, t1, 6, rel)
+        seen = self.seen_lines(t0, t1, 10 ** 6, rel)
+        if len(seen) > 6:
+            seen = seen[:6] + [f"(and {len(seen) - 6} more parts described)"]
         if seen:
             out["seen"] = seen
-        heard = self.heard_lines(t0, t1, 8, rel)
+        heard = self.heard_kinds(t0, t1, rel) if t1 - t0 > LONG else self.heard_lines(t0, t1, 10 ** 6, rel)
+        if len(heard) > 8:
+            heard = heard[:8] + [f"(and {len(heard) - 8} more)"]
         if heard:
             out["heard"] = heard
         if self.heard is not None:

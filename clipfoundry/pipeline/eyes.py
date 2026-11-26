@@ -262,63 +262,69 @@ def describe_video(video: str, watched, opts: dict, ctx: JobContext | None, *, c
             return True
         return False
 
-    for step, i in enumerate(order):
-        if ctx:
-            ctx.check()
-        if ids[i] in done or copy_before(i):
-            continue
-        if time.monotonic() > deadline:
-            notes["problems"].append(f"Out of time after {notes['answered']} parts; the rest is measured only.")
-            break
-        s, e = segs[i]["start"], segs[i]["end"]
-        times = watched.keyframes(s, e, DESCRIBE_FRAMES)
-        urls = [u for u in (frame(video, t, DESCRIBE_W) for t in times) if u]
-        if not urls:
-            continue
-        if ctx:
-            ctx.progress(lo + (hi - lo) * min(1.0, step / max(1, len(order))),
-                         f"ClipForge AI is watching part {step + 1} of {len(order)}")
-        notes["asked"] += 1
-        wait = max(5.0, min(timeout, deadline - time.monotonic() + 15.0))  # the last question may end a little late
-        call = _pool.submit(fn, opts, describe_prompt(s, e, len(urls), said(s, e) if said else "",
-                                                      heard(s, e) if heard else ""),
-                            task="eyes", system=DESCRIBE_SYSTEM, json_object=True, json_schema=DESCRIBE_SCHEMA,
-                            timeout=wait, max_tokens=160, images=urls)
-        raw = None
-        stop = time.monotonic() + wait
-        while True:
+    def keep() -> None:   # what was described so far, also when the job stops halfway (Cancelled)
+        if cache is not None:
             try:
-                raw = call.result(timeout=1.0)
+                write_json(cache, {"key": key, "parts": sorted(done.values(), key=lambda p: p["start"])})
+            except OSError as exc:
+                log.warning("eyes: could not keep what was seen: %s", exc)
+
+    try:
+        for step, i in enumerate(order):
+            if ctx:
+                ctx.check()
+            if ids[i] in done or copy_before(i):
+                continue
+            if time.monotonic() > deadline:
+                notes["problems"].append(f"Out of time after {notes['answered']} parts; the rest is measured only.")
                 break
-            except concurrent.futures.TimeoutError:
-                if ctx:
-                    ctx.check()
-                if time.monotonic() > stop:
-                    notes["problems"].append(f"{_stamp(s)}: no answer within {wait:.0f} s.")
+            s, e = segs[i]["start"], segs[i]["end"]
+            times = watched.keyframes(s, e, DESCRIBE_FRAMES)
+            urls = [u for u in (frame(video, t, DESCRIBE_W) for t in times) if u]
+            if not urls:
+                continue
+            if ctx:
+                ctx.progress(lo + (hi - lo) * min(1.0, step / max(1, len(order))),
+                             f"ClipForge AI is watching part {step + 1} of {len(order)}")
+            notes["asked"] += 1
+            # the last question may end a little late
+            wait = max(5.0, min(timeout, deadline - time.monotonic() + 15.0))
+            call = _pool.submit(fn, opts, describe_prompt(s, e, len(urls), said(s, e) if said else "",
+                                                          heard(s, e) if heard else ""),
+                                task="eyes", system=DESCRIBE_SYSTEM, json_object=True, json_schema=DESCRIBE_SCHEMA,
+                                timeout=wait, max_tokens=160, images=urls)
+            raw = None
+            stop = time.monotonic() + wait
+            while True:
+                try:
+                    raw = call.result(timeout=1.0)
                     break
-            except Exception as exc:  # noqa: BLE001 - a part left undescribed, never a failed job
-                notes["problems"].append(f"{_stamp(s)}: {str(exc)[:160] or exc.__class__.__name__}")
-                break
-        got = _read_answer(raw or "") if raw else None
-        if got is None:
-            if raw is not None:
-                notes["problems"].append(f"{_stamp(s)}: the answer was not readable.")
-            if len(notes["problems"]) >= 6 and notes["answered"] == 0:
-                notes["problems"].append("Stopped: the model did not describe the first parts.")
-                break
-            continue
-        notes["answered"] += 1
-        done[ids[i]] = {"id": ids[i], "start": s, "end": e, **got, "frames": len(urls)}
-    for i in range(len(segs)):  # parts that look like the one before take its words (in time order)
-        if ids[i] not in done:
-            copy_before(i)
+                except concurrent.futures.TimeoutError:
+                    if ctx:
+                        ctx.check()
+                    if time.monotonic() > stop:
+                        notes["problems"].append(f"{_stamp(s)}: no answer within {wait:.0f} s.")
+                        break
+                except Exception as exc:  # noqa: BLE001 - a part left undescribed, never a failed job
+                    notes["problems"].append(f"{_stamp(s)}: {str(exc)[:160] or exc.__class__.__name__}")
+                    break
+            got = _read_answer(raw or "") if raw else None
+            if got is None:
+                if raw is not None:
+                    notes["problems"].append(f"{_stamp(s)}: the answer was not readable.")
+                if len(notes["problems"]) >= 6 and notes["answered"] == 0:
+                    notes["problems"].append("Stopped: the model did not describe the first parts.")
+                    break
+                continue
+            notes["answered"] += 1
+            done[ids[i]] = {"id": ids[i], "start": s, "end": e, **got, "frames": len(urls)}
+    finally:
+        for i in range(len(segs)):  # parts that look like the one before take its words (in time order)
+            if ids[i] not in done:
+                copy_before(i)
+        keep()
     parts = sorted(done.values(), key=lambda p: p["start"])
     notes["coverage"] = round(sum(p["end"] - p["start"] for p in parts) / max(0.1, watched.duration), 3)
-    if cache is not None:
-        try:
-            write_json(cache, {"key": key, "parts": parts})
-        except OSError as exc:
-            log.warning("eyes: could not keep what was seen: %s", exc)
     return {**notes, "parts": parts}
 
 

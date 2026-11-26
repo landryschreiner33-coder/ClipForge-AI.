@@ -37,7 +37,8 @@ COLOUR_STEP = "Checking the colour"
 
 
 # ------------------------------------------------------------ timeline
-def heard(folder: str | Path, words: list[dict], start: float, end: float) -> list[tuple[float, float]]:
+def heard(folder: str | Path, words: list[dict], start: float, end: float,
+          settings: dict | None = None) -> list[tuple[float, float]]:
     """Loud stretches without words in [start, end] (a laugh, a shout, a crowd; virality.wordless_loud), from the
     loudness measured when the project's video was analyzed (`folder`: the project folder). Remove pauses keeps
     them: they are not silence."""
@@ -49,8 +50,10 @@ def heard(folder: str | Path, words: list[dict], start: float, end: float) -> li
 
     runs = wordless_loud(words, Loudness(env), start, end)
     sounds = Path(folder) / "sounds.json"
-    if sounds.is_file():  # what ClipForge AI heard there too (listen.py): a quiet laugh is not a pause either
-        from . import listen
+    from . import listen
+
+    # what ClipForge AI heard there too (listen.py): a quiet laugh is not a pause either (not when Listening is off)
+    if sounds.is_file() and (settings is None or listen.enabled(settings)):
         from .virality import HEARD_REACTIONS
 
         got = listen.load(sounds)

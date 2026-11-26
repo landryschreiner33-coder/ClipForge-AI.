@@ -349,12 +349,14 @@ WATCH_AROUND = 6.0   # a moment ("at 1:23") is looked at this many seconds eithe
 
 
 def _seconds(text: str) -> float | None:
-    """ "1:23", "1:02:03", "83", "83 s" -> seconds."""
+    """ "1:23", "1:02:03", "83", "83 s" -> seconds ("1:75" and "1:75:00" are not times: None)."""
     m = _AT.match(str(text or ""))
     if not m:
         return None
     if m.group(4) is not None:
         return float(m.group(4))
+    if int(m.group(3)) >= 60 or (m.group(1) is not None and int(m.group(2)) >= 60):
+        return None
     return int(m.group(1) or 0) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
 
 
@@ -362,9 +364,10 @@ def _watch(ctx: Ctx, args: dict) -> Result:
     """What ClipForge AI saw and heard in a video, one clip or one moment, from its own watching and listening
     (pipeline/senses.py: every sound named, every frame measured, each part described by the built-in model). With a
     question and the built-in model, it also looks at the frames again to answer it."""
-    from ..pipeline import eyes, listen
+    from ..pipeline import eyes, listen, watch
     from ..pipeline.senses import Senses
 
+    at = None
     if str(args.get("clip") or "").strip():
         p, c, n = _find_clip(ctx.ws, args.get("project", ""), args["clip"], ctx.project_id)
         t0, t1, what, rel = float(c["start"]), float(c["end"]), f"clip {n} of “{p['name']}”", True
@@ -387,19 +390,26 @@ def _watch(ctx: Ctx, args: dict) -> Result:
             what = f"“{p['name']}”"
         rel = False
     src = Path(str(row.get("source_path") or ""))
-    senses = Senses.load(src.parent) if row.get("source_path") else Senses()
+    settings = db.get_settings()
+    # a sense switched off in Settings is left out; what the model saw counts whichever model it was
+    senses = Senses.load(src.parent, settings, any_model=True) if row.get("source_path") else Senses()
     if not senses.any():
+        if not listen.enabled(settings) and not watch.enabled(settings):
+            raise ToolError("Watching and listening are switched off (Settings → ClipForge AI → Watching and "
+                            "listening).")
         raise ToolError(f"ClipForge AI has not watched or listened to {what} yet: it does when clips are made "
                         "(Settings → ClipForge AI → Watching and listening).")
-    if t1 <= t0:
-        t1 = t0 + (senses.watched.duration if senses.watched is not None else
-                   senses.heard.duration if senses.heard is not None else 0.0)
+    length = float(row.get("duration") or 0) or (senses.watched.duration if senses.watched is not None else
+                                                  senses.heard.duration if senses.heard is not None else 0.0)
+    if at is not None and length and at > length:
+        raise ToolError(f"The video is only {listen.stamp(length)} long, so there is nothing at {listen.stamp(at)}.")
+    if t1 <= t0:   # the whole video, its length not saved with the project
+        t0, t1 = 0.0, length
     lines = [f"What ClipForge AI saw and heard in {what}"
              + (" (times inside the clip)" if rel else "") + ":"]
     lines += senses.describe(t0, t1, rel) or ["Nothing stands out: no part described, no sound named, no change "
                                               "in the picture."]
     question = str(args.get("question") or "").strip()
-    settings = db.get_settings()
     if question and senses.watched is not None and src.is_file():
         times = senses.watched.keyframes(t0, t1, 4)
         context = "; ".join(senses.describe(t0, t1, False))[:500]

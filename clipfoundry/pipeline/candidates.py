@@ -476,8 +476,11 @@ def from_senses(sentences: list[dict], feats: list[dict], loud: Loudness, opts: 
         while j + 1 < len(sentences) and sentences[j]["end"] - sentences[i]["start"] < min_d \
                 and sentences[j + 1]["end"] - sentences[i]["start"] <= max_d:
             j += 1
-        if not sentences[i]["start"] - 1.0 <= at <= sentences[j]["end"] + 3.0:
-            # no line near the moment (a reaction long after the last words, a fight nobody talks over)
+        span = sentences[j]["end"] - sentences[i]["start"]
+        if not sentences[i]["start"] - 1.0 <= at <= sentences[j]["end"] + 3.0 \
+                or not max(5.0, 0.75 * min_d) <= span <= max_d:
+            # no line near the moment (a reaction long after the last words, a fight nobody talks over), or the
+            # lines around it cannot make a clip of the right length (a lone line between long silences)
             added_time = _time_window(a, words or [], senses, opts, duration, base)
             if added_time is not None:
                 keep(added_time, a)
@@ -495,9 +498,15 @@ def _time_window(a: dict, words: list[dict], senses, opts: dict, duration: float
     length = max(min_d, min(target, max_d, duration))
     if duration < min_d:
         return None
-    start, end = _snap(*around(a, length, duration), senses, words, min_d, max_d)
+    raw = around(a, length, duration)
+    start, end = _snap(*raw, senses, words, min_d, max_d)
+    at, until = float(a["at"]), float(a.get("until") or a["at"])
+    if not (start <= at and until <= end) and raw[0] <= at and until <= raw[1]:
+        # a shot cut inside the moment (a cut to the crowd during the cheer): keep the edges around() gave, which
+        # hold all of it (still never through a word)
+        start, end = _snap(*raw, None, words, min_d, max_d)
     talk = sum(max(0.0, min(end, w["end"]) - max(start, w["start"])) for w in words) / max(0.1, end - start)
-    if talk >= 0.5 or not start <= float(a["at"]) <= end:
+    if talk >= 0.5 or not start <= at <= end:
         return None   # mostly talk: the sentence windows cover it
     show = senses.show(senses.features(start, end), base)
     if show is None or show < TIME_MIN_SHOW:
@@ -522,7 +531,7 @@ def fallback_windows(loud: Loudness, duration: float, opts: dict, pool_size: int
     while t + length <= duration + 0.01:
         starts.append(t)
         t += step
-    if senses is not None and senses.any():
+    if senses is not None and senses.any() and length <= duration + 0.01:
         for a in senses.anchors():  # windows that hold each strong moment with its lead-up
             s0 = around(a, length, duration)[0]
             if all(abs(s0 - x) >= 1.0 for x in starts):

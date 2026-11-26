@@ -109,7 +109,8 @@ class Watched:
             return np.zeros(0, np.float32)
         z = np.clip(self._z(), 0.0, 6.0) / 6.0
         win = max(1, int(round(1.0 * self.fps)))
-        z = np.convolve(z, np.ones(2 * win + 1) / (2 * win + 1), mode="same")
+        # "full" then the middle n values: the same as mode="same", but always n long (a 2-frame video included)
+        z = np.convolve(z, np.ones(2 * win + 1) / (2 * win + 1), mode="full")[win:win + self.n]
         cut = np.zeros(self.n, np.float32)
         for c in self.cuts:
             k = int(round(c * self.fps))
