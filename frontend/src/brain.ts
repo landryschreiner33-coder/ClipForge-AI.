@@ -102,7 +102,9 @@ export type ChatLink = { label: string; href: string };
 export type ChatActionState = "waiting" | "done" | "failed" | "skipped" | "blocked";
 /** A change or a delete ClipForge AI proposed: it happens only when you press OK. */
 export type ChatAction = { id: string; tool: string; args: Record<string, unknown>; risk: "change" | "delete"; label: string;
-  detail: string[]; blocked: string; state: ChatActionState; result: string };
+  detail: string[]; blocked: string; state: ChatActionState; result: string;
+  /** made at once, without your OK (Settings → ClipForge AI → Do it without asking) */
+  alone?: boolean };
 /** A helper agent's work inside ClipForge AI's answer. */
 export type HelperWork = { agent: AgentCard; task: string; text: string; ok: boolean; steps?: ChatStep[] };
 export type ChatAsk = { question: string; choices: string[] };

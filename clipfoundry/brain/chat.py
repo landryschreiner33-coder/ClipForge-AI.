@@ -31,7 +31,8 @@ from . import agents, allowance, assistant, library, memories, tools
 log = logging.getLogger("clipfoundry.brain.chat")
 
 MAX_TEXT = 4000                 # one message (an idea or a plan can be long)
-KEEP = 200                      # messages kept per chat (older ones are dropped)
+KEEP = 5000                     # messages kept per chat (older ones are dropped); was 200 before Nov 26
+SHOW = 400                      # the newest messages the page loads (the model reads its own budget: history)
 CANDIDATES = 5
 TOOLS = ("remember", "forget", "list", "explain", "change", "answer", "help", "talk")
 HELP = ("Right now I have no model to think with, so I only follow a few rules: I remember what you tell me "
@@ -314,7 +315,7 @@ def _request_words(req: dict) -> str:
     return str(req.get("message") or req["status"])
 
 
-def messages(ws: str, chat_id: str, after: str = "", limit: int = KEEP) -> list[dict]:
+def messages(ws: str, chat_id: str, after: str = "", limit: int = SHOW) -> list[dict]:
     get_chat(ws, chat_id)
     rows = db.select("brain_chat_messages", "chat_id = ?", (chat_id,), "created_at ASC, rowid ASC")
     if after:

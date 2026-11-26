@@ -905,8 +905,10 @@ def _take_slot(item_id: str, updated: dict, now: float, how: str) -> None:
 
 
 def approve(item_id: str, fields: dict, creator: dict | None = None, *, reuse_confirmed: bool = False,
-            reuse_basis: str = "", review_guard: Callable[[dict, dict, dict], None] | None = None) -> dict:
-    """The user's explicit approval of exactly this content, visibility and settings (validated first)."""
+            reuse_basis: str = "", review_guard: Callable[[dict, dict, dict], None] | None = None,
+            who: str = "you") -> dict:
+    """The user's explicit approval of exactly this content, visibility and settings (validated first). `who` names
+    it in the post's history: "you", or "ClipForge AI" acting for the owner (it never approves a TikTok post)."""
     item = db.fetch("scheduled_publications", item_id)
     if not item:
         raise ValueError("Scheduled post not found")
@@ -964,7 +966,7 @@ def approve(item_id: str, fields: dict, creator: dict | None = None, *, reuse_co
                "status": "approved", "approval": approval, "last_error": "", "fix": "",
                "status_note": "Approved: it will be published at its time" if (item.get("planned_at") or 0) > now
                               else "Approved: publishing now",
-               "audit": _audit(item, "approved", "Approved by you", privacy=updated["privacy"])}
+               "audit": _audit(item, "approved", f"Approved by {who}", privacy=updated["privacy"])}
     if review_guard is None:
         db.update("scheduled_publications", item_id, **changes)
     else:
@@ -982,7 +984,8 @@ def approve(item_id: str, fields: dict, creator: dict | None = None, *, reuse_co
                          " WHERE id = ?", [*encoded.values(), item_id])
     if item.get("replaces"):
         _take_slot(item_id, updated, now, "you approved it")
-    state.event("approved", f"{item['platform']}: “{updated['title'][:60]}” approved", ref_type="scheduled",
+    state.event("approved", f"{item['platform']}: “{updated['title'][:60]}” approved"
+                + (f" by {who}" if who != "you" else ""), ref_type="scheduled",
                 ref_id=item_id)
     return db.fetch("scheduled_publications", item_id) or item
 

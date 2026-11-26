@@ -335,8 +335,14 @@ SECTIONS: tuple[Section, ...] = (
         "I answer questions about editing, about what goes viral and about ClipForge itself; find, open, rename "
         "and delete projects (deleting asks first); remember and forget what you teach me; tell you what is "
         "running; and open any page for you.",
+        "When you ask, I do it: move, cancel, retry or edit posts (title, text, hashtags); approve and post YouTube "
+        "posts; trim a clip, change its captions, speed or sound; make clips from a link; add a video or live stream "
+        "to Missions; write a Text Story; turn Autopilot on or off or stop all jobs; and change editing choices and "
+        "posting rules (gap between posts, posting hours, posts a day, time zone).",
+        "Settings → ClipForge AI decides whether I do it at once (Do it without asking) or show an OK button first. "
+        "Deleting always asks, and a TikTok post always waits for your OK on its page (TikTok's rules).",
         "In a video's chat I can propose a change to that video, which happens only when you press Apply.",
-        "I cannot watch a video in this chat, post for you or change Settings; I link the page where you do that."),
+        "I cannot watch a video in this chat or connect an account for you; I link the page where you do that."),
         ("you", "can you", "what can you do", "abilities", "able", "help me", "assistant", "chat", "do for me",
          "who are you"), "talk"),
 )

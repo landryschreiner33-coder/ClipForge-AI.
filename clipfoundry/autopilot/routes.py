@@ -919,6 +919,12 @@ def _fields(item: dict, body: ApproveBody) -> dict:
 @router.post("/scheduled/{item_id}/approve", dependencies=WRITE)
 def approve_item(item_id: str, body: ApproveBody) -> dict:
     """Your explicit approval of this post, exactly as shown (required by YouTube and TikTok)."""
+    return approve_as(item_id, body, "you")
+
+
+def approve_as(item_id: str, body: ApproveBody, who: str) -> dict:
+    """approve_item, with who approved it in the post's history: "you", or "ClipForge AI" when the owner lets it act
+    on its own (brain/operations.py approve_post: YouTube only; TikTok needs the owner's own OK on every post)."""
     from ..publish import tiktok
     from ..publish.common import PublishError
     from . import bulk_review, packaging, scheduler
@@ -940,7 +946,7 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     try:
         basis = bulk_review.resolve_reuse_basis(body.reuse_kind or "custom", body.reuse_basis)
         out = scheduler.approve(item_id, fields, creator, reuse_confirmed=body.reuse_confirmed,
-                                reuse_basis=basis)
+                                reuse_basis=basis, who=who)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     clip = db.get_clip(item["clip_id"])

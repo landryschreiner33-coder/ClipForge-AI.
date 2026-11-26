@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AiPreset, AiSetup, api, BuiltinAi, BuiltinTask, errorText, MeaningModel, Settings } from "../api";
-import { Banner, Disclosure, Icon, LoadingPage, Pill, ProgressBar, toast } from "./ui";
+import { Banner, Disclosure, Icon, LoadingPage, Pill, ProgressBar, Segmented, toast } from "./ui";
 
 const SAVED = "********";
 const trim = (u: unknown) => String(u || "").replace(/\/+$/, "").toLowerCase();
@@ -179,6 +179,17 @@ export default function AiHelperSettings() {
         <div className="row wrap">
           <Pill tone={on ? "good" : "neutral"} icon={on ? "check" : "info"}>{on ? `Using ${setup.label}` : "No model: built-in editor only"}</Pill>
           {on && <button type="button" className="btn btn-small" disabled={busy} onClick={turnOff}>Turn off</button>}
+        </div>
+        <div className="stack-2" style={{ marginTop: 12 }}>
+          <span className="field-label" id="ai-alone"><b>When you ask it to do something</b></span>
+          <Segmented labelledBy="ai-alone" value={s.ai_acts_alone === false ? "ask" : "alone"}
+            onChange={(v) => void api.saveSettings({ ai_acts_alone: v === "alone" }).then(setS)
+              .then(() => toast(v === "alone" ? "ClipForge AI now does it without asking." : "ClipForge AI now asks for your OK first."))
+              .catch((e) => toast(errorText(e), true))}
+            options={[{ value: "alone", label: "Do it without asking" }, { value: "ask", label: "Ask me first (OK button)" }]} />
+          <p className="small muted">It moves, cancels and edits posts, edits clips, approves and posts YouTube posts and runs
+            Autopilot for you. Deleting always asks first, and TikTok posts always wait for your OK on their page (TikTok's
+            rules for apps).</p>
         </div>
       </section>
 
