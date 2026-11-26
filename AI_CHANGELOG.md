@@ -1,5 +1,68 @@
 # AI changelog
 
+## Guards, second round: what the real built-in model still got wrong — 2026-11-26 (Claude Code)
+
+Same thread. The real-model check on PR #79 (Basic level, run 45777094657) showed the first guards working (no echo,
+complete project lists, the helper hand-off) and three slips left. Details: docs/clipforge/CLIPFORGE_AI.md, "Guards
+for a small model", "After the first real-model check".
+
+- A listing plainly asked for ("how are my clips doing?", "what projects do I have?") is looked up before the
+  model's first round, so it answers from real numbers in one round.
+- `intents.promise` reads sentence by sentence: "I'll delete … First, I'll check … Let me look at it." is a promise.
+- A plainly asked change (delete, rename, make clips from a link) whose first round uses no tool shows its card,
+  whatever the words claim; it waits for the OK.
+- A helper that only says what it will write is told to write it now (`NUDGE_DO`), also after looking things up.
+- The same look asked again in one answer is not run twice (`Outcome.looked`).
+- **A second review (16 findings, each shown with a probe, all fixed):** "Let me see, your best clip is …" is an
+  answer, not a promise; listings are read only from a whole short request; a rename needs a quoted or plain new
+  name ("… please", "a catchy title" are left to the model); "Have the Critic's notes been fixed?" no longer runs the
+  Critic; a helper repeating its job is caught; "[0:42–1:10] …" stays; a listing found before a failure is shown.
+  Posts: "27 Nov 2 pm" is Nov 27 at 14:00, "marketing" and "novice" are no months, "Dec 30" on Jan 2 is the one
+  just gone, "yesterday", weekdays and "the 25th" also find past posts to retry, "morning"/"afternoon"/"evening",
+  "15 pm" is no time; one post on "my cooking channel" never comes from "Fishing channel"; approve all offers the
+  posts it can approve first. Thumbs: only a model's answers (never the video planner's), a short liked answer fits
+  whole, the "Sent over the internet" line and the toast say when learning is off.
+- **After the second real-model check (run 45781339101 on d910464):** results read in one round, the delete card
+  shown, the planner's Script writer wrote its part. Two slips left, now caught: the app's own card notes ("[Waiting
+  for the owner's OK: …]") are removed from any answer (a helper answered with only that note), and a helper that
+  still only promises after being asked again reaches ClipForge AI as "… only said what it would do … Write it
+  yourself now".
+- **After the third check (run 45782892862 on c9506ad):** the Script writer's answer was then empty twice. In the
+  conversation the model reads, a helper's name and the card notes now stand beside "say" ("by", "notes"), never in
+  it; a helper that still writes nothing is asked once more with its job alone (guard `alone`).
+- **After the fourth check (run 45785137953 on 9279e9d, every must-check passed):** "Got it: I'm ready to write …" is
+  a promise. A small review (4 findings, each with a probe) fixed: long helper notes no longer drop an answer from
+  the conversation, card notes with brackets in a name are removed whole, a helper that proposed a change or kept a
+  memory is not called a promise, the job-alone round is not nudged again.
+
+## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code)
+
+Same thread, after the real Basic model (Qwen3-VL 2B) check on GitHub's machines showed it echoing the owner,
+saying "Let me look." without looking, stopping at "Here are your projects:" and imitating "[Script writer]"
+instead of handing the job over. Details: docs/clipforge/CLIPFORGE_AI.md, "Guards for a small model".
+
+- `brain/intents.py` reads the owner's own words: a switched-on helper asked by name gets the job before the model's
+  first round (`handoff`); a plainly phrased request has its one tool call (`guess`), used only when the model's
+  round did nothing with it.
+- `assistant.think`: an echo, a promise without a tool, an answer that stops at a colon or an empty one is replaced
+  by that tool call, or the model is asked once more with what went wrong; "[Name] …" is removed from ClipForge AI's
+  words; a look tool's listing (`Result.show`) the answer leaves out is added. What a guard caught is saved as
+  `data.guards`.
+- The real-model check prints the guards and has a new turn, "How are my clips doing?".
+- **👍 and 👎 on answers** (`brain/ratings.py`, `Rate` in `ClipForgeAI.tsx`): a liked answer to a similar question
+  becomes the example for the next one, 👎 reasons are avoided, a disliked answer to a very similar question is
+  answered differently; ratings live in their answers and go with their chat.
+- **Several posts at once:** `cancel_post`, `retry_post` and `approve_post` take `all: true`; post words, days
+  ("tomorrow") and times narrow them strictly; one card lists them and always waits for the OK; one post that cannot
+  change never stops the others.
+- **A review of all of the above (19 findings, all fixed):** a guessed change always waits for the OK; guesses only
+  for short, plain requests ("let me know…" is an answer, not a promise; "rename X" needs X's exact name); words the
+  guard held are kept when the model fails; days ("Nov 28", "the 28th", weekdays) are read in the posting time zone
+  and times exactly, a number it cannot read is said, state words ("failed") keep only those posts, at most 50 with
+  the count said, soonest first; approve's account is `channel`; ratings: written under the OK lock, fit a budget
+  (800 characters for small models), 👎 reasons sent without their questions, tools shown with a liked example,
+  nothing read with learning off, the privacy page lists the rating among what a message keeps.
+
 ## ClipForge AI reads your results; the ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code)
 
 Thread "Make ClipForge AI and agents smarter" (Landry: "make the AI way smarter and more useful same with the agents"),

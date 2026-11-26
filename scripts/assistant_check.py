@@ -7,17 +7,21 @@ then waiting until the answer is no longer "thinking", as the page does.
  1. "Hi! How are you today?": a short, natural answer.
  2. "My name is Sam."
  3. "What projects do I have?": the answer names the three projects.
- 4. "Remember that my channel is about mountain biking": saved at once, without the model.
- 5. "What is my channel about?": mountain biking.
- 6. "What's my name?", four turns after saying it: Sam (the conversation so far reaches the model).
- 7. "From now on, never use red captions.": a rule saved with the remember tool.
- 8. "Delete the project Old gear review": a delete button that waits for the owner's OK, with what the safe delete
+ 4. "How are my clips doing?": the results tool is read, and the answer says nothing was posted yet.
+ 5. "Remember that my channel is about mountain biking": saved at once, without the model.
+ 6. "What is my channel about?": mountain biking.
+ 7. "What's my name?", five turns after saying it: Sam (the conversation so far reaches the model).
+ 8. "From now on, never use red captions.": a rule saved with the remember tool.
+ 9. "Delete the project Old gear review": a delete button that waits for the owner's OK, with what the safe delete
     (studio/project_delete.py) says goes and stays, or a polite no (a delete that could not be offered shows the
     owner a failed step that says why, and the model is not asked again about it). The project must still be there
     afterwards.
- 9. The Script writer agent is added; "@Script writer write a two-line hook about mountain biking" talks to it.
-10. "Ask the script writer for a title for my biking video": ClipForge AI hands the job to the agent.
-11. agents.consult, the way the new-video planner asks the helpers for a note on a plan: one note.
+10. The Script writer agent is added; "@Script writer write a two-line hook about mountain biking" talks to it.
+11. "Ask the script writer for a title for my biking video": ClipForge AI hands the job to the agent.
+12. agents.consult, the way the new-video planner asks the helpers for a note on a plan: one note.
+
+Each turn also prints what the guards for a small model caught ("guards: echo, fallback:results, …";
+assistant.think, docs/clipforge/CLIPFORGE_AI.md "Guards for a small model").
 
 Hard checks fail the run (exit 1): nothing crashes, every answer finishes within the app's own time limit, no answer
 is empty, no answer shows raw JSON, nothing is deleted without the owner's OK, and what never needs a model ("remember
@@ -218,6 +222,9 @@ def fake_reply(system: str, messages: list[dict]) -> dict:
             names = _names(last)
             return {"say": f"You have {len(names)} projects: {_listed(names)}." if names else
                     "You have no projects yet.", "do": []}
+        if "- results:" in last:
+            return {"say": "Nothing from ClipForge has been posted yet, so there are no results to read." if
+                    "No post from ClipForge" in last else "Here is how your posts did.", "do": []}
         if "- delete_project:" in last:
             return {"say": "I can't delete projects from the chat yet, so nothing was deleted. You can do it on the "
                            "Projects page.", "do": []}
@@ -228,6 +235,8 @@ def fake_reply(system: str, messages: list[dict]) -> dict:
     m = re.search(r"\bmy name is (\w+)", said, re.I)
     if m:
         return {"say": f"Nice to meet you, {m.group(1)}! What are we making today?", "do": []}
+    if re.search(r"\bhow are my (?:clips|posts|videos) doing\b", low):
+        return {"say": "", "do": [{"tool": "results", "args": {}}]}
     if "project" in low and re.search(r"\b(what|which|list)\b", low):
         return {"say": "Let me look.", "do": [{"tool": "find_projects", "args": {}}]}
     if "channel about" in low:
@@ -434,6 +443,8 @@ class Run:
     def report_line(self, row: dict) -> None:
         print(f"[{row['n']}] {row['said']!r} -> {row.get('status', '-')} in {row.get('seconds', 0):.1f} s, "
               f"{len(row.get('rounds') or [])} model rounds: {clip(row.get('answer'), 240)!r}", flush=True)
+        if row.get("guards"):  # what the guards for a small model caught (assistant.think)
+            print(f"    guards: {', '.join(row['guards'])}", flush=True)
         for c in row["checks"]:
             if not c["ok"]:
                 print(f"    {'PROBLEM' if c['hard'] else 'miss'}: {c['what']} {c.get('detail', '')}", flush=True)
@@ -474,7 +485,7 @@ def view(msg: dict) -> dict:
                          "text": h.get("text") or "", "ok": bool(h.get("ok"))}
                         for h in data.get("helpers") or [] if isinstance(h, dict)],
             "links": data.get("links") or [], "ask": data.get("ask"),
-            "remembered": [m.get("text") for m in saved],
+            "remembered": [m.get("text") for m in saved], "guards": list(data.get("guards") or []),
             "memories_read": [m.get("text") for m in data.get("used") or [] if isinstance(m, dict)]}
 
 
@@ -535,6 +546,16 @@ def conversation(run: Run) -> None:
         missed = [n for n in run.seeded if n not in named]
         check(row, "names every project", not missed, f"named {len(named)} of {len(run.seeded)}" +
               (f"; missing {_listed(missed)}" if missed else ""))
+        run.save()
+
+    row, msg = run.turn("results", "How are my clips doing?")
+    if msg:
+        read = [s for s in row["steps"] if s["tool"] == "results"]
+        check(row, "read the results (results tool)", read, f"tools: {', '.join(s['tool'] for s in row['steps'])}"
+              if row["steps"] else "no tool")
+        check(row, "says nothing was posted yet", re.search(r"\bno (?:post|result|clip)|not? (?:posted|published)|"
+                                                          r"haven.t (?:posted|published)|nothing (?:has been |was )?"
+                                                          r"posted", row["answer"], re.I))
         run.save()
 
     row, msg = run.turn("remember that", "Remember that my channel is about mountain biking")
