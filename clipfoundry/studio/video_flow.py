@@ -699,6 +699,25 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
 SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound", "color")
 
 
+def _keep_cameras(old: dict, new: dict, words: dict[str, list[dict]], assets: dict[str, dict]) -> str:
+    """The cameras you lined up stay when the video is edited again: their line-up, names and shots, the camera in
+    the corner, and cameras you chose by hand (they are stored in the recording's own time, so they stay on their
+    moments). Switching that was automatic is worked out again for the new cut. Returns a note ("" for none)."""
+    if not multicam.groups(old):
+        return ""
+    new["multicam"] = copy.deepcopy(old["multicam"])
+    said = []
+    for main_id, g in multicam.groups(new).items():
+        mode = g.get("switching")
+        if mode not in ("speaker", "angles"):
+            continue
+        try:
+            said.append(camera_edits.auto(new, main_id, mode, words, assets))
+        except multicam.MulticamError as exc:  # the cameras stay as they were
+            logging.getLogger(__name__).info("cameras of %s not switched again: %s", main_id, exc)
+    return ("Your cameras stay. " + "; ".join(said) + ".") if said else "Your cameras stay as you set them."
+
+
 def is_short(project: dict) -> bool:
     """An animated short (makers/shorts.py): made from a script with a voice and pictures, not from footage."""
     return (project or {}).get("workflow") == "animated_short"
@@ -791,9 +810,12 @@ def _smart_job(project: dict, job: dict, lease: Lease) -> dict:
     assets = _assets(project, current)
     words = listen(assets, project["asset_ids"], settings, lease, 0.05, 0.55)
     lease.progress(0.6, "Editing")
-    ctx = prepare_smart(project, assets, words, settings, lease)
+    # the other cameras of a recording are angles of its moments, not more footage: the edit is cut from the rest
+    angles = set(multicam.used_assets(current)) - set(multicam.groups(current))
+    ctx = prepare_smart({**project, "asset_ids": [a for a in project["asset_ids"] if a not in angles]}, assets, words,
+                        settings, lease)
     project = db.fetch("studio_projects", project["id"])
-    new = rough_cut(project, assets, words, ctx)
+    new = rough_cut({**project, "asset_ids": [a for a in project["asset_ids"] if a not in angles]}, assets, words, ctx)
     for key in SMART_KEEP:  # the look and the fixes you made stay as they are
         if key in current:
             new[key] = copy.deepcopy(current[key])
@@ -821,6 +843,9 @@ def _smart_job(project: dict, job: dict, lease: Lease) -> dict:
     keep_ov = [o for o in current.get("overlays") or [] if not o.get("auto") and o.get("clip_id") in clip_ids]
     lost += [o.get("label", "") for o in current.get("overlays") or [] if not o.get("auto") and o not in keep_ov]
     new["overlays"] = [{**o, "id": f"o{n}"} for n, o in enumerate(keep_ov + (new.get("overlays") or []), 1)]
+    cameras = _keep_cameras(current, new, words, assets)
+    if cameras:
+        new["notes"].append(cameras)
     if lost:
         new["notes"].append("These were attached to parts that are no longer in the video and were left out: " +
                             ", ".join(x for x in lost if x)[:300] + ". Add them again from Your media.")

@@ -33,8 +33,20 @@ Batch 4b of Landry's "majorly improve the editing" (plan in
 - **FilmCraft and export:** with "auto", finals using another camera or a corner stay on the built-in engine
   (`engine.cameras_in_use`); the export puts other cameras on an "Other cameras" track and corner items on a
   switched-off track, and says so.
-- **Tests:** `tests/test_multicam.py` (25 fast on a made-up conversation, 2 real renders read frame by frame). Not
-  verified: real podcast footage, real clock drift.
+- **Review** (3 reviewers with probes, 12 problems confirmed, all fixed with tests): "Edit it for me" again kept no
+  cameras (now kept; automatic switching re-planned; the other cameras' files are no longer used as more footage);
+  camera requests were refused as "nothing to change" (proposals now list camera changes); camera changes inside a
+  dissolve were ignored while the Cameras row showed them (moved to the transition's edge in both); a corner picture
+  hid under the corner camera (moves to the other corner on that side, drawn above); who speaks dropped every word
+  a camera that stopped early could not hear (now any two cameras); the ±1 frame nudge erased the clock drift (new
+  `nudge_ms`); moments played twice merged their cuts into flash shots (later parts plan only new moments);
+  malformed setups crashed validate or the editor (named now); camera rules took over speed, move and remove
+  requests (left to their rules); the corner camera popped in over a title in a dissolve (fades with its side); odd
+  edit parameters raised TypeErrors; two recordings with cameras were told "one camera" (now "Which recording?").
+  Also: parts already cut from a camera's own file move to the main recording when that camera is lined up.
+- **Tests:** `tests/test_multicam.py` (52 fast on a made-up conversation, 3 real renders read frame by frame), plus
+  camera tests in `test_studio_edit_requests.py` and `test_studio_smart_edit.py`. Not verified: real podcast footage,
+  real clock drift.
 
 ## Editing quality, batch 4a: speed, speed ramps, freeze frames, slow zooms and pans — 2026-11-26 (Claude Code)
 

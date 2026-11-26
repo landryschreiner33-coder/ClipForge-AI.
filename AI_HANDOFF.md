@@ -19,10 +19,14 @@ the owner can pick a camera per clip or at a moment, and one camera or a picture
   `size`. Camera time = main + offset_ms + main × drift_ppm / 1e6. Cuts are in the main FILE's time, so trims, splits
   and speed keep them on their moment. Loudness cache `data/cache/multicam/<sha40>-v1.npy`.
 - **Rules to keep:** sound and captions always come from the main recording; a camera shows only where its file has
-  picture; the corner camera hides while it is the full picture; no multicam = identical cache keys and output.
+  picture; the corner camera hides while it is the full picture; no multicam = identical cache keys and output; a
+  camera change inside a dissolve or fade moves to its edge (`engine._settle_rows`, used by both the render and
+  `camera_timeline`); each side of a join has its own corner camera (`spec["corners"]`); `plan_cuts` plans each moment
+  of the recording once (`_uncovered`); "Edit it for me" keeps `multicam` (`video_flow._keep_cameras`) and cuts from
+  the footage without the other cameras' files; `camera_edit nudge_ms` keeps drift and match.
 - **For the AI thread:** new editor ops `cameras_add`, `cameras_auto {mode}`, `camera_set`, `camera_cut`,
-  `camera_edit`, `camera_corner`, `cameras_remove`; request ops `cameras`, `camera`, `camera_corner`
-  (brain/operations.py is theirs to expose).
+  `camera_edit` (field shot, label, offset_ms or nudge_ms), `camera_corner`, `cameras_remove`; request ops
+  `cameras {mode, of?}`, `camera`, `camera_corner {cam, place?, size?, of?}` (brain/operations.py is theirs to expose).
 - **Next:** batch 4c (loop endings for shorts, stabilising), batch 5 (automatic quality check after each render).
 
 ## Editing quality, batch 4a: speed, ramps, freeze frames, camera moves — 2026-11-26 (Claude Code, cloud session)

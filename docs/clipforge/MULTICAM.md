@@ -23,7 +23,11 @@ interview or a talk filmed with more than one camera:
   left, top right, bottom left, bottom right) and **Size** (small 20%, medium 30%, large 40%, or the usual size for the
   video's shape). It hides while that camera is the full picture.
 - Each camera's **name**, **shot**, how it was lined up ("+2.00 s, sound match 54%") and **−1 frame / +1 frame**
-  to line it up by hand; **Line up the other recordings**; **Back to one camera** (the recordings stay in the media).
+  to line it up by hand (the measured clock drift stays); **Line up the other recordings**; **Back to one camera**
+  (the recordings stay in the media).
+- Parts the video already cut from another camera's own file, at moments the main recording also has, play from
+  the main recording once that camera is lined up (its sound and words), with that camera shown: the cameras switch
+  there like everywhere else, and the note says so.
 - The **timeline** gets a **Cameras** row: which camera is on screen when, in each camera's colour; a dot marks a
   camera in the corner.
 - A selected clip's panel gets **Camera** (one camera for the whole clip) and **Change camera at the split point**.
@@ -34,8 +38,11 @@ cameras to whoever is talking", "cut to the person speaking", "follow the speake
 "stop switching cameras", "go back to one camera", "use camera 2 for clip 3", "use the wide shot for the intro", "put
 camera 2 in the bottom right corner", "picture in picture", "make the corner camera bigger", "move the corner camera
 to the top left", "remove the corner camera". A request that names a camera the rules cannot pick ("the face cam"
-with two close cameras) gets a "Which camera?" question; a request about a logo or captions in a corner is left to
-the other rules and ClipForge AI.
+with two close cameras) gets a "Which camera?" question; when more than one recording has cameras, a request that
+names no clip gets "Which recording?". A request about a logo or captions in a corner, or one that moves or removes
+a part, changes speed or the look ("remove the part where I put my camera in the corner", "put the wide shot in slow
+motion") is left to the other rules and ClipForge AI. The proposal lists the camera changes (switching, camera
+changes, the camera of each clip, the corner camera, place and size).
 
 ## What happens
 
@@ -59,7 +66,9 @@ Each camera's sound (every camera that films people, the wide one included) is p
 cancels out) are grouped with weighted k-means, one group per close camera to start with (a group left empty starts
 again at the word furthest from its group). A group belongs to the camera that hears it loudest compared with the
 other groups. Groups under 3% of the talk are dropped; any two people must be told apart by at least 4 dB, else the
-two closest groups merge and it tries again. A word within 1 dB of halfway between two people is unclear. When the
+two closest groups merge and it tries again. A word within 1 dB of halfway between two people is unclear. The groups
+are found on the words every camera hears; a word that at least two cameras hear (a camera started late or stopped
+early) is placed on the cameras that hear it. When the
 cameras cannot tell people apart (one microphone for everybody), or there are no words yet, switching to the speaker
 changes angles instead and says why. A wide shot whose microphone sits between everybody hears nobody loudest, so it
 owns no group and shows the pauses; with one wide and one close camera, the close camera shows its person and the
@@ -81,6 +90,9 @@ From the research (EDITING_CRAFT_RESEARCH.md, "Multicam"):
 - **Angles** (one person): each angle holds 3.5 to 12 s (median about 6 s, repeatable for the same recording),
   changes at a pause, prefers another shot size, and keeps changing where nothing is said.
 - A camera is only chosen where its file has picture; anywhere a camera has no picture, the main camera shows.
+- The changes are in the recording's own time, so a moment the video plays twice (a part used again, a teaser of a
+  later moment) shows the cameras planned where it plays first; a later part plans only moments not planned yet, never
+  replaces the opening wide shot, and leaves no shot under 2 s before moments planned already.
 
 ### Rendering (`engine.render`, `_piece`)
 
@@ -92,7 +104,11 @@ in the corner is read the same way at its box's size and padded with a light bor
 `0xF0F0F0`). Corner boxes keep the picture's own shape between 3:4 and 16:9 and never cover more than 45% of the
 frame's height; on 9:16 they stay inside the safe box (clear of the captions and the app's buttons). The usual
 corner and size depend on the video's shape: 16:9 bottom right 26%, 9:16 top right 42%, 1:1 bottom right 32%, 4:5
-top right 36%. A plan without cameras renders exactly as before (same cache keys).
+top right 36%. A picture over the video in the corner camera's corner moves to the other corner on that side, and
+pictures are drawn above a corner camera. A dissolve or fade shows one camera per side: a camera change inside it
+happens as the incoming clip's transition ends (or not at all while a clip goes out), as the editor's Cameras row
+shows, and each side's corner camera comes and goes with its own side (never over a title card at full strength). A
+plan without cameras renders exactly as before (same cache keys).
 
 ### Elsewhere
 
@@ -102,10 +118,12 @@ top right 36%. A plan without cameras renders exactly as before (same cache keys
 - **Export:** other cameras go on their own track, **Other cameras**, above Video 1, at the right frames of their own
   files; corner cameras and corner pictures go on a switched-off track, **In a corner (switched off: set Scale and
   Position)**, and the export's notes say so.
-- **Validation** names what is wrong: a missing camera file, a camera that is the recording itself, an unknown shot,
+- **Validation** names what is wrong: a camera or main camera that cannot be read, a missing camera file, a camera that is the recording itself, an unknown shot,
   an offset over a day, too much drift, a camera change that cannot be read, a corner camera that is not one of the
   recording's, a corner place or size out of range.
 - **Undo** and **versions** work as for every edit: a camera edit is a new version.
+- **Edit it for me** again keeps the cameras (line-up, names, shots, corner, cameras chosen by hand); automatic
+  switching is worked out again for the new cut, and the other cameras' files are not used as more footage.
 
 ## Storage
 
@@ -119,20 +137,28 @@ and `camera_timeline` (which camera is on screen when, in the video's time). The
 
 Editor edits (`camera_edits.OPS`): `cameras_add {of?, asset_ids?}`, `cameras_auto {of?, mode, asset_ids?}`,
 `camera_set {clip_id, cam}`, `camera_cut {clip_id, offset_ms, cam}`, `camera_edit {of?, cam, field: shot | label |
-offset_ms, value}`, `camera_corner {of?, cam | null, place?, size?}`, `cameras_remove {of?}`; `overlay_set` takes
-`place` and `size`. Edit requests (and ClipForge AI's proposals) use `cameras {mode}`, `camera {clip_id, cam}` and
-`camera_corner {cam, place?, size?}`.
+offset_ms | nudge_ms, value}` (`offset_ms` lines up by hand and keeps the drift; `nudge_ms`, at most ±1 s, moves the
+camera and keeps the drift and the sound match), `camera_corner {of?, cam | null, place?, size?}`, `cameras_remove
+{of?}`; `overlay_set` takes `place` and `size`. Edit requests (and ClipForge AI's proposals) use `cameras {mode, of?}`,
+`camera {clip_id, cam}` and `camera_corner {cam, place?, size?, of?}` (`of`: the recording, when more than one has
+cameras).
 
 ## Tests
 
-`tests/test_multicam.py`: 25 fast checks on a made-up conversation (two people taking turns, each close camera with
+`tests/test_multicam.py`: 52 fast checks on a made-up conversation (two people taking turns, each close camera with
 its own gain, a wide camera hearing both): line-up either way round, drift over 15 minutes, no match for other sound,
-who speaks (97% of clear words right whatever the gains; refuses one shared microphone), every switching rule,
-cameras without picture, drifting pieces, validation, corner boxes on every shape, the camera timeline at 2× speed,
-the editor's edits, plain words and the AI's proposals, the editor page's view and the export. Two real renders: three
-recordings of one numbered scene with the same sound are lined up to the millisecond, and every frame of a render with
-four camera changes (one clip at 2×) shows the right camera at the synced scene frame, with camera 3 in the corner on
-its own synced frame (hidden while it is the full picture) inside the light border.
+who speaks (97% of clear words right whatever the gains; refuses one shared microphone; goes on when one camera
+stopped early), every switching rule, moments played twice (10 cases), cameras without picture, drifting pieces,
+validation (also setups that cannot be read), corner boxes on every shape, the camera timeline at 2× speed and in a
+dissolve, a picture in the corner camera's corner, the editor's edits (a one-frame nudge keeps the drift; odd edits
+get a plain error; parts cut from a camera's file move to the main recording), plain words (requests that only
+mention a camera stay with the other rules; two recordings with cameras), the AI's proposals, the editor page's view
+and the export. Three real renders: three recordings of one numbered scene with the same sound are lined up to the
+millisecond; every frame of a render with four camera changes (one clip at 2×) shows the right camera at the synced
+scene frame, with camera 3 in the corner on its own synced frame (hidden while it is the full picture) inside the
+light border; and in the dissolve from a title card the corner camera fades in with its clip. Also
+`tests/test_studio_edit_requests.py` (a camera request proposed with its changes and applied) and
+`tests/test_studio_smart_edit.py` ("Edit it for me" again keeps the cameras, by hand and automatic).
 
 Not verified: real two-person podcast footage (the speaker test uses synthetic levels), real cameras' clock drift,
 the editor panel in a browser beyond the demo.

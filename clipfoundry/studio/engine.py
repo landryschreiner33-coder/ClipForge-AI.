@@ -73,6 +73,8 @@ from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe,
 ENGINE = "ffmpeg-v2"
 SCHEMA = 2
 ASPECTS = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080), "4:5": (1080, 1350)}
+MIRROR = {"top_left": "top_right", "top_right": "top_left", "bottom_left": "bottom_right",
+          "bottom_right": "bottom_left"}
 FPS = (24, 25, 30, 50, 60)  # each divides 48000, so a frame always holds a whole number of samples
 SR = 48000
 PREVIEW_HEIGHT = 360
@@ -414,6 +416,7 @@ def camera_timeline(plan: dict, assets: dict[str, dict], segs: list[dict] | None
     cameras."""
     segs = timeline(plan) if segs is None else segs
     clips = {c.get("id"): c for c in plan.get("clips") or []}
+    joins = _joins(plan)
     out: list[dict] = []
     for seg in segs:
         g = multicam.group_of(plan, seg["asset_id"])
@@ -422,19 +425,44 @@ def camera_timeline(plan: dict, assets: dict[str, dict], segs: list[dict] | None
             continue
         a = seg["src_in_ms"]
         freeze = retime.is_freeze(clip)
+        mine = []
         for t0, t1, cam, side in multicam.spans(g, a, a + 1 if freeze else seg["src_out_ms"], _cam_lengths(g, assets)):
             o0 = seg["out_start_ms"] if freeze else seg["out_start_ms"] + round(retime.out_at(clip, t0 - a))
             o1 = seg["out_end_ms"] if freeze else seg["out_start_ms"] + round(retime.out_at(clip, t1 - a))
-            if o1 <= o0:
-                continue
-            row = {"clip_id": seg["clip_id"], "asset_id": seg["asset_id"], "cam": cam,
-                   "label": multicam.label_of(g, cam), "corner": side, "out_start_ms": o0, "out_end_ms": o1}
+            if o1 > o0:
+                mine.append({"clip_id": seg["clip_id"], "asset_id": seg["asset_id"], "cam": cam,
+                             "label": multicam.label_of(g, cam), "corner": side, "out_start_ms": o0, "out_end_ms": o1})
+        head, tail = joins.get(seg["clip_id"], (0, 0))
+        for row in _settle_rows(mine, seg["out_start_ms"], seg["out_end_ms"], head, tail, "out_start_ms",
+                                "out_end_ms"):
+            o0, o1 = row["out_start_ms"], row["out_end_ms"]
             last = out[-1] if out else None
             if last and all(last[k] == row[k] for k in ("clip_id", "cam", "corner")) and last["out_end_ms"] == o0:
                 last["out_end_ms"] = o1
             else:
                 out.append(row)
     return out
+
+
+def _settle_rows(rows: list[dict], start: float, end: float, head: float, tail: float, a: str, b: str) -> list[dict]:
+    """An element's camera stretches with every camera change inside a transition overlap moved to its edge, as the
+    joins are rendered (one camera per side for a whole dissolve or fade): a change while the element comes in
+    happens as the transition ends; a change while it goes out does not happen."""
+    out: list[dict] = []
+    for r in rows:
+        x = r[a]
+        if out:
+            if start < x < start + head:
+                x = start + head
+            if end - tail < x < end:
+                x = end
+            x = max(x, out[-1][a])
+        out.append({**r, a: x})
+    for i, r in enumerate(out):
+        r[b] = out[i + 1][a] if i + 1 < len(out) else end
+    if out:
+        out[0][a] = start
+    return [r for r in out if r[b] > r[a]]
 
 
 def cameras_in_use(plan: dict) -> bool:
@@ -698,6 +726,10 @@ def _overlay_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dic
     index = {e["clip_id"]: k for k, e in enumerate(els) if e["kind"] != "title"}
     out: dict[int, list[dict]] = {}
     last_end: dict[int, int] = {}
+    shape = multicam.aspect_key(*ASPECTS.get((plan.get("output") or {}).get("aspect"), (16, 9)))
+    camera_corner = {aid: (g.get("corner") or {}).get("place") or multicam.CORNER_DEFAULT[shape][0]
+                     for aid, g in multicam.groups(plan).items() if isinstance(g, dict) and (g.get("corner") or {})
+                     .get("cam")}
     items = sorted((o for o in plan.get("overlays") or [] if o.get("clip_id") in index and not o.get("hide")),
                    key=lambda o: (index[o["clip_id"]], int(o.get("offset_ms") or 0)))
     for o in items:
@@ -722,6 +754,8 @@ def _overlay_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dic
                 fit = "fit" if abs(math.log((w / h) / (ow / oh))) > 0.35 else "fill"
         picture = _picture_source(a, use_proxies)
         place = o.get("place") if o.get("place") in multicam.CORNERS else "full"
+        if place != "full" and place == camera_corner.get(e.get("asset_id")):
+            place = MIRROR[place]  # the camera in that corner would hide it: the free corner on the same side
         out.setdefault(k, []).append({"id": o["id"], "kind": a["kind"], "asset_id": o["asset_id"], "path": picture,
                                       "src": "proxy" if picture != a["path"] else "original",
                                       "sha": a.get("sha256", ""), "start_f": start, "end_f": end, "fit": fit,
@@ -797,7 +831,8 @@ def _camera_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dict
             rows[0]["f0"], rows[-1]["f1"] = e["start_f"], e["end_f"]
             for prev, row in zip(rows, rows[1:]):
                 row["f0"] = prev["f1"]
-            out[k] = rows
+            tail = els[k + 1]["ov_in"] if k + 1 < len(els) else 0
+            out[k] = _settle_rows(rows, e["start_f"], e["end_f"], e["ov_in"], tail, "f0", "f1")
     return out
 
 
@@ -1185,32 +1220,60 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
         total = ov["end_f"] - ov["start_f"]
         if spec.get("ov_rel") or spec["frames"] != total:  # a part of the overlay (old whole ones keep their key)
             key_src["overlay"].update(rel=int(spec.get("ov_rel") or 0), of=total)
+
+    def corner_el(corner: dict) -> dict:
+        base = els[corner["k"]]
+        return {**_viewed(base, corner["view"]),
+                "clip": {**(base.get("clip") or {}), "layout": "fill", "zoom": 1.0, "motion": None}}
+
+    def corner_key(corner: dict, rel: int) -> dict:
+        cel = corner_el(corner)
+        return {"sha": cel.get("sha256", ""), "in": cel["src_in_ms"], "rel": rel, "box": list(corner["box"]),
+                **_timing_key(cel), **({"src": "proxy"} if cel.get("src") == "proxy" else {}), **_grade_key(cel)}
+
     corner = spec.get("corner")
     if corner:
-        ci = spec["els"].index(corner["k"])
-        base = els[corner["k"]]
-        cel = {**_viewed(base, corner["view"]),
-               "clip": {**(base.get("clip") or {}), "layout": "fill", "zoom": 1.0, "motion": None}}
-        key_src["corner"] = {"sha": cel.get("sha256", ""), "in": cel["src_in_ms"], "rel": spec["rel"][ci],
-                             "box": list(corner["box"]), **_timing_key(cel),
-                             **({"src": "proxy"} if cel.get("src") == "proxy" else {}), **_grade_key(cel)}
+        key_src["corner"] = corner_key(corner, spec["rel"][spec["els"].index(corner["k"])])
+    sides = spec.get("corners") or []  # a join: each side's own corner camera
+    if any(sides):
+        key_src["corners"] = [corner_key(c, rel) if c else None for c, rel in zip(sides, spec["rel"])]
     key = hashlib.sha256(json.dumps(key_src, sort_keys=True).encode()).hexdigest()[:32]
     out = cache / f"{key}.h264"
     if out.is_file() and out.stat().st_size > 0:
         return out
     inputs, lines = [], []
-    for n, (e, rel) in enumerate(zip(use, spec["rel"])):
-        args, chain = _video_input(e, rel, spec["frames"], fps, width, height, n, f"[s{n}]", layout, tmp)
+    bd = multicam.border_px(width, height)
+    n = len(use)
+
+    def put_corner(under: str, c: dict, rel: int, name: str) -> str:
+        """Another camera small in a corner over `under`, on the same moment, through the clip's own speed."""
+        nonlocal inputs, n
+        x, y, w, h = c["box"]
+        args, chain = _video_input(corner_el(c), rel, spec["frames"], fps, w, h, n, f"[c{n}]", "fill", tmp)
+        inputs += args
+        lines.extend(chain)
+        lines.append(f"[c{n}]pad=w={w + 2 * bd}:h={h + 2 * bd}:x={bd}:y={bd}:color={multicam.CORNER_COLOUR}[cb{n}]")
+        lines.append(f"{under}[cb{n}]overlay={x - bd}:{y - bd}:format=auto,format=yuv420p{name}")
+        n += 1
+        return name
+
+    for k, (e, rel) in enumerate(zip(use, spec["rel"])):
+        args, chain = _video_input(e, rel, spec["frames"], fps, width, height, k, f"[s{k}]", layout, tmp)
         inputs += args
         lines += chain
-    n = len(use)
+    side = ["[s0]", "[s1]"][:len(use)]
+    for k, c in enumerate(sides):
+        if c:
+            side[k] = put_corner(side[k], c, spec["rel"][k], f"[sc{k}]")
     if len(use) == 2:
-        lines.append(f"[s0][s1]xfade=transition={kind}:duration={spec['frames'] / fps:.6f}:offset=0,fps={fps}[j]")
+        lines.append(f"{side[0]}{side[1]}xfade=transition={kind}:duration={spec['frames'] / fps:.6f}:offset=0,"
+                     f"fps={fps}[j]")
         last = "[j]"
     else:
-        last = "[s0]"
-    bd = multicam.border_px(width, height)
-    if ov:
+        last = side[0]
+    if corner:
+        last = put_corner(last, corner, spec["rel"][spec["els"].index(corner["k"])], "[cr]")
+    if ov:  # a picture over the video, above a camera in a corner
         args, chain = _overlay_input(ov, spec["frames"], fps, width, height, n, f"[o{n}]", tmp,
                                      rel=int(spec.get("ov_rel") or 0), total=ov["end_f"] - ov["start_f"], box=box)
         inputs += args
@@ -1219,14 +1282,6 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
         lines.append(f"{last}[o{n}]overlay={at}:format=auto,format=yuv420p[ov]")
         last = "[ov]"
         n += 1
-    if corner:  # another camera small in a corner, on the same moment, through the clip's own speed
-        x, y, w, h = corner["box"]
-        args, chain = _video_input(cel, spec["rel"][ci], spec["frames"], fps, w, h, n, f"[c{n}]", "fill", tmp)
-        inputs += args
-        lines += chain
-        lines.append(f"[c{n}]pad=w={w + 2 * bd}:h={h + 2 * bd}:x={bd}:y={bd}:color={multicam.CORNER_COLOUR}[cb{n}]")
-        lines.append(f"{last}[cb{n}]overlay={x - bd}:{y - bd}:format=auto,format=yuv420p[cr]")
-        last = "[cr]"
     if ass:
         (tmp / "piece.ass").write_text(ass, encoding="utf-8")
         lines.append(f"{last}ass=piece.ass:fontsdir={filter_path(config.FONTS_DIR, tmp)},format=yuv420p[vout]")
@@ -1687,7 +1742,9 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                 s0, s1 = seen(k, e["end_f"] - tail), seen(k + 1, els[k + 1]["start_f"])
                 specs.append({"els": [k, k + 1], "rel": [e["frames"] - tail, 0], "frames": tail,
                               "at": e["end_f"] - tail, "views": [s0.get("view"), s1.get("view")],
-                              "corner": s0.get("corner") or s1.get("corner")})
+                              # each side's corner camera comes and goes with its own side of the dissolve or fade
+                              **({"corners": [s0.get("corner"), s1.get("corner")]}
+                                 if s0.get("corner") or s1.get("corner") else {})})
         used, done = [], 0
         for spec in specs:
             _check(cancelled)

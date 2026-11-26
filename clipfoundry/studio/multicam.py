@@ -253,11 +253,17 @@ def problems(plan: dict, assets: dict[str, dict]) -> list[str]:
         if not isinstance(cams, list) or len(cams) + 1 > MAX_CAMS:
             out.append(f"A recording can have at most {MAX_CAMS} cameras.")
             continue
+        if g.get("main") is not None and not isinstance(g.get("main"), dict):
+            out.append("The main camera cannot be read.")
+            continue
         ids = [MAIN]
         for c in cams:
-            a = assets.get((c or {}).get("asset_id"))
-            name = (c or {}).get("label") or "A camera"
-            if not isinstance(c, dict) or not c.get("id") or c.get("id") in ids:
+            if not isinstance(c, dict) or not isinstance(c.get("id"), str) or not c["id"] or \
+                    not isinstance(c.get("asset_id"), str) or not isinstance(c.get("label", ""), str):
+                out.append("A camera cannot be read.")
+                continue
+            a, name = assets.get(c["asset_id"]), c.get("label") or "A camera"
+            if c["id"] in ids:
                 out.append("Two cameras share one ID.")
                 continue
             ids.append(c["id"])
@@ -568,12 +574,14 @@ def who_speaks(words: list[dict], levels: dict[str, np.ndarray]) -> tuple[list[s
         info["why"] = "only one camera films a single person"
         return out, info
     v, dur = _word_levels(words, levels)
-    ok = ~np.isnan(v).any(axis=1) & (dur > 0.03)
-    if ok.sum() < 8:
+    heard = ~np.isnan(v)
+    ok = (heard.sum(axis=1) >= 2) & (dur > 0.03)  # a camera that starts late or stops early leaves the others
+    full = ok & heard.all(axis=1)                 # the people are told apart where every camera hears them
+    if full.sum() < 8:
         info["why"] = "too few words were heard by every camera"
         return out, info
-    x = v[ok] - v[ok].mean(axis=1, keepdims=True)
-    wt = dur[ok]
+    x = v[full] - v[full].mean(axis=1, keepdims=True)
+    wt = dur[full]
     lead = np.argmax(x, axis=1)
     cent = np.array([x[lead == j].mean(axis=0) if (lead == j).any() else np.eye(len(cams))[j] * 6
                      for j in range(len(cams))])
@@ -604,15 +612,22 @@ def who_speaks(words: list[dict], levels: dict[str, np.ndarray]) -> tuple[list[s
             " (each camera needs its own microphone near the person it films)"
         return out, info
     c, owners = best
-    rows = np.flatnonzero(ok)
-    for r, i in enumerate(rows):
-        near = np.argsort(((x[r][None] - c) ** 2).sum(axis=1))
+    for i in np.flatnonzero(ok):  # each word against the groups, on the cameras that hear it
+        av = heard[i]
+        pos = np.cumsum(av) - 1
+        xi = v[i, av] - v[i, av].mean()
+        cc = c[:, av] - c[:, av].mean(axis=1, keepdims=True)
+        dist = ((xi[None] - cc) ** 2).sum(axis=1)
+        near = np.argsort(dist)
         p, q = int(near[0]), int(near[1])
         op, oq = owners[p], owners[q]
-        mid = ((c[p][op] - c[p][oq]) + (c[q][op] - c[q][oq])) / 2
-        side = (x[r][op] - x[r][oq]) - mid
-        if abs(side) >= UNSURE_DB:
-            out[i] = cams[op] if side > 0 else cams[oq]
+        if av[op] and av[oq]:
+            a, b = pos[op], pos[oq]
+            side = (xi[a] - xi[b]) - ((cc[p][a] - cc[p][b]) + (cc[q][a] - cc[q][b])) / 2
+            if abs(side) >= UNSURE_DB:
+                out[i] = cams[op] if side > 0 else cams[oq]
+        elif math.sqrt(dist[q]) - math.sqrt(dist[p]) >= UNSURE_DB:  # one of the two cannot be heard here
+            out[i] = cams[op]
     seconds: dict[str, float] = {}
     for c_, w in zip(out, words):
         if c_:
@@ -678,13 +693,39 @@ def _unit(seed: str, n: int) -> float:
     return int(hashlib.sha1(f"{seed}:{n}".encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
 
 
+def _uncovered(a: float, b: float, done: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The stretches of [a, b) outside `done` (sorted, merged)."""
+    out, t = [], a
+    for lo, hi in done:
+        if hi <= t or lo >= b:
+            continue
+        if lo > t:
+            out.append((t, lo))
+        t = max(t, hi)
+    if t < b:
+        out.append((t, b))
+    return [(x, y) for x, y in out if y - x > 1]
+
+
+def _merge(spans_: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    out: list[tuple[float, float]] = []
+    for lo, hi in sorted(spans_):
+        if out and lo <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], hi))
+        else:
+            out.append((lo, hi))
+    return out
+
+
 def plan_cuts(ranges: list[tuple[float, float]], words: list[dict], who: list[str | None] | None,
               shots: dict[str, str], mode: str, avail: Callable[[str, float, float], bool],
               seed: str = "") -> list[list]:
     """Camera changes [[main ms, camera], ...] for the parts of the main recording the video plays (`ranges`, in the
     video's order), by the rules in this module's notes. `shots`: each camera's shot ("wide", "close", "other"),
     main first; `who`: each word's speaker as a close camera (speaker mode); `avail(cam, t0, t1)`: whether a camera
-    has picture over that stretch; `seed` makes the angle lengths of one recording repeatable."""
+    has picture over that stretch; `seed` makes the angle lengths of one recording repeatable. The changes are in the
+    recording's time, so moments the video plays twice (a part used again, a teaser of a later moment) show the
+    cameras planned where they first play; a later range plans only moments not planned yet."""
     cams = [c for c in shots if shots[c] != "other"]
     if not cams or not ranges or mode not in ("speaker", "angles"):
         return []
@@ -713,69 +754,90 @@ def plan_cuts(ranges: list[tuple[float, float]], words: list[dict], who: list[st
         pool.sort(key=lambda c: (shots[c] == size, st["used"].get(c, -1), cams.index(c)))
         return pool[0] if pool else None
 
+    def decided(t: float) -> tuple[str, float]:
+        """The camera the changes so far show at file time `t`, and the file time it came on."""
+        ordered = sorted(cuts, key=lambda x: x[0])
+        k = bisect_right([c[0] for c in ordered], t) - 1
+        return (ordered[k][1], ordered[k][0]) if k >= 0 else (MAIN, -math.inf)
+
+    done: list[tuple[float, float]] = []  # file time planned by an earlier range
     base, prev_b = 0.0, None
     for ri, (a, b) in enumerate(ranges):
-        phr = _phrases(words, who if mode == "speaker" else None, a, b)
-        if mode == "speaker":
-            _settle_turns(phr)
-        end0 = phr[0]["end"] if phr else b
+        last_range = ri == len(ranges) - 1
 
         def at(t: float, a=a, base=base) -> float:  # where a moment plays, in the video (ignoring speed changes)
             return base + (t - a)
 
-        first = phr[0]["who"] if mode == "speaker" and phr else None
-        if st["cur"] is None:  # the video opens on the wide shot
-            cam = wide_at(a, end0) or (first if first and avail(first, a, end0) else None) or \
-                next((c for c in cams if avail(c, a, end0)), cams[0])
-            put(a, cam, at(a))
-        elif ri and prev_b is not None and abs(a - prev_b) > 1 or not avail(st["cur"], a, end0):
-            # a jump cut (or the camera has no picture here): another camera hides it
-            put(a, other(st["cur"], a, end0, first) or st["cur"], at(a))
-        else:
-            cuts.append((a, st["cur"]))
-        last_end = a
-        for i, p in enumerate(phr):
-            g0, g1 = last_end, p["start"]
-            last_end = p["end"]
-            if i == 0:
-                continue
-            gap, cur = g1 - g0, st["cur"]
-            wide = wide_at(g0, p["end"])
-            if mode == "speaker" and wide and cur != wide and gap >= SILENCE_MS and at(g0 + 300) - st["since"] >= \
-                    MIN_HOLD_MS:  # a long pause: the wide shot while nobody talks
-                put(g0 + 300, wide, at(g0 + 300))
-                cur = wide
-            held = at(g1) - st["since"]
-            if ri == 0 and at(g1) < OPEN_MS:
-                continue  # the opening wide shot holds
-            t = max(g0 + min(100.0, gap / 2), g1 - LEAD_MS)
-            if ri == len(ranges) - 1 and total - at(g1) <= END_MS and wide and avail(wide, t, b):
-                if cur != wide and held >= MIN_HOLD_MS and b - t >= MIN_HOLD_MS * 0.75:
-                    put(t, wide, at(t))  # the video ends on the wide shot
-                continue
+        for pa, pb in _uncovered(a, b, done):
+            phr = _phrases(words, who if mode == "speaker" else None, pa, pb)
             if mode == "speaker":
-                brk = False
-                want = p["who"] if p["who"] and avail(p["who"], g1, p["end"]) else (wide or cur)
-                if want == cur and shots.get(cur) == "close" and wide and held >= MAX_CLOSE_MS:
-                    want, brk = wide, True  # a long close-up: the wide shot for a moment
-                if cur == wide and st["break"] and held < WIDE_BREAK_MS:
+                _settle_turns(phr)
+            end0 = phr[0]["end"] if phr else pb
+            first = phr[0]["who"] if mode == "speaker" and phr else None
+            if pa > a:  # after moments planned already: the camera on screen there goes on
+                cam, since = decided(pa)
+                st.update(cur=cam, since=at(max(a, since)))
+                cuts.append((pa, cam))
+            elif st["cur"] is None:  # the video opens on the wide shot
+                cam = wide_at(a, end0) or (first if first and avail(first, a, end0) else None) or \
+                    next((c for c in cams if avail(c, a, end0)), cams[0])
+                put(a, cam, at(a))
+            elif ri and prev_b is not None and abs(a - prev_b) > 1 or not avail(st["cur"], a, end0):
+                # a jump cut (or the camera has no picture here): another camera hides it
+                put(a, other(st["cur"], a, end0, first) or st["cur"], at(a))
+            else:
+                cuts.append((a, st["cur"]))
+            mark = len(cuts)
+            ends = last_range and pb >= b  # this stretch ends the video
+            last_end = pa
+            for i, p in enumerate(phr):
+                g0, g1 = last_end, p["start"]
+                last_end = p["end"]
+                if i == 0:
                     continue
-                if want and want != cur and held >= MIN_HOLD_MS:
-                    put(t, want, at(t), brk)
-            elif gap >= SWITCH_GAP_MS and held >= st["hold"]:
-                cam = other(cur, t, p["end"])
-                if cam:
-                    put(t, cam, at(t))
-        if ri == len(ranges) - 1 and phr:  # the talk is over before the end: the video ends on the wide shot
-            wide, t = wide_at(last_end, b), last_end + min(300.0, (b - last_end) / 2)
-            if wide and st["cur"] != wide and b - t >= MIN_HOLD_MS * 0.75 and at(t) - st["since"] >= MIN_HOLD_MS:
-                put(t, wide, at(t))
-        while mode == "angles" and not phr:  # nothing said (music, a silent stretch): another angle every few seconds
-            t = max(a, a + st["since"] + st["hold"] - base)
-            cam = other(st["cur"], t, min(b, t + st["hold"])) if t <= b - MIN_HOLD_MS else None
-            if not cam:
-                break
-            put(t, cam, at(t))
+                gap, cur = g1 - g0, st["cur"]
+                wide = wide_at(g0, p["end"])
+                if mode == "speaker" and wide and cur != wide and gap >= SILENCE_MS and at(g0 + 300) - st["since"] \
+                        >= MIN_HOLD_MS:  # a long pause: the wide shot while nobody talks
+                    put(g0 + 300, wide, at(g0 + 300))
+                    cur = wide
+                held = at(g1) - st["since"]
+                if ri == 0 and at(g1) < OPEN_MS:
+                    continue  # the opening wide shot holds
+                t = max(g0 + min(100.0, gap / 2), g1 - LEAD_MS)
+                if ends and total - at(g1) <= END_MS and wide and avail(wide, t, b):
+                    if cur != wide and held >= MIN_HOLD_MS and b - t >= MIN_HOLD_MS * 0.75:
+                        put(t, wide, at(t))  # the video ends on the wide shot
+                    continue
+                if mode == "speaker":
+                    brk = False
+                    want = p["who"] if p["who"] and avail(p["who"], g1, p["end"]) else (wide or cur)
+                    if want == cur and shots.get(cur) == "close" and wide and held >= MAX_CLOSE_MS:
+                        want, brk = wide, True  # a long close-up: the wide shot for a moment
+                    if cur == wide and st["break"] and held < WIDE_BREAK_MS:
+                        continue
+                    if want and want != cur and held >= MIN_HOLD_MS:
+                        put(t, want, at(t), brk)
+                elif gap >= SWITCH_GAP_MS and held >= st["hold"]:
+                    cam = other(cur, t, p["end"])
+                    if cam:
+                        put(t, cam, at(t))
+            if ends and phr:  # the talk is over before the end: the video ends on the wide shot
+                wide, t = wide_at(last_end, b), last_end + min(300.0, (b - last_end) / 2)
+                if wide and st["cur"] != wide and b - t >= MIN_HOLD_MS * 0.75 and at(t) - st["since"] >= MIN_HOLD_MS:
+                    put(t, wide, at(t))
+            while mode == "angles" and not phr:  # nothing said (music, a silent stretch): another angle every few s
+                t = max(pa, a + st["since"] + st["hold"] - base)
+                cam = other(st["cur"], t, min(pb, t + st["hold"])) if t <= pb - MIN_HOLD_MS else None
+                if not cam:
+                    break
+                put(t, cam, at(t))
+            if pb < b:  # moments planned already follow: no shot shorter than MIN_HOLD_MS before them
+                cuts[mark:] = [c for c in cuts[mark:] if c[0] <= pb - MIN_HOLD_MS]
+        fresh = _uncovered(a, b, done)
+        if not fresh or fresh[-1][1] < b:  # it ends on moments planned already: their camera goes on
+            st.update(cur=decided(b - 1)[0], since=at(b) - MIN_HOLD_MS)
+        done = _merge([*done, (a, b)])
         base += b - a
         prev_b = b
     out: list[list] = []

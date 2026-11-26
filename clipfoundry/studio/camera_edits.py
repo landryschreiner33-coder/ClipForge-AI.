@@ -33,8 +33,8 @@ def _length(a: dict) -> int:
 def main_recording(p: dict, edit: dict, assets: dict[str, dict]) -> str:
     """The recording the camera edit is about."""
     of = edit.get("of")
-    if of:
-        if of not in assets or assets[of].get("kind") != "video":
+    if of not in (None, ""):
+        if not isinstance(of, str) or of not in assets or assets[of].get("kind") != "video":
             raise MulticamError("That recording is not in this video.")
         return of
     if edit.get("clip_id"):
@@ -102,9 +102,13 @@ def _profile(asset: dict) -> "multicam.np.ndarray":
 def add_cameras(p: dict, main_id: str, asset_ids, assets: dict[str, dict]) -> str:
     """Line up `asset_ids` (default: every other video in the media) with the main recording by their sound and add
     the ones that match; say which did not."""
+    if asset_ids is not None and (not isinstance(asset_ids, list) or not all(isinstance(a, str) for a in asset_ids)):
+        raise MulticamError("Choose the recordings to line up.")
     main = assets[main_id]
     g = p.setdefault("multicam", {}).setdefault(main_id, {"main": {"label": "Camera 1"}, "cams": [], "cuts": [],
                                                           "switching": "off"})
+    if not isinstance(g.get("main"), dict):
+        g["main"] = {"label": "Camera 1"}
     have = {c["asset_id"] for c in g["cams"]}
     pool = [aid for aid in (asset_ids or [a for a in assets if assets[a].get("kind") == "video"])
             if aid != main_id and aid not in have and assets.get(aid, {}).get("kind") == "video"]
@@ -122,7 +126,7 @@ def add_cameras(p: dict, main_id: str, asset_ids, assets: dict[str, dict]) -> st
     if "shot" not in g["main"]:
         g["main"]["shot"] = guess_shot(main, at)
     ref = _profile(main)
-    added, missed = [], []
+    added, missed, fresh = [], [], []
     for aid in pool:
         if len(g["cams"]) + 1 >= multicam.MAX_CAMS:
             missed.append(f"{assets[aid]['filename']} (at most {multicam.MAX_CAMS} cameras)")
@@ -136,6 +140,7 @@ def add_cameras(p: dict, main_id: str, asset_ids, assets: dict[str, dict]) -> st
         cam["shot"] = guess_shot(assets[aid], multicam.to_cam_ms(cam, at * 1000) / 1000)
         cam["shot_guessed"] = True  # until the owner chooses it
         g["cams"].append(cam)
+        fresh.append(cam)
         added.append(f"{cam['label']} ({assets[aid]['filename']}, {multicam.SHOT_NAMES[cam['shot']].lower()})")
     if not g["cams"]:
         p["multicam"].pop(main_id, None)
@@ -146,7 +151,36 @@ def add_cameras(p: dict, main_id: str, asset_ids, assets: dict[str, dict]) -> st
     note = ("Lined up " + ", ".join(added)) if added else "No new camera lined up"
     if missed:
         note += ". Not the same sound, left out: " + ", ".join(missed)
+    moved = _to_main(p, main_id, g, fresh, assets)
+    if moved:
+        note += f". {moved} {'part' if moved == 1 else 'parts'} cut from another camera's file now " + \
+            f"{'plays' if moved == 1 else 'play'} from {assets[main_id]['filename']} with that camera shown"
     return note
+
+
+def _to_main(p: dict, main_id: str, g: dict, cams: list[dict], assets: dict[str, dict]) -> int:
+    """Clips cut from a camera's own file, at moments the main recording also has, now play from the main recording
+    (its sound and words) with that camera shown: the cameras switch there like everywhere else, and "Edit it for
+    me" never uses the same moment twice. Returns how many clips moved."""
+    main_len = _length(assets[main_id])
+    moved = 0
+    for c in p.get("clips") or []:
+        cam = next((x for x in cams if x["asset_id"] == c.get("asset_id")), None)
+        if cam is None or c.get("kind", "video") not in ("video", "freeze"):
+            continue
+        rate = 1 + float(cam.get("drift_ppm") or 0) / 1e6
+        a, b = ((float(c[k]) - float(cam.get("offset_ms") or 0)) / rate for k in ("in_ms", "out_ms"))
+        if a < 0 or b > main_len:
+            continue  # the main recording does not have these moments
+        c.update(asset_id=main_id, in_ms=int(round(a)), out_ms=int(round(b)))
+        end = float(c["in_ms"]) + 1 if retime.is_freeze(c) else float(c["out_ms"])
+        after = multicam.camera_at(g, end)
+        g["cuts"] = _tidy([x for x in g.get("cuts") or [] if not c["in_ms"] <= float(x[0]) <= end] +
+                          [[c["in_ms"], cam["id"]], [end, after]])
+        moved += 1
+    if moved:
+        g["switching"] = "hand"
+    return moved
 
 
 def auto(p: dict, main_id: str, mode: str, words: dict[str, list[dict]], assets: dict[str, dict],
@@ -283,7 +317,9 @@ def apply(p: dict, edit: dict, words: dict[str, list[dict]], assets: dict[str, d
         return f"{multicam.label_of(g, cam)} from {off / 1000:.1f} s into {c['label']}"
     if op == "camera_edit":
         cam = _cam(g, edit.get("cam"))
-        rec = g.setdefault("main", {}) if cam == MAIN else multicam.cam_entry(g, cam)
+        if cam == MAIN and not isinstance(g.get("main"), dict):
+            g["main"] = {}
+        rec = g["main"] if cam == MAIN else multicam.cam_entry(g, cam)
         field, value = edit.get("field"), edit.get("value")
         if field == "shot" and value in multicam.SHOTS:
             rec["shot"] = value
@@ -292,10 +328,19 @@ def apply(p: dict, edit: dict, words: dict[str, list[dict]], assets: dict[str, d
         if field == "label" and isinstance(value, str) and value.strip():
             rec["label"] = value.strip()[:40]
             return f"Renamed the camera to {rec['label']}"
-        if field == "offset_ms" and cam != MAIN and isinstance(value, (int, float)) and not isinstance(value, bool) \
-                and abs(value) <= multicam.OFFSET_MAX_MS:
-            rec.update(offset_ms=round(float(value), 1), drift_ppm=0.0, match=None)
-            return f"Lined up {rec['label']} by hand ({value / 1000:+.2f} s)"
+        number = multicam._number(value, -multicam.OFFSET_MAX_MS, multicam.OFFSET_MAX_MS)  # noqa: SLF001
+        if field == "nudge_ms" and cam != MAIN and number and abs(value) <= 1000:
+            # a frame or so earlier or later: the measured clock drift and the sound match stay
+            new = round(float(rec.get("offset_ms") or 0) + float(value), 1)
+            if abs(new) > multicam.OFFSET_MAX_MS:
+                raise MulticamError("A camera can be lined up at most a day away.")
+            rec["offset_ms"] = new
+            return f"{multicam.label_of(g, cam)} {abs(value):.0f} ms {'later' if value > 0 else 'earlier'} " \
+                f"({new / 1000:+.2f} s)"
+        if field == "offset_ms" and cam != MAIN and number:
+            # lined up by hand: the clocks still run apart as measured (line up again to measure them again)
+            rec.update(offset_ms=round(float(value), 1), match=None)
+            return f"Lined up {multicam.label_of(g, cam)} by hand ({value / 1000:+.2f} s)"
         raise MulticamError(f"“{field}” cannot be set to that.")
     if op == "camera_corner":
         if edit.get("cam") in (None, ""):

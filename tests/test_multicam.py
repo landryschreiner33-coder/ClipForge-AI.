@@ -131,7 +131,60 @@ def test_who_speaks_says_so_when_the_cameras_cannot_tell_the_people_apart():
     assert not info1["separable"] and not any(one)
 
 
+def test_who_speaks_goes_on_where_one_camera_has_stopped_recording():
+    words, who, n = _talk(minutes=6)
+    main, cam_a, cam_b = _levels(words, who, n)
+    on = {"offset_ms": 0, "drift_ppm": 0}
+    levels = {"main": multicam.aligned(main, None, n), "ca": multicam.aligned(cam_a, on, n),
+              "cb": multicam.aligned(cam_b[: 120 * R], on, n)}  # camera B's battery died after 2 minutes
+    got, info = multicam.who_speaks(words, levels)
+    assert info["separable"]
+    late = [(g, t) for w, g, t in zip(words, got, who) if w["start"] > 125]
+    sure = [(g, t) for g, t in late if g]
+    assert len(sure) >= 0.8 * len(late)  # the other cameras still tell the people apart
+    assert np.mean([g == ("ca" if t == "A" else "cb") for g, t in sure]) >= 0.95
+    shots = {"main": "wide", "ca": "close", "cb": "close"}
+    cuts = multicam.plan_cuts([(0, n * 10)], words, got, shots, "speaker", lambda c, a, b: c != "cb" or b <= 120000)
+    a_late = [w for w, t in zip(words, who) if t == "A" and w["start"] > 125]
+    on_a = sum(multicam.camera_at({"cuts": cuts}, (w["start"] + w["end"]) * 500) == "ca" for w in a_late)
+    assert on_a >= 0.8 * len(a_late)  # A is still shown on camera A after camera B stopped
+    assert all(c != "cb" for t, c in cuts if t > 120000)
+
+
 # ---------------------------------------------------------------- the switching rules
+def _played(cuts, ranges, step=10):
+    """(start, length, camera) of each shot as the video plays `ranges` in order (ms of the video)."""
+    seq = [multicam.camera_at({"cuts": cuts}, t) for a, b in ranges for t in np.arange(a, b, step)]
+    out, k = [], 0
+    for i in range(1, len(seq) + 1):
+        if i == len(seq) or seq[i] != seq[k]:
+            out.append((k * step, (i - k) * step, seq[k]))
+            k = i
+    return out
+
+
+@pytest.mark.parametrize("mode", ["speaker", "angles"])
+@pytest.mark.parametrize("ranges", [[(30000, 90000), (30000, 90000)], [(0, 60000), (120000, 180000), (0, 30000)],
+                                    [(250000, 265000), (0, 300000)], [(0, 200000), (50000, 90000), (150000, 250000)],
+                                    [(0, 150000), (100000, 200000)]])
+def test_moments_the_video_plays_twice_keep_the_cameras_planned_where_they_first_play(ranges, mode):
+    """A part used again, or a teaser of a later moment: the cuts are in the recording's time, so a later range only
+    plans moments not planned yet; the video still opens on the wide shot, and no shot inside a range is short."""
+    words, who, _ = _talk(minutes=6)
+    truth = ["ca" if t == "A" else "cb" for t in who]
+    shots = {"main": "wide", "ca": "close", "cb": "close"}
+    cuts = multicam.plan_cuts(ranges, words, truth if mode == "speaker" else None, shots, mode, lambda c, a, b: True,
+                              seed="s")
+    played = _played(cuts, ranges)
+    assert played[0][2] == "main" and played[0][1] >= multicam.OPEN_MS - 100
+    edges, base = set(), 0
+    for a, b in ranges:
+        edges |= {base, base + b - a}
+        base += b - a
+    short = [x for x in played[1:-1] if x[1] < multicam.MIN_HOLD_MS and x[0] not in edges and x[0] + x[1] not in edges]
+    assert short == []
+
+
 def _shown(cuts, t):
     cam = "main"
     for at, c in cuts:
@@ -279,6 +332,13 @@ def test_validate_names_whats_wrong_with_cameras_and_corners(media):
     assert any("unknown place" in p for p in engine.validate(_plan(overlays=[over]), media))
     over["place"] = "top_left"
     assert any("of the frame's width" in p for p in engine.validate(_plan(overlays=[over]), media))
+    # a setup that cannot be read is named, never a crash, and a camera id that is not text is refused before the
+    # timeline and the editor page use it
+    for broken in ({"cams": ["x"]}, {"cams": [{"id": "c2", "asset_id": ["cam2"]}]}, {"main": "Camera"},
+                   {"main": [1]}, {"cams": [{"id": ["c2"], "asset_id": "cam2"}], "cuts": [[0, ["c2"]]]},
+                   {"cams": [{"id": {"c": 2}, "asset_id": "cam2"}]}, {"cams": [{"id": "c2", "asset_id": "cam2",
+                                                                              "label": ["Jake"]}]}):
+        assert engine.validate(_plan(multicam={"main": {**_group(), **broken}}), media), broken
 
 
 @pytest.mark.parametrize("w,h", [(1920, 1080), (1080, 1920), (1080, 1080), (1080, 1350)])
@@ -294,6 +354,38 @@ def test_a_corner_picture_stays_inside_the_frame_and_off_the_shorts_buttons(w, h
                     assert y >= 0.15 * h - 2 and y + bh <= 0.65 * h + 2
     assert multicam.corner_defaults(1080, 1920) == ("top_right", 0.42)
     assert multicam.border_px(1920, 1080) == 4 and multicam.border_px(640, 360) == 2
+
+
+def test_a_camera_change_inside_a_dissolve_happens_at_its_edge(media):
+    """A join shows one camera per side for the whole dissolve, so a camera change inside it moves to its edge: as
+    the next clip comes in, the change happens when the dissolve ends; as a clip goes out, it does not happen."""
+    plan = _plan(transition={"type": "dissolve", "ms": 1000},
+                 multicam={"main": _group(cuts=[[4600, "c2"], [6300, "c3"]])})
+    plan["clips"][1].pop("speed")
+    rows = engine.camera_timeline(plan, media)
+    k1 = [(r["cam"], r["out_start_ms"], r["out_end_ms"]) for r in rows if r["clip_id"] == "k1"]
+    k2 = [(r["cam"], r["out_start_ms"], r["out_end_ms"]) for r in rows if r["clip_id"] == "k2"]
+    assert k1 == [("main", 0, 4000)]  # clip 1 goes out during 3-4 s: camera 2 never comes on in it
+    assert k2 == [("c2", 3000, 4000), ("c3", 4000, 7000)]  # camera 3 comes on as the dissolve ends
+    els, _ = engine.frame_map(plan, 30)
+    for k, rows_f in engine._camera_frames(plan, els, 30, media, False, 1920, 1080,  # noqa: SLF001
+                                           lambda aid: ({}, None)).items():
+        e = els[k]
+        tail = els[k + 1]["ov_in"] if k + 1 < len(els) else 0
+        assert not any(e["start_f"] < r["f0"] < e["start_f"] + e["ov_in"] or e["end_f"] - tail < r["f0"] < e["end_f"]
+                       for r in rows_f)
+
+
+def test_a_picture_in_the_corner_cameras_corner_moves_to_the_other_corner_on_that_side(media):
+    over = {"id": "o1", "asset_id": "other", "clip_id": "k1", "offset_ms": 0, "length_ms": 2000, "motion": "still",
+            "label": "Logo", "place": "bottom_right", "size": 0.2}
+    plan = _plan(overlays=[over], multicam={"main": _group(corner={"cam": "c2"})})  # 16:9: usually bottom right
+    els, _ = engine.frame_map(plan, 30)
+    (placed,) = engine._overlay_frames(plan, els, 30, media)[0]  # noqa: SLF001
+    assert placed["place"] == "bottom_left"
+    plan["multicam"]["main"]["corner"]["place"] = "top_left"
+    (placed,) = engine._overlay_frames(plan, els, 30, media)[0]  # noqa: SLF001
+    assert placed["place"] == "bottom_right"
 
 
 def test_the_camera_timeline_follows_each_clips_speed(media):
@@ -368,6 +460,53 @@ def test_lining_up_switching_and_choosing_cameras_in_the_editor(lined):
                       ({"op": "cameras_auto", "mode": "off"}, "no other cameras")):
         with pytest.raises(vf.VideoError, match=says):
             vf.apply_edit(plan, bad, words, media)
+
+
+def test_parts_cut_from_a_cameras_own_file_play_from_the_main_recording_once_lined_up(lined):
+    plan, media, words, _ = lined
+    plan["clips"].append({"id": "k3", "asset_id": "cam2", "label": "Clip 3", "in_ms": 30000, "out_ms": 35000,
+                          "include": True, "kind": "video"})
+    plan["clips"].append({"id": "k4", "asset_id": "cam2", "label": "Clip 4", "in_ms": 500, "out_ms": 1500,
+                          "include": True, "kind": "video"})  # before the main recording started: stays
+    p, note = vf.apply_edit(plan, {"op": "cameras_add"}, words, media)
+    k3, k4 = p["clips"][2], p["clips"][3]
+    off = p["multicam"]["main"]["cams"][0]["offset_ms"]
+    assert k3["asset_id"] == "main" and abs(k3["in_ms"] - (30000 - off)) <= 1 and k3["out_ms"] - k3["in_ms"] == 5000
+    assert k4["asset_id"] == "cam2"
+    assert "1 part cut from another camera's file now plays from main.mp4 with that camera shown" in note
+    assert {r["cam"] for r in engine.camera_timeline(p, media) if r["clip_id"] == "k3"} == {"c2"}
+    assert p["multicam"]["main"]["switching"] == "hand" and engine.validate(p, media) == []
+
+
+def test_a_one_frame_nudge_keeps_the_measured_clock_drift(lined):
+    plan, media, words, _ = lined
+    p, _ = vf.apply_edit(plan, {"op": "cameras_add"}, words, media)
+    cam = p["multicam"]["main"]["cams"][0]
+    cam.update(offset_ms=-7500.0, drift_ppm=40.0, match=0.9)
+    before = [multicam.to_cam_ms(cam, t) for t in (0, 600000, 3600000)]
+    p, note = vf.apply_edit(p, {"op": "camera_edit", "cam": "c2", "field": "nudge_ms", "value": 33.3}, words, media)
+    cam = p["multicam"]["main"]["cams"][0]
+    assert note == "Camera 2 33 ms later (-7.47 s)" and cam["drift_ppm"] == 40.0 and cam["match"] == 0.9
+    assert [round(multicam.to_cam_ms(cam, t) - b, 1) for t, b in zip((0, 600000, 3600000), before)] == [33.3] * 3
+    p, _ = vf.apply_edit(p, {"op": "camera_edit", "cam": "c2", "field": "offset_ms", "value": -7000}, words, media)
+    cam = p["multicam"]["main"]["cams"][0]
+    assert cam["offset_ms"] == -7000 and cam["drift_ppm"] == 40.0 and cam["match"] is None  # lined up by hand
+    with pytest.raises(vf.VideoError):
+        vf.apply_edit(p, {"op": "camera_edit", "cam": "c2", "field": "nudge_ms", "value": 5000}, words, media)
+
+
+@pytest.mark.parametrize("edit", [{"op": "cameras_add", "of": ["main"]}, {"op": "cameras_add", "asset_ids": 5},
+                                  {"op": "cameras_add", "asset_ids": [["cam2"]]},
+                                  {"op": "camera_edit", "cam": "main", "field": "shot", "value": "wide", "of": "main"}])
+def test_odd_camera_edits_get_a_plain_error(lined, edit):
+    plan, media, words, _ = lined
+    if edit["op"] == "camera_edit":  # a group whose main camera cannot be read is mended, not a crash
+        plan = {**plan, "multicam": {"main": {**_group(), "main": None}}}
+        p, note = vf.apply_edit(plan, edit, words, media)
+        assert p["multicam"]["main"]["main"] == {"shot": "wide"}
+        return
+    with pytest.raises(vf.VideoError):
+        vf.apply_edit(plan, edit, words, media)
 
 
 def test_cameras_that_hear_one_person_loudest_become_close_ups_unless_the_owner_chose(lined, monkeypatch):
@@ -449,6 +588,41 @@ def test_camera_requests_in_plain_words(media):
     assert _asked("put the logo in the top right corner", three) is None
     assert _asked("remove clip 2", three)["operations"] == [{"op": "remove", "clip_id": "k2"}]
     assert "operations" not in (_asked("cut the part where the speaker says hi", three) or {})
+
+
+@pytest.mark.parametrize("text", ["put the wide shot in slow motion", "remove the part where I put my camera in the corner",
+                                  "delete the part where I show the wide shot on the screen",
+                                  "move the part where I put my camera in the corner to the end",
+                                  "put the subscribe button in the corner", "use the wide shot of the lake for the intro",
+                                  "speed up the part where I talk about the camera angles"])
+def test_requests_that_only_mention_a_camera_are_left_to_the_other_rules(media, text):
+    for plan in (_plan(), _plan(multicam={"main": _group()})):
+        try:
+            got = _asked(text, plan) or {}
+        except LookupError:
+            continue  # nobody's rule: ClipForge AI's
+        said = " ".join(str(v) for v in got.values())
+        assert not any(op["op"] in ("cameras", "camera", "camera_corner") for op in got.get("operations") or []), got
+        assert "one camera" not in said and "Line up the other camera" not in said and "Which camera" not in said, got
+
+
+def test_with_two_recordings_with_cameras_a_request_finds_its_recording(media):
+    plan = _plan(multicam={"main": _group(), "other": {
+        "main": {"label": "Camera 1", "shot": "wide"}, "switching": "off", "cuts": [],
+        "cams": [{"id": "c2", "asset_id": "cam3", "label": "Camera 2", "shot": "close", "offset_ms": 0.0,
+                  "drift_ppm": 0, "match": 0.6}]}})
+    plan["clips"][1]["asset_id"] = "other"
+    assert engine.validate(plan, media) == []
+    assert _asked("use camera 2 for clip 2", plan)["operations"] == [{"op": "camera", "clip_id": "k2", "cam": "c2"}]
+    for text, op in (("put camera 2 in the bottom right corner", {"op": "camera_corner", "cam": "c2",
+                                                                  "place": "bottom_right"}),
+                     ("go back to one camera", {"op": "cameras", "mode": "off"}),
+                     ("switch cameras to whoever is talking", {"op": "cameras", "mode": "speaker"})):
+        q = _asked(text, plan)
+        assert q["question"].startswith("Which recording?") and len(q["choices"]) == 2, q
+        assert _asked(q["choices"][1]["request"], plan)["operations"] == [{**op, "of": "other"}]
+    p, note = vf.apply_edit(plan, er._translate(plan, {"op": "camera_corner", "cam": "c2", "of": "other"}), {}, media)
+    assert p["multicam"]["other"]["corner"] == {"cam": "c2"} and "corner" not in p["multicam"]["main"]
 
 
 def test_camera_proposals_are_checked_and_applied_as_editor_edits(lined):
@@ -576,3 +750,27 @@ def test_every_frame_shows_the_chosen_camera_at_the_synced_moment_with_the_corne
     assert y_plane[y - bd: y, x + 4: x + w - 4].mean() > 200
     assert y_plane[y + h: y + h + bd, x + 4: x + w - 4].mean() > 200
     assert y_plane[y + 4: y + h - 4, x - bd: x].mean() > 200
+
+
+@pytest.mark.slow
+def test_the_corner_camera_dissolves_in_with_its_own_side_after_the_title(cameras, tmp_path):
+    """The corner camera belongs to its clip: in the dissolve from the title card it fades in with the clip, never
+    over the title at full strength."""
+    plan = _plan(color={"auto": False, "match": False, "clean": False},
+                 title={"enabled": True, "text": "Cameras", "ms": 1500}, transition={"type": "dissolve", "ms": 600},
+                 multicam={"main": _group(cuts=[], corner={"cam": "c3", "place": "bottom_right", "size": 0.3})})
+    plan["clips"][0]["in_ms"] = 2000  # camera 3 has picture from 1.5 s
+    plan["clips"][1]["out_ms"] = 9000
+    assert engine.validate(plan, cameras) == []
+    engine.render(plan, cameras, {}, tmp_path / "out.mp4", preview=False)
+    frames = _frames(tmp_path / "out.mp4")
+    els, overlap = engine.frame_map(plan, 30)
+    mid = els[1]["start_f"] + overlap // 2  # halfway through the dissolve from the title
+
+    def corner_cr(f: int) -> float:
+        return frames[f][2][150:165, 280:305].mean()
+
+    full = corner_cr(els[1]["start_f"] + overlap + 10)
+    assert full > 175  # camera 3 in the corner once the clip is in
+    assert corner_cr(mid) < full - 15  # halfway: half title, half camera 3
+    assert corner_cr(els[1]["start_f"] - 5) < 150  # the title alone: no corner camera

@@ -40,7 +40,8 @@ function CameraName({ c, of, edit, busy }: { c: Camera; of: string; edit: EditFn
 function Group({ g, v, edit, busy }: { g: CameraGroup; v: Video; edit: EditFn; busy: boolean }) {
   const fps = v.plan?.output.fps || 30;
   const frame = 1000 / fps;
-  const nudge = (c: Camera, by: number) => edit({ op: "camera_edit", of: g.of, cam: c.id, field: "offset_ms", value: Math.round(((c.offset_ms || 0) + by) * 10) / 10 });
+  // one frame earlier or later: the measured clock drift stays
+  const nudge = (c: Camera, by: number) => edit({ op: "camera_edit", of: g.of, cam: c.id, field: "nudge_ms", value: Math.round(by * 10) / 10 });
   const corner = g.corner;
   const sized = corner?.size ? String(corner.size) : "";
   const sizes = sized && !SIZES.some(([s]) => s === sized) ? [...SIZES, [sized, `${Math.round(Number(sized) * 100)}%`] as [string, string]] : SIZES;
@@ -75,9 +76,9 @@ function Group({ g, v, edit, busy }: { g: CameraGroup; v: Video; edit: EditFn; b
       </div>
       <ul className="seq audio-list">{g.cams.map((c) => (
         <li key={c.id}>
-          <span className={`cam-dot ${camClass(g, c.id)}`} aria-hidden="true" />
           <div className="break">
-            <CameraName c={c} of={g.of} edit={edit} busy={busy} />
+            <div className="cam-name"><span className={`cam-dot ${camClass(g, c.id)}`} aria-hidden="true" />
+              <CameraName c={c} of={g.of} edit={edit} busy={busy} /></div>
             <span className="block small muted">{c.filename} · {lineUp(c, fps)}</span>
           </div>
           <div className="row-actions wrap">
@@ -143,21 +144,25 @@ export function ClipCamera({ c, v, at, edit, busy }: { c: PlanClip; v: Video; at
   if (!g) return null;
   const whole = shows.length === 1 ? shows[0] : "";
   const inside = at > c.in_ms && at < c.out_ms;
+  const several = shows.map((id) => g.cams.find((x) => x.id === id)?.label || id).join(", ");
   return (
-    <div className="grid-3">
-      <label className="field"><span>Camera</span>
-        <select value={whole} disabled={busy} onChange={(e) => e.target.value && edit({ op: "camera_set", clip_id: c.id, cam: e.target.value })}>
-          {!whole && <option value="">Several ({shows.length ? shows.map((id) => g.cams.find((x) => x.id === id)?.label || id).join(", ") : "none shown"})</option>}
-          {g.cams.map((x) => <option key={x.id} value={x.id}>{x.label} · {SHOTS[x.shot].toLowerCase()}</option>)}
-        </select></label>
-      <div className="field"><span>Change camera at the split point</span><div className="row-actions">
-        <select value={cutCam} aria-label="Camera from the split point on" disabled={busy} onChange={(e) => setCutCam(e.target.value)}>
-          <option value="">Choose a camera</option>{g.cams.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
-        <button type="button" className="btn btn-small" disabled={busy || !cutCam || !inside}
-          title={inside ? "" : "Set the split point inside this clip first"}
-          onClick={() => edit({ op: "camera_cut", clip_id: c.id, cam: cutCam, offset_ms: at - c.in_ms })}>Change here</button>
-      </div></div>
-      <p className="small muted">The sound always comes from {g.cams[0]?.label || "the main camera"}.</p>
+    <div className="stack-3">
+      <div className="grid-2">
+        <label className="field"><span>Camera</span>
+          <select value={whole} disabled={busy} title={whole ? "" : several}
+            onChange={(e) => e.target.value && edit({ op: "camera_set", clip_id: c.id, cam: e.target.value })}>
+            {!whole && <option value="">{shows.length ? "Several cameras" : "No camera shown"}</option>}
+            {g.cams.map((x) => <option key={x.id} value={x.id}>{x.label} · {SHOTS[x.shot].toLowerCase()}</option>)}
+          </select></label>
+        <div className="field"><span>From the split point</span><div className="row-actions start">
+          <select value={cutCam} aria-label="Camera from the split point on" disabled={busy} onChange={(e) => setCutCam(e.target.value)}>
+            <option value="">Camera…</option>{g.cams.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
+          <button type="button" className="btn btn-small" disabled={busy || !cutCam || !inside}
+            title={inside ? "" : "Set the split point inside this clip first"}
+            onClick={() => edit({ op: "camera_cut", clip_id: c.id, cam: cutCam, offset_ms: at - c.in_ms })}>Change here</button>
+        </div></div>
+      </div>
+      <p className="small muted">{whole ? "" : `Shows ${several}. `}The sound always comes from {g.cams[0]?.label || "the main camera"}.</p>
     </div>
   );
 }
