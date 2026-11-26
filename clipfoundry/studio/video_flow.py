@@ -1622,11 +1622,13 @@ def _pieces(project: dict, preview: bool) -> Path:
     return video_dir(project["id"]) / f"pieces-{'preview' if preview else 'final'}"
 
 
-def _preview_joins(project: dict, revision: int) -> dict | None:
+def _preview_joins(project: dict, job: dict) -> dict | None:
     """What the preview of this version did to the sound (engine info["sound_joins"]), None without one: whether
     room tone was found and the music moved is only known by measuring, and the preview did that."""
+    if not project.get("id") or job.get("revision") is None:
+        return None
     rows = db.select("studio_artifacts", "project_id = ? AND revision = ? AND kind = ?",
-                     (project["id"], revision, "preview"))
+                     (project["id"], job["revision"], "preview"))
     joins = (rows[0].get("info") or {}).get("sound_joins") if rows else None
     return joins if isinstance(joins, dict) else None
 
@@ -1672,8 +1674,8 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         # look): when that step changes the picture, the built-in engine renders the final so it looks like the
         # preview the owner approved (a well-shot video with no look still goes to FilmCraft)
         return None, ""
-    joins = None if hand else _preview_joins(project, job["revision"])
-    if not hand and choice == "auto" and engine.sound_joins_in_use(plan, assets, words, joins):
+    if not hand and choice == "auto" and engine.sound_joins_in_use(plan, assets, words,
+                                                                    _preview_joins(project, job)):
         # nor ClipForge's sound joins (studio/sound_joins.py: split edits, crossfades between recordings, room tone,
         # back-timed music): the built-in engine renders the final so it sounds like the approved preview (whose
         # own report says whether it found room tone or moved the music)
@@ -1708,7 +1710,7 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         info = finish.render(plan, assets, words, out, name=project.get("name") or "Video", revision=job["revision"],
                              settings=settings, cancelled=stop, progress=report,
                              context={"workspace_id": project["workspace_id"], "project_id": project["id"]})
-        return _colour_skipped(info, plan, assets, project, words, joins), ""
+        return _colour_skipped(info, plan, assets, project, words, _preview_joins(project, job)), ""
     except Exception as exc:
         if choice == "filmcraft" or lease.canceled():
             raise
