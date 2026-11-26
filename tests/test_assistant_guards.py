@@ -55,7 +55,9 @@ def test_echo_promise_and_an_answer_that_stops_at_a_colon():
     for s in ("Let me look.", "I'll check for the project “Old gear review”.", "One moment, I'll look that up",
               "Let me ask the Script writer.",
               # the real Basic model as the Script writer, in the fourth check (Nov 26)
-              "Got it: I'm ready to write a two-line hook about mountain biking.", "Got it, I'll write a title."):
+              "Got it: I'm ready to write a two-line hook about mountain biking.", "Got it, I'll write a title.",
+              "Got it: I'm ready to write a two-line hook about mountain biking. I'll make sure it's sharp and "
+              "engaging."):
         assert intents.promise(s), s
     for s in ("Let me know if you want more.", "Can I look at it?", "I can't find that project.",
               "You have 3 projects. " + "x" * 300, "I'll be honest: the hook is too slow.",
@@ -65,7 +67,9 @@ def test_echo_promise_and_an_answer_that_stops_at_a_colon():
               "Got it — from now on I will ask you before anything is posted.", "Let me look. You have 3 projects.",
               "Let me check: you have “Hike day” and “Lake swim”.",
               "Got it: your channel is about mountain biking. I'll keep this in mind.", "Got it: “Ride the ridge”.",
-              "Sure: here is the hook: “I almost fell.”"):
+              "Sure: here is the hook: “I almost fell.”", "I'll make sure it's never red again.",
+              "Got it: never use red captions. I'll make sure they're white from now on.",
+              "I'll keep it short: “Ride the ridge.”"):
         assert not intents.promise(s), s
     assert intents.stops_short("Here are your projects:") and not intents.stops_short("You have 2 projects.")
 

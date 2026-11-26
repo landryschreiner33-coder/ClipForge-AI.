@@ -82,7 +82,11 @@ _PROMISE = re.compile(
 _NOT_PROMISE = re.compile(r"^(?:let me know|let's (?:get|make|try|go|do|start|write)\b)", re.I)
 _PLEASANTRY = re.compile(r"^(?:ok(?:ay)?|sure(?: thing)?|alright|all right|of course|certainly|absolutely|great"
                          r"(?: question| idea)?|no problem|got it|happy to help|hi(?: there)?|hello(?: there)?|hey"
-                         r"(?: there)?|let me know (?:if|when|what|how)\b.*)[\s!.,…]*$", re.I)
+                         r"(?: there)?|let me know (?:if|when|what|how)\b.*|"
+                         # after a promise, words about how it will be ("I'll make sure it's sharp and engaging.": the
+                         # real Basic model as the Script writer, Nov 26 2026); never a promise on their own
+                         r"i(?:'ll|’ll| will) (?:make sure|keep|try to make) (?:it|this|that|they|them)\b[^:]*)"
+                         r"[\s!.,…]*$", re.I)
 _SENTENCE = re.compile(r"(?<=[.!…])\s+")
 # "Got it: I'm ready to write a two-line hook." (the real Basic model as the Script writer, Nov 26 2026): a pleasantry
 # before a colon starts the sentence like one before a full stop; "Got it: your channel is about biking." is an answer

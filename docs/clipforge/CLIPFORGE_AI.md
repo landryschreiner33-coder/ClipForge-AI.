@@ -1071,7 +1071,9 @@ The cause was how the conversation reads to the model: an assistant turn was wri
 **After the fourth real-model check** (run 45785137953 on 9279e9d): every must-check passed, and the Script writer
 answered "@Script writer …" instead of failing, but with "Got it: I'm ready to write a two-line hook about mountain
 biking." A pleasantry before a colon ("Got it:", "Sure:", "Okay:") now starts a sentence like one before a full stop,
-so that is a promise; "Got it: your channel is about mountain biking." is still an answer.
+so that is a promise; "Got it: your channel is about mountain biking." is still an answer. In the fifth check (run
+45787376562 on 38fb7d1, every must-check passed) it added "I'll make sure it's sharp and engaging.": words about how
+it will be ("I'll make sure it…", "I'll keep it…") count like a pleasantry next to a promise, never as one alone.
 
 A small review of these last fixes (each finding shown with a probe) found, and now:
 
