@@ -7,6 +7,7 @@ import { RoleState, Snapshot } from "./api";
 import { BreakActivity, CONSOLE, HATCH, Pt, ROOM, ROOMS, STATION, VIEW, WORLD } from "./world";
 import { ART, CELL, CONSOLE_ART, EXHAUST_ART, FrameName, frameIndex, Pose, spaceImage } from "./crew";
 import type { OfficeDuty } from "./DepartmentDuty";
+import { ZapPose, ZapReaction, zapParticles, zapPose } from "./taser";
 import SHIP from "../space/ship-world.json";
 
 export interface SceneActor {
@@ -16,6 +17,8 @@ export interface SceneActor {
   breakPhase?: number;
   supervising?: boolean;
   duty?: OfficeDuty;
+  /** a Taser zap playing on this robot (TaserItem.tsx): which reaction and how far into it */
+  zap?: { kind: ZapReaction; ms: number; seed: number };
 }
 export interface SceneHandoff { id: number; from: Pt; to: Pt; progress: number }
 /** Short-lived cues the page saw happen: DOCK's beacon when a clip arrives for review. */
@@ -58,6 +61,8 @@ export class StudioScene {
   private brainBusy = false;
   private lastActualBrainBusy: boolean | undefined;
   private brainSuppressed = false;
+  /** a scratch canvas for a zapped robot's flash, soot, X-ray or golden glow */
+  private tint: HTMLCanvasElement | null = null;
 
   private constructor(cv: HTMLCanvasElement, private art: Art) {
     const ctx = cv.getContext("2d");
@@ -348,34 +353,152 @@ export class StudioScene {
     const art = ART[a.id];
     if (!art) return;
     const ctx = this.ctx;
-    const { frame, dx } = this.frame(a, state, step, still);
+    let { frame, dx } = this.frame(a, state, step, still);
+    // a Taser zap takes over the robot's look for a moment (taser.ts)
+    const zap = a.zap ? zapPose(a.zap.kind, a.zap.ms) : null;
+    if (zap?.frame) { frame = zap.frame; dx = 0; }
     const seated = a.posture === "rest" && !!a.breakActivity;
     const x = Math.round(a.x + dx), y = Math.round(a.y);
     if (a.selected) this.marker(x, y, step, still);
-    // a soft shadow grounds the robot on the floor
+    // a soft shadow grounds the robot on the floor; it shrinks while the robot is up in the air and widens lying down
+    const up = zap ? Math.max(0, -zap.dy) : 0, lying = zap ? Math.abs(Math.sin(zap.rot)) : 0;
     ctx.fillStyle = "rgba(6, 8, 20, .35)";
-    ctx.beginPath(); ctx.ellipse(x + OX, y + OY, art.w * .36, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(x + OX + (zap ? zap.dx - lying * art.h * .45 : 0), y + OY,
+      Math.max(4, art.w * .36 * (1 - Math.min(.6, up / 50)) + lying * art.h * .2), 3, 0, 0, Math.PI * 2);
+    ctx.fill();
     const dim = offline ? .7 : state === "unavailable" || a.pose === "unavailable" ? .5 : a.pose === "paused" ? .78 : 1;
     const sx = frameIndex(frame) * CELL.w, sy = art.row * CELL.h;
     // seated robots tuck their feet behind the sofa or table
     const cut = seated ? 6 : 0;
     ctx.globalAlpha = dim;
-    ctx.drawImage(this.art.crew, sx, sy, art.w, art.h - cut, Math.round(x - art.cx + OX),
-      Math.round(y - art.foot + OY + (seated ? 4 : 0)), art.w, art.h - cut);
-    ctx.globalAlpha = 1;
-    if (frame.startsWith("work_") && !offline) {
-      const k = Number(frame.slice(5));
-      for (const [gx, gy, r, color] of art.glows[k] || []) {
-        this.light(x - art.cx + gx, y - art.foot + gy, Math.max(4, r * 2.2), color, .75);
-      }
+    if (zap) {
+      ctx.save();
+      ctx.translate(x + OX + zap.dx, y + OY + zap.dy + (seated ? 4 : 0));
+      if (zap.rot) ctx.rotate(zap.rot);
+      ctx.scale(zap.sx * (zap.flip ? -1 : 1), zap.sy);
+      const look = zap.tint || zap.xray ? this.tinted(sx, sy, art.w, art.h - cut, art.cx, zap) : null;
+      if (look) ctx.drawImage(look, 0, 0, art.w, art.h - cut, -art.cx, -art.foot, art.w, art.h - cut);
+      else ctx.drawImage(this.art.crew, sx, sy, art.w, art.h - cut, -art.cx, -art.foot, art.w, art.h - cut);
+      ctx.restore();
+    } else {
+      ctx.drawImage(this.art.crew, sx, sy, art.w, art.h - cut, Math.round(x - art.cx + OX),
+        Math.round(y - art.foot + OY + (seated ? 4 : 0)), art.w, art.h - cut);
     }
-    if (a.pose === "carry") this.paper(x + 10, y - 18);
-    if (a.breakActivity && (!still || a.breakActivity === "read")) this.prop(a, x, y, art.h);
+    ctx.globalAlpha = 1;
+    if (a.zap && zap) {
+      this.zapped(a.zap, zap, x, y, art.h);
+    } else {
+      if (frame.startsWith("work_") && !offline) {
+        const k = Number(frame.slice(5));
+        for (const [gx, gy, r, color] of art.glows[k] || []) {
+          this.light(x - art.cx + gx, y - art.foot + gy, Math.max(4, r * 2.2), color, .75);
+        }
+      }
+      if (a.pose === "carry") this.paper(x + 10, y - 18);
+      if (a.breakActivity && (!still || a.breakActivity === "read")) this.prop(a, x, y, art.h);
+    }
     if (state === "error" && !offline) {
       if (still || Math.floor(step / 400) % 2 === 0) this.light(x, y - art.h - 5, 8, "#ff5d6c", .9);
       ctx.fillStyle = "#ff5d6c";
       ctx.fillRect(x - 2 + OX, y - art.h - 7 + OY, 4, 4);
     }
+  }
+
+  /** The robot's sprite recoloured for a zap: a flash, soot or a golden glow over it, or the X-ray look (a cyan
+   * silhouette with its wiring skeleton showing). Only the robot's own pixels change. */
+  private tinted(sx: number, sy: number, w: number, h: number, cx: number, zap: ZapPose) {
+    const c = this.tint ||= canvas(CELL.w, CELL.h);
+    const t = c.getContext("2d")!;
+    t.setTransform(1, 0, 0, 1, 0, 0);
+    t.globalCompositeOperation = "source-over"; t.globalAlpha = 1; t.imageSmoothingEnabled = false;
+    t.clearRect(0, 0, c.width, c.height);
+    t.drawImage(this.art.crew, sx, sy, w, h, 0, 0, w, h);
+    t.globalCompositeOperation = "source-atop";
+    if (zap.xray) {
+      t.fillStyle = "#2ad8ff"; t.globalAlpha = .94; t.fillRect(0, 0, w, h);
+      t.globalAlpha = 1;
+      const m = Math.round(cx), bone = (bx: number, by: number, bw: number, bh: number) =>
+        t.fillRect(m + bx, Math.round(by), bw, Math.max(1, Math.round(bh)));
+      t.fillStyle = "#f4fbff";
+      bone(-5, h * .1, 10, 7);                                   // skull
+      bone(-1, h * .1 + 7, 2, h * .5);                           // spine
+      for (let i = 0; i < 3; i++) bone(-6, h * .38 + i * 4, 12, 1);  // ribs
+      bone(-5, h * .72, 10, 2);                                  // hips
+      bone(-4, h * .72, 2, h * .26); bone(2, h * .72, 2, h * .26);   // legs
+      bone(-10, h * .38, 2, h * .28); bone(8, h * .38, 2, h * .28);  // arms
+      t.fillStyle = "#0b3a52";
+      bone(-3, h * .1 + 2, 2, 2); bone(1, h * .1 + 2, 2, 2);      // eye sockets
+      t.fillStyle = "#ffe14d";
+      bone(-1, h * .44, 2, 2);                                   // a glowing bolt where its heart would be
+    } else if (zap.tint) {
+      t.fillStyle = zap.tint.color; t.globalAlpha = Math.min(1, zap.tint.alpha); t.fillRect(0, 0, w, h);
+    }
+    t.globalCompositeOperation = "source-over"; t.globalAlpha = 1;
+    return c;
+  }
+
+  /** What flies around a zapped robot: sparks, arcs, dizzy stars, smoke, dust, music notes and golden rings. They
+   * move with the robot (and turn with it when it falls over); dust stays on the floor. */
+  private zapped(z: NonNullable<SceneActor["zap"]>, pose: ZapPose, x: number, y: number, height: number) {
+    const ctx = this.ctx, cos = Math.cos(pose.rot), sin = Math.sin(pose.rot);
+    const at = (px: number, py: number, ground = false) => ground
+      ? [x + OX + pose.dx + px, y + OY + py]
+      : [x + OX + pose.dx + px * cos - py * sin, y + OY + pose.dy + px * sin + py * cos];
+    if (z.kind === "overcharge") this.light(x, y - height * .5, 30, "#ffd23f", .55 * (1 - z.ms / 1800));
+    else if (pose.tint && (pose.tint.color === "#9ff3ff" || pose.tint.color === "#ffffff")) {
+      this.light(x + pose.dx, y + pose.dy - height * .5, 26, "#59e8ff", pose.tint.alpha * .6);
+    }
+    if (pose.xray) this.light(x + pose.dx, y - height * .5, 28, "#2ad8ff", .5);
+    for (const p of zapParticles(z.kind, z.ms, height, z.seed)) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.alpha));
+      switch (p.kind) {
+        case "spark": {
+          const [px, py] = at(p.x, p.y), [tx, ty] = at(p.x - p.dx, p.y - p.dy);
+          ctx.strokeStyle = p.color; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(tx, ty); ctx.stroke();
+          ctx.fillStyle = "#ffffff"; ctx.fillRect(Math.round(px - 1), Math.round(py - 1), 2, 2);
+          break;
+        }
+        case "arc": {
+          const pts = [0, 2, 4].map(i => at(p.points[i], p.points[i + 1]));
+          for (const [color, width] of [["#2ad8ff", 3], ["#e9fdff", 1.2]] as const) {
+            ctx.strokeStyle = color; ctx.lineWidth = width;
+            ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+            for (const [px, py] of pts.slice(1)) ctx.lineTo(px, py);
+            ctx.stroke();
+          }
+          break;
+        }
+        case "star": {
+          const [px, py] = at(p.x, p.y), s = p.size;
+          ctx.fillStyle = "#ffe14d";
+          ctx.fillRect(Math.round(px - 1), Math.round(py - s), 2, s * 2);
+          ctx.fillRect(Math.round(px - s), Math.round(py - 1), s * 2, 2);
+          ctx.fillStyle = "#ffffff"; ctx.fillRect(Math.round(px - 1), Math.round(py - 1), 2, 2);
+          break;
+        }
+        case "note": {
+          const [px, py] = at(p.x, p.y), left = Math.round(px), top = Math.round(py);
+          ctx.fillStyle = "#ff9bd2";
+          ctx.fillRect(left, top, 3, 2); ctx.fillRect(left + 2, top - 6, 1, 7); ctx.fillRect(left + 3, top - 6, 2, 1);
+          break;
+        }
+        case "smoke": case "dust": {
+          const [px, py] = at(p.x, p.y, p.kind === "dust");
+          ctx.fillStyle = p.kind === "smoke" ? "#3b3744" : "#c9c2d9";
+          ctx.beginPath(); ctx.arc(px, py, p.size * (p.kind === "dust" ? .6 : 1), 0, Math.PI * 2); ctx.fill();
+          break;
+        }
+        case "ring": {
+          const [px, py] = at(p.x, p.y);
+          ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.ellipse(px, py, p.rx, p.ry, 0, 0, Math.PI * 2); ctx.stroke();
+          break;
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   /** Small things robots hold on a break: a cup, a snack, a book or a game piece. */
@@ -437,5 +560,6 @@ export class StudioScene {
     this.glows.clear();
     this.base.width = this.base.height = 0;
     this.bloom.width = this.bloom.height = 0;
+    if (this.tint) this.tint.width = this.tint.height = 0;
   }
 }
