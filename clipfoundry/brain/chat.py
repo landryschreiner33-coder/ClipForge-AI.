@@ -464,8 +464,8 @@ def _rules_change(ws: str, pid: str, text: str, base_revision: int | None) -> di
     if not video or not video.get("plan_revision"):
         return None
     try:
-        plan, _assets, _words, rows = er._context(video, video["plan_revision"])  # noqa: SLF001
-        ruled = er.by_rules(text, plan, rows)
+        plan, assets, _words, rows = er._context(video, video["plan_revision"])  # noqa: SLF001
+        ruled = er.by_rules(text, plan, rows, assets)
     except Exception:  # noqa: BLE001 - the rules are a shortcut; the model handles the rest
         return None
     if not ruled or not ruled.get("operations"):

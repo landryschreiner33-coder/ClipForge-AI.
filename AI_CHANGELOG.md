@@ -26,6 +26,15 @@ Batch 4a of Landry's "majorly improve the editing" (plan in
   words in `tests/test_studio_edit_requests.py`, routing in `tests/test_craft.py`. Not verified: real speech at
   extreme speeds, phone footage with variable frame rate.
 
+## ClipForge AI sets "End on the last frame" from words — 2026-11-26 (Claude Code)
+
+After editing batch 3 (PR #83) added "End on the last frame" for music set to Loop, ClipForge AI can set it: "end
+the music on the last frame", "make the song end with the video", "play the song from its start" (rules, no model,
+`studio/edit_requests._back_time_said`), and an AI service may answer `audio_back_time`. Only music set to Loop that
+plays to the end is changed; music that already does it is left alone (ClipForge's own music by default). The app
+guide gained "A full video's sound and music". Details: docs/clipforge/CLIPFORGE_AI.md, "A video's music ending, in
+words".
+
 ## Editing quality, batch 3: full videos (split edits, room tone, music that ends on time) — 2026-11-26 (Claude Code)
 
 Batch 3 of Landry's "majorly improve the editing" (plan in
