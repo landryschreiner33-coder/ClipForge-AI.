@@ -88,6 +88,8 @@ _PLEASANTRY = re.compile(r"^(?:ok(?:ay)?|sure(?: thing)?|alright|all right|of co
                          r"i(?:'ll|’ll| will) (?:make sure|keep|try to make) (?:it|this|that|they|them)\b[^:]*)"
                          r"[\s!.,…]*$", re.I)
 _SENTENCE = re.compile(r"(?<=[.!…])\s+")
+_WILL = re.compile(r"^(?:let me|lemme|i(?:'ll|’ll| will| am going to|'m going to|’m going to| am ready to|'m ready to|"
+                   r"’m ready to))\s+\w", re.I)
 # "Got it: I'm ready to write a two-line hook." (the real Basic model as the Script writer, Nov 26 2026): a pleasantry
 # before a colon starts the sentence like one before a full stop; "Got it: your channel is about biking." is an answer
 _LEAD = re.compile(r"^(?:ok(?:ay)?|sure(?: thing)?|alright|all right|of course|certainly|absolutely|great|no problem|"
@@ -96,18 +98,24 @@ _LEAD = re.compile(r"^(?:ok(?:ay)?|sure(?: thing)?|alright|all right|of course|c
 _GOES_ON = re.compile(r"\s[-–—]\s|[–—;]|,\s*\S")
 
 
-def promise(said: str) -> bool:
+def promise(said: str, helper: bool = False) -> bool:
     """The answer only says what it will look at or do (`_PROMISE`): every sentence does, or is a pleasantry, at
     least one says it, nothing comes after a colon, a dash, a semicolon or a comma (that is the answer itself), and
-    there is no question."""
+    there is no question. `helper`: a helper's answer to a job, which must hold the work itself, so beside a promise
+    any sentence that starts with "I'll …" or "Let me …" ("I'll keep the tone strong and engaging, with a clear hook
+    in the first line.") only says more of what it will do, when no quotes or new lines hold the work."""
     s = " ".join((said or "").split())
     if not s or len(s) > PROMISE_CHARS or "?" in s:
         return False
+    loose = helper and not re.search(r"[“”\"«»]", said or "") and "\n" not in (said or "").strip()
     promised = False
     for part in _SENTENCE.split(s):
         part = _LEAD.sub("", part, count=1)
         if not part or _PLEASANTRY.match(part):
             continue
+        if loose and not _PROMISE.match(part) and _WILL.match(part) and \
+                not part.rstrip(".!… ").partition(":")[2].strip():
+            continue  # more of what it will do; a promise elsewhere in the answer decides
         m = _PROMISE.match(part)
         if not m or _NOT_PROMISE.match(part) or part.rstrip(".!… ").partition(":")[2].strip() or \
                 _GOES_ON.search(part[m.end():]):

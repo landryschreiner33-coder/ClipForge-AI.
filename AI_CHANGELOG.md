@@ -36,6 +36,17 @@ Batch 3 of Landry's "majorly improve the editing" (plan in
 - **Tests:** `tests/test_sound_joins.py` (9 fast, 3 real renders that fail when a feature is turned off) and the
   FilmCraft routing in `tests/test_craft.py`. Not verified: real recordings with real room noise.
 
+## Helpers that promise in more words — 2026-11-26 (Claude Code)
+
+Same thread, after PR #79 merged. The last real-model check (run 45788754134) showed the Script writer answering
+"@Script writer …" with "Got it: I'll write a two-line hook … I'll keep the tone strong and engaging, with a clear
+hook in the first line…". For a helper, `intents.promise(…, helper=True)` reads any "I'll …"/"Let me …" sentence
+beside a promise as more of the promise when no quotes or new lines hold the work; it is asked to write it
+(`NUDGE_DO`), and `_ask_agent` reports it to ClipForge AI. `NUDGE_DO` lists no examples any more (the model copied
+them back), and a helper that still only promises gets one more round with its job alone and no tools, as the
+planner asks it; in the check on that (run 45798706829) the Script writer wrote its hook. Details:
+docs/clipforge/CLIPFORGE_AI.md, "After the sixth check".
+
 ## Editing quality, batch 2: short clips (punch-ins on cuts, sound effects, caption timing) — 2026-11-26 (Claude Code)
 
 Batch 2 of Landry's "majorly improve the editing" (plan in
