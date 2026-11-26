@@ -191,6 +191,96 @@ def _names(rows: list[dict], settings: dict) -> str:
                      f"{_label(r.get('planned_at'), settings)}" for r in rows[:6]) + ("; …" if len(rows) > 6 else "")
 
 
+BULK_MAX = 50  # posts one command changes at once ("all": true)
+BULK_SHOWN = 12  # of them, the lines its card shows
+_BULK_NOISE = frozenset("""all every each my the a an and of for on in at to them these those post posts video videos
+clip clips failed held planned scheduled waiting canceled cancelled approval approve approved retry again cancel
+upcoming""".split())
+_DAYS = {"monday": "mon", "tuesday": "tue", "wednesday": "wed", "thursday": "thu", "friday": "fri", "saturday": "sat",
+         "sunday": "sun"}
+
+
+def find_posts(args: dict, statuses: tuple[str, ...], doing: str) -> list[dict]:
+    """Every post `args` names among posts in `statuses`, for a command on several at once (all: true). post words
+    narrow it, strictly: a post must hold every word of three letters or more ("lake swim": both), and the times
+    ("18:30") and days ("today", "tomorrow", "friday") named; platform and account narrow it too. Soonest first, at
+    most BULK_MAX. Raises ToolError when none fits."""
+    from ..autopilot import scheduler
+
+    settings = _settings()
+    marks = ",".join("?" * len(statuses))
+    rows = db.select("scheduled_publications", f"status IN ({marks})", tuple(statuses),
+                     "planned_at IS NULL, planned_at ASC", 400)
+    if args.get("platform"):
+        rows = [r for r in rows if r["platform"] == args["platform"]]
+    if args.get("account"):
+        who = set(_said_words(str(args["account"])))
+        rows = [r for r in rows if who & set(_said_words(_account(r)[1]))]
+    want = str(args.get("post") or "").strip()
+    said = [w for w in _said_words(want) if w not in _BULK_NOISE]
+    days = set()
+    for w in said:
+        if w in ("today", "tomorrow"):
+            days.add(scheduler._local(time.time() + (86400 if w == "tomorrow" else 0), settings).date())
+    words = {_DAYS.get(w, w) for w in said if len(w) > 2 and w not in ("today", "tomorrow")}
+    times = set(re.findall(r"\d{1,2}:\d{2}", want))
+    if words or times or days:
+        def fits(r: dict) -> bool:
+            have = _post_words(r, settings).lower()
+            on = scheduler._local(r["planned_at"], settings).date() if r.get("planned_at") else None
+            return words <= set(_said_words(have)) and all(t in have for t in times) and (not days or on in days)
+
+        rows = [r for r in rows if fits(r)]
+    if not rows:
+        raise ToolError(f"There is no post that {doing}" + (f" matching “{one_line(want, 60)}”" if want else "") +
+                        (" on that account or platform" if args.get("platform") or args.get("account") else "") +
+                        ". Use posts to see them all.")
+    return rows[:BULK_MAX]
+
+
+def _bulk_lines(rows: list[dict], settings: dict) -> list[str]:
+    """A card's lines for several posts: one each, then how many more."""
+    lines = [f"“{_post_name(r)}” on {PLATFORM_NAMES.get(r['platform'], r['platform'])} ({_account(r)[1]}), "
+             f"{_label(r.get('planned_at'), settings)}" for r in rows[:BULK_SHOWN]]
+    return lines + ([f"…and {len(rows) - BULK_SHOWN} more."] if len(rows) > BULK_SHOWN else [])
+
+
+def _bulk_preview(rows: list[dict], label: str, settings: dict, *, left_out: list[str] | None = None,
+                  extra: dict | None = None) -> dict:
+    """The one card for a command on several posts: it lists them and always waits for the owner's OK ("ask"), in
+    both modes of Settings → ClipForge AI, so a misread "all" never changes many posts at once."""
+    detail = _bulk_lines(rows, settings)
+    if left_out:
+        detail.append("Left out: " + "; ".join(left_out[:6]) + ("; …" if len(left_out) > 6 else "") + ".")
+    return {"label": label, "detail": detail, "blocked": "", "ask": True,
+            "args": {"posts": [r["id"] for r in rows], "all": True, **(extra or {})}}
+
+
+def _bulk_run(ctx: Ctx, args: dict, one, done: str, label: str) -> Result:
+    """Run the single-post command `one` for each post the card listed; what went wrong with one never stops the
+    others. `done`: what happened, as in "Took 3 posts off the schedule"."""
+    ok, failed, work = [], [], []
+    for pid in args.get("posts") or []:
+        item = db.fetch("scheduled_publications", pid)
+        if not item:
+            failed.append("a post that is not there any more")
+            continue
+        try:
+            res = one(ctx, {**args, "post": pid, "posts": None, "all": None})
+        except ToolError as exc:
+            failed.append(f"“{_post_name(item)}”: {one_line(str(exc), 120)}")
+            continue
+        ok.append(f"“{_post_name(item)}”")
+        work += res.data.get("work") or []
+    text = f"{done} ({len(ok)}): " + ", ".join(ok[:BULK_SHOWN]) + ("…" if len(ok) > BULK_SHOWN else "") + "." \
+        if ok else f"Nothing was done: none of the {len(failed)} post(s) could be."
+    if failed:
+        text += " Could not: " + "; ".join(failed[:6]) + ("; …" if len(failed) > 6 else "") + "."
+    links = [{"label": "Missions → Schedule", "href": "#/missions"}]
+    return Result(text, f"{label} ({len(ok)} of {len(ok) + len(failed)})", {"links": links, "work": work},
+                  ok=bool(ok))
+
+
 def _post_links(item: dict) -> list[dict]:
     return [{"label": f"Open “{_post_name(item)}”", "href": f"#/post/{item['id']}"},
             {"label": "Missions → Schedule", "href": "#/missions"}]
@@ -400,6 +490,13 @@ def _cancel_upload(ctx: Ctx, args: dict) -> Result:
 
 def _cancel_post_preview(ctx: Ctx, args: dict) -> dict:
     settings = _settings()
+    if args.get("all"):
+        rows = find_posts(args, CANCELABLE, "is planned")
+        if len(rows) > 1:
+            pv = _bulk_preview(rows, f"Don't post these {len(rows)} posts", settings)
+            pv["detail"].append("They are taken off the schedule; their clips stay, and Try again plans them again.")
+            return pv
+        args = {**args, "post": rows[0]["id"]}
     item = find_post(args, CANCELABLE, "is planned")
     return {"label": f"Don't post “{_post_name(item)}” on {PLATFORM_NAMES.get(item['platform'], item['platform'])}",
             "detail": [f"Planned for {_label(item.get('planned_at'), settings)}. It is taken off the schedule; its "
@@ -410,6 +507,8 @@ def _cancel_post_preview(ctx: Ctx, args: dict) -> dict:
 def _cancel_post(ctx: Ctx, args: dict) -> Result:
     from ..autopilot import routes
 
+    if args.get("posts"):
+        return _bulk_run(ctx, args, _cancel_post, "Took them off the schedule", "Took posts off the schedule")
     try:
         out = routes.cancel_item(str(args.get("post") or ""))
     except HTTPException as exc:
@@ -419,6 +518,14 @@ def _cancel_post(ctx: Ctx, args: dict) -> Result:
 
 
 def _retry_preview(ctx: Ctx, args: dict) -> dict:
+    if args.get("all"):
+        rows = find_posts(args, RETRYABLE, "failed, is held or was canceled")
+        if len(rows) > 1:
+            pv = _bulk_preview(rows, f"Try these {len(rows)} posts again", _settings())
+            pv["detail"].append("Each gets a new time; one goes out only with a valid approval (otherwise it asks you "
+                                "again).")
+            return pv
+        args = {**args, "post": rows[0]["id"]}
     item = find_post(args, RETRYABLE, "failed, is held or was canceled")
     why = one_line(item.get("last_error") or item.get("status_note") or "", 160)
     return {"label": f"Try “{_post_name(item)}” again on {PLATFORM_NAMES.get(item['platform'], item['platform'])}",
@@ -430,6 +537,8 @@ def _retry_preview(ctx: Ctx, args: dict) -> dict:
 def _retry(ctx: Ctx, args: dict) -> Result:
     from ..autopilot import routes
 
+    if args.get("posts"):
+        return _bulk_run(ctx, args, _retry, "Trying them again", "Tried posts again")
     try:
         out = routes.retry_item(str(args.get("post") or ""))
     except HTTPException as exc:
@@ -546,8 +655,34 @@ def _approve_preview(ctx: Ctx, args: dict) -> dict:
 
     settings = _settings()
     now = bool(args.get("now"))
-    item = find_post(args, ("awaiting_approval", "failed", *(("approved",) if now else ())), "waits for approval"
-                     if not now else "can be approved or posted")
+    statuses = ("awaiting_approval", "failed", *(("approved",) if now else ()))
+    doing = "waits for approval" if not now else "can be approved or posted"
+    if args.get("all"):
+        rows = find_posts(args, statuses, doing)
+        if len(rows) > 1:  # each is checked as the post page checks it; one that cannot be approved is left out
+            good, left = [], []
+            for r in rows:
+                problems = [] if r["status"] == "approved" and r["platform"] != "tiktok" \
+                    else _approve_problems(r, settings)
+                if now and settings.get("autopilot_publishing_paused"):
+                    problems.append("publishing is paused (Office → bottom bar)")
+                if problems:
+                    left.append(f"“{_post_name(r)}”: {problems[0]}")
+                else:
+                    good.append(r)
+            verb = "Approve and post" if now else "Approve"
+            if not good:
+                return {"label": f"{verb} {len(rows)} posts", "detail": [f"“{_post_name(r)}”" for r in rows[:6]],
+                        "blocked": "None of them can be approved here: " + "; ".join(left[:4]) + ".",
+                        "args": {"posts": [], "all": True}}
+            pv = _bulk_preview(good, f"{verb} these {len(good)} posts", settings, left_out=left,
+                               extra={"now": now, "accounts": [item_account(r) for r in good]})
+            pv["detail"].append("They go out now." if now else "Each goes out at its time" + (
+                "" if settings.get("autopilot_auto_publish") else " once you press Publish now (automatic publishing "
+                "is off)") + ".")
+            return pv
+        args = {**args, "post": rows[0]["id"]}
+    item = find_post(args, statuses, doing)
     platform = PLATFORM_NAMES.get(item["platform"], item["platform"])
     # an approved post that goes out now is still checked when it is a TikTok post: ClipForge AI never posts there
     problems = [] if item["status"] == "approved" and item["platform"] != "tiktok" \
@@ -573,6 +708,11 @@ def _approve(ctx: Ctx, args: dict) -> Result:
     from ..autopilot import routes
     from ..autopilot.targets import item_account
 
+    if args.get("posts"):  # each with the account its card showed (as one post's card does)
+        accounts = dict(zip(args["posts"], args.get("accounts") or []))
+        return _bulk_run(ctx, args, lambda c, a: _approve(c, {**a, "account": accounts.get(a["post"], "")}),
+                         "Posting them now" if args.get("now") else "Approved them",
+                         "Posted now" if args.get("now") else "Approved posts")
     item = db.fetch("scheduled_publications", str(args.get("post") or ""))
     if not item:
         raise ToolError("That post is not there any more.")
@@ -1492,6 +1632,10 @@ POST_HELP = ("post: words from its title or video, or its time (\"18:30\", \"Nov
              "it")
 CLIP = {"project": TEXT, "clip": TEXT}
 NOT_AGENTS = {"for_agents": False}
+BULK = {"all": {"type": "boolean"},
+        "posts": {"type": "array", "items": {"type": "string"}, "maxItems": BULK_MAX, "internal": True}}
+BULK_HELP = ("; all: true for every post that fits (post words, platform and account narrow it): one card lists them "
+             "and waits for the owner's OK")
 ALONE = {"for_agents": False, "alone": True}  # a change made at once when the owner lets ClipForge AI act alone
 
 register(Tool("posts", "the owner's planned, uploading, failed and posted posts with their times (in the Autopilot "
@@ -1517,11 +1661,12 @@ register(Tool("fix_post_conflicts", "move every post that is too close to anothe
 register(Tool("cancel_upload", "cancel a post that is uploading now (nothing is posted). " + POST_HELP,
               {"type": "object", "properties": POST}, _cancel_upload, "change", "Cancel the upload of {post}",
               preview=_cancel_upload_preview, **ALONE))
-register(Tool("cancel_post", "take a planned post off the schedule so it is not posted. " + POST_HELP,
-              {"type": "object", "properties": POST}, _cancel_post, "change", "Don't post {post}",
+register(Tool("cancel_post", "take a planned post off the schedule so it is not posted. " + POST_HELP + BULK_HELP,
+              {"type": "object", "properties": {**POST, **BULK}}, _cancel_post, "change", "Don't post {post}",
               preview=_cancel_post_preview, **ALONE))
 register(Tool("retry_post", "try a failed, held or canceled post again (it still needs a valid approval). "
-              + POST_HELP, {"type": "object", "properties": POST}, _retry, "change", "Try {post} again",
+              + POST_HELP + BULK_HELP, {"type": "object", "properties": {**POST, **BULK}}, _retry, "change",
+              "Try {post} again",
               preview=_retry_preview, **ALONE))
 register(Tool("restart_work", "start a stalled, failed or stopped project (or one clip's render) again. project: its "
               "name; clip: its number or title words (for one render)",
@@ -1573,9 +1718,11 @@ register(Tool("edit_post", "change a planned post's own title, description or ha
               _edit_post, "change", "Change the text of {post}", preview=_edit_post_preview, **ALONE))
 register(Tool("approve_post", "approve a post that waits for approval so it goes out at its time; now: true to post "
               "it right away (also an approved one). YouTube only: TikTok posts need the owner's OK on their page. "
-              + POST_HELP,
-              {"type": "object", "properties": {**POST, "now": {"type": "boolean"},
-                                                "account": {"type": "string", "internal": True}}},
+              + POST_HELP + BULK_HELP,
+              {"type": "object", "properties": {**POST, **BULK, "now": {"type": "boolean"},
+                                                "account": {"type": "string", "internal": True},
+                                                "accounts": {"type": "array", "items": {"type": "string"},
+                                                             "maxItems": BULK_MAX, "internal": True}}},
               _approve, "change", "Approve {post}", preview=_approve_preview, **ALONE))
 register(Tool("set_clip_text", "use the owner's own title, hashtags or hook for a clip (exactly their words)",
               {"type": "object", "properties": {**CLIP, "title": TEXT, "hashtags": TEXT, "hook": TEXT,

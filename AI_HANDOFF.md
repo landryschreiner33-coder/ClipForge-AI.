@@ -6,12 +6,14 @@
 looked, stopped at "Here are your projects:" with no projects, or pretended to be a helper. Now ClipForge AI catches
 those slips: a plainly asked request ("how are my clips doing?", "what projects do I have?", "delete the project X")
 gets its one tool even when the model forgets, the model is asked once more when it only repeats you, a list it
-leaves out is added from the app's own data, and "ask the Script writer …" goes straight to that helper.
+leaves out is added from the app's own data, and "ask the Script writer …" goes straight to that helper. It can also
+cancel, retry or approve several posts at once ("cancel all my posts for tomorrow"), with one card to OK.
 
 - **Where things are:** `brain/intents.py` (`echo`, `promise`, `stops_short`, `handoff`, `guess`);
   `assistant.think` (`said`, `first`, `fallback`, `_slip`, `NUDGES`, `_show`, `_covered`, `_BRACKET`);
   `tools.Result.show` filled by find_projects, recall, posts, work, missions and results; docs in
-  docs/clipforge/CLIPFORGE_AI.md, "Guards for a small model".
+  docs/clipforge/CLIPFORGE_AI.md, "Guards for a small model". Several posts at once: `operations.find_posts`,
+  `_bulk_preview`, `_bulk_run`, `BULK`.
 - **Worth knowing:** a guard only steps in when nothing was done yet in the answer and the round used no tool; it
   never deletes (a delete it reads shows its card, which waits for the OK). `data.guards` on a chat message says what
   was caught; scripts/assistant_check.py prints it. "Ask the critic …" now runs the helper before the model's first

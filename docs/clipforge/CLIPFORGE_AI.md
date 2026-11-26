@@ -1033,6 +1033,16 @@ on its own you dont have to say ok". So:
 - **Reviewing helpers:** after `ask_agent` the model always reads the helper's work before the answer ends, and its
   rules make it the reviewer (check, correct, then use it).
 - **Long chats** keep 5,000 messages (`chat.KEEP`, was 200); the page loads the newest 400 (`chat.SHOW`).
+- **Several posts at once** (added later on 2026-11-26): `cancel_post`, `retry_post` and `approve_post` take
+  `all: true` ("cancel all my posts for tomorrow", "retry every failed post", "approve all my YouTube posts").
+  `operations.find_posts` narrows them strictly: a post must hold every post word of three letters or more, the times
+  ("14:00") and the days named ("today", "tomorrow", a weekday), and platform and account narrow it too; at most
+  `BULK_MAX` (50). One card lists them (`_bulk_preview`, 12 lines then "…and N more") and always waits for the
+  owner's OK, in both modes, so a misread "all" never changes many posts on its own; when only one post fits, it is
+  the ordinary one-post command (done at once when ClipForge AI acts alone). `approve_post` checks each post as the
+  post page does and lists what it leaves out and why (a TikTok post always: its own page). OK runs the one-post
+  command for each (`_bulk_run`); one that cannot change any more (it went out meanwhile) is named, and the others
+  still change.
 
 ## API
 

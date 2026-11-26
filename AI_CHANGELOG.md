@@ -14,6 +14,9 @@ instead of handing the job over. Details: docs/clipforge/CLIPFORGE_AI.md, "Guard
   words; a look tool's listing (`Result.show`) the answer leaves out is added. What a guard caught is saved as
   `data.guards`.
 - The real-model check prints the guards and has a new turn, "How are my clips doing?".
+- **Several posts at once:** `cancel_post`, `retry_post` and `approve_post` take `all: true`; post words, days
+  ("tomorrow") and times narrow them strictly; one card lists them and always waits for the OK; one post that cannot
+  change never stops the others.
 
 ## ClipForge AI reads your results; the ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code)
 
