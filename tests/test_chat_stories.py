@@ -460,3 +460,297 @@ def test_the_exported_chat_is_full_size_with_the_card_in_the_middle(env):
     assert np.abs(last[1700, 540] - np.array(cs.THEMES["light"]["card"])).max() > 20   # below the card: background
     r = c.get(f"{url}/file/export", params={"download": True})
     assert r.status_code == 200 and "attachment" in r.headers.get("content-disposition", "")
+
+
+# ------------------------------------------------------------------ review fixes (2026-11-26)
+def test_symbols_and_other_scripts_are_drawn_never_dropped():
+    # ★ ✓ ✗ ♪ are not in the colour emoji font: drawn as letters, never an empty bubble
+    assert cs._measure("★★★★★", 35) > 100   # noqa: SLF001
+    assert cs._measure("rate it ✓ or ✗ ♪", 35) > cs._measure("rate it  or", 35) + 40   # noqa: SLF001
+    card = cs.Card(1.0, "dark", "Sienna", 0)
+    pic, bw, bh, room = card.bubble("★★★★★", "them", True)
+    ink = np.asarray(pic.convert("RGB")).astype(int)[:, room:room + bw]
+    text = np.array(cs.THEMES["dark"]["them_text"])
+    assert (np.abs(ink - text).max(axis=2) < 40).sum() > 200   # the stars' letters are there
+    # each letter is drawn with a font of this computer that has it, not the first font found
+    dejavu = next((p for p in cs._other_paths() if p.endswith("DejaVuSans.ttf")), "")   # noqa: SLF001
+    if dejavu:
+        assert cs._has_glyph(dejavu, "★") and not cs._has_glyph(dejavu, "中")   # noqa: SLF001
+    cjk = cs._path_for("中")   # noqa: SLF001
+    if cjk:
+        assert cs._has_glyph(cjk, "中") and cjk != dejavu   # noqa: SLF001
+        assert [part for _, part in cs._segments("ok 中文", 35)] == ["ok ", "中文"]   # noqa: SLF001
+
+
+def test_a_group_senders_emoji_name_is_drawn_as_an_emoji():
+    if cs._emoji_font() is None:   # noqa: SLF001
+        pytest.skip("no colour emoji font on this computer")
+    resolved = cs.resolve("👻: boo\nJake: who\nMe: stop", {})
+    card = cs.Card(1.0, "dark", resolved["contact"], 0)
+    places = card.layout(resolved["messages"])
+    assert places[0]["label"] == "👻"
+    pic = np.asarray(card.state(resolved["messages"], places, 0).convert("RGB")).astype(int)
+    y = int(places[0]["label_y"])
+    label = pic[y:y + cs.SENDER_H, cs.SIDE:cs.SIDE + 80]
+    # a colour picture (the ghost is white and grey with black eyes, so look for its light pixels on the dark card)
+    assert (label.min(axis=2) > 150).sum() > 30
+
+
+def test_the_preview_breaks_lines_and_pages_where_the_video_does():
+    script = "\n".join(f"{'Sienna' if i % 3 else 'Me'}: " + "words " * (i % 17 + 1) + "😤 end" for i in range(80))
+    msgs = cs.resolve(script, {})["messages"]
+    full, third = cs.Card(1.0, "dark", "Sienna", 3), cs.Card(1 / 3, "dark", "Sienna", 3)
+    a, b = full.layout(msgs), third.layout(msgs)
+    assert [p["page"] for p in a] == [p["page"] for p in b] and len({p["page"] for p in a}) >= 3
+    assert all(abs(x["top"] - y["top"] * 3) < 0.01 for x, y in zip(a, b))
+    for p in b:
+        assert p["top"] + p["h"] <= third.max_h + 1
+
+
+def test_a_very_long_message_fits_its_page_and_ends_with_dots():
+    lines, _ = cs.bubble_lines("😤" * 300)
+    assert len(lines) == cs.MAX_LINES and lines[-1].endswith("…")
+    for first in ("😤" * 300, "W" * 320, "word " * 64):
+        msgs = cs.resolve(f"Sienna: {first}\nMe: ok\nSienna: and?", {})["messages"]
+        card = cs.Card(1.0, "dark", "Sienna", 0)
+        places = card.layout(msgs)
+        for p in places:
+            assert p["top"] + p["h"] + cs.BOTTOM_PAD <= card.max_h + 1, first[:5]
+    # the first bubble stays under the header (the video opens on whose chat it is), cut to the lines that fit there
+    msgs = cs.resolve("Sienna: " + "😤" * 170, {})["messages"]
+    assert len(cs.bubble_lines(msgs[0]["text"])[0]) > cs.first_lines(False) == 16
+    card = cs.Card(1.0, "dark", "Sienna", 0)
+    places = card.layout(msgs)
+    assert places[0]["page"] == 0 and places[0]["top"] + places[0]["h"] + cs.BOTTOM_PAD <= card.max_h + 1
+    pic = card.state(msgs, places, 0)
+    assert np.abs(np.asarray(pic.convert("RGB"))[40, 60].astype(int) - np.array(cs.THEMES["dark"]["head"])).max() < 14
+
+
+def test_preview_bubbles_fit_their_words_without_raqm(monkeypatch):
+    # Windows' Pillow usually has no raqm: letters go on whole pixels and a small size comes out wider than a third
+    from PIL import ImageFont
+
+    real = cs._truetype   # noqa: SLF001
+
+    def basic(path, size):
+        try:
+            return ImageFont.truetype(path, size, layout_engine=ImageFont.Layout.BASIC)
+        except TypeError:
+            return real(path, size)
+
+    caches = (cs._font, cs._font_at, cs.bubble_lines, cs._has_glyph, cs._missing_shape)   # noqa: SLF001
+    for c in caches:
+        c.cache_clear()
+    monkeypatch.setattr(cs, "_truetype", basic)
+    try:
+        card = cs.Card(1 / 3, "dark", "Sienna", 0)
+        for text in ("believe little did believe believe little did believe believe",
+                     "little did I know that she believed every single word of it",
+                     "Does it embarrass you that my friend's boyfriend makes seven times your salary?"):
+            pic, bw, bh, room = card.bubble(text, "them", True)
+            lines, _ = cs.bubble_lines(text)
+            assert all(cs._measure(line, card.text) + cs.PAD_X * card.s <= bw for line in lines)   # noqa: SLF001
+    finally:
+        for c in caches:
+            c.cache_clear()
+
+
+def _fake_voice(monkeypatch, fail: set[str] | None = None, rules: dict | None = None):
+    """voice.speak writing a short tone (failing over to another voice for the said words in `fail`), and the tone
+    shaper copying it."""
+    from clipfoundry.makers import voice, voice_styles
+
+    spoken: list[tuple[str, str]] = []
+
+    def speak(said, path, voice="auto", speed=1.0, cancel=None):
+        spoken.append((said, voice))
+        n = int(cs.SR * 0.3)
+        tone = (np.sin(np.arange(n) * 2 * np.pi * 220 / cs.SR) * 8000).astype("<i2")
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(cs.SR)
+            w.writeframes(tone.tobytes())
+        failed = said in (fail or set())
+        return {"fallback": "The chosen voice did not answer, so another one read it." if failed else "",
+                "voice_id": "x:other" if failed else voice, "rule": (rules or {}).get(voice, ""), "original": None}
+
+    monkeypatch.setattr(voice, "speak", speak)
+    monkeypatch.setattr(voice_styles, "shape", lambda src, dst, tone, cancel=None: shutil.copy(src, dst))
+    return spoken
+
+
+def test_a_line_read_by_another_voice_is_recorded_again_next_time(monkeypatch, tmp_path):
+    chat = {"people": {"Sienna": {"voice": "x:ava"}, "Me": {"voice": "x:ben"}}}
+    story = {"script": "Sienna: did you eat it\nMe: no", "chat": chat}
+    spoken = _fake_voice(monkeypatch, fail={"did you eat it"})
+    got = cs.make_voices(story, tmp_path)
+    assert "another one read it" in got["fallback"] and got["fallback"].startswith("Sienna:")
+    kept = sorted(p.name for p in (tmp_path / "lines").iterdir())
+    assert len([k for k in kept if k.endswith(".wav")]) == 1   # only Me's line is kept
+    assert not any(".once." in k or ".new." in k for k in kept)
+    # the chosen voice works again: a new recording (another pace) asks for it again and the note goes
+    _fake_voice(monkeypatch)
+    again = cs.make_voices({**story, "chat": {**chat, "pace": "slow"}}, tmp_path)
+    assert again["fallback"] == "" and len(list((tmp_path / "lines").glob("*.wav"))) == 2
+    assert spoken == [("did you eat it", "x:ava"), ("no", "x:ben")]
+
+
+def test_the_voices_licence_rules_come_from_every_line(monkeypatch, tmp_path):
+    chat = {"people": {"Sienna": {"voice": "x:ava"}, "Me": {"voice": "x:ben"}}}
+    story = {"script": "Sienna: did you eat it\nMe: no", "chat": chat}
+    _fake_voice(monkeypatch, rules={"x:ava": "Say the voice is made by Ava Labs.", "x:ben": "Credit Ben Voices."})
+    got = cs.make_voices(story, tmp_path)
+    assert "Sienna: Say the voice is made by Ava Labs." in got["rule"] and "Me: Credit Ben Voices." in got["rule"]
+    # Me's line changes: Sienna's comes from what was kept, and her voice's rule stays on the page
+    spoken = _fake_voice(monkeypatch, rules={"x:ben": "Credit Ben Voices."})
+    again = cs.make_voices({**story, "script": "Sienna: did you eat it\nMe: no way"}, tmp_path)
+    assert spoken == [("no way", "x:ben")] and "Ava Labs" in again["rule"]
+    # one voice for both: its rule once, as it is
+    _fake_voice(monkeypatch, rules={"x:ava": "Say the voice is made by Ava Labs."})
+    one = cs.make_voices({**story, "chat": {"people": {"Sienna": {"voice": "x:ava"}, "Me": {"voice": "x:ava"}}}},
+                         tmp_path)
+    assert one["rule"] == "Say the voice is made by Ava Labs."
+
+
+def test_reading_without_voices_keeps_the_recorded_lines(monkeypatch, tmp_path):
+    story = {"script": "Sienna: did you eat it\nMe: no", "chat": {}}
+    _fake_voice(monkeypatch)
+    cs.make_voices(story, tmp_path)
+    assert len(list((tmp_path / "lines").glob("*.wav"))) == 2
+    cs.make_voices({**story, "chat": {"read_aloud": False}}, tmp_path)
+    assert len(list((tmp_path / "lines").glob("*.wav"))) == 2
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs FFmpeg")
+def test_every_card_picture_starts_on_its_own_frame(tmp_path):
+    msgs = cs.resolve("Sienna: one\nMe: two\nSienna: three", {})["messages"]
+    # bubbles that come in just before a 1/25 s step: FFmpeg's picture reader would round both rise pictures together
+    times = [{"show": 0.0, "at": 0.1, "end": 1.0}, {"show": 3.182, "at": 3.282, "end": 4.0},
+             {"show": 4.398, "at": 4.498, "end": 5.0}]
+    listing = cs.make_cards({"script": "Sienna: one\nMe: two\nSienna: three", "chat": {}},
+                            {"times": times, "total": 6.2}, (360, 640), tmp_path / "cards")
+    text = listing.read_text(encoding="utf-8")
+    assert text.count("option framerate 30") == text.count("file '")   # FFmpeg 5 or later takes it
+    got = subprocess.run(["ffprobe", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
+                          "-show_entries", "frame=pts_time", "-of", "csv=p=0"], capture_output=True, text=True,
+                         check=True).stdout.split()
+    starts = [round(float(t) * 30) for t in got]
+    # the first bubble, three pictures for each later one, and the last picture once more at the end
+    assert len(starts) == 1 + 3 * (len(msgs) - 1) + 1 and len(set(starts)) == len(starts)
+    assert starts[1:4] == [95, 96, 97] and starts[-1] == 186   # 3.182 s is frame 95; the end at 6.2 s
+
+
+def test_a_script_line_reads_back_the_same():
+    tricky = [{"who": "Me", "text": "//sigh"}, {"who": "Sienna", "text": "\\o/ yay"}, {"who": "Me", "text": "ok: fine"}]
+    script = "\n".join(cs.write_line(m["who"], m["text"]) for m in tricky)
+    assert cs.parse(cs.clean_script(script)) == tricky
+
+
+def test_a_revision_never_loses_a_person_whose_name_lost_its_emoji(monkeypatch):
+    from clipfoundry.makers import writer
+
+    unknown: list[str] = []
+    rows = writer._chat_rows([{"from": "Ben", "text": "hey"}, {"from": "Ben 😤", "text": "yo"},   # noqa: SLF001
+                              {"from": "Carl", "text": "who"}], ["Ben 😤", "Me"], [], unknown)
+    assert [r["from"] for r in rows] == ["Ben 😤", "Ben 😤"] and unknown == ["Carl"]
+    monkeypatch.setattr(writer, "_usable", lambda settings: True)
+    asks: list[str] = []
+
+    def fake(system, schema, settings, prompt, cancel, beat, message):
+        asks.append(prompt)
+        return json.dumps({"messages": [{"from": "Stranger", "text": "HI"}, {"from": "Me", "text": "HEY"}]})
+
+    monkeypatch.setattr(writer, "_ask_with", fake)
+    got = writer.write_chat("", tone="drama", length="short", settings={}, workspace_id="w",
+                            current={"script": "Ben 😤: hi\nMe: hey"}, change="shout", remember=False)
+    # asked again with what was wrong, then the chat was kept as it was
+    assert len(asks) == 2 and "Stranger, who is not in the chat" in asks[1]
+    assert got["script"] == "Ben 😤: hi\nMe: hey" and "kept as it was" in " ".join(got["notes"])
+
+
+def test_a_long_story_part_answered_with_a_word_is_kept(monkeypatch):
+    from clipfoundry.makers import writer
+
+    asks: list[str] = []
+
+    def fake(system, schema, settings, prompt, cancel, beat, message):
+        asks.append(prompt)
+        if "Part 1 now" in prompt:
+            return json.dumps({"text": "Unchanged."})
+        return json.dumps({"text": "the second part, now with a dog in it " * 30})
+
+    monkeypatch.setattr(writer, "_ask_with", fake)
+    one = " ".join(["first"] * (writer.PART_WORDS - 10))
+    two = " ".join(["second"] * (writer.PART_WORDS - 10))
+    notes: list[str] = []
+    got = writer._revise_long_story("", {"title": "T", "script": f"{one}\n\n{two}"}, "add a dog", {},   # noqa: SLF001
+                                    None, None, notes)
+    assert got.startswith(one) and "dog" in got and "Unchanged" not in got
+    assert len(asks) == 3 and "it had 1 words" in asks[1]
+    assert notes == ["Part 1 was kept as it was: ClipForge AI's answer for it could not be used."]
+
+
+def test_a_short_closing_part_and_a_cut_chat_are_revised(monkeypatch):
+    from clipfoundry.makers import writer
+
+    def fake(system, schema, settings, prompt, cancel, beat, message):
+        if "Part 3 now" in prompt:
+            return json.dumps({"text": "And she never called me again."})
+        if "Part" in prompt and "now: <<<" in prompt:
+            return json.dumps({"text": prompt.split("now: <<<", 1)[1].split(">>>", 1)[0]})
+        msgs = [{"from": "Mom", "text": "dinner?"}, {"from": "Jake", "text": "yes"}]
+        return json.dumps({"messages": msgs})
+
+    monkeypatch.setattr(writer, "_ask_with", fake)
+    monkeypatch.setattr(writer, "_usable", lambda settings: True)
+    script = "\n\n".join(" ".join(["word"] * 50) for _ in range(12)) + "\n\nAnd she never texted me again."
+    notes: list[str] = []
+    got = writer._revise_long_story("", {"title": "T", "script": script}, "she called, not texted", {},   # noqa: SLF001
+                                    None, None, notes)
+    assert got.endswith("And she never called me again.") and notes == []
+    chat = "\n".join(f"{'Mom' if i % 2 else 'Jake'}: message {i}" for i in range(20))
+    cut = writer.write_chat("", tone="drama", length="short", settings={}, workspace_id="w",
+                            current={"script": chat}, change="Cut it down to the best two messages", remember=False)
+    assert cut["script"] == "Mom: dinner?\nJake: yes" and not any("kept as it was" in n for n in cut["notes"])
+
+
+def test_automatic_whose_phone_stays_with_the_same_person_after_a_revision(env, monkeypatch):
+    from clipfoundry.makers import writer
+
+    monkeypatch.setattr(writer, "_usable", lambda settings: True)
+    # the revision makes Jake write first: Automatic would now pick Mom
+    monkeypatch.setattr(writer, "_ask_with", lambda *a: json.dumps({"messages": [
+        {"from": "Jake", "text": "sorry I'm late"}, {"from": "Mom", "text": "where are you"},
+        {"from": "Jake", "text": "on my way"}, {"from": "Mom", "text": "ok"}]}))
+    c = env["client"]
+    story = c.post("/api/studio/text-stories", json={"kind": "chat",
+                                                     "script": "Mom: where are you\nJake: on my way\nMom: ok"}).json()
+    url = f"/api/studio/text-stories/{story['id']}"
+    assert c.get(url).json()["chat"]["whose_phone"] == "Jake"
+    assert c.get(url).json()["chat"]["auto_phone"] == "Jake"
+    c.post(f"{url}/write", json={"change": "Jake opens with an apology"})
+    assert [j["status"] for j in _run(env)] == ["done"]
+    got = c.get(url).json()
+    assert got["chat"]["messages"][0]["who"] == "Jake" and got["chat"]["whose_phone"] == "Jake"
+    assert got["chat"]["messages"][0]["side"] == "me" and got["chat"]["auto_phone"] == "Mom"
+    # a chosen person who has left the chat (renamed in the text) is no help either: the phone stays put
+    c.patch(url, json={"chat": {"me": "Jake"}})
+    c.patch(url, json={"script": "Mom: where are you\nJacob: on my way\nMom: ok"})
+    monkeypatch.setattr(writer, "_ask_with", lambda *a: json.dumps({"messages": [
+        {"from": "Jacob", "text": "sorry"}, {"from": "Mom", "text": "where are you"}, {"from": "Jacob", "text": "omw"}]}))
+    assert c.get(url).json()["chat"]["whose_phone"] == "Jacob"
+    c.post(f"{url}/write", json={"change": "Jacob opens with an apology"})
+    assert [j["status"] for j in _run(env)] == ["done"]
+    assert c.get(url).json()["chat"]["whose_phone"] == "Jacob"
+
+
+def test_switching_a_chat_to_narrated_and_back_keeps_its_messages(env):
+    c = env["client"]
+    story = c.post("/api/studio/text-stories", json={"kind": "chat", "script": CHAT}).json()
+    url = f"/api/studio/text-stories/{story['id']}"
+    narrated = c.patch(url, json={"kind": "narrated"}).json()
+    assert narrated["kind"] == "narrated" and narrated["script"].count("\n\n") == 3
+    back = c.patch(url, json={"kind": "chat"}).json()
+    assert back["script"] == CHAT and [m["text"] for m in back["chat"]["messages"]] == [
+        m["text"] for m in cs.parse(CHAT)]

@@ -570,6 +570,10 @@ def _write_long_story(head: str, topic: str, tone: str, lo: int, hi: int, settin
     return title, _no_outro("\n\n".join(written), notes)
 
 
+_CUTS = re.compile(r"\b(short|shorter|shorten|cut|trim|tighten|condense|remove|delete|drop|less|fewer|half|"
+                   r"skip|lose)\b", re.I)
+
+
 def _revise_long_story(head: str, current: dict, change: str, settings: dict, cancel, beat,
                        notes: list[str]) -> str:
     """A long story revised a part at a time (paragraphs grouped to about PART_WORDS words), each part seeing the
@@ -581,6 +585,7 @@ def _revise_long_story(head: str, current: dict, change: str, settings: dict, ca
             chunks.append([])
         chunks[-1].append(p)
     out: list[str] = []
+    cutting = bool(_CUTS.search(change))
     for k, chunk in enumerate(chunks):
         if cancel and cancel():
             raise Cancelled("Stopped.")
@@ -597,10 +602,22 @@ def _revise_long_story(head: str, current: dict, change: str, settings: dict, ca
         message = f"ClipForge AI is revising part {k + 1} of {len(chunks)}"
         if beat:
             beat(message)
-        try:
-            text = _story_text(_parse(_ask_with(STORY_SYSTEM, PART_SCHEMA, settings, prompt, cancel, beat,
-                                                message)).get("text"), MAX_STORY_CHARS)
-        except ValueError:
+        # an answer far shorter than the part ("Unchanged.") would throw the part away: asked again, then the part
+        # stays as it was. A change that cuts may shorten a part a lot, never to a line.
+        n_now = len(text_now.split())
+        # (a short closing line can come back as short as it is)
+        least = min(8 if cutting else max(8, round(n_now * 0.4)), max(1, round(n_now * 0.6)))
+        ask, text = prompt, ""
+        for attempt in range(2):
+            try:
+                text = _story_text(_parse(_ask_with(STORY_SYSTEM, PART_SCHEMA, settings, ask, cancel, beat,
+                                                    message)).get("text"), MAX_STORY_CHARS)
+            except ValueError:
+                text = ""
+            if len(text.split()) >= least:
+                break
+            ask = prompt + (f"\n\nYour last answer could not be used: it had {len(text.split())} words, and part "
+                            f"{k + 1} has {len(text_now.split())}. Give back the whole part, revised as asked.")
             text = ""
         out.append(text or text_now)   # an answer that could not be used keeps the part as it was
         if not text:
@@ -754,22 +771,37 @@ def _messages_schema(names: list[str], lo: int, hi: int, extra: dict | None = No
     return {"type": "object", "properties": props, "required": list(props)}
 
 
-def _chat_rows(raw, names: list[str], notes: list[str]) -> list[dict]:
+def _who_key(name: str) -> str:
+    return " ".join(name.replace("\ufe0f", "").replace("\ufe0e", "").split()).casefold()
+
+
+def _chat_rows(raw, names: list[str], notes: list[str], unknown: list[str] | None = None) -> list[dict]:
     """The model's messages, checked: a known sender, the words only (a "Name:" it wrote in front is taken off),
-    nothing empty, a long message cut into bubbles at its sentences, no outro at the end."""
+    nothing empty, a long message cut into bubbles at its sentences, no outro at the end. A sender is known by their
+    name ("Ben 😤"), or by its letters alone ("Ben") when only one person has them; the senders nobody in the chat
+    has go to `unknown`."""
     from . import chatstory
 
-    by_low = {n.casefold(): n for n in names}
+    by_low = {_who_key(n): n for n in names}
+    letters: dict[str, list[str]] = {}
+    for n in names:
+        letters.setdefault(chatstory.plain(n).casefold(), []).append(n)
+    by_letters = {k: v[0] for k, v in letters.items() if k and len(v) == 1}
     out: list[dict] = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        who = by_low.get(_text(item.get("from"), 40).casefold())
+        sender = _text(item.get("from"), 40)
+        who = by_low.get(_who_key(sender)) or by_letters.get(chatstory.plain(sender).casefold())
         text = _text(item.get("text"), MAX_CHAT_TEXT * 3)
-        if who is None or not text:
+        if not text:
+            continue
+        if who is None:
+            if unknown is not None:
+                unknown.append(sender)
             continue
         m = re.match(r"^\s*([^:]{1,32}):\s*(.+)$", text)
-        if m and m.group(1).strip().casefold() in by_low:
+        if m and _who_key(m.group(1)) in by_low:
             text = m.group(2).strip()
         pieces = [text]
         if len(text) > MAX_CHAT_TEXT:
@@ -792,7 +824,9 @@ def _chat_rows(raw, names: list[str], notes: list[str]) -> list[dict]:
 
 
 def _chat_lines(rows: list[dict], label: dict) -> list[str]:
-    return [f"{label[r['from']]}: {r['text']}" for r in rows]
+    from . import chatstory
+
+    return [chatstory.write_line(label[r["from"]], r["text"]) for r in rows]
 
 
 def _contact(raw: object) -> tuple[str, str]:
@@ -843,7 +877,7 @@ def write_chat(topic: str, *, tone: str, length: str, settings: dict, workspace_
         msgs = chatstory.parse(script)
         while msgs and (len(msgs) > chatstory.MAX_MESSAGES or chatstory.words_in(msgs) > chatstory.MAX_WORDS):
             msgs = msgs[:-10]
-        script = "\n".join(f"{m['who']}: {m['text'][:chatstory.MAX_MESSAGE_CHARS]}" for m in msgs)
+        script = "\n".join(chatstory.write_line(m["who"], m["text"][:chatstory.MAX_MESSAGE_CHARS]) for m in msgs)
         notes.append("The chat came out longer than one video holds, so its last messages were left out.")
     count = len(chatstory.parse(script))
     if count == 0:
@@ -957,13 +991,14 @@ def _revise_chat(head: str, current: dict, change: str, settings: dict, cancel, 
     me = chatstory.whose_phone(names, str(current.get("me") or ""))
     who = ", ".join(f"{n}{' (the phone’s owner)' if n == me else ''}" for n in names)
     chunks = [msgs[i:i + CHAT_REVISE_PART] for i in range(0, len(msgs), CHAT_REVISE_PART)] or [[]]
+    cutting = bool(_CUTS.search(change))   # a change that cuts may leave a part with few messages
     out: list[str] = []
     for k, chunk in enumerate(chunks):
         if cancel and cancel():
             raise Cancelled("Stopped.")
-        now = "\n".join(f"{m['who']}: {m['text']}" for m in chunk)
+        now = "\n".join(chatstory.write_line(m["who"], m["text"]) for m in chunk)
         before = "\n".join(out[-8:])
-        lo, hi = max(1, len(chunk) // 2), len(chunk) * 2 + 10
+        lo, hi = (1 if cutting else max(1, len(chunk) // 2)), len(chunk) * 2 + 10
         prompt = head + (
             ("Revise this text-message story as the owner asks. " if len(chunks) == 1 else
              f"Revise part {k + 1} of {len(chunks)} of a text-message story as the owner asks. ")
@@ -976,16 +1011,32 @@ def _revise_chat(head: str, current: dict, change: str, settings: dict, cancel, 
                    f"ClipForge AI is revising part {k + 1} of {len(chunks)}")
         if beat:
             beat(message)
-        try:
-            got = _parse(_ask_with(CHAT_SYSTEM, _messages_schema(names, lo, hi), settings, prompt, cancel, beat,
-                                   message))
-        except ValueError:
-            got = {}
-        rows = _chat_rows(got.get("messages"), names, notes)
+        rows: list[dict] = []
+        said: list[str] = []
+        ask = prompt
+        for attempt in range(2):
+            try:
+                got = _parse(_ask_with(CHAT_SYSTEM, _messages_schema(names, lo, hi), settings, ask, cancel, beat,
+                                       message))
+            except ValueError:
+                got = {}
+            said, unknown = [], []
+            rows = _chat_rows(got.get("messages"), names, said, unknown)
+            if rows and not unknown and len(rows) >= lo:
+                break
+            # a message from someone not in the chat would be dropped, and with it maybe a whole person: never
+            # kept; nor an answer with far fewer messages than the part
+            why = (f"it had messages from {', '.join(dict.fromkeys(unknown))[:120]}, who is not in the chat"
+                   if unknown else f"it had {len(rows)} messages, and this part needs at least {lo}" if rows else
+                   "it was not the JSON object asked for")
+            ask = prompt + (f"\n\nYour last answer could not be used: {why}. Write it again; every message is from "
+                            f"one of: {', '.join(names)}.")
+            rows = []
         if rows:
             out += _chat_lines(rows, {n: n for n in names})
+            notes.extend(n for n in said if n not in notes)
         else:
-            out += now.split("\n")
+            out += [chatstory.write_line(m["who"], m["text"]) for m in chunk]
             notes.append(f"Part {k + 1} was kept as it was: ClipForge AI's answer for it could not be used."
                          if len(chunks) > 1 else "The chat was kept as it was: ClipForge AI's answer could not be "
                          "used.")

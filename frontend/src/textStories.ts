@@ -27,7 +27,7 @@ export type ChatMessage = { who: string; text: string; side: "me" | "them"; labe
 export type StoryChat = {
   contact: string; me: string; people: Record<string, PersonVoice>; theme: string; badge: number; sounds: boolean;
   read_aloud: boolean; pace: string;
-  names: string[]; whose_phone: string; shown_contact: string; group: boolean; messages: ChatMessage[];
+  names: string[]; whose_phone: string; auto_phone: string; shown_contact: string; group: boolean; messages: ChatMessage[];
 };
 export type ChatPatch = Partial<{ contact: string; me: string; people: Record<string, PersonVoice | null>;
   theme: string; badge: number; sounds: boolean; read_aloud: boolean; pace: string }>;

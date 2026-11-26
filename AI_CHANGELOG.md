@@ -36,9 +36,32 @@ anything yet only merge what's done". Branch `claude/project-thread-gjc836`. The
 - **Rendering:** the card's pictures are drawn with Pillow (Inter, bundled; colour emoji from the computer's font,
   read only) and shown by FFmpeg's concat reader over the background (`overlay`), a new bubble rising in over two
   frames; the pictures are deleted when the video is made.
-- **Tests:** `tests/test_chat_stories.py` (16: script, limits, whose phone, voices, timing, pages, writer short and
+- **Review fixes** (an independent review found 17 things; all fixed, each with a test that failed before):
+  symbols the emoji font lacks (★ ✓ ✗ ♪) are drawn as letters, and every character Inter lacks uses the first font
+  of the computer that has it (Chinese, Japanese, Korean, Hindi, Thai, Hebrew; Windows and Mac lists too), also in a
+  group sender's name and the round picture's letter; lines and pages are worked out once at 1080 (`bubble_lines`)
+  so the preview matches the video; a message too long for a page ends with "…" on the card (the voice reads all of
+  it) and an opening one too tall for under the header starts its own page; a line read by a stand-in voice is not
+  kept, so the next recording asks for the chosen voice again, and each kept line has a note of its voice and licence
+  (`lines/<hash>.json`) so the licence text survives rebuilds and lists each person's when they differ; reading
+  without voices keeps the recorded lines; each card picture starts on its own 1/30 s frame (`option framerate` in
+  the list, used when the FFmpeg takes it, FFmpeg 5 or later); ClipForge AI's revisions keep "Automatic" whose
+  phone it is with the same person, match a sender whose emoji went missing, ask again and then keep the part when
+  an answer drops a person or most of a part ("Unchanged."), and write `//` messages so they read back the same;
+  switching a story to narrated and back keeps its messages. Page: what is typed is never replaced by the saved copy
+  (a new line or space before a pause stayed lost before), the name at the top and the unread number are saved a
+  moment after typing and when the page closes, Hear skips messages without words, "Automatic" names whom it would
+  pick (`chat.auto_phone`), and the Speed and Tone sliders say whose they are.
+- **Second review of the fixes** (3 reviewers, a verifier per finding): 5 more confirmed and fixed. A preview bubble
+  is also as wide as its words drawn at the small size (without raqm, as on most Windows installs, they came out
+  wider and ran past the edge); the first bubble stays under the header and is cut to the 16 lines that fit there
+  (moving it to a page of its own lost the header for the whole video); a short closing part of a long story can come
+  back as short as it was; a chat revision that cuts ("down to the best 6") is not held to half the messages; a
+  revision keeps the phone with the same person also when the chosen person has left the chat; Stop pressed just as
+  ClipForge AI finished writing brings the written text into the page.
+- **Tests:** `tests/test_chat_stories.py` (31: script, limits, whose phone, voices, timing, pages, writer short and
   ten-minute chats and a ten-minute narrated story with fake models, a real voiced preview checked frame by frame,
-  a slow export); `test_text_stories` now checks the 1,750-word limit. Demo:
+  a slow export, and 15 for the review fixes); `test_text_stories` now checks the 1,750-word limit. Demo:
   `/mnt/project-files/text-stories/text-message-story-demo.mp4`. Not verified: a real model writing a ten-minute
   chat, Mac and Windows voices and emoji fonts (the cloud has eSpeak and Noto Color Emoji only).
 

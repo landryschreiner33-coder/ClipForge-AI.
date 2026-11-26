@@ -18,8 +18,15 @@ chat or let ClipForge AI write it; chats and narrated stories run up to ten minu
   and the render key adds the look (`look_key`). The card is drawn in the main thread only (FreeType fonts are not
   shared between threads); PNG saving runs on a small pool. Colour emoji fonts only load at fixed sizes
   (`EMOJI_SIZES`); with none, emoji are left out and the page says so (`platform_emoji_note`). The Inter files are
-  static 400/600 instances subset to Latin, Greek and Cyrillic; other scripts fall back to `OTHER_FONTS`. eSpeak says
-  nothing for "..." so messages without a letter or digit are not read (they stay up for a reading time).
+  static 400/600 instances subset to Latin, Greek and Cyrillic; any other character is drawn with the first of
+  `OTHER_FONTS` that has it (`_path_for`, checked against the font's "missing" box), and a symbol the colour emoji
+  font lacks falls back the same way. eSpeak says nothing for "..." so messages without a letter or digit are not
+  read (they stay up for a reading time). Line breaks and pages come from `bubble_lines` at 1080 for every size, so
+  never break lines at the preview's size (a bubble's width also takes its words as drawn at its size: without raqm
+  small text comes out wider). The first bubble is capped at `first_lines` so it stays under the header. `lines/` keeps `<hash>.wav` + `<hash>.json` (voice id, licence rule) only for
+  lines the chosen voice read; a stand-in voice's line is used once. The card list carries `option framerate 30`
+  when the FFmpeg takes it (`_concat_takes_options`, probed once). Scripts the writer builds go through
+  `chatstory.write_line` (it round-trips `//` and `\` messages).
 
 ## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code, cloud session)
 

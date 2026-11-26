@@ -145,18 +145,23 @@ function StoryEditor({ id }: { id: string }) {
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const typed = useRef(false);
+  const edits = useRef(0);   // counts keystrokes, so a save knows whether more was typed while it was on its way
+  const latest = useRef({ title: "", script: "", name: "" });
   const audio = useAudio();
 
-  const take = useCallback((s: Story) => {
+  // the story as saved; its title, script and name come into the fields only when they changed elsewhere (the
+  // first load, ClipForge AI's writing), never as the answer to saving what is being typed
+  const take = useCallback((s: Story, texts = false) => {
     setStory(s);
-    if (!typed.current) {
+    if (texts && !typed.current) {
       setTitle(s.title);
       setScript(s.script);
       setName(s.own_name);
+      latest.current = { title: s.title, script: s.script, name: s.own_name };
     }
   }, []);
   useEffect(() => {
-    textStories.get(id).then(take).catch((e) => setProblem(errorText(e)));
+    textStories.get(id).then((s) => take(s, true)).catch((e) => setProblem(errorText(e)));
     textStories.options().then(setOpts).catch((e) => setProblem(errorText(e)));
   }, [id, take]);
   // while ClipForge works on it, follow the work
@@ -166,7 +171,7 @@ function StoryEditor({ id }: { id: string }) {
     const t = window.setInterval(() => {
       textStories.get(id).then((s) => {
         if (!s.working) typed.current = false;  // what was written comes in
-        take(s);
+        take(s, true);
       }).catch(() => {});
     }, 1200);
     return () => window.clearInterval(t);
@@ -188,10 +193,11 @@ function StoryEditor({ id }: { id: string }) {
   const textTimer = useRef<number | undefined>(undefined);
   const saveText = useCallback(async (now: { title: string; script: string; name: string }) => {
     window.clearTimeout(textTimer.current);
+    const sent = edits.current;
     setSaving(true);
     try {
       const s = await textStories.change(id, now);
-      typed.current = false;
+      if (edits.current === sent) typed.current = false;
       take(s);
     } catch (e) {
       toast(errorText(e), true);
@@ -199,9 +205,16 @@ function StoryEditor({ id }: { id: string }) {
       setSaving(false);
     }
   }, [id, take]);
+  // leaving the page before the moment is up: what was typed is saved all the same
+  useEffect(() => () => {
+    window.clearTimeout(textTimer.current);
+    if (typed.current) void textStories.change(id, latest.current).catch(() => {});
+  }, [id]);
   const typing = (next: Partial<{ title: string; script: string; name: string }>) => {
     typed.current = true;
+    edits.current += 1;
     const now = { title, script, name, ...next };
+    latest.current = now;
     if (next.title !== undefined) setTitle(next.title);
     if (next.script !== undefined) setScript(next.script);
     if (next.name !== undefined) setName(next.name);
@@ -215,7 +228,9 @@ function StoryEditor({ id }: { id: string }) {
   const act = async (what: "preview" | "export" | "stop") => {
     if (typed.current) await saveText({ title, script, name });
     try {
-      take(await textStories[what](id));
+      // the story as it is now, its texts too (Stop as ClipForge AI finished writing: what it wrote comes in);
+      // take() still leaves alone anything typed while this was on its way
+      take(await textStories[what](id), true);
     } catch (e) {
       toast(errorText(e), true);
     }
@@ -283,7 +298,7 @@ function StoryEditor({ id }: { id: string }) {
             </div>
             <ChatPreview chat={chat} opts={opts} />
           </div>
-          <Writer story={story} opts={opts} locked={locked} onStory={(s) => { typed.current = false; take(s); }} />
+          <Writer story={story} opts={opts} locked={locked} onStory={(s) => { typed.current = false; take(s, true); }} />
           <label className="field story-name"><span>Name (optional)</span>
             <input type="text" value={name} maxLength={120} disabled={locked} placeholder="Named from the chat"
               onChange={(e) => typing({ name: e.target.value })} onBlur={flush} /></label>
@@ -315,7 +330,7 @@ function StoryEditor({ id }: { id: string }) {
         <p className="small muted">{words} words of {opts.limits.max_words} · about {clock(story.seconds)}. A blank
           line
           starts a new paragraph; the narrator pauses at full stops and commas.</p>
-        <Writer story={story} opts={opts} locked={locked} onStory={(s) => { typed.current = false; take(s); }} />
+        <Writer story={story} opts={opts} locked={locked} onStory={(s) => { typed.current = false; take(s, true); }} />
         <label className="field story-name"><span>Name (optional)</span>
           <input type="text" value={name} maxLength={120} disabled={locked} placeholder="Named from the title"
             onChange={(e) => typing({ name: e.target.value })} onBlur={flush} /></label>
@@ -643,12 +658,51 @@ function ChatPreview({ chat, opts }: { chat: StoryChat; opts: StoryOptions }) {
   );
 }
 
+/** A field saved a moment after typing stops, and when the page closes. `saved` is what the story has; it comes
+ * into the field only when it changed elsewhere (`same` says when two values are the same once tidied). */
+function useFieldSave(saved: string, commit: (value: string) => void, same: (a: string, b: string) => boolean,
+  wait = 700) {
+  const [value, setValue] = useState(saved);
+  const latest = useRef(saved);
+  const sent = useRef(saved);
+  const save = useRef(commit);
+  save.current = commit;
+  const tidy = useRef(same);
+  tidy.current = same;
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!tidy.current(saved, sent.current)) {
+      setValue(saved);
+      latest.current = saved;
+    }
+    sent.current = saved;
+  }, [saved]);
+  const flush = useCallback(() => {
+    window.clearTimeout(timer.current);
+    if (!tidy.current(latest.current, sent.current)) {
+      sent.current = latest.current;
+      save.current(latest.current);
+    }
+  }, []);
+  useEffect(() => flush, [flush]);
+  const type = (v: string) => {
+    setValue(v);
+    latest.current = v;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(flush, wait);
+  };
+  return { value, type, flush, show: setValue };
+}
+
+const tidyText = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
+const badgeNumber = (s: string) => Math.max(0, Math.min(999, Math.round(Number(s) || 0)));
+
 /** Whose phone it is, the name at the top, and a voice for everyone in the chat. */
 function ChatPeople({ story, chat, opts, locked, audio, onChat, onRules }: { story: Story; chat: StoryChat;
   opts: StoryOptions; locked: boolean; audio: Audio; onChat: (c: ChatPatch) => Promise<boolean>;
   onRules: (r: Story["pronunciations"]) => Promise<boolean> }) {
-  const [contact, setContact] = useState(chat.contact);
-  useEffect(() => setContact(chat.contact), [chat.contact]);
+  const contact = useFieldSave(chat.contact, (value) => void onChat({ contact: value }),
+    (a, b) => tidyText(a) === tidyText(b));
   // a slider's value while it moves: saved a moment after it stops (and when the page closes)
   const [moving, setMoving] = useState<Record<string, PersonVoice>>({});
   const pending = useRef<Record<string, PersonVoice>>({});
@@ -673,8 +727,8 @@ function ChatPeople({ story, chat, opts, locked, audio, onChat, onRules }: { sto
   if (chat.names.length === 0) {
     return <p className="small muted">Write the chat first: everyone in it shows up here with a voice of their own.</p>;
   }
-  const said = (who: string) => chat.messages.filter((m) => m.who === who).slice(0, 2).map((m) => m.text).join(" ")
-    || `Hi, it's ${who}.`;
+  const said = (who: string) => chat.messages.filter((m) => m.who === who && /[\p{L}\p{N}]/u.test(m.text))
+    .slice(0, 2).map((m) => m.text).join(" ") || `Hi, it's ${who}.`;
   return (
     <div className="stack-4">
       <div className="story-rows">
@@ -682,14 +736,14 @@ function ChatPeople({ story, chat, opts, locked, audio, onChat, onRules }: { sto
           <label className="story-row-pick"><span className="label">Whose phone it is</span>
             <select value={chat.names.includes(chat.me) ? chat.me : ""} disabled={locked}
               onChange={(e) => void onChat({ me: e.target.value })}>
-              <option value="">Automatic: {chat.whose_phone || "nobody"}</option>
+              <option value="">Automatic: {chat.auto_phone || "nobody"}</option>
               {chat.names.map((n) => <option key={n} value={n}>{n}</option>)}
             </select></label>
         )}
         <label className="story-row-pick"><span className="label">Name at the top</span>
-          <input type="text" value={contact} maxLength={40} disabled={locked}
-            placeholder={chat.shown_contact || "Unknown"} onChange={(e) => setContact(e.target.value)}
-            onBlur={() => { if (contact !== chat.contact) void onChat({ contact }); }} /></label>
+          <input type="text" value={contact.value} maxLength={40} disabled={locked}
+            placeholder={chat.shown_contact || "Unknown"} onChange={(e) => contact.type(e.target.value)}
+            onBlur={contact.flush} onKeyDown={(e) => { if (e.key === "Enter") contact.flush(); }} /></label>
       </div>
       <ul className="chat-people" aria-label="Voices">
         {chat.names.map((n) => {
@@ -709,10 +763,13 @@ function ChatPeople({ story, chat, opts, locked, audio, onChat, onRules }: { sto
               </select>
               <label className="small chat-slide">Speed <span className="muted tnum">{v.speed.toFixed(2)}×</span>
                 <input type="range" min={opts.speed_range[0]} max={opts.speed_range[1]} step={0.02} value={v.speed}
+                  aria-label={`${n}'s speed`} aria-valuetext={`${v.speed.toFixed(2)} times`}
                   disabled={locked} onChange={(e) => slide(n, { speed: Number(e.target.value) })} /></label>
               <label className="small chat-slide">Tone <span className="muted tnum">{v.tone > 0 ? `+${v.tone}` : v.tone}
               </span>
                 <input type="range" min={opts.tone_range[0]} max={opts.tone_range[1]} step={0.5} value={v.tone}
+                  aria-label={`${n}'s tone`}
+                  aria-valuetext={`${v.tone > 0 ? "+" : ""}${v.tone} semitone${Math.abs(v.tone) === 1 ? "" : "s"}`}
                   disabled={locked} onChange={(e) => slide(n, { tone: Number(e.target.value) })} /></label>
               <button type="button" className="btn btn-small hear-btn" aria-label={`Hear ${n}`}
                 onClick={() => void audio.play(`person:${n}`,
@@ -738,12 +795,11 @@ function ChatPeople({ story, chat, opts, locked, audio, onChat, onRules }: { sto
 function ChatLook({ chat, opts, locked, onChat }: { chat: StoryChat; opts: StoryOptions; locked: boolean;
   onChat: (c: ChatPatch) => Promise<boolean> }) {
   const ids = useId();
-  const [badge, setBadge] = useState(String(chat.badge));
-  useEffect(() => setBadge(String(chat.badge)), [chat.badge]);
+  const badge = useFieldSave(String(chat.badge), (value) => void onChat({ badge: badgeNumber(value) }),
+    (a, b) => badgeNumber(a) === badgeNumber(b));
   const saveBadge = () => {
-    const n = Math.max(0, Math.min(999, Math.round(Number(badge) || 0)));
-    if (n !== chat.badge) void onChat({ badge: n });
-    else setBadge(String(chat.badge));
+    badge.flush();
+    badge.show(String(badgeNumber(badge.value)));
   };
   return (
     <div className="stack-4">
@@ -765,8 +821,8 @@ function ChatLook({ chat, opts, locked, onChat }: { chat: StoryChat; opts: Story
             onChange={(pace) => void onChat({ pace })}
             options={opts.chat.paces.map((x) => ({ value: x.id, label: x.label }))} /></div>
         <label className="story-row-pick"><span className="label">Unread number</span>
-          <input type="number" className="chat-badge-input" min={0} max={999} value={badge} disabled={locked}
-            onChange={(e) => setBadge(e.target.value)} onBlur={saveBadge}
+          <input type="number" className="chat-badge-input" min={0} max={999} value={badge.value} disabled={locked}
+            onChange={(e) => badge.type(e.target.value)} onBlur={saveBadge}
             onKeyDown={(e) => { if (e.key === "Enter") saveBadge(); }} /></label>
       </div>
       <label className="choice"><input type="checkbox" checked={chat.sounds} disabled={locked}

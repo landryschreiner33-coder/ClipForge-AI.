@@ -336,6 +336,12 @@ def update(story: dict, body: dict) -> dict:
         fields["title"] = _clean_title(body["title"])
     if "script" in body or "kind" in body:
         raw = body.get("script", story.get("script") or "")
+        if "script" not in body and kind != (story.get("kind") or "narrated"):
+            # the same words in the other kind: a chat's messages become paragraphs, and paragraphs messages, so
+            # switching back gives the same chat
+            raw = str(raw or "")
+            raw = ("\n".join(" ".join(p.split()) for p in re.split(r"\n\s*\n", raw) if p.strip()) if kind == "chat"
+                   else "\n\n".join(line.strip() for line in raw.split("\n") if line.strip()))
         fields["script"] = _clean_chat_script(raw) if kind == "chat" else _clean_script(raw)
     if kind == "chat" and ("chat" in body or "script" in fields):
         try:
@@ -648,7 +654,8 @@ def write_job(job: dict, lease: Lease) -> dict:
             from . import chatstory
 
             chat = story.get("chat") or {}
-            current = {"script": story.get("script"), "title": story.get("name"), "me": chat.get("me"),
+            current = {"script": story.get("script"), "title": story.get("name"),
+                       "me": chat.get("me") or chatstory.resolve(story.get("script") or "", chat)["me"],
                        "contact": chat.get("contact")}
             got = writer.write_chat(ask.get("topic") or "", tone=ask.get("tone") or "drama",
                                     length=ask.get("length") or "standard", settings=db.get_settings(),
@@ -659,6 +666,13 @@ def write_job(job: dict, lease: Lease) -> dict:
             title = ""
             if not ask.get("change"):
                 chat = {**chat, "contact": got.get("contact") or "", "me": "Me"}
+            else:
+                # "Automatic" (or a chosen person who has left the chat) picks the second person to write when nobody
+                # is Me: a revision that changes who writes first must not hand the phone to the other person
+                before = chatstory.resolve(story.get("script") or "", chat)["me"]
+                after = chatstory.resolve(script, chat)
+                if before and before != after["me"] and before in after["people"]:
+                    chat = {**chat, "me": before}
             chat_fields = {"chat": chatstory.with_voices(script, chat)}
             if not story.get("name") and got.get("title"):
                 chat_fields["name"] = " ".join(str(got["title"]).split())[:MAX_NAME]
@@ -1029,6 +1043,7 @@ def view(story: dict) -> dict:
         got = chatstory.resolve(story.get("script") or "", c)
         chat = {**c, "people": {n: (c.get("people") or {}).get(n) or {} for n in got["people"]},
                 "names": got["people"], "whose_phone": got["me"], "shown_contact": got["contact"],
+                "auto_phone": chatstory.whose_phone(got["people"]),
                 "group": got["group"], "messages": [{"who": m["who"], "text": m["text"], "side": m["side"],
                                                      "label": m["label"]} for m in got["messages"]]}
     return {

@@ -189,6 +189,14 @@ def parse(script: str) -> list[dict]:
     return out
 
 
+def write_line(who: str, text: str) -> str:
+    """One message as a script line that reads back the same (parse): a message starting with // or \\ goes on a
+    line of its own under its sender's name, after a \\."""
+    if text.startswith(("//", "\\")):
+        return f"{who}:\n\\{text}"
+    return f"{who}: {text}"
+
+
 def _canon(name: str, so_far: list[dict]) -> str:
     """A name as it was first written ("sienna" after "Sienna" is Sienna)."""
     low = name.casefold()
@@ -398,13 +406,35 @@ def plain(text: str) -> str:
     return " ".join("".join(piece for kind, piece in runs(text) if kind != "emoji").split())
 
 
-EMOJI_FONTS = ("/System/Library/Fonts/Apple Color Emoji.ttc", "C:/Windows/Fonts/seguiemj.ttf",
+_WIN_FONTS = (os.environ.get("WINDIR") or "C:/Windows").replace("\\", "/").rstrip("/") + "/Fonts/"
+EMOJI_FONTS = ("/System/Library/Fonts/Apple Color Emoji.ttc", _WIN_FONTS + "seguiemj.ttf",
                "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", "/usr/share/fonts/noto/NotoColorEmoji.ttf",
                "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf")
-OTHER_FONTS = ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", "/Library/Fonts/Arial Unicode.ttf",
-               "C:/Windows/Fonts/seguisym.ttf", "C:/Windows/Fonts/arial.ttf",
-               "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf")
+# this computer's fonts for letters and symbols the bundled Inter lacks: each character is drawn with the first that
+# has it (Chinese, Japanese, Korean, Thai, Hindi, Hebrew, Arabic, ★ ✓ ♪ ...)
+OTHER_FONTS = (
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf", "/Library/Fonts/Arial Unicode.ttf",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc", "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    "/System/Library/Fonts/Apple Symbols.ttf",
+    _WIN_FONTS + "arial.ttf", _WIN_FONTS + "segoeui.ttf", _WIN_FONTS + "msyh.ttc", _WIN_FONTS + "YuGothM.ttc",
+    _WIN_FONTS + "malgun.ttf", _WIN_FONTS + "Nirmala.ttc", _WIN_FONTS + "Nirmala.ttf", _WIN_FONTS + "LeelawUI.ttf",
+    _WIN_FONTS + "ebrima.ttf", _WIN_FONTS + "seguisym.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")
 EMOJI_SIZES = (160, 137, 136, 128, 109, 96, 72, 64, 48)   # colour emoji fonts are pictures at fixed sizes
+_JOINERS = ("\ufe0f", "\ufe0e", "\u200d", "\u20e3")
+
+
+def _truetype(path: str, size: float):
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.truetype(path, size)   # a size in between (a third of 35 for the preview)
+    except TypeError:                           # Pillow before 10.1 takes whole sizes only
+        return ImageFont.truetype(path, max(1, int(round(size))))
 
 
 @functools.lru_cache(maxsize=1)
@@ -422,24 +452,111 @@ def _emoji_font():
     return None
 
 
-@functools.lru_cache(maxsize=16)
-def _font(name: str, size: int):
-    from PIL import ImageFont
-
-    return ImageFont.truetype(str(config.FONTS_DIR / name), size)
+@functools.lru_cache(maxsize=32)
+def _font(name: str, size: float):
+    return _truetype(str(config.FONTS_DIR / name), size)
 
 
-@functools.lru_cache(maxsize=16)
-def _other_font(size: int):
-    from PIL import ImageFont
+@functools.lru_cache(maxsize=64)
+def _font_at(path: str, size: float):
+    try:
+        return _truetype(path, size)
+    except OSError:
+        return None
 
-    for path in OTHER_FONTS:
-        if Path(path).is_file():
-            try:
-                return ImageFont.truetype(path, size)
-            except OSError:
+
+@functools.lru_cache(maxsize=1)
+def _other_paths() -> tuple[str, ...]:
+    return tuple(p for p in OTHER_FONTS if Path(p).is_file() and _font_at(p, 40) is not None)
+
+
+def _shape(font, ch: str) -> bytes:
+    from PIL import Image, ImageDraw
+
+    img = Image.new("L", (100, 100), 0)
+    ImageDraw.Draw(img).text((20, 75), ch, font=font, fill=255, anchor="ls")
+    return img.tobytes()
+
+
+@functools.lru_cache(maxsize=64)
+def _missing_shape(path: str) -> bytes:
+    return _shape(_font_at(path, 40), "\uffff")   # no font has this: what it draws is its "missing" box
+
+
+@functools.lru_cache(maxsize=8192)
+def _has_glyph(path: str, ch: str) -> bool:
+    """Whether the font draws this character (not its "missing" box, and not nothing)."""
+    font = _font_at(path, 40)
+    if font is None:
+        return False
+    try:
+        got = _shape(font, ch)
+        return any(got) and got != _missing_shape(path)
+    except (OSError, ValueError):
+        return False
+
+
+@functools.lru_cache(maxsize=4096)
+def _path_for(ch: str) -> str:
+    """The first of this computer's fonts that has the character ("" for none)."""
+    return next((path for path in _other_paths() if _has_glyph(path, ch)), "")
+
+
+def _in_inter(ch: str) -> bool:
+    o = ord(ch)
+    return any(a <= o <= b for a, b in _INTER) or unicodedata.category(ch).startswith("Z")
+
+
+def _segments(piece: str, size: float, emoji: bool = False) -> list[tuple[object, str]]:
+    """The piece cut by the font that draws it: [(font, letters)]. An emoji with no colour picture is drawn as a
+    letter when a font has it (★ ✓ ♪) and left out when none has; letters no font has show as the first font's box."""
+    inter = _font("Inter-Regular.ttf", size)
+    out: list[tuple[object, str]] = []
+    for ch in piece:
+        o = ord(ch)
+        if ch in _JOINERS or 0x1F3FB <= o <= 0x1F3FF or 0xE0020 <= o <= 0xE007F:
+            continue
+        if out and unicodedata.category(ch).startswith("M"):
+            out[-1] = (out[-1][0], out[-1][1] + ch)   # a mark stays with its letter
+            continue
+        if _in_inter(ch):
+            font = inter
+        else:
+            path = _path_for(ch)
+            if path:
+                font = _font_at(path, size)
+            elif emoji:
                 continue
-    return _font("Inter-Regular.ttf", size)
+            else:
+                first = _other_paths()
+                font = (_font_at(first[0], size) if first else None) or inter
+        if out and out[-1][0] is font:
+            out[-1] = (font, out[-1][1] + ch)
+        else:
+            out.append((font, ch))
+    return out
+
+
+def _letter_font(ch: str, size: float):
+    """A font that has this letter (the round picture's first letter)."""
+    if _in_inter(ch):
+        return _font("Inter-Regular.ttf", size)
+    path = _path_for(ch)
+    return (_font_at(path, size) if path else None) or _font("Inter-Regular.ttf", size)
+
+
+@functools.lru_cache(maxsize=1)
+def _emoji_missing() -> bytes:
+    font = _emoji_font()
+    return _emoji_shape(font, "\uffff") if font is not None else b""
+
+
+def _emoji_shape(font, piece: str) -> bytes:
+    from PIL import Image, ImageDraw
+
+    canvas = Image.new("RGBA", (font.size * 2, int(font.size * 1.4)), (0, 0, 0, 0))
+    ImageDraw.Draw(canvas).text((0, 0), piece, font=font, embedded_color=True)
+    return canvas.tobytes()
 
 
 @functools.lru_cache(maxsize=512)
@@ -451,6 +568,8 @@ def _emoji(piece: str, height: int):
     if font is None or height < 2:
         return None
     try:
+        if _emoji_shape(font, piece[0]) == _emoji_missing():
+            return None   # the colour font does not have it (★ ✓ ♪): it is drawn as a letter instead
         right = int(font.getbbox(piece)[2])
         width = max(1, int(round(font.getlength(piece))))
         size = font.size
@@ -467,21 +586,22 @@ def _emoji(piece: str, height: int):
     return pic.resize((w, height), Image.LANCZOS)
 
 
-def _measure(text: str, size: int) -> float:
+def _measure(text: str, size: float) -> float:
     font = _font("Inter-Regular.ttf", size)
     width = 0.0
     for kind, piece in runs(text):
-        if kind == "emoji":
-            pic = _emoji(piece, round(size * EMOJI_SCALE))
-            width += pic.width + size * 0.08 if pic is not None else 0.0
-        elif kind == "other":
-            width += _other_font(size).getlength(piece)
-        else:
+        if kind == "text":
             width += font.getlength(piece)
+            continue
+        pic = _emoji(piece, round(size * EMOJI_SCALE)) if kind == "emoji" else None
+        if pic is not None:
+            width += pic.width + size * 0.08
+        else:
+            width += sum(f.getlength(part) for f, part in _segments(piece, size, kind == "emoji"))
     return width
 
 
-def wrap(text: str, size: int, width: float) -> list[str]:
+def wrap(text: str, size: float, width: float) -> list[str]:
     """The message's lines at this letter size: whole words where they fit, a word longer than a line cut."""
     lines: list[str] = []
     line = ""
@@ -510,7 +630,7 @@ def wrap(text: str, size: int, width: float) -> list[str]:
     return lines or [""]
 
 
-def _draw_text(img, xy: tuple[float, float], text: str, size: int, fill) -> None:
+def _draw_text(img, xy: tuple[float, float], text: str, size: float, fill) -> None:
     """One line at (x, baseline): letters, other scripts and colour emoji."""
     from PIL import ImageDraw
 
@@ -518,16 +638,18 @@ def _draw_text(img, xy: tuple[float, float], text: str, size: int, fill) -> None
     x, base = xy
     font = _font("Inter-Regular.ttf", size)
     for kind, piece in runs(text):
-        if kind == "emoji":
-            pic = _emoji(piece, round(size * EMOJI_SCALE))
-            if pic is None:
-                continue
+        if kind == "text":
+            draw.text((x, base), piece, font=font, fill=fill, anchor="ls")
+            x += font.getlength(piece)
+            continue
+        pic = _emoji(piece, round(size * EMOJI_SCALE)) if kind == "emoji" else None
+        if pic is not None:
             img.alpha_composite(pic, (int(round(x + size * 0.04)), int(round(base - pic.height * 0.86))))
             x += pic.width + size * 0.08
-        else:
-            f = _other_font(size) if kind == "other" else font
-            draw.text((x, base), piece, font=f, fill=fill, anchor="ls")
-            x += f.getlength(piece)
+            continue
+        for f, part in _segments(piece, size, kind == "emoji"):
+            draw.text((x, base), part, font=f, fill=fill, anchor="ls")
+            x += f.getlength(part)
 
 
 # ------------------------------------------------------------------ drawing
@@ -552,8 +674,34 @@ def _tail(w: float, h: float, side: str, s: float) -> list[tuple[float, float]]:
     return pts
 
 
+BUBBLE_TEXT_W = CARD_W * MAX_BUBBLE - 2 * PAD_X
+# the most lines a bubble shows: it always fits a page without the header, its sender's name above it included
+MAX_LINES = int((CARD_MAX_H - TOP_PAD - BOTTOM_PAD - SENDER_H - 2 * PAD_Y) // LINE_H)
+
+
+def first_lines(label: bool) -> int:
+    """The most lines the first bubble shows: it stays under the header, so the video opens on whose chat it is."""
+    return int((CARD_MAX_H - HEAD_H - TOP_PAD - BOTTOM_PAD - (SENDER_H if label else 0) - 2 * PAD_Y) // LINE_H)
+
+
+@functools.lru_cache(maxsize=4096)
+def bubble_lines(text: str, most: int = MAX_LINES) -> tuple[tuple[str, ...], float]:
+    """A message's lines in its bubble and the widest one's width, in pixels of a 1080-wide frame. Worked out once
+    for every size, so the preview and the video break lines and start pages at the same messages. A message longer
+    than its page holds (`most` lines) ends with "…" on the card (its voice still reads all of it)."""
+    lines = wrap(text, TEXT_SIZE, BUBBLE_TEXT_W)
+    if len(lines) > most:
+        lines = lines[:most]
+        last = lines[-1]
+        while last and _measure(last + "…", TEXT_SIZE) > BUBBLE_TEXT_W:
+            last = last[:-1]
+        lines[-1] = last.rstrip() + "…"
+    return tuple(lines), max(_measure(line, TEXT_SIZE) for line in lines)
+
+
 class Card:
-    """The chat card's pictures for one frame size (scale `s` of a 1080-wide frame) and one look."""
+    """The chat card's pictures for one frame size (scale `s` of a 1080-wide frame) and one look. Where the lines
+    break and where each bubble goes are worked out at 1080 and scaled, so every size shows the same pages."""
 
     def __init__(self, scale: float, theme: str, contact: str, badge: int):
         self.s = scale
@@ -562,9 +710,8 @@ class Card:
         self.badge = badge
         self.w = int(round(CARD_W * scale))
         self.max_h = int(round(CARD_MAX_H * scale))
-        self.text = max(8, int(round(TEXT_SIZE * scale)))
+        self.text = TEXT_SIZE * scale
         self.line = LINE_H * scale
-        self.max_text = (CARD_W * MAX_BUBBLE - 2 * PAD_X) * scale
         self._bubbles: dict = {}
         self._corner = self._corner_mask(int(round(CARD_RADIUS * scale)))
         self._head = None
@@ -580,18 +727,20 @@ class Card:
         ImageDraw.Draw(big).pieslice([0, 0, r * 8, r * 8], 180, 270, fill=255)
         return big.resize((r, r), Image.LANCZOS)
 
-    def bubble(self, text: str, side: str, tail: bool):
+    def bubble(self, text: str, side: str, tail: bool, most: int = MAX_LINES):
         """(picture, its width and height without the tail room): the bubble with its words."""
         from PIL import Image, ImageDraw
 
-        key = (text, side, tail)
+        key = (text, side, tail, most)
         if key in self._bubbles:
             return self._bubbles[key]
         s = self.s
-        lines = wrap(text, self.text, self.max_text)
-        width = max(_measure(line, self.text) for line in lines)
-        bw = int(math.ceil(width + 2 * PAD_X * s))
-        bh = int(math.ceil(len(lines) * self.line + 2 * PAD_Y * s))
+        lines, width = bubble_lines(text, most)
+        # the lines and the height come from 1080; the width also fits the words as drawn at this size (without
+        # Pillow's raqm, letters are placed on whole pixels and a small size comes out a little wider)
+        bw = int(math.ceil(max((width + 2 * PAD_X) * s,
+                               max(_measure(line, self.text) for line in lines) + 2 * PAD_X * s)))
+        bh = int(math.ceil((len(lines) * LINE_H + 2 * PAD_Y) * s))
         room = int(math.ceil(TAIL_ROOM * s))
         k = 4  # the shape is drawn four times larger and shrunk: smooth edges
         mask = Image.new("L", ((bw + 2 * room) * k, (bh + room) * k), 0)
@@ -661,7 +810,7 @@ class Card:
         first = next((ch for ch in plain(self.contact) if ch.isalnum()), "")
         if first:
             ImageDraw.Draw(disc).text((disc.width / 2, disc.height / 2 + 2 * s), first.upper(),
-                                      font=_font("Inter-Regular.ttf", max(6, round(56 * s))),
+                                      font=_letter_font(first, max(6, round(56 * s))),
                                       fill=(255, 255, 255, 255), anchor="mm")
         img.alpha_composite(disc, (int(ax), int(ay)))
         # the name, and a small arrow after it
@@ -683,28 +832,32 @@ class Card:
 
     # -- the pages
     def layout(self, messages: list[dict]) -> list[dict]:
-        """Where each bubble goes: [{"page", "y", "x", "tail_side"...}], a new page (without the header) when the next
-        bubble would not fit."""
+        """Where each bubble goes: [{"page", "top", "x", "w", "h", "room", "label_y", "label"}], a new page (without
+        the header) when the next bubble would not fit. Worked out in pixels of a 1080-wide frame, then scaled."""
         s = self.s
         out: list[dict] = []
-        page, y = 0, (HEAD_H + TOP_PAD) * s
+        page, y = 0, float(HEAD_H + TOP_PAD)
         first_on_page = True
         for i, m in enumerate(messages):
-            pic, bw, bh, room = self.bubble(m["text"], m["side"], False)
+            most = first_lines(bool(m.get("label") or m.get("sender"))) if i == 0 else MAX_LINES
+            lines, _ = bubble_lines(m["text"], most)
+            bh = len(lines) * LINE_H + 2 * PAD_Y
             prev = messages[i - 1] if i else None
             same = prev is not None and prev["who"] == m["who"]
             for attempt in range(2):
-                gap = 0.0 if first_on_page else (GAP_SAME if same else GAP_TURN) * s
+                gap = 0.0 if first_on_page else float(GAP_SAME if same else GAP_TURN)
                 label = m.get("label") or (m.get("sender") if first_on_page else "") or ""
-                label_h = SENDER_H * s if label else 0.0
-                bottom = y + gap + label_h + bh + BOTTOM_PAD * s
-                if bottom <= self.max_h or first_on_page or attempt:
+                label_h = float(SENDER_H) if label else 0.0
+                bottom = y + gap + label_h + bh + BOTTOM_PAD
+                # first on its page, a bubble always fits (bubble_lines keeps it to `most` lines)
+                if bottom <= CARD_MAX_H or first_on_page or attempt:
                     break
-                page, y, first_on_page = page + 1, TOP_PAD * s, True
+                page, y, first_on_page = page + 1, float(TOP_PAD), True
             top = y + gap + label_h
+            pic, bw, bh_px, room = self.bubble(m["text"], m["side"], False, most)
             x = SIDE * s if m["side"] == "them" else self.w - SIDE * s - bw
-            out.append({"page": page, "top": top, "x": x, "w": bw, "h": bh, "room": room,
-                        "label_y": (y + gap) if label_h else None, "label": label})
+            out.append({"page": page, "top": top * s, "x": x, "w": bw, "h": bh_px, "room": room,
+                        "label_y": (y + gap) * s if label_h else None, "label": label, "most": most})
             y = top + bh
             first_on_page = False
         return out
@@ -728,16 +881,12 @@ class Card:
         body = Image.new("RGBA", (self.w, h), (*t["card"], 255))
         if page == 0:
             body.alpha_composite(self.header(), (0, 0))
-        small = _font("Inter-Regular.ttf", max(6, round(SENDER_SIZE * s)))
-        from PIL import ImageDraw
-
-        draw = ImageDraw.Draw(body)
         for i in shown:
             p = places[i]
             m = messages[i]
             nxt = i + 1 if i + 1 in shown else None
             tail = nxt is None or messages[nxt]["who"] != m["who"]
-            pic, bw, bh, room = self.bubble(m["text"], m["side"], tail)
+            pic, bw, bh, room = self.bubble(m["text"], m["side"], tail, p.get("most", MAX_LINES))
             dy, alpha = 0.0, 1.0
             if i == upto and rise in (0, 1):
                 dy, alpha = RISE_PX[rise] * s, RISE[rise]
@@ -745,8 +894,8 @@ class Card:
                 pic = pic.copy()
                 pic.putalpha(pic.getchannel("A").point(lambda a, f=alpha: int(a * f)))
             if p["label"] and p["label_y"] is not None:
-                draw.text(((SIDE + 14) * s, p["label_y"] + SENDER_H * s * 0.72), plain(p["label"]) or p["label"],
-                          font=small, fill=(*t["muted"], 255), anchor="ls")
+                _draw_text(body, ((SIDE + 14) * s, p["label_y"] + SENDER_H * s * 0.72), p["label"], SENDER_SIZE * s,
+                           (*t["muted"], 255))
             body.alpha_composite(pic, (int(round(p["x"] - room)), int(round(p["top"] + dy))))
         # the rounded corners
         alpha = body.getchannel("A")
@@ -922,7 +1071,7 @@ def make_voices(story: dict, folder: Path, lease=None) -> dict:
     sounds: list[np.ndarray | None] = []
     durations: list[float] = []
     notes: list[str] = []
-    rule = ""
+    licences: dict[str, str] = {}   # whose voice: what its licence asks of what it makes
     keep: set[str] = set()
     cancel = lease.canceled if lease else None
     for i, (m, x) in enumerate(zip(msgs, said)):
@@ -937,25 +1086,42 @@ def make_voices(story: dict, folder: Path, lease=None) -> dict:
         v = x["voice"]
         lk = line_key(x["said"], v)
         path = lines_dir / f"{lk}.wav"
-        keep.add(path.name)
-        if not path.is_file():
-            raw = lines_dir / f"{lk}.raw.wav"
+        about = lines_dir / f"{lk}.json"   # the line's voice and what its licence asks
+        once = False
+        if path.is_file():
+            keep.add(lk)
+            info = _read_about(about)
+        else:
+            raw, made = lines_dir / f"{lk}.raw.wav", lines_dir / f"{lk}.new.wav"
             try:
                 got = voice.speak(x["said"], raw, voice=v.get("voice") or "auto", speed=float(v.get("speed") or 1.0),
                                   cancel=cancel)
                 local_engines.discard_made(got.get("original"))   # the line is kept here, not in engines/made
-                voice_styles.shape(raw, path, float(v.get("tone") or 0.0), cancel=cancel)
+                voice_styles.shape(raw, made, float(v.get("tone") or 0.0), cancel=cancel)
             except BaseException:
                 raw.unlink(missing_ok=True)
-                path.unlink(missing_ok=True)
+                made.unlink(missing_ok=True)
                 raise
             raw.unlink(missing_ok=True)
-            if got.get("fallback"):
-                note = f"{plain(m['who']) or m['who']}: {got['fallback']}"
-                if note not in notes:
-                    notes.append(note)
-            rule = rule or str(got.get("rule") or "")
+            info = {"voice_id": str(got.get("voice_id") or ""), "rule": str(got.get("rule") or ""),
+                    "fallback": str(got.get("fallback") or "")}
+            if info["fallback"]:
+                # read by another voice this time (the chosen one failed): used for this mix only, so the next
+                # recording asks for the chosen voice again
+                path, once = lines_dir / f"{lk}.once.wav", True
+            else:
+                about.write_text(json.dumps(info), encoding="utf-8")
+                keep.add(lk)
+            made.replace(path)
+        if info.get("fallback"):
+            note = f"{plain(m['who']) or m['who']}: {info['fallback']}"
+            if note not in notes:
+                notes.append(note)
+        if info.get("rule"):
+            licences.setdefault(m["who"], str(info["rule"]))
         x_arr = level(_read_wav(path))
+        if once:
+            path.unlink(missing_ok=True)
         sounds.append(x_arr)
         durations.append(round(len(x_arr) / SR, 3))
     times, total = timeline(msgs, durations, chat.get("pace") or "normal")
@@ -970,13 +1136,32 @@ def make_voices(story: dict, folder: Path, lease=None) -> dict:
     for f in folder.glob("voice-*.wav"):
         if f.name != out.name:
             f.unlink(missing_ok=True)
-    for f in lines_dir.glob("*.wav"):
-        if f.name not in keep:
-            f.unlink(missing_ok=True)   # a message that changed or left: its old voice goes
+    if aloud:   # (read without voices, the recorded lines stay for when the voices are back on)
+        for f in lines_dir.iterdir():
+            if f.name.split(".")[0] not in keep:
+                f.unlink(missing_ok=True)   # a message that changed or left: its old voice goes
     return {"key": key, "file": out.name, "duration": round(total - END_S, 3), "total": total, "times": times,
             "timing": "chat", "voices": {n: (chat.get("people") or {}).get(n, {}).get("voice", "auto")
                                          for n in resolved["people"]},
-            "fallback": " ".join(notes)[:600], "rule": rule, "messages": len(msgs)}
+            "fallback": " ".join(notes)[:600], "rule": _licence_text(licences), "messages": len(msgs)}
+
+
+def _read_about(path: Path) -> dict:
+    try:
+        got = json.loads(path.read_text(encoding="utf-8"))
+        return got if isinstance(got, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _licence_text(licences: dict[str, str]) -> str:
+    """What the voices' licences ask: one rule as it is; different rules each with whose voices they are for."""
+    by_rule: dict[str, list[str]] = {}
+    for who, rule in licences.items():
+        by_rule.setdefault(" ".join(rule.split()), []).append(plain(who) or who)
+    if len(by_rule) <= 1:
+        return next(iter(by_rule), "")[:600]
+    return " ".join(f"{', '.join(names)}: {rule}" for rule, names in by_rule.items())[:600]
 
 
 # ------------------------------------------------------------------ the card's pictures for FFmpeg
@@ -999,18 +1184,22 @@ def make_cards(story: dict, narration: dict, size: tuple[int, int], dest: Path, 
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True)
-    frame = 1.0 / FPS
-    plan: list[tuple[str, int, int, float]] = []   # (file, upto, rise, from)
-    first_show = times[0]["show"] if times else total
+    plan: list[tuple[str, int, int, int]] = []   # (file, upto, rise, from which frame)
+
+    def on_frame(t: float) -> int:
+        return int(round(t * FPS))
+
+    first_show = on_frame(times[0]["show"]) if times else on_frame(total)
     if first_show > 0:
-        plan.append(("c-empty.png", -1, -1, 0.0))   # the header alone until the first bubble
+        plan.append(("c-empty.png", -1, -1, 0))   # the header alone until the first bubble
     for i, t in enumerate(times):
+        show = on_frame(t["show"])
         if i or first_show > 0:   # the first bubble is simply there at the start: it rises in otherwise
-            plan.append((f"c{i:04d}-0.png", i, 0, t["show"]))
-            plan.append((f"c{i:04d}-1.png", i, 1, t["show"] + frame))
-            plan.append((f"c{i:04d}.png", i, -1, t["show"] + 2 * frame))
+            plan.append((f"c{i:04d}-0.png", i, 0, show))
+            plan.append((f"c{i:04d}-1.png", i, 1, show + 1))
+            plan.append((f"c{i:04d}.png", i, -1, show + 2))
         else:
-            plan.append((f"c{i:04d}.png", i, -1, t["show"]))
+            plan.append((f"c{i:04d}.png", i, -1, show))
     cancel = lease.canceled if lease else None
 
     # the pictures are composed here, in order (the fonts are not shared between threads), and saved on a few
@@ -1033,15 +1222,48 @@ def make_cards(story: dict, narration: dict, size: tuple[int, int], dest: Path, 
                 lease.progress(0.36 + 0.08 * n / max(1, len(plan)), "Drawing the chat")
         for g in waiting:
             g.result()
+    # each picture's start in whole microseconds (what the list reader adds up), on its frame
+    exact = _concat_takes_options()
+    option = [f"option framerate {FPS}"] if exact else []
     lines = ["ffconcat version 1.0"]
     for n, (name, _, _, start) in enumerate(plan):
-        end = plan[n + 1][3] if n + 1 < len(plan) else total
-        lines.append(f"file '{name}'")
-        lines.append(f"duration {max(frame, end - start):.6f}")
-    lines.append(f"file '{plan[-1][0]}'")   # the last picture once more: the concat reader drops its duration otherwise
+        a = round(start * 1_000_000 / FPS)
+        z = round(plan[n + 1][3] * 1_000_000 / FPS) if n + 1 < len(plan) else round(total * 1_000_000)
+        lines += [f"file '{name}'", *option, f"duration {max(1, z - a) / 1_000_000:.6f}"]
+    # the last picture once more: the concat reader drops its duration otherwise
+    lines += [f"file '{plan[-1][0]}'", *option]
     listing = dest / "cards.ffconcat"
     listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return listing
+
+
+@functools.lru_cache(maxsize=4)
+def _concat_options_work(exe: str) -> bool:
+    import subprocess
+    import tempfile
+
+    from PIL import Image
+
+    with tempfile.TemporaryDirectory(prefix="clipforge-concat-") as d:
+        Image.new("RGBA", (2, 2)).save(Path(d) / "a.png")
+        (Path(d) / "a.ffconcat").write_text(f"ffconcat version 1.0\nfile 'a.png'\noption framerate {FPS}\n"
+                                            "duration 0.1\n", encoding="utf-8")
+        try:
+            got = ffmpeg_utils.run_process([exe, "-v", "error", "-nostdin", "-f", "concat", "-safe", "0", "-i",
+                                            str(Path(d) / "a.ffconcat"), "-frames:v", "1", "-f", "null", "-"],
+                                           timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return got.returncode == 0
+
+
+def _concat_takes_options() -> bool:
+    """Whether this FFmpeg's list reader takes "option" lines (FFmpeg 5 and later). Each card picture then starts on
+    its own 1/30 s frame; without, the picture reader's 1/25 s steps can swallow one of a bubble's rise frames."""
+    try:
+        return _concat_options_work(ffmpeg_utils.ffmpeg_bin())
+    except Exception:   # noqa: BLE001 - no FFmpeg yet: the render says so itself
+        return False
 
 
 def card_box(size: tuple[int, int]) -> tuple[int, int]:

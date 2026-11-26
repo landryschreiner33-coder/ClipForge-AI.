@@ -1,5 +1,27 @@
 # Implementation status
 
+## Text-message stories (the TikTok kind), up to ten minutes — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-gjc836` (PR #86). Text Stories gains the kind "Text-message story": a phone chat card over
+the background, a bubble at a time, each message read aloud in its sender's voice; pasted or written by ClipForge AI;
+chats and narrated stories up to ten minutes. Not released (Landry: "don't release anything yet only merge what's
+done"). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | `pytest -m "not slow"` (before the review fixes) | 3,531 passed, 2 skipped |
+| 2026-11-26 | Independent review (3 reviewers, a verifier per finding) | 17 confirmed findings, all fixed; 13 tests added, each failing before its fix |
+| 2026-11-26 | `pytest` on the 18 test files that use the changed code (after the fixes) | 365 passed |
+| 2026-11-26 | Second review of the fixes (3 reviewers, a verifier per finding) | 5 confirmed, all fixed; 2 more tests and 2 extended, each failing before its fix |
+| 2026-11-26 | `pytest tests/test_chat_stories.py tests/test_text_stories.py -m "not slow"` (final code) | 63 passed |
+| 2026-11-26 | `pytest -m slow` | 40 passed, 1 skipped before the run hit its 30-minute limit; the 3 left (`test_zero_touch_loop.py`) and the chat export test on the final code: 4 passed |
+| 2026-11-26 | The story page in Chromium (throwaway app): typing with pauses, leaving the page without leaving a field | a new line and a space before a pause are kept; the name at the top and the unread number are saved |
+| 2026-11-26 | GitHub shorts-check on PR #86 (ubuntu, windows, macos-15), before the review fixes | passed |
+
+Not verified: a real model writing a ten-minute chat, Mac and Windows voices and emoji fonts (the cloud has eSpeak and
+Noto Color Emoji), Windows' Pillow without raqm beyond the forced-layout test.
+
 ## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on top of batch 2. Full videos get split edits (J and L cuts) where no word
