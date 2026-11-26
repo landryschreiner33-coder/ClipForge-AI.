@@ -20,9 +20,34 @@ video. It learns from the owner's real results, within limits. Design and source
   means the posted file; `version_id=` (empty) means the clip's own file (the editor always sends it). A review round
   fixed: trims judged with the lines around the cut (`content.trim_flags`), the Shortest-clip floor for every fix,
   live renders' `source_offset`, weights that move only on 10 new posts, and Check a video's drop zone staying
-  mounted while it uploads. The "Make the AI really watch and listen" thread (PR #88)
-  also adds a bounded term to `deep.clip_score`; the predictor does not read `p.senses` yet, so a later change could
-  feed its watched/heard features into the channels (keep the bounds and avoid counting a moment twice).
+  mounted while it uploads. PR #88 (watch and listen, merged first) adds its own bounded
+  senses term to `deep.clip_score`; both terms are summed, each within its own bounds. The predictor does not read
+  `p.senses` yet, so a later change could feed its watched/heard features into the channels (keep the bounds and
+  avoid counting a moment twice).
+## ClipForge AI watches and listens — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** before picking clips ClipForge now listens to every sound (a sound model that ships with
+it), watches every frame, and with the built-in model says what happens in each part; clips are picked and scored on
+that too, and ClipForge AI can answer what is seen and heard in a clip or at a moment.
+
+- **Where things are:** `pipeline/listen.py` (YAMNet features and events, `Heard`), `pipeline/watch.py` (`Watched`,
+  `scan`), `pipeline/eyes.py` (`describe_video`, `answer_about`), `pipeline/senses.py` (`Senses`: anchors, adjust,
+  show, judge_clip, summary), `candidates.from_senses` / `_time_window`, `process.sense` and `process.describe`,
+  `deep.evaluate_select(senses=...)`, `scout` notes, `brain/toolbox._watch`. Caches: `sounds.json`, `watch.json`,
+  `seen.json` in the project folder (keyed by file size and time, model, version).
+- **Worth knowing:** the sound model's SHA-256 is checked before loading (`listen.MODEL_SHA256`); change the file,
+  change the hash. `listen.GROUPS` must name classes that exist (a test checks). `virality.wordless_loud` reads
+  `loud.heard` when it is set, so every reaction check follows the sound model; `render.heard` keeps the union.
+  The Clip Score's senses part is `adjust` (±9) plus `show_adjust` (±12, only when under half the clip is talk).
+  `ai_eyes` off also stops the describing. The appguide has no section for this on purpose: any new section shifts
+  the guide search's tuned results (tests/test_assistant_library.py).
+- **Rules from the review (keep them):** a switched-off sense leaves out saved files too (`Senses.load(pdir,
+  settings)`; the model's words only for the same model, `Senses.saved_seen`); a time window (s0 = -1 with
+  `signals.talk`) is scored once (`judge_clip(blend=False)`, `deep._timed`) and only when ≥ 60/100 happens
+  (`candidates.TIME_MIN_SHOW`); at most "at least three" deep places for sensed moments (never more evictions);
+  Autopilot/post-live with "Require a complete story" leave time windows out (`process.story_screened`);
+  `diversity.select` checks overlap against every chosen clip; `Watched.action` works with 2 frames.
+
 ## Editing quality, batch 4a: speed, ramps, freeze frames, camera moves — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** a clip in a full video can now play slower or faster (with the voice at its normal
@@ -1371,6 +1396,7 @@ engines it still works: the computer's own voice and designed cards with each sc
   entry in [AI_CHANGELOG.md](AI_CHANGELOG.md)). New tests: `tests/test_studio_shorts_undo.py`, `_stops.py`,
   `_edits.py`. Still only on real machines: the engines, Landry's downloaded voices, a real model writing and the
   speech model's word times.
+
 ## Release 2026.11.07 published — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry said "publish the new changes". The smarter-AI work (PR #32) was merged into the
@@ -1513,6 +1539,7 @@ chatter, opens with the strongest line, and ClipForge AI reads the whole video i
   tried in the cloud; script matching is by words, not meaning (a paraphrased line counts as missing); the local
   browser was tried on Linux paths only; the look of the new panels is the UI thread's.
 - **Waiting on Landry:** review of the PR and a try with his own footage; the release (needs an explicit OK).
+
 ## Release ClipForge 2026.11.06 (ClipForge AI and FilmCraft inside the app) — 2026-11-06 (Claude Code, cloud session)
 
 Landry chose "Merge and release" for PR #28. It was merged into the release line `claude/project-thread-x72wkd` as
@@ -2002,6 +2029,7 @@ each checkpoint as it is reached.
   running upstream code (or run the harness on their own machine) before the integration can be evaluated.
 - **Baseline tests:** the fast suite is being run on the untouched starting commit in a separate worktree so the
   result is not affected by new edits; the result is recorded in the next checkpoint entry.
+
 ## Website redesign added to the Claude handoff — 2026-11-04 (America/Chicago)
 
 The owner asks to tell Claude to update the website and improve its appearance. Section 17 of

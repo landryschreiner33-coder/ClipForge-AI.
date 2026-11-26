@@ -27,11 +27,14 @@ from .. import taste
 from . import diversity, ears, eyes, hooks, reframe, scoring, scout, semantic, virality
 from .audio import Loudness
 from .common import Cancelled, JobContext, log
+from .senses import Senses
 from .text_utils import CONTRAST_WORDS, EMOTION_WORDS, PAYOFF_PHRASES, content_tokens, count_phrases, tokens
 
 FAST_KEEP_MIN = 20
 DEEP_KEEP = 12
 VISUAL_KEEP = 6
+SENSE_RANK = 8.0            # how much what was seen and heard (0-1) counts in the fast and semantic rankings
+SENSE_RESERVED = 3          # deep-stage places kept for moments built around what was seen and heard
 DEBATE_PHRASES = ["i think", "i believe", "honestly", "wrong", "overrated", "underrated", "unpopular opinion",
                   "disagree", "should", "shouldn't", "the problem with", "change my mind", "hot take",
                   "controversial", "nobody wants to", "let's be real", "that's not", "no way", "what do you think",
@@ -81,15 +84,21 @@ def audio_features(start: float, end: float, words: list[dict], loud: Loudness) 
         if k - last >= 2 * win:
             spikes += 1
             last = k
-    # loud stretches without words: laughter, applause, a crowd reacting (an estimate from loudness alone)
-    reactions = [r * loud.hop for r in _runs(~covered & (z > 1.0)) if r * loud.hop >= 0.4]
+    # stretches without words where a reaction is heard: named by the sound model when it listened (listen.py),
+    # otherwise loud stretches without words (an estimate from loudness alone)
+    if getattr(loud, "heard", None) is not None:
+        reactions = [b - a for a, b in virality.wordless_loud(ws, loud, start, end)]
+    else:
+        reactions = [r * loud.hop for r in _runs(~covered & (z > 1.0)) if r * loud.hop >= 0.4]
     score = (0.35 * _clamp(speech / dur) + 0.25 * (1 - min(1.0, silence * 3)) + 0.2 * min(1.0, spikes / 3)
              + 0.2 * min(1.0, len(reactions) / 2))
     return {"speech_density": round(speech / dur, 3), "silence_ratio": round(silence, 3),
             "mean_z": round(float(z.mean()), 2) if len(z) else 0.0, "peak_z": round(float(smooth.max()), 2)
             if len(smooth) else 0.0, "energy_spikes": spikes, "reactions": len(reactions),
             "reaction_seconds": round(sum(reactions), 1), "score": round(score, 3),
-            "estimated": ["reactions (loud moments without speech: laughter, applause, crowd)"]}
+            "estimated": ["reactions (heard by the sound model: laughter, applause, cheering, screaming, a gasp, a "
+                          "bang)" if getattr(loud, "heard", None) is not None else
+                          "reactions (loud moments without speech: laughter, applause, crowd)"]}
 
 
 # ------------------------------------------------------------------ visual
@@ -203,6 +212,8 @@ def clip_score(r: dict) -> tuple[float, list[str]]:
     adj_y = float(t.get("adjust") or 0.0)
     y_label = ("your taste (you tend to keep clips with " + ", ".join(t["why"]) + ")") if t.get("why") else \
         "your taste (your earlier choices)"
+    n = d.get("senses") or {}
+    adj_n = float(n.get("adjust") or 0.0) + float(n.get("show_adjust") or 0.0)
     j = r.get("judge") or {}
     adj_j = float(j.get("adjust") or 0.0)
     pr = r.get("predicted") or {}
@@ -217,14 +228,23 @@ def clip_score(r: dict) -> tuple[float, list[str]]:
                      (j_label, adj_j), (y_label, adj_y), (p_label, adj_p)):
         if abs(v) >= 0.5:
             why.append(f"{v:+.1f} {label}")
+    if abs(adj_n) >= 0.5:
+        why += [str(x) for x in n.get("why") or []] + ([n["show_why"]] if n.get("show_why") else []) \
+            or [f"{adj_n:+.1f} what ClipForge AI saw and heard"]
     said = (r.get("analysis") or {}).get("brain_steer") or {}
     if said.get("why") and abs(float(said.get("points") or 0.0)) >= 0.5:
         why.append(f"includes {said['points']:+.1f} from your Brain: it " + "; ".join(said["why"][:2]))
     if r.get("scout"):
         why.append(f"named by ClipForge AI while reading the video ({r['scout'].get('kind', 'moment')})")
+    if r.get("sense"):
+        why.append(f"built around a moment: {r['sense'].get('why', 'what ClipForge AI saw and heard')}")
+    if _timed(r) and n.get("show") is not None:
+        why.append(f"little is said here ({round(100 * float(n.get('talk') or 0))}% of the time), so it is scored on "
+                   f"what happens in it ({float(n['show']):.0f}/100 by what ClipForge AI saw and heard)")
     if d.get("prosody") and d["prosody"].get("monotone"):
         why.append("the voice stays flat here (estimated from the sound)")
-    return round(max(0.0, min(100.0, base + adj_x + adj_s + adj_t + adj_v + adj_e + adj_j + adj_y + adj_p)), 1), why
+    points = base + adj_x + adj_s + adj_t + adj_v + adj_e + adj_j + adj_y + adj_n + adj_p
+    return round(max(0.0, min(100.0, points)), 1), why
 
 
 def _predict_moments(results: list[dict], words: list[dict], loud: Loudness, opts: dict) -> bool:
@@ -250,14 +270,28 @@ def _predict_moments(results: list[dict], words: list[dict], loud: Loudness, opt
         return False
 
 
+def _timed(r: dict) -> bool:
+    """A time window built around a moment (candidates._time_window): its score is already what happens in it."""
+    return r.get("s0", -1) < 0 and "talk" in (r.get("signals") or {})
+
+
 def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, opts: dict, ctx: JobContext,
                     video_name: str, cands: list[dict], video_path: str = "", meta: dict | None = None,
                     lo: float = 0.5, hi: float = 0.58, trend_keywords: list[str] | None = None,
                     prior: list[dict] | None = None, brief: "scout.Brief | None" = None,
-                    wav_path: "str | Path | None" = None) -> tuple[list[dict], list[dict], dict]:
+                    wav_path: "str | Path | None" = None, senses: "Senses | None" = None
+                    ) -> tuple[list[dict], list[dict], dict]:
     """(chosen, evaluated results, notes). `notes["candidates"]` records how far each pool candidate got. `brief` is
-    the scout's brief (scout.brief) when a model is set up: the finalists are then ranked by the model too."""
+    the scout's brief (scout.brief) when a model is set up: the finalists are then ranked by the model too.
+    `senses` (senses.Senses): what ClipForge AI saw and heard in the whole video; it counts in every ranking below
+    and in the Clip Score (bounded, explained), and goes to the model with the words."""
     from ..autopilot import knowledge
+
+    senses = senses if senses is not None and senses.any() else None
+    base_action = senses.base_action() if senses else None
+
+    def interest(c: dict) -> float:
+        return senses.interest(c["start"], c["end"]) if senses else 0.0
 
     meta = meta or {}
     count = int(opts.get("clip_count", 5))
@@ -268,8 +302,21 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
     track = {c["cid"]: {"cid": c["cid"], "start": c["start"], "end": c["end"], "stage": "pool",
                         "stage1": round(float(c.get("stage1", 0)), 4), "score": None, "reasons": [],
                         "text": (c.get("text") or "")[:300]} for c in cands}
-    if not sentences:  # no speech: the standard path handles loudness-only windows
+    if not sentences:  # no speech: the standard path handles windows without words
         results, notes = scoring.evaluate(cands, sentences, opts, ctx, video_name, lo, hi, words=words, loud=loud)
+        if senses:  # scored on what was seen and heard (bounded, explained, as below)
+            for r in results:
+                n = senses.judge_clip(r["start"], r["end"], words, float(r["score"]), base_action,
+                                      blend=not _timed(r))
+                r["deep"] = {"senses": n}
+                was = float(r["score"])
+                r["clip_score"] = round(max(0.0, min(100.0, was + n["adjust"] + n["show_adjust"])), 1)
+                r["explanation"] = [f"Viral Potential {was:.0f} (no speech)"] + n["why"] \
+                    + ([n["show_why"]] if n.get("show_why") else [])
+                if _timed(r) and n.get("show") is not None:
+                    r["explanation"].append(f"scored on what happens in it ({float(n['show']):.0f}/100 by what "
+                                            f"ClipForge AI saw and heard)")
+                r["score"] = r["clip_score"]
         chosen = scoring.select(results, count, min_score)
         return chosen, results, {**notes, "candidates": list(track.values()), "stages": {"pool": len(cands)}}
 
@@ -288,13 +335,14 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         fast.append((c, r))
         track[c["cid"]]["score"] = r["viral_potential"]
     keep_n = max(FAST_KEEP_MIN, 4 * count)
-    fast.sort(key=lambda cr: cr[1]["viral_potential"] + 10 * float(cr[0].get("stage1", 0)), reverse=True)
+    fast.sort(key=lambda cr: cr[1]["viral_potential"] + 10 * float(cr[0].get("stage1", 0))
+              + SENSE_RANK * interest(cr[0]), reverse=True)
     kept = []
     for c, r in fast:
         if r["viral_potential"] < min_score - 25:
             track[c["cid"]]["reasons"].append(f"Fast filter: Viral Potential {r['viral_potential']:.0f} is far below "
                                               f"the minimum")
-        elif len(kept) >= keep_n and not c.get("scout"):
+        elif len(kept) >= keep_n and not c.get("scout") and not c.get("sense"):
             track[c["cid"]]["reasons"].append("Fast filter: not among the strongest candidates")
         else:
             kept.append((c, r))
@@ -304,7 +352,7 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
     ranked = []
     for c, r in kept:
         sem = semantic.features(emb, c["s0"], c["s1"])
-        ranked.append((r["viral_potential"] + 10 * (sem["score"] - 0.5), c))
+        ranked.append((r["viral_potential"] + 10 * (sem["score"] - 0.5) + SENSE_RANK * interest(c), c))
         track[c["cid"]]["stage"] = "semantic"
     ranked.sort(key=lambda x: x[0], reverse=True)
     deep_cands = [c for _, c in ranked[:DEEP_KEEP]]
@@ -316,6 +364,16 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         deep_cands = [c for c in deep_cands if c not in drop] + missing
         for c in drop:
             track[c["cid"]]["reasons"].append("Semantic stage: gave its place to a moment ClipForge AI named")
+    # ... and for the moments built around what ClipForge AI saw and heard (a laugh, a cheer, an explosion): at
+    # least SENSE_RESERVED of them reach the deep stage, never by pushing out more than it takes to get there
+    present = sum(1 for c in deep_cands if c.get("sense"))
+    sensed = [c for _, c in ranked if c.get("sense") and c not in deep_cands][:max(0, SENSE_RESERVED - present)]
+    if sensed:
+        keep = [c for c in deep_cands if not c.get("scout") and not c.get("sense")]
+        drop = keep[len(keep) - len(sensed):] if len(keep) >= len(sensed) else []
+        deep_cands = [c for c in deep_cands if c not in drop] + sensed
+        for c in drop:
+            track[c["cid"]]["reasons"].append("Semantic stage: gave its place to a moment ClipForge AI saw or heard")
     for _, c in ranked[DEEP_KEEP:]:
         if c not in deep_cands:
             track[c["cid"]]["reasons"].append("Semantic stage: not among the strongest candidates")
@@ -328,11 +386,16 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         track[r["cid"]]["stage"] = "deep"
         if by_cid.get(r["cid"], {}).get("scout"):
             r["scout"] = by_cid[r["cid"]]["scout"]
+        if by_cid.get(r["cid"], {}).get("sense"):
+            r["sense"] = by_cid[r["cid"]]["sense"]
         sents = [sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
         sem = semantic.features(emb, r["s0"], r["s1"])
         r["deep"] = {"semantic": sem, "audio": audio_features(r["start"], r["end"], words, loud),
                      "extras": text_extras(sents, sem, r["end"] - r["start"], trend_keywords), "visual": None,
                      "prosody": ears.clip_prosody(wav_path, r["start"], r["end"], words), "seen": None}
+        if senses:
+            r["deep"]["senses"] = senses.judge_clip(r["start"], r["end"], words, float(r["score"]), base_action,
+                                                    blend=not _timed(r))
         r["clip_score"], r["explanation"] = clip_score(r)
     order = sorted(results, key=lambda r: r["clip_score"], reverse=True)
     visual_n = 0
@@ -355,8 +418,12 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
             ctx.progress(frac, f"ClipForge AI is looking at clip {k + 1} of {min(VISUAL_KEEP, len(order))}")
             first_words = " ".join(sentences[j]["text"] for j in range(r["s0"], min(r["s1"], r["s0"] + 1) + 1)) \
                 if r["s0"] >= 0 else ""
+            times = senses.watched.keyframes(r["start"], r["end"], eyes.FRAMES) \
+                if senses and senses.watched is not None else None
+            heard_here = senses.heard.note(r["start"], r["end"] + 2.0) \
+                if senses and senses.heard is not None else ""
             seen = eyes.look(video_path, r["start"], r["end"], first_words, opts, ctx, deadline=deadline,
-                             beat=lambda m, f=frac: ctx.progress(f, m))
+                             beat=lambda m, f=frac: ctx.progress(f, m), times=times, heard=heard_here)
             if seen:
                 r["deep"]["seen"] = seen
                 r["clip_score"], r["explanation"] = clip_score(r)
@@ -369,7 +436,8 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         track[r["cid"]]["score"] = r["clip_score"]
     # 5. the model ranks the finalists side by side (bounded, explained; nothing without a model)
     if scout.configured(opts):
-        notes["judge"] = scout.judge(results, sentences, opts, ctx, brief, frac=lo + (hi - lo) * 0.96)
+        notes["judge"] = scout.judge(results, sentences, opts, ctx, brief, frac=lo + (hi - lo) * 0.96,
+                                     senses=senses)
         for r in results:
             if r.get("judge"):
                 r["clip_score"], r["explanation"] = clip_score(r)
@@ -395,7 +463,8 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         track[r["cid"]]["stage"] = "selected"
     notes["stages"] = {"pool": len(cands), "fast": len(kept), "semantic": len(ranked), "deep": len(results),
                        "visual": visual_n, "seen": seen_n, "selected": len(chosen),
-                       "scouted": sum(1 for c in cands if c.get("scout"))}
+                       "scouted": sum(1 for c in cands if c.get("scout")),
+                       "sensed": sum(1 for c in cands if c.get("sense"))}
     notes["candidates"] = list(track.values())
     notes["rejected"] = [{"start": r["start"], "end": r["end"], "score": r.get("clip_score"), "reasons": r["reasons"],
                           "text": (r.get("caption_text") or "")[:160]} for r in rejected]

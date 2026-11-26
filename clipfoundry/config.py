@@ -100,6 +100,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "deep_analysis": True,              # staged analysis for every "Make clips" (pipeline/deep.py), not only Autopilot
     "ai_scout": True,                   # the model reads the whole video and ranks the finalists (pipeline/scout.py)
     "ai_eyes": True,                    # the model looks at frames of the finalists (pipeline/eyes.py)
+    # Watching and listening (docs/clipforge/WATCH_AND_LISTEN.md): every sound named by the built-in sound model,
+    # every frame measured, and (with the built-in model) what happens in each part said in words
+    "ai_listen": True,                  # pipeline/listen.py (YAMNet, ships with ClipForge, runs on the CPU)
+    "ai_watch": True,                   # pipeline/watch.py + eyes.describe_video
+    "ai_watch_budget_s": 0.0,           # how long the model may watch one video (0: 40% of its length, 90 s-10 min)
     # "Tell the editor what to change" (studio/edit_requests.py): only used when an AI service above is set up
     "ai_edit_requests_per_day": 40,     # requests sent to the AI service per workspace per day (0: never send)
     "ai_edit_timeout_s": 60.0,          # stop waiting after this; nothing is changed

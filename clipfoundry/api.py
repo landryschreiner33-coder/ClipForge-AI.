@@ -312,6 +312,14 @@ def ai_meaning_view() -> dict:
     return embedder.status(db.get_settings())
 
 
+@app.get("/api/ai/senses")
+def ai_senses_view() -> dict:
+    """Watching and listening (pipeline/senses.py): which senses are on and whether the sound model runs here."""
+    from .pipeline.senses import Senses
+
+    return Senses.status(db.get_settings())
+
+
 @app.post("/api/ai/meaning/install")
 def ai_meaning_install() -> dict:
     try:
@@ -954,7 +962,7 @@ def clip_trims(clip_id: str) -> dict:
     near = [w for w in words if start - 30 <= w["start"] <= end + 30]
     silence = edit.get("silence", (project.get("options") or {}).get("silence", "off"))
     return trims.suggest(near, start, end, str(silence or "off"),
-                         loud=render.heard(project_dir(project), near, start - 30, end + 30))
+                         loud=render.heard(project_dir(project), near, start - 30, end + 30, db.get_settings()))
 
 
 # ------------------------------------------------------------------ versions

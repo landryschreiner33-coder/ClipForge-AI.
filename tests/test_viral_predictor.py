@@ -239,6 +239,10 @@ def test_clip_picking_gets_a_bounded_explained_adjustment():
          "predicted": {**strong, "adjust": 4.0}}
     score, why = deep.clip_score(r)
     assert score == pytest.approx(64.0, abs=0.01) and any("viral predictor" in w for w in why)
+    # beside what ClipForge AI saw and heard (pipeline/senses): both count, each within its own bounds
+    r["deep"]["senses"] = {"adjust": 3.0, "why": ["+3.0 a big laugh"]}
+    both, why = deep.clip_score(r)
+    assert both == pytest.approx(67.0, abs=0.01) and "+3.0 a big laugh" in why
 
 
 # ------------------------------------------------------------------ learning from results

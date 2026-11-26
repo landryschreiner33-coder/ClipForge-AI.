@@ -141,6 +141,10 @@ export interface ClipAnalysis {
   explanation?: string[];
   judge?: { rank: number; of: number; verdict: "green" | "yellow" | "red" | ""; note: string; adjust: number; provider: string };
   scout?: { kind: string; why: string; part: number };
+  /** A moment built around what ClipForge AI saw or heard (candidates.from_senses). */
+  sense?: { kind: string; at: number; why: string };
+  /** What ClipForge AI saw and heard in the clip (pipeline/senses.py), times inside the clip. */
+  senses?: { seen?: string[]; heard?: string[]; sounds?: string[]; picture?: string };
   taste?: { p: number; adjust: number; why: string[] };
   /** What the owner's Brain (rules, imported lessons, skills, results) added to or took from this clip's score. */
   brain?: { points?: number; why: string[]; used: BrainSource[]; avoid?: { label: string; by: BrainSource } | null };
@@ -161,6 +165,13 @@ export interface ClipAnalysis {
 export type MeaningModel = { model: string; name: string; license: string; download_bytes: number; ready: boolean; enabled: boolean;
   usable: boolean; problem: string; folder: string;
   task: { state?: "running" | "done" | "error"; status?: string; completed?: number; total?: number; error?: string } };
+
+/** Watching and listening (clipfoundry/pipeline/senses.py): the sound model, the frame-by-frame watch, the model's look. */
+export type SensesStatus = {
+  listen: { on: boolean; usable: boolean; problem: string; name: string; license: string; bytes: number; classes: number };
+  watch: { on: boolean; fps: number[] };
+  describe: { on: boolean; builtin: boolean; eyes: boolean; budget_s: number };
+};
 
 /** What ClipForge AI learned from your choices about clips (clipfoundry/taste.py). */
 export type Taste = { events: number; by_kind: Record<string, number>; kept: number; left_out: number; ready: boolean;
@@ -513,6 +524,7 @@ export const api = {
   aiSetup: () => req<AiSetup>("GET", "/api/ai/setup"),
   ollamaPull: (model: string) => req<AiTask>("POST", "/api/ai/ollama/pull", { model }),
   meaningModel: () => req<MeaningModel>("GET", "/api/ai/meaning"),
+  senses: () => req<SensesStatus>("GET", "/api/ai/senses"),
   meaningInstall: () => req<MeaningModel>("POST", "/api/ai/meaning/install"),
   meaningCancel: () => req<MeaningModel>("POST", "/api/ai/meaning/cancel"),
   meaningRemove: () => req<MeaningModel>("POST", "/api/ai/meaning/remove"),
