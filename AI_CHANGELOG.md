@@ -34,6 +34,8 @@ builds it (PR #72, from `claude/project-thread-8ua98o` on the release line at 3b
 - **Text Stories:** "Find free footage" in the Background step searches Settings → Media sources and puts the pick
   behind the story, with its license and any credit it needs.
 - **Releases without built-in sign-in** show a warning in the Mac build's summary (`write_oauth_apps.py --release`).
+- **Text Stories open from Make** (Landry: "make sure the text stories is in the make tab like the rest not on the side
+  bar as its own"): Make → Make a text story and the Studio's tile; no side bar entry; its pages light up the Studio.
 - **Review (4 reviewers, every finding checked again): 21 problems fixed.** ClipForge's own trims keep the plan's
   middle cuts (`blueprint._inside_trims`); owner hashtags with digits or other alphabets pass every check; a
   sentence's first word is not a subject; learned trims are measured from ClipForge's pick; title kinds use the same

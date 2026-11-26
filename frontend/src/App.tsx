@@ -37,11 +37,12 @@ import SettingsPage from "./pages/Settings";
 export { navigate };
 
 // Studio combines Home and the Office (studio upgrade handoff, section 2); #/office is the Studio's expanded office.
-type NavKey = "studio" | "talk" | "projects" | "stories" | "missions" | "brain" | "publishing" | "accounts" | "settings";
+type NavKey = "studio" | "talk" | "projects" | "missions" | "brain" | "publishing" | "accounts" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
   "": "studio", create: "studio", projects: "projects", project: "projects", clip: "projects", publish: "projects",
   video: "projects", brain: "brain", publishing: "publishing", post: "publishing", accounts: "accounts",
-  office: "studio", missions: "missions", setup: "studio", dev: "studio", settings: "settings", stories: "stories",
+  office: "studio", missions: "missions", setup: "studio", dev: "studio", settings: "settings",
+  stories: "studio",   // a maker, like the others: in Make (and the Studio's tiles), not its own side bar entry
 };
 const SECTION_TITLE: Record<string, string> = {
   "": "Studio", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
@@ -181,7 +182,6 @@ function Shell({ me }: { me: Me }) {
       <NavLink href="#/" icon="clapper" label="Studio" on={active === "studio"} />
       <NavLink href="#/brain/talk" icon="chat" label="Talk to AI" on={active === "talk"} />
       <NavLink href="#/projects" icon="folder" label="Projects" on={active === "projects"} />
-      <NavLink href="#/stories" icon="story" label="Text Stories" on={active === "stories"} />
       <NavLink href="#/missions" icon="satellite" label="Missions" on={active === "missions"} />
       <NavLink href="#/brain/styles" icon="brain" label="Brain" on={active === "brain"} />
       <NavLink href="#/publishing/review" icon="layers" label="Publishing" on={active === "publishing"}
