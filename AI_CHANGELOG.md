@@ -22,6 +22,23 @@ from `claude/project-thread-c3hbwh` on the release line at c89e5bb. Details:
 - **How:** `pipeline/grade.py` bakes everything for a recording into one 33³ `.cube` applied by `lut3d` (in every
   FFmpeg build, including the Mac one without zscale); the grade's hash is part of the engine's piece key.
 
+## ClipForge AI reads your results; the ready-made helpers get the tools their jobs need — 2026-11-26 (Claude Code)
+
+Thread "Make ClipForge AI and agents smarter" (Landry: "make the AI way smarter and more useful same with the agents"),
+branch `claude/project-thread-st8tpc` from the release line at c89e5bb.
+
+- **`results` tool** (`brain/insights.py`): totals per platform as Publishing → Results counts them, the 5 best and 3
+  weakest posts read fairly at 48 hours (`autopilot/compare.posts`, the owner's own views left out, posts under 48
+  hours "too new to compare"), comparisons by format, channel, niche or length (`compare.compare`), and the lessons
+  learned from results. YouTube numbers only after Google's approval for derived metrics (`learner.usable`).
+  Without a model, "how are my clips doing?" reads the same summary.
+- **Ready-made helpers** got the tools their jobs need: the Hook and title writer, Editor, Critic and Thumbnail
+  planner read the clip (`clip`); the Growth coach reads `results` and `posts` first; the Researcher reads results;
+  the Script writer opens the project. Helpers added before and left unchanged are upgraded once
+  (`agents.EARLIER`, `_upgrade`); whatever the owner changed stays.
+- The chat's "Sent over the internet" line and the privacy page name the results an online model may read.
+
+
 ## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code)
 
 A check of the batch 4 head against Landry's updated list of Nov 26 found what had not shipped yet; this batch
@@ -61,6 +78,13 @@ builds it (PR #72, from `claude/project-thread-8ua98o` on the release line at 3b
 - **Real example pictures for the animated-short looks** (Landry made them with ChatGPT from prompts ClipForge wrote):
   `public/looks/<look>.jpg` at 9:16 replace the shapes drawn in code (still the fallback if a picture can't load), and
   Brain → Styles plays its sample captions over a sunset-road picture (`public/brain/style-preview-*.jpg`).
+- **The Taser is a thing you pick up** (Landry: "make it an actual item you can grab with animations ... the same
+  thing shouldent happen all the time"): it lies on a charger in the Control room; picked up, it follows the pointer
+  over the ship, swaying with its prongs crackling. A zap makes it lunge and recharge (amber light; zapping again too
+  soon only fizzles), and the robot plays one of nine reactions drawn on the ship: a short-circuit shake, an X-ray
+  flash, a jump, a spin, falling over with dizzy stars, soot and smoke, floating up, a dance with music notes, or a
+  golden overcharge. A shuffled deal shows every reaction once before any comes back, never the same one twice in a
+  row, each with its own lines and sound. Escape, the charger or "Put the Taser back" returns it; keyboard works too.
 - **Review (4 reviewers, every finding checked again): 21 problems fixed.** ClipForge's own trims keep the plan's
   middle cuts (`blueprint._inside_trims`); owner hashtags with digits or other alphabets pass every check; a
   sentence's first word is not a subject; learned trims are measured from ClipForge's pick; title kinds use the same

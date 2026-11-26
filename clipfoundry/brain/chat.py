@@ -37,7 +37,8 @@ CANDIDATES = 5
 TOOLS = ("remember", "forget", "list", "explain", "change", "answer", "help", "talk")
 HELP = ("Right now I have no model to think with, so I only follow a few rules: I remember what you tell me "
         "(\"remember: …\", \"always …\", \"never …\"), forget it (\"forget …\"), list what I know (\"what do "
-        "you know about …\") and explain my last answer (\"why …\"). In a video's chat, anything else is a change I "
+        "you know about …\"), explain my last answer (\"why …\") and show how your posts did (\"how are my "
+        "clips doing?\"). In a video's chat, anything else is a change I "
         "propose for you to apply or discard; here, I answer editing questions (hooks, titles, captions, pacing, "
         "sound, music, colour, picking clips, export) from my built-in know-how and questions about ClipForge "
         "(\"how do I clip a live stream?\") from my guide to it. Set up the built-in model (free, on this "
@@ -92,6 +93,14 @@ _LIST = re.compile(r"^(?:what do you (?:know|remember)|what have you learned|wha
                    r"(?:show|list)(?: me)?(?: your| my)? memor(?:y|ies))\b\s*(?:about|of|on)?\s*(.*)$", re.I | re.S)
 _EXPLAIN = re.compile(r"^(?:why\b|what did you use|explain\b|how did you decide)", re.I)
 _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
+# "how are my clips doing?", "show me my results", "which post did best?": the results, read without a model
+_RESULTS = re.compile(
+    r"^(?:(?:please\s+)?(?:show|tell|give)(?:\s+me)?\s+)?(?:"
+    r"how(?:'s|’s| is| are| did| have| has| do| does)\b[^?.!]*\b(?:posts?|clips?|videos?|shorts?|channel|uploads?)\b"
+    r"[^?.!]*\b(?:doing|do|done|perform\w*|going|gone)\b"
+    r"|(?:my|the)\s+(?:post\s+|clip\s+)?(?:results|stats|statistics|analytics|numbers|views)\b"
+    r"|(?:which|what)\s+(?:of\s+my\s+)?(?:posts?|clips?|videos?|shorts?)\s+(?:did|do|does|got|get|gets|performed)"
+    r"\s+(?:best|worst|well|badly|most|the\s+most|better))", re.I)
 # In a video's chat, words that point at this video ("this video", "this one", "here") keep a memory to it
 # (`memories.points_here`), and the words are kept as they were said, with nothing cut out of them ("never zoom in
 # here" does not become "never zoom"). The one thing left out is a label in front of the words, which says only where
@@ -431,9 +440,19 @@ def _rules(chat: dict, text: str, base_revision: int | None, choice: bool = Fals
         return _list(ws, pid, m.group(1).strip())
     if _EXPLAIN.match(text):
         return _explain(ws, pid)
+    if _RESULTS.match(text.strip()):
+        return _results(ws)
     if pid:
         return _change(ws, pid, text[:500], base_revision)
     return _question(ws, text)
+
+
+def _results(ws: str) -> dict:
+    """Without a model: how the owner's posts did (brain/insights.py), as the results tool tells a model."""
+    from . import insights
+
+    out = insights.summary(ws)
+    return {"text": "\n".join(out["lines"]), "data": {"tool": "results", "links": list(insights.LINKS)}}
 
 
 def _rules_change(ws: str, pid: str, text: str, base_revision: int | None) -> dict | None:
@@ -466,7 +485,8 @@ def _talk(chat: dict, text: str, agent: dict | None) -> dict:
                 "status": "failed"}
     label = llm.provider_label(settings)
     what = ("the conversation, the memories, know-how and lines of your switched-on skills that fit it, your "
-            "project names and the details of the projects and clips it looks at. Never your files or their sound.")
+            "project names, the details of the projects and clips it looks at and your posts' results when it reads "
+            "them. Never your files or their sound.")
     sent = (f"Stays on this computer: {label} answers it." if local else f"Sent over the internet to {label}: {what}")
     data: dict = {"tool": "talk", "provider": label, "sent": sent, "remote": not local}
     role = "ai"

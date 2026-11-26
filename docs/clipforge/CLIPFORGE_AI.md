@@ -649,6 +649,7 @@ has started: that finishes, for the next answer). After a restart, an answer tha
 | "forget …" | deletes every memory that says your words exactly (its twins too: kept for one video, switched off, another kind; in a video's chat a note another video keeps under the same words stays when this video or every video has one, and the answer says so; the words after a leading "that", "about", "the", "my" or "what I said about", with a space and then a word or an opening “ or " after it, only when no memory says them all; words in quotes only as they are, and only when the quote holds all the words); otherwise, and always for a quick reply you pressed, lists the memories the words could mean: the ones that say exactly the words named, the ones that hold them as whole words, then the closest the search finds (the words are also read without "the rule about", "the one that says" and their like in front, and without "please", "thanks" or "too" behind) | "Forgotten: …" (and how many times it was kept); "Nothing I remember says “…”" for quoted words no memory says; or "Which one?" with the closest memories, the same words once (with how many times they are kept, all of which picking them forgets), each with a Forget button that sends its memory's words apart from the message (forgotten exactly as they are, whatever quote marks they hold) |
 | "what do you know / remember …", "what have you learned" | lists the best memories for the words after it (or the newest) | the list |
 | "why …", "what did you use", "explain" | the latest answer for this video (change request or FilmCraft pass): its summary and the memories it used | the explanation |
+| "how are my clips doing?", "my results", "which post did best?" | reads the results as the `results` tool does (last 30 days) | the totals, the best and weakest posts and what it learned from them |
 | anything else, in a video's chat | `edit_requests.ask` with the editor's rules alone | the proposal: Apply as a new version, Discard; a question with choices; or what it cannot do |
 | anything else, in the general chat | `knowhow.answer` | the playbook that answers it; or what it can do on its own and how to set up a model |
 
@@ -741,6 +742,7 @@ length, and checks choices, ranges and the required ones; what is wrong is told 
 | `recall` | look | searches your memories (8 at most) |
 | `knowhow` | look | reads the playbook that fits a topic (1,400 characters) |
 | `app_status` | look | the model in use, the work running, the projects being made, how many memories, which helpers are on |
+| `results` | look | how the owner's posts did (`brain/insights.py`, see *Results* below): totals, the best and weakest posts read fairly at 48 hours, comparisons by format, channel, niche or length, and what ClipForge learned from them; `period` 7, 30, 90 or all days, `platform`, `words` |
 | `go_to` | look | a button that opens a page (Studio, Projects, Make clips, Make a YouTube video, Make clips from a link, Brain → Memory, Brain → Agents, Talk to ClipForge AI, Settings → ClipForge AI, Publishing, Missions, Office, Accounts) or a project |
 | `remember` | make | saves a lasting rule or fact you told it in this message, in your words (in a video's chat it can keep it to that video, and words that point at this video, such as "this video" or "here", always are; the step line then says "for this video" and which words decided it); anything else waits for your OK, and a memory you already have is never changed (below) |
 | `propose_change` | make | in a video's chat only: a change to the cut in plain words (at most 500 characters), worked out and checked by the editor (`edit_requests.ask`); you apply it as a new version or discard it |
@@ -859,14 +861,18 @@ Ready-made helpers (`TEMPLATES`), added with one press and changed any time:
 
 | Helper | Its job | Tools | Helps plan new videos |
 |---|---|---|---|
-| 🔎 Researcher | digs through your notes, memories, past projects and ClipForge's know-how to find facts, angles and questions for a topic; says what is not known here (it cannot browse the internet) | recall, knowhow, find_projects, open_project | yes |
-| ✍️ Script writer | writes scripts, voice-overs and outlines in your voice | recall, knowhow | yes |
-| 🪝 Hook and title writer | writes opening lines, titles, captions and hashtags that stop the scroll (5 options, each under 12 words) | recall, knowhow | no |
-| ✂️ Editor | studies a video's cut and proposes changes you apply or discard | open_project, knowhow, recall, propose_change | yes |
-| 🧐 Critic | reviews a plan, script or cut honestly: the strongest part first, then the three biggest problems with a fix each | open_project, knowhow, recall | yes |
+| 🔎 Researcher | digs through your notes, memories, past projects, results and ClipForge's know-how to find facts, angles and questions for a topic; says what is not known here (it cannot browse the internet) | recall, knowhow, find_projects, open_project, results | yes |
+| ✍️ Script writer | writes scripts, voice-overs and outlines in your voice | recall, knowhow, open_project | yes |
+| 🪝 Hook and title writer | writes opening lines, titles, captions and hashtags that stop the scroll (5 options, each under 12 words); reads the clip first | recall, knowhow, clip, results | no |
+| ✂️ Editor | studies a video's cut and proposes changes you apply or discard | open_project, clip, knowhow, recall, propose_change | yes |
+| 🧐 Critic | reviews a plan, script or cut honestly: the strongest part first, then the three biggest problems with a fix each | open_project, clip, knowhow, recall | yes |
 | 🎵 Sound and music advisor | suggests music moods, sound effects and mix levels for a video | knowhow, recall, open_project | no |
-| 🖼️ Thumbnail planner | plans thumbnails: the picture, the words on it and why it gets the click (3 ideas) | open_project, recall, knowhow | no |
-| 📈 Growth coach | thinks about your channel: what to post next, when, and for whom | find_projects, recall, knowhow | no |
+| 🖼️ Thumbnail planner | plans thumbnails: the picture, the words on it and why it gets the click (3 ideas) | open_project, clip, recall, knowhow | no |
+| 📈 Growth coach | reads your results first, then plans your channel: what to post next, when, and for whom, naming the numbers it stands on | results, posts, find_projects, recall, knowhow | no |
+
+A helper added from a ready-made one before Nov 26, 2026 and left as it was gets that one's new tools and words the
+next time ClipForge starts (`agents.EARLIER`, `agents._upgrade`): only when its tools are still the old set (and its
+words the old words); whatever the owner changed stays theirs.
 
 **Brain → Agents** (`#/brain/agents`, `frontend/src/components/AgentsTab.tsx`): your helpers as cards (switch on or
 off, "Helps plan new videos", how often and when it last worked, Edit, and Remove after a question: what it wrote in
@@ -940,6 +946,29 @@ by format; used at 20% closer on 4 or more), `defaults` (what new clips use), `s
 `DELETE /api/brain/learned/{id}`, `DELETE /api/brain/learned/edits`,
 `POST /api/brain/learned/versions/{number}/rollback`, `POST /api/brain/learned/clips/{clip_id}/feedback`
 `{good, why?}`.
+
+## Results (2026-11-26)
+
+`clipfoundry/brain/insights.py` gives ClipForge AI and its helpers the owner's results, read the way the app reads
+them (Landry asked for an AI and helpers that are "way smarter and more useful"; before this nothing in the chat could
+see a view count, so the Growth coach planned blind):
+
+- **Totals** per platform are each post's newest reading, as Publishing → Results counts them.
+- **Best and weakest** posts (5 and 3) are compared fairly: each read about 48 hours after the owner's viewers could
+  first watch it (`autopilot/compare.posts`), the owner's own views left out; a post under 48 hours old is counted as
+  "too new to compare yet", never ranked.
+- **`by`** format, channel, niche or length is `autopilot/compare.compare`: one platform and audience at a time,
+  "too few posts" or "no clear difference yet" instead of a guess, and a test to run next.
+- **YouTube** numbers are used only after the owner confirms Google's approval for derived metrics
+  (`learner.usable`), as YouTube's Developer Policies require; until then the answer says how many YouTube posts there
+  are and why their numbers are left out.
+- **Lessons** ClipForge learned from the results (`brain/lessons.py`, tag "from results") are listed with them.
+- `words` keeps the posts whose title or project name hold the most of the words given; `period` is 7, 30 (default),
+  90 or all days, counted from when the owner's viewers could first watch each post.
+
+Without a model, "how are my clips doing?", "show me my results" or "which clip did best?" read the same summary
+(`chat._RESULTS`). An online model sees the titles and numbers only when it uses the tool (the chat's "Sent over the
+internet" line and the privacy page say so).
 
 ## Acting without asking, and the new commands (2026-11-26)
 

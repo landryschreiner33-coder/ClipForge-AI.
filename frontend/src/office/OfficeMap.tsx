@@ -7,7 +7,8 @@ import { ROOM_ACCENT, ROOMS, roomOf, VIEW } from "./world";
 import { Listener, LIVE_SECONDS } from "./useOffice";
 import { OfficeMotion, placements, WorkCard } from "./OfficeMotion";
 import SHIP from "../space/ship-world.json";
-import { reaction, zapSound } from "./taser";
+import { ZAP_MS } from "./taser";
+import { HeldTaser, TaserBursts, TaserDock, useTaser } from "./TaserItem";
 import type { StudioScene } from "./StudioScene";
 
 export type Card = WorkCard;
@@ -53,28 +54,15 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
 }) {
   const wrap = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null);
   const { pageHidden, officeActivity, taser, sounds } = useMotion();
-  // the Taser easter egg: armed, a click on a robot zaps it (taser.ts) instead of opening it
-  const [armed, setArmed] = useState(false);
-  const [zaps, setZaps] = useState<{ key: number; id: string; x: number; y: number; words: string }[]>([]);
-  const zapCount = useRef(0);
-  useEffect(() => {
-    if (!taser) setArmed(false);
-  }, [taser]);
-  const zap = (id: string) => {
-    const el = buttons.current.get(id);
-    if (!el) return;
-    const key = ++zapCount.current;
-    const x = el.offsetLeft + el.offsetWidth / 2, y = el.offsetTop + el.offsetHeight * 0.35;
-    setZaps((list) => [...list.filter((z) => z.id !== id), { key, id, x, y, words: reaction() }]);
-    if (sounds) zapSound();
-    window.setTimeout(() => setZaps((list) => list.filter((z) => z.key !== key)), 1700);
-  };
   // drawing stops while the ship is scrolled out of view
   const onScreen = useRef(true);
   const choreography = useRef<OfficeMotion | null>(null);
   if (!choreography.current) choreography.current = new OfficeMotion(snap);
   const motion = choreography.current;
-  const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const buttons = useRef(new Map<string, HTMLButtonElement>()), world = useRef<HTMLDivElement>(null);
+  // the Taser (an easter egg): pick it up from its charger, and a click on a robot zaps it instead of opening it
+  const zapper = useTaser({ enabled: taser, sounds, robots: buttons, world, name: id => BY_ID[id]?.name || "The robot" });
+  const zaps = zapper.fx.current;
   const brainLink = useRef<HTMLAnchorElement>(null), transferNote = useRef<HTMLSpanElement>(null);
   const pulses = useRef(new Map<RoomId, number>()), core = useRef(0), dockUntil = useRef(0);
   const coreConsulted = useRef<"consulting" | "consulted" | null>(null);
@@ -177,14 +165,17 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       const lowPower = state.officeActivity === "low_power";
       const still = state.reduce || frozen || lowPower;
       motion.tick(dt, now, state.reduce || lowPower, frozen, state.officeActivity === "full");
-      // pixel crew step at about 12 frames a second; a still picture only needs to follow real changes
-      if (drawn && now - drawn < (still ? 250 : 83)) { raf = requestAnimationFrame(frame); return; }
+      // pixel crew step at about 12 frames a second; a still picture only needs to follow real changes. A Taser zap
+      // plays smoothly, at 30 frames a second, even on a still ship (it is the person's own click).
+      for (const [id, z] of zaps) if (state.reduce || now - z.start >= ZAP_MS[z.kind]) zaps.delete(id);
+      const zapping = zaps.size > 0;
+      if (drawn && now - drawn < (zapping ? 33 : still ? 250 : 83)) { raf = requestAnimationFrame(frame); return; }
       drawn = now;
       for (const [id, until] of pulses.current) if (until < now) pulses.current.delete(id);
       const actors = [...motion.actors.values()].sort((a, b) => a.y - b.y);
       const painted = actors.map(a => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, pose: motion.pose(a),
         posture: motion.posture(a), duty: motion.duty(a), selected: state.selected === a.id,
-        breakActivity: motion.breakActivity(a), breakPhase: motion.breakPhase(a) }));
+        breakActivity: motion.breakActivity(a), breakPhase: motion.breakPhase(a), zap: zapOf(a.id, now) }));
       const consulting = state.snap.brain?.activity?.state === "working";
       const consulted = core.current > now && coreConsulted.current;
       const busy = core.current > now || consulting || state.snap.brain?.state === "evaluating"
@@ -231,8 +222,12 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
             ? "Passing document" : "Received"}` : "";
         if (note.textContent !== label) note.textContent = label;
       }
-      if (lowPower) { wait = window.setTimeout(() => { raf = requestAnimationFrame(frame); }, 1000); return; }
+      if (lowPower && !zapping) { wait = window.setTimeout(() => { raf = requestAnimationFrame(frame); }, 1000); return; }
       raf = requestAnimationFrame(frame);
+    };
+    const zapOf = (id: string, now: number) => {
+      const z = zaps.get(id);
+      return z ? { kind: z.kind, ms: now - z.start, seed: z.seed } : undefined;
     };
     const init = async () => {
       await Promise.resolve(); if (cancelled) return;
@@ -247,7 +242,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
     };
     void init();
     return () => { cancelled = true; cancelAnimationFrame(raf); window.clearTimeout(wait); scene?.destroy(); };
-  }, [renderer, motion]);
+  }, [renderer, motion, zaps]);
 
   const label = (id: string) => {
     const c = BY_ID[id], r = rows[id], task = r?.task?.message ? `: ${r.task.message}` : "";
@@ -264,8 +259,10 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
     || ROOM_NAMES[r.id].length * 0.6 * signFont + 16 > (r.w - 14) * scale * zoom ? ROOM_SHORT[r.id] : ROOM_NAMES[r.id];
   return <div className="office-map-frame">
     <div className={`office-map${stale ? " stale" : ""}`} ref={wrap} data-narrow={narrow ? "true" : undefined}
-      data-renderer={renderer} data-camera={focus || "office"} data-tags={tagsAlways || focus ? "all" : "chosen"}>
-      <div className="office-world" data-smooth={effective < 1 ? "true" : "false"}
+      data-renderer={renderer} data-camera={focus || "office"} data-tags={tagsAlways || focus ? "all" : "chosen"}
+      data-taser={zapper.held ? "held" : undefined} onPointerMove={zapper.track} onPointerDown={zapper.track}
+      onPointerLeave={zapper.leave}>
+      <div className="office-world" ref={world} data-smooth={effective < 1 ? "true" : "false"}
         style={{ width: VIEW.w * scale * zoom, height: VIEW.h * scale * zoom,
           transform: pan, ["--s" as string]: scale * zoom } as React.CSSProperties}>
         {renderer === "ship" && <canvas key={renderer} ref={canvas} width={VIEW.w} height={VIEW.h}
@@ -274,10 +271,11 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
           style={{ left: pct(r.x - VIEW.x, VIEW.w), top: pct(r.y - VIEW.y, VIEW.h), width: pct(r.w, VIEW.w),
             height: pct(r.h, VIEW.h), ["--accent" as string]: ROOM_ACCENT[r.id] } as React.CSSProperties}
           aria-label={`${ROOM_NAMES[r.id]}${r.id === "lounge" ? `: ${resting} off duty` : ""}. Open details`}
-          aria-pressed={room === r.id} onClick={() => onRoom(r.id)}>
+          aria-pressed={room === r.id} onClick={event => (zapper.held ? zapper.miss(event) : onRoom(r.id))}>
           <span className="room-sign" aria-hidden="true">{signText(r)}</span>
         </button>)}
         <a ref={brainLink} href="#/brain" className="brain-core-hit" data-mode="standby"
+          onClick={event => { if (zapper.held) { event.preventDefault(); zapper.miss(event); } }}
           aria-label={`${CORE.name}, Brain Core: Standby. Open Brain workspace`}
           style={{ left: pct(CORE_BOX.x - VIEW.x, VIEW.w), top: pct(CORE_BOX.y - VIEW.y, VIEW.h),
             width: pct(CORE_BOX.w, VIEW.w), height: pct(CORE_BOX.h, VIEW.h) }}>
@@ -288,22 +286,18 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
           style={{ width: pct(40, VIEW.w), height: pct(56, VIEW.h) }}
           aria-label={label(c.id)} aria-pressed={selected === c.id} data-id={c.id}
           data-state={rows[c.id]?.state || "unavailable"}
-          onClick={() => (armed ? zap(c.id) : onRobot(c.id, motion.actors.get(c.id)?.card || null))}>
+          onClick={event => (zapper.held ? zapper.zap(c.id, event.detail === 0)
+            : onRobot(c.id, motion.actors.get(c.id)?.card || null))}>
           <span className={`robot-state state-${rows[c.id]?.state || "unavailable"}`} aria-hidden="true"
             title={stale ? "Last known state" : STATE_WORDS[rows[c.id]?.state || "unavailable"]}>
             <Icon name={STATE_ICON[rows[c.id]?.state || "unavailable"]} size={12} />
           </span>
           <span className="robot-tag" aria-hidden="true">{c.name}</span>
         </button>)}
-        {zaps.map((z) => <span key={z.key} className="taser-zap" style={{ left: z.x, top: z.y }} aria-hidden="true">
-          <svg viewBox="0 0 64 64" width="64" height="64">
-            <polyline points="30,2 22,26 34,28 20,62 44,24 32,22 40,2" />
-            <polyline className="arc" points="6,30 14,26 10,36 18,32" />
-            <polyline className="arc" points="58,30 50,24 54,36 46,32" />
-          </svg>
-          <span className="taser-words">{z.words}</span>
-        </span>)}
+        {taser && <TaserDock taser={zapper} />}
+        <TaserBursts taser={zapper} />
       </div>
+      {taser && <HeldTaser taser={zapper} width={Math.round(Math.max(60, Math.min(104, 76 * scale * zoom)))} />}
       {renderer === "plain" && <p className="ship-missing small">The ship pictures could not load. The rooms and
         robots below still work, and every robot is listed under Activity.</p>}
     </div>
@@ -315,11 +309,13 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         {ROOMS.map(r => <option key={r.id} value={r.id}>{ROOM_NAMES[r.id]}</option>)}
       </select></label>
       {tools}
-      {taser && <button type="button" className={`btn btn-ghost taser-btn${armed ? " on" : ""}`} aria-pressed={armed}
-        onClick={() => setArmed((a) => !a)} title="An easter egg: zap a robot for a cartoon spark. Work carries on.">
-        <Icon name="spark" size={14} />{armed ? "Taser on: pick a robot" : "Taser"}</button>}
-      <span className="sr-only" role="status" aria-live="polite">{zaps.length ? `${BY_ID[zaps[zaps.length - 1].id]
-        ?.name || "The robot"}: ${zaps[zaps.length - 1].words}` : ""}</span>
+      {taser && <button type="button" className={`btn btn-ghost taser-btn${zapper.held ? " on" : ""}`}
+        aria-pressed={zapper.held} onClick={() => (zapper.held ? zapper.putBack() : zapper.pickUp())}
+        title={zapper.held ? "Click a robot to zap it. Escape or this button puts the Taser back on its charger."
+          : "An easter egg: the Taser lies on its charger in the Control room. Pick it up and click a robot. Work "
+          + "carries on."}>
+        <Icon name="spark" size={14} />{zapper.held ? "Put the Taser back" : "Pick up the Taser"}</button>}
+      <span className="sr-only" role="status" aria-live="polite">{zapper.said}</span>
       <span ref={transferNote} className="handoff-note" data-phase="idle" role="status" aria-live="polite" />
       {!simple && (["working", "queued", "waiting", "idle", "paused", "error"] as RoleState[]).map(state =>
         <span key={state} className="legend-state"><Icon name={STATE_ICON[state]} size={13} />

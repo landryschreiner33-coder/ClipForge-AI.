@@ -762,8 +762,12 @@ def test_what_a_round_reads_is_kept_within_the_models_memory(data, monkeypatch):
     from clipfoundry.brain import assistant, chat, tools
     from clipfoundry.brain.tools import Result, Tool
 
+    from clipfoundry import db
+    from clipfoundry.brain import operations
+
     real = assistant.budgets
-    monkeypatch.setattr(assistant, "budgets", lambda s: {**real(s), "read": 12000})
+    room = [12000]
+    monkeypatch.setattr(assistant, "budgets", lambda s: {**real(s), "read": room[0]})
     tools.register(Tool("big_look", "test: reads a lot", {"type": "object", "properties": {"n": {"type": "integer"}}},
                         lambda ctx, args: Result(f"START{args.get('n')} " + "data " * 600 + f"END{args.get('n')}",
                                                  "Looked a lot"), "look", "Looked a lot"))
@@ -773,10 +777,16 @@ def test_what_a_round_reads_is_kept_within_the_models_memory(data, monkeypatch):
                        say("", ("big_look", {"n": 7}), ("big_look", {"n": 8}), ("big_look", {"n": 9})),
                        say("Here is what I found."))
         c = chat.open_chat(WS)
+        # about 8,000 characters beside the system text, whatever its length (it grows with every tool ClipForge AI
+        # gets): the three rounds' results (about 14,000) must be shortened, the oldest to its start and end
+        settings = db.get_settings()
+        offered = operations.offered(tools.available("general"), "look at everything", settings)
+        system, _rec, _know = assistant.system_prompt(WS, c, "look at everything", offered, settings)
+        room[0] = len(system) + 8000
         m = settled(c["id"], _say(c["id"], "look at everything")["id"])
         assert m["status"] == "done" and m["text"] == "Here is what I found." and len(fake.calls) == 4
         for call in fake.calls:
-            assert len(call["system"]) + sum(len(x["content"]) + 8 for x in call["messages"]) <= 12000
+            assert len(call["system"]) + sum(len(x["content"]) + 8 for x in call["messages"]) <= room[0]
         last = fake.calls[3]["messages"]
         assert last[0] == {"role": "user", "content": "look at everything"}  # the question is never left out
         newest = last[-1]["content"]
