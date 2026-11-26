@@ -442,3 +442,89 @@ def test_the_ai_reads_the_owners_memories_and_the_outcome_is_remembered(env, mon
                for e in brain.list_("local", kind="episode"))
     r3 = er.ask(pid, "local", "remove clip 3")
     assert r3["source"] == "rules" and r3["memories"] == []
+
+
+def test_music_can_be_asked_to_end_on_the_last_frame(env, monkeypatch):
+    """Batch 3's "End on the last frame" (studio/sound_joins.py) in plain words: only music set to Loop that plays to
+    the end can; ClipForge's own music already does; the owner's song is asked; a fade or a level at the end, or
+    music that ends too early, is not taken for it."""
+    from clipfoundry import db
+    from clipfoundry.studio import edit_requests as er
+    from clipfoundry.studio import video_flow
+
+    calls = _no_ai(monkeypatch)
+    song = _asset(env, 9, "audio", 60)                      # the owner's own song, "9.m4a"
+    bed = _asset(env, 8, "audio", 30)
+    db.update("assets", bed["id"], filename="ClipForge music - Calm 1.m4a")
+    pid = _project(env, extra=[song, bed])["id"]
+
+    def ask(text):
+        return er.ask(pid, "local", text)
+
+    def edit(op):
+        video_flow.edit(pid, db.fetch("studio_projects", pid)["plan_revision"], op)
+
+    r = ask("End the music on the last frame")
+    assert r["status"] == "unsupported" and "no music" in r["message"]
+    edit({"op": "add_audio", "asset_id": song["id"], "role": "music", "loop": False})
+    r = ask("Make the song end with the video")
+    assert r["status"] == "unsupported" and "Loop" in r["message"]   # it does not repeat: nothing to time
+    song_id = _plan(pid)["audio"][0]["id"]
+    edit({"op": "audio_set", "audio_id": song_id, "field": "loop", "value": True})
+
+    r = ask("Make the song end with the video")
+    assert r["status"] == "ready" and r["source"] == "rules", r
+    assert r["proposal"]["operations"] == [{"op": "audio_back_time", "audio_id": song_id, "value": True}]
+    assert "“9.m4a” ends on the video's last frame (it starts inside the music and fades in)" in \
+        r["proposal"]["changes"]
+    er.apply(r["id"], "local")
+    assert _plan(pid)["audio"][0]["back_time"] is True
+    r = ask("end the music on the last frame")
+    assert r["status"] == "unsupported" and "already ends" in r["message"]
+
+    r = ask("Play the song from its start")
+    assert r["proposal"]["operations"] == [{"op": "audio_back_time", "audio_id": song_id, "value": False}]
+    assert "“9.m4a” starts at its own start" in r["proposal"]["changes"]
+    er.apply(r["id"], "local")
+    # ClipForge's own bed ends on the last frame without being asked: only the song is changed
+    edit({"op": "add_audio", "asset_id": bed["id"], "role": "music", "loop": True})
+    r = ask("Lower the music and end it on the last frame")
+    ops = r["proposal"]["operations"]
+    assert {"op": "audio_back_time", "audio_id": song_id, "value": True} in ops
+    assert [o for o in ops if o["op"] == "audio_back_time"] == [{"op": "audio_back_time", "audio_id": song_id,
+                                                                 "value": True}]
+    assert any(o.get("field") == "music_level_db" for o in ops)
+    # other words about the music's end are not this
+    for text in ("lower the music at the end", "fade the music out at the end",
+                 "the music ends before the video ends"):
+        r = ask(text)
+        assert all(o["op"] != "audio_back_time" for o in (r.get("proposal") or {}).get("operations") or []), text
+    assert calls == []
+
+
+def test_the_ai_service_sees_which_music_can_end_on_the_last_frame(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.studio import edit_requests as er
+    from clipfoundry.studio import video_flow
+
+    song = _asset(env, 9, "audio", 60)
+    pid = _project(env, extra=[song])["id"]
+    video_flow.edit(pid, db.fetch("studio_projects", pid)["plan_revision"],
+                    {"op": "add_audio", "asset_id": song["id"], "role": "music", "loop": True})
+    song_id = _plan(pid)["audio"][0]["id"]
+    fake = _ai(monkeypatch, json.dumps({"summary": "Let the song wrap up as the video does.",
+                                        "operations": [{"op": "audio_back_time", "audio_id": song_id,
+                                                        "value": True}]}))
+    r = _wait(er.ask(pid, "local", "I want the song to wrap up naturally right as everything wraps up")["id"])
+    assert r["status"] == "ready", r
+    prompt = fake.prompts[0][0]
+    assert '"repeats_to_end": true' in prompt and '"audio_back_time"' in prompt
+    er.apply(r["id"], "local")
+    assert _plan(pid)["audio"][0]["back_time"] is True
+    # music that does not repeat to the end cannot be timed, whatever the AI answers
+    video_flow.edit(pid, db.fetch("studio_projects", pid)["plan_revision"],
+                    {"op": "audio_set", "audio_id": song_id, "field": "loop", "value": False})
+    _ai(monkeypatch, json.dumps({"summary": "x", "operations": [{"op": "audio_back_time", "audio_id": song_id,
+                                                                 "value": False}]}))
+    r = _wait(er.ask(pid, "local", "I want the song to start where it starts please")["id"])
+    assert r["status"] == "invalid" and "Loop" in r["message"], r

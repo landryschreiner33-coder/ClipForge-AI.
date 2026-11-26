@@ -1185,6 +1185,32 @@ on its own you dont have to say ok". So:
   lists what it leaves out and why; its result says "Posting now" only when `now: true` posted them. OK runs the one-post command for
   each (`_bulk_run`); one that cannot change any more (it went out meanwhile) is named, and the others still change.
 
+## A video's music ending, in words (2026-11-26)
+
+Editing batch 3 (PR #83) gave music set to Loop a choice, **End on the last frame** (`back_time` on the audio item,
+`studio/sound_joins.py`): the music starts inside itself and fades in, so its own ending plays as the video ends.
+ClipForge's own music does it unless it is unticked; the owner's songs only when it is ticked. ClipForge AI can now
+set it from words, on the video's page and in the chat about a video (`chat._rules_change`):
+
+- **Rules, no model** (`edit_requests._back_time_said`): "end the music on the last frame", "make the song end
+  with the video", "the song should finish when the video ends", "back-time the music" turn it on; "don't end the
+  music on the last frame" or "play the song from its start" turn it off. A place at the end with no ending verb
+  ("lower the music at the end", "fade the music out at the end", "add music at the end") and music that ends too
+  early ("the music ends before the video ends") are not this: other rules or the model take them. "… and end it on
+  the last frame" starts its own part of the request, so "lower the music and end it on the last frame" does both.
+- **Only music that can** (`_repeats_to_end`, the same test as the engine's `_back_timed`): set to Loop and playing
+  to the video's end. Otherwise it explains ("Tick Loop on the music in Sound … first"). Music that already does it
+  is not changed again ("The music already ends on the video's last frame."); which music is ClipForge's own is read
+  from its file name (`sound_joins.back_times`), so `by_rules` now takes the project's files (`assets`).
+- **The model** (an AI service in Settings) sees each music item with `repeats_to_end` and may answer
+  `{"op": "audio_back_time", "audio_id": ID, "value": true|false}`; `_translate` refuses it for music that cannot.
+- **The proposal** lists "“song.m4a” ends on the video's last frame (it starts inside the music and fades in)" or
+  "… starts at its own start", and Apply makes it a version Undo reverts, like every change.
+- **The app guide** (`appguide`, "A full video's sound and music") tells the chat where Sound, Loop and End on the
+  last frame are, and that cuts no longer click and titles and photos get room sound.
+
+Tests: `tests/test_studio_edit_requests.py` (`…_end_on_the_last_frame`, `…_which_music_can_end_on_the_last_frame`).
+
 ## API
 
 - `GET /api/brain/memories?q=&kind=&project_id=&limit=` (`project_id`: the memories kept for that video or for every video, by their scope) · `POST /api/brain/memories` `{text, kind?, scope?, project_id?, platform?, tags?}` · `PATCH /api/brain/memories/{memory_id}` · `DELETE /api/brain/memories/{memory_id}` · `POST /api/brain/memories/{memory_id}/confirm` · `POST /api/brain/memories/{memory_id}/undo` `{words}` (a chat chip's Undo: forgets the memory only while it is as that answer added it, revision 1 and the same words; 404 when it is gone, 409 when it changed since) · `GET /api/brain/memories/{memory_id}/uses`
