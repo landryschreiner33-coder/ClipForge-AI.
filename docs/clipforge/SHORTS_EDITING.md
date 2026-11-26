@@ -46,7 +46,7 @@ The render notes keep what was done: `render_info.moves` = `{punch, on_cuts, eas
 
 ## Tests
 
-`tests/test_moves.py` (fast, 14 + 4 speeds): switches on cuts and eased elsewhere, a change at least every 5 s at a
+`tests/test_moves.py` (14 fast, 1 real render): switches on cuts and eased elsewhere, a change at least every 5 s at a
 pause, no flicker near the end, the smaller step for small sources, rationed pushes landing on the word, which effects a
 clip gets, their level, timing and variety, the caption pages, lead, margins and pop, the setting everywhere it is read,
 the zoom switch on the first new frame at speeds 0.8-1.5 (against a copy of the frame loop), pushes at cuts, pages at

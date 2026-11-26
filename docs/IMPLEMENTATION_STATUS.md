@@ -1,5 +1,22 @@
 # Implementation status
 
+## Editing quality, batch 2: short clips — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 1. Short clips punch in on jump cuts, change framing at least
+every 5 s, push in on key words, get quiet whooshes and pops made from the edit, and turn caption pages with the
+cuts ([docs/clipforge/SHORTS_EDITING.md](clipforge/SHORTS_EDITING.md)). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` (after the rebase onto batch 1) | passed |
+| 2026-11-26 | Independent review (with batch 1) | 10 shorts findings confirmed and fixed: the zoom switch on the first frame of the new shot at any speed, no eased push across a cut, caption pages with the cut despite the 40 ms lead, effects following the speech level and clip volume, no pops for Minimal captions, one `sound_effects` field, the effects track deleted after the encode |
+| 2026-11-26 | `pytest tests/test_moves.py` | 14 fast and 1 real render passed |
+| 2026-11-26 | `pytest -m "not slow"` on the batch 2 tree | 3,447 passed, 2 skipped |
+| 2026-11-26 | `pytest -m slow` | 37 passed, 1 skipped, 1 failed: a caption test still expected the old 90-pixel side margins (now 150, clear of the apps' buttons); updated, passed |
+| 2026-11-26 | Before/after video made by the real clip renderer (`/mnt/project-files/editing-upgrade/shorts-before-after.mp4`) | looked at frame by frame |
+
+Not verified: how it feels on real talking-head footage (the cloud has no sample media), and on a Mac.
+
 ## Editing quality, batch 1: colour — 2026-11-26 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on the release line at 9cd25e9. Landry asked to "do deep research on how to edit
