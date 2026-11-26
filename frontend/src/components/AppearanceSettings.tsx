@@ -119,8 +119,8 @@ export default function AppearanceSettings() {
             <Segmented labelledBy="ap-taser" value={motion.taser ? "show" : "hide"}
               onChange={(v) => motion.setTaser(v === "show")}
               options={[{ value: "show", label: "Show" }, { value: "hide", label: "Hide" }]} />
-            <p className="ap-hint">A joke button in the robot office: zap a robot for a cartoon spark. Their work carries
-              on.</p>
+            <p className="ap-hint">A joke in the robot office: pick the Taser up from its charger in the Control room
+              and click a robot to see how it reacts. Their work carries on.</p>
           </div>
         </div>
         <Choice id="ap-life" label="Robot activity" value={motion.officeActivity}
