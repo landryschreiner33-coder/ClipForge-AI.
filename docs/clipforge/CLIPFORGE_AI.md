@@ -1086,6 +1086,11 @@ In the check on that change (run 45794338079, every must-check passed) the Scrip
 "I'm ready to write the hook, title, plan, and review for your mountain biking video. …", the examples the nudge
 listed. `NUDGE_DO` now lists none: the answer must be the work itself, starting with its first words.
 
+In the next check (run 45796490867) the nudge was caught as meant, and the Script writer answered "I'll write a
+two-line hook about mountain biking. I'm ready to go." twice. A helper whose answer still only promises after being
+asked once more now gets the round with its job alone too, and with no tools: the only thing it can write is the
+work, as when the planner asks it (its words so far come back when that round brings none).
+
 A small review of these last fixes (each finding shown with a probe) found, and now:
 
 - The conversation keeps an answer whose notes are long (helpers' work) when it does not fit whole: its words and its
