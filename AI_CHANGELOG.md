@@ -1,5 +1,44 @@
 # AI changelog
 
+## Editing quality, batch 4a: speed, speed ramps, freeze frames, slow zooms and pans — 2026-11-26 (Claude Code)
+
+Batch 4a of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 3 (PR #83). Details:
+[docs/clipforge/RANGE_EDITING.md](docs/clipforge/RANGE_EDITING.md).
+
+- **Speed** per clip in full videos, 0.25× to 4× (`clip.speed`), and **speed ramps** with smooth easing between 2 to 8
+  points (`clip.speed_ramp`, four presets). One time map per clip (`studio/retime.py`) drives the picture (FFmpeg
+  `setpts` + `fps`), captions, overlays, anchored sound, chapters, the cold open and picture placement.
+- **Sound keeps its pitch:** a retimed clip's sound is stretched with WSOLA (`retime.stretch`); normal speed is exact.
+  No split edits next to a retimed clip.
+- **Freeze frames** (`kind: "freeze"`, `hold_ms`, new edit op `freeze`): "Freeze here" inside a clip splits it, "Hold
+  the last frame" adds one after it; room tone plays under them like under a photo.
+- **Slow camera moves** (`clip.motion`: 2 to 6 keys of zoom 1.0-1.5 and centre, smooth or linear) on recordings,
+  freezes and photos: zoom in or out, pan left, right, up or down.
+- **Editor:** Speed, Speed ramp, Split or freeze and Camera move in the clip panel; lengths shown as they play.
+  **Plain words:** "put clip 3 in slow motion", "speed up the intro", "add a speed ramp to the jump", "freeze the last
+  frame for 2 seconds", "slowly zoom in on clip 2", "remove the slow motion" (`studio/edit_requests.py`).
+- **FilmCraft:** with "auto", finals that use any of this stay on the built-in engine (`engine.retiming_in_use`); a
+  FilmCraft render says what it skipped. The timeline export carries speed as a linear time warp and freezes as
+  freeze-frame effects and lists the rest as not carried.
+- **Tests:** `tests/test_retime.py` (16 fast, 7 real renders read frame by frame from a numbered test video), plain
+  words in `tests/test_studio_edit_requests.py`, routing in `tests/test_craft.py`. Not verified: real speech at
+  extreme speeds, phone footage with variable frame rate.
+- **Review fixes (before merging):** a review with real renders found 15 problems, all fixed: frames are found on the
+  file's own frame grid and never past the picture's last frame (freezes at a clip's end, 24 fps freezes, a freeze
+  near the end ends the clip on it); retimed pieces read 100 ms early and use `fps round=up`, so every frame is the
+  mapped one; camera moves count output frames (60 and 24 fps footage keep the pace); splits give each half its part
+  of the same ramp or move (`speed_ramp.range`, `motion.range`, exact) and move attached pictures, sounds and chapters
+  with their moment; a 40 ms straight crossfade where two halves of a slowed clip meet; leads before a moment are
+  video time (negative offsets, the swish's new anchor `lead_ms`), and the editor's "Starts after its clip" is video
+  time (`audio_move.out_offset_ms`, `audio_timeline[].clip_ms`); the speed and camera-move rules take only phrases
+  that name clips (numbers in words, ordinals, the intro, the ending), refuse photos in words, undo only the right
+  direction and also clear a punch-in. List in docs/clipforge/RANGE_EDITING.md, "Review". A second review of the
+  fixes found 8 more (undo "from the video" or "from it", a clip named "intro", photo and freeze answers, "2nd" vs
+  "second", muted sounds in the editor field via the view's new `anchor_ms`, freezes at the start of short clips and
+  just past half a second), all fixed with tests.
+
 ## Text-message stories (the TikTok kind), up to ten minutes — 2026-11-26 (Claude Code)
 
 Landry: "I want the text stories to be like the ones on TikTok like these in the pictures and they should be several
