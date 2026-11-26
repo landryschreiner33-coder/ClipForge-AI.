@@ -447,5 +447,7 @@ paid service. [The space studio: what changed, the art and how it is drawn](desi
 * Poppins and Anton fonts: SIL Open Font License 1.1 (`clipfoundry/assets/fonts/OFL-*.txt`; the copies the caption
   preview uses are in `frontend/src/assets/fonts/` with their licences).
 * Courier Prime font (the app's type): SIL Open Font License 1.1 (`frontend/src/assets/fonts/OFL-CourierPrime.txt`).
+* Inter font (the text-message stories' chat bubbles; two static weights, cut down to Latin, Greek and Cyrillic):
+  SIL Open Font License 1.1 (`clipfoundry/assets/fonts/OFL-Inter.txt`).
 * YuNet face detector (OpenCV Zoo): MIT (`clipfoundry/assets/models/README.txt`).
 * Test fixture face photo: public-domain NASA image.

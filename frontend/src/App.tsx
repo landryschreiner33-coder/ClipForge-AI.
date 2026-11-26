@@ -254,7 +254,7 @@ function Shell({ me }: { me: Me }) {
                   <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>The best moments, or each story from start to finish</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>Drop in your files and tell ClipForge AI your idea</span></a>
                   <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
-                  <a role="menuitem" href="#/stories" onClick={() => setMakeOpen(false)}><b>Make a text story</b><span>A story read aloud over gameplay or any background, with big captions</span></a>
+                  <a role="menuitem" href="#/stories" onClick={() => setMakeOpen(false)}><b>Make a text story</b><span>A text-message chat that pops up a bubble at a time, or a story read aloud, over satisfying clips or gameplay</span></a>
                   <a role="menuitem" href="#/missions/live" onClick={() => setMakeOpen(false)}><b>Clip a live stream</b><span>Clips while it is live, one or several streams at once</span></a>
                 </div>
               )}
