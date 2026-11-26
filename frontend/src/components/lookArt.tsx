@@ -1,10 +1,18 @@
 /**
- * A drawn example of each look of an animated short (makers/looks.py): the same small scene (a fox on a hill at
- * dusk, a lighthouse behind) drawn the way that look draws, so the cards show the difference at a glance. These are
- * ClipForge's own drawings of the style, not pictures from the picture maker; LookExample shows the picture maker's
- * own example instead when the owner made one (Make examples with my picture maker).
+ * An example of each look of an animated short (makers/looks.py). Each look has a picture of the same small scene
+ * (a robot on a hill, a lighthouse behind) made in that look (public/looks/<look>.jpg, made by the owner with
+ * ChatGPT on 2026-11-26), so the cards show the difference at a glance. The drawings below are what a look shows if
+ * its picture can't load. LookExample shows the picture maker's own example instead when the owner made one (Make
+ * examples with my picture maker).
  */
-import { ReactNode, useId } from "react";
+import { ReactNode, useId, useState } from "react";
+
+/** The looks' example pictures, cropped to 9:16 (720 x 1280). */
+export const LOOK_PICTURES: Record<string, string> = {
+  cartoon3d: "/looks/cartoon3d.jpg", storybook: "/looks/storybook.jpg", anime: "/looks/anime.jpg",
+  comic: "/looks/comic.jpg", cinematic: "/looks/cinematic.jpg", paper: "/looks/paper.jpg", flat: "/looks/flat.jpg",
+  eerie: "/looks/eerie.jpg",
+};
 
 const W = 180;
 const H = 320;
@@ -299,14 +307,21 @@ const ART: Record<string, (p: { k: Ids; label: string }) => JSX.Element> = {
   flat: Flat, eerie: Eerie,
 };
 
-/** Whether ClipForge has a drawn example of this look. */
-export const hasLookArt = (look: string) => look in ART;
+/** Whether ClipForge has an example of this look (a picture or a drawing). */
+export const hasLookArt = (look: string) => look in LOOK_PICTURES || look in ART;
 
-/** The drawn example of a look (a fox on a hill at dusk), or the picture maker's own example when there is one. */
+/** A look's example: the picture maker's own example when there is one, else the look's picture, else its drawing
+ * (also when the picture can't load). */
 export function LookExample({ look, name, made }: { look: string; name: string; made?: { url: string; engine: string } }) {
   const k = useIds();
+  const [broken, setBroken] = useState(false);
   if (made) {
     return <img className="look-art" src={made.url} alt={`${name}: an example made by ${made.engine}`} loading="lazy" />;
+  }
+  const picture = LOOK_PICTURES[look];
+  if (picture && !broken) {
+    return <img className="look-art" src={picture} alt={`${name}: an example of the look`} loading="lazy"
+      decoding="async" onError={() => setBroken(true)} />;
   }
   const Art = ART[look];
   if (!Art) return null;

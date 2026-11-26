@@ -94,7 +94,7 @@ function LookPreview({ look, made }: { look: ShortLook; made?: { url: string; en
         <p className="small">{look.about}</p>
         <p className="small muted">{made
           ? `Made by ${made.engine} on this computer, from the same idea for every look.`
-          : "Drawn by ClipForge to show the style. Your pictures are made by your picture maker in this look."}</p>
+          : "An example of this look. Your own pictures are made by your picture maker in this look."}</p>
       </div>
     </div>
   );
