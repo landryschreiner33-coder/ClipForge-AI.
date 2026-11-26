@@ -1,5 +1,47 @@
 # AI changelog
 
+## Text-message stories (the TikTok kind), up to ten minutes — 2026-11-26 (Claude Code)
+
+Landry: "I want the text stories to be like the ones on TikTok like these in the pictures and they should be several
+minutes long up to 10 and either you can put your own script in or have it write it for [me] and don't release
+anything yet only merge what's done". Branch `claude/project-thread-gjc836`. The narrated kind stays as it was.
+
+- **A new kind of Text Story, "Text-message story"** (`makers/chatstory.py`, kind `chat` in `text_stories`): a phone
+  chat card (header with back arrow and unread number, round picture with the first letter, the name, video-call
+  button; grey bubbles on the left, blue on the right, tails on the last of a run, colour emoji) appears a bubble at a
+  time over the background, each message read aloud in its sender's voice, with a pop for theirs and a whoosh for
+  mine. Pages: when the card is full a new page starts without the header. Looks: dark, light, dark with green
+  bubbles. Pace quick/normal/slow, sounds on/off, read aloud on/off (unread: each bubble stays as long as it takes to
+  read), unread number 0-999, whose phone it is, the name at the top. No watermark and no one's branding.
+- **The script:** one message a line, `Name: message`; a line without a name adds to the last person; `Me`, `I`,
+  `You` or `Myself` is whose phone it is (else the second person to write); three or more people is a group chat with
+  names over their bubbles; `\` at the start keeps a "Word:" line as text. Limits: 400 messages, 320 characters a
+  message, 1,800 words, 8 people, 10 minutes (checked again once the voices are recorded).
+- **Voices:** everyone gets one at once (whose phone it is the best voice, the others another kind first, a voice
+  comes back higher or lower when there are more people than voices); each person's voice, speed and tone with
+  Hear. Each message's voice is recorded once (`lines/<hash>.wav`) and levelled; messages of emoji or dots alone are
+  not read. Pronunciations work as in narrated stories.
+- **Up to ten minutes for both kinds:** narrated stories now take 1,750 words (was 650) with lengths of about 5 and 10
+  minutes; ClipForge AI plans a long story (a beat a part) and writes it about 300 words at a time, each part seeing
+  how the story so far ends; a long revision goes a part at a time. A part far longer than asked is cut at a sentence
+  and a last part that would not fit is asked for again shorter (then cut, with a note).
+- **ClipForge AI writes chats** (`writer.write_chat`): kinds of story plus "Comeback", lengths of about 1, 3, 5 and
+  10 minutes (20/55/95/185 messages); up to 32 messages in one go, longer ones planned and written 32 at a time;
+  revisions 40 messages at a time keep the people; the contact's name comes from the model; "follow for part 2"
+  endings are taken off. The assistant's `write_text_story` takes `kind` and `length`.
+- **Page:** Text Stories (+ Make → Make a text story) has New text-message story and New narrated story; the chat
+  editor has Chat (script with a live phone preview in the chosen look, the writer), People and voices, Background,
+  Look and sound, Preview, Export. Free footage ideas start with satisfying, cooking, cutting food, soap cutting,
+  kinetic sand; "Let ClipForge pick" also prefers clips named for cooking, cutting, slicing, kitchen and food.
+- **Rendering:** the card's pictures are drawn with Pillow (Inter, bundled; colour emoji from the computer's font,
+  read only) and shown by FFmpeg's concat reader over the background (`overlay`), a new bubble rising in over two
+  frames; the pictures are deleted when the video is made.
+- **Tests:** `tests/test_chat_stories.py` (16: script, limits, whose phone, voices, timing, pages, writer short and
+  ten-minute chats and a ten-minute narrated story with fake models, a real voiced preview checked frame by frame,
+  a slow export); `test_text_stories` now checks the 1,750-word limit. Demo:
+  `/mnt/project-files/text-stories/text-message-story-demo.mp4`. Not verified: a real model writing a ten-minute
+  chat, Mac and Windows voices and emoji fonts (the cloud has eSpeak and Noto Color Emoji only).
+
 ## Editing quality, batch 3: full videos (split edits, room tone, music that ends on time) — 2026-11-26 (Claude Code)
 
 Batch 3 of Landry's "majorly improve the editing" (plan in

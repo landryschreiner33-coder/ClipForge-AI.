@@ -1,5 +1,26 @@
 # AI handoff
 
+## Text-message stories, up to ten minutes — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** Text Stories can now be a text-message chat like the TikTok ones: a phone chat appears a
+bubble at a time over satisfying or gameplay footage and every message is read aloud in its sender's voice. Paste the
+chat or let ClipForge AI write it; chats and narrated stories run up to ten minutes.
+
+- **Where things are:** `makers/chatstory.py` (everything chat: script `parse`/`clean_script`/`resolve`, choices
+  `clean_chat`/`with_voices`, text runs and emoji fonts, the `Card` (header, bubbles, `layout` in pages, `state`), the
+  timing `timeline`/`estimate`, the voices `make_voices` (narration with `timing: "chat"`, `times`, `total`) and
+  `make_cards` (PNG states + ffconcat)); the chat branches in `makers/textstory.py` (`is_chat`, `KINDS`,
+  `total_seconds`, `render` overlays the cards, `view()["chat"]`); `writer.write_chat`, `_write_long_story`,
+  `_revise_long_story`; columns `text_stories.kind` and `text_stories.chat`; the page `ChatEditor` parts in
+  `frontend/src/pages/TextStories.tsx` (`ChatPreview`, `ChatPeople`, `ChatLook`).
+- **Worth knowing:** a chat video's length is the chat's own timing (`narration.total`, which already holds END_S),
+  never `duration + TAIL_S`. The narration key includes every message's text as shown (an emoji change re-renders)
+  and the render key adds the look (`look_key`). The card is drawn in the main thread only (FreeType fonts are not
+  shared between threads); PNG saving runs on a small pool. Colour emoji fonts only load at fixed sizes
+  (`EMOJI_SIZES`); with none, emoji are left out and the page says so (`platform_emoji_note`). The Inter files are
+  static 400/600 instances subset to Latin, Greek and Cyrillic; other scripts fall back to `OTHER_FONTS`. eSpeak says
+  nothing for "..." so messages without a letter or digit are not read (they stay up for a reading time).
+
 ## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** in full videos the sound now flows across cuts: the next room is heard a few frames early

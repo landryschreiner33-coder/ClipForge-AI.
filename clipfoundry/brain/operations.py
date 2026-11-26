@@ -1546,31 +1546,46 @@ def _mission(ctx: Ctx, args: dict) -> Result:
                   "Added a mission", {"links": [{"label": "Missions", "href": "#/missions"}]})
 
 
+def _story_choices(args: dict) -> tuple[str, str, str]:
+    """The kind (a text-message chat or a narrated story), tone and length asked for, each one ClipForge knows."""
+    from ..makers import writer
+
+    kind = "chat" if args.get("kind") == "chat" else "narrated"
+    tones, lengths = (writer.CHAT_TONES, writer.CHAT_LENGTHS) if kind == "chat" else \
+        (writer.STORY_TONES, writer.STORY_LENGTHS)
+    tone = args.get("tone") if args.get("tone") in tones else "drama"
+    length = args.get("length") if args.get("length") in lengths else "standard"
+    return kind, tone, length
+
+
 def _story_preview(ctx: Ctx, args: dict) -> dict:
     from ..makers import writer
 
     idea = str(args.get("idea") or "").strip()
     if len(idea) < 4:
         raise ToolError("Say what the story is about.")
-    tone = args.get("tone") if args.get("tone") in writer.STORY_TONES else "drama"
+    kind, tone, length = _story_choices(args)
+    labels = writer.CHAT_LENGTH_LABELS if kind == "chat" else writer.STORY_LENGTH_LABELS
+    what = "text-message story (a phone chat read aloud)" if kind == "chat" else "story"
     return {"label": f"Write a Text Story: “{one_line(idea, 90)}”",
-            "detail": [f"A new story on Text Stories, written in a {tone} tone, with backgrounds ClipForge picks from "
-                       "your videos. You can change the script, voice and background there, then export it."],
-            "blocked": "", "args": {"idea": idea, "tone": tone}}
+            "detail": [f"A new {what} on Text Stories, written in a {tone} tone ({labels[length].lower()}), with "
+                       "backgrounds ClipForge picks from your videos. You can change the script, voices and "
+                       "background there, then export it."],
+            "blocked": "", "args": {"idea": idea, "tone": tone, "kind": kind, "length": length}}
 
 
 def _story(ctx: Ctx, args: dict) -> Result:
     from ..makers import textstory
 
     idea = str(args.get("idea") or "").strip()
+    kind, tone, length = _story_choices(args)
     try:
-        story = textstory.create(ctx.ws, name=one_line(idea, 60))
+        story = textstory.create(ctx.ws, name=one_line(idea, 60), kind=kind)
         try:
             story = textstory.auto_backgrounds(story)
         except textstory.StoryError:
             pass  # no usable videos: the story keeps its moving colour
-        story = textstory.start(story, "write", {"topic": idea, "tone": args.get("tone") or "drama",
-                                                 "length": "standard", "change": ""})
+        story = textstory.start(story, "write", {"topic": idea, "tone": tone, "length": length, "change": ""})
     except textstory.StoryError as exc:
         raise ToolError(str(exc)) from exc
     return Result(f"Started writing the story “{one_line(idea, 60)}” on Text Stories; open it to hear and export it.",
@@ -1910,10 +1925,15 @@ register(Tool("start_mission", "add a video link (or a live stream: live true) t
               "uploads for it are turned on by the owner on Missions",
               {"type": "object", "properties": {"link": TEXT, "live": {"type": "boolean"}}, "required": ["link"]},
               _mission, "change", "Add {link} to Missions", preview=_mission_preview, **ALONE))
-register(Tool("write_text_story", "start a new Text Story (a story read over background video) about the owner's "
-              "idea; tone: drama, funny, scary, wholesome or the like",
+register(Tool("write_text_story", "start a new Text Story about the owner's idea: kind chat is a text-message "
+              "conversation shown a bubble at a time and read aloud (the TikTok kind), kind narrated a story read "
+              "over background video; tone: drama, funny, scary, wholesome or the like; length: short, standard, "
+              "long, or (chat) longest / (narrated) five or ten for about 5 or 10 minutes",
               {"type": "object", "properties": {"idea": {"type": "string", "maxLength": 600},
-                                                "tone": {"type": "string", "maxLength": 20}}, "required": ["idea"]},
+                                                "tone": {"type": "string", "maxLength": 20},
+                                                "kind": {"type": "string", "enum": ["chat", "narrated"]},
+                                                "length": {"type": "string", "maxLength": 20}},
+               "required": ["idea"]},
               _story, "change", "Write a story about {idea}", preview=_story_preview, **ALONE))
 register(Tool("autopilot", "Autopilot and the job controls. action: on, off, stop_all (stop every job until "
               "resume), resume, or auto_publish_off",

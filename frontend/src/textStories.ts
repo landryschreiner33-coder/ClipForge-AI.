@@ -1,5 +1,6 @@
 /**
- * Text Stories (clipfoundry/makers/textstory.py): a story read aloud over background video with big captions, and the
+ * Text Stories (clipfoundry/makers/textstory.py): a story read aloud over background video with big captions, or a
+ * text-message chat that appears a bubble at a time, each message read aloud (makers/chatstory.py); and the
  * voice previews and favourite voices every maker can use (makers/voice_styles.py). Every change answers with the
  * whole story, so the page shows it at once.
  */
@@ -19,19 +20,36 @@ export type Background = {
 };
 export type Made = { ready: boolean; current: boolean; duration?: number; at?: number; size?: number; url: string };
 export type StoryStatus = "draft" | "writing" | "voicing" | "rendering" | "ready" | "failed";
+export type StoryKind = "chat" | "narrated";
+export type PersonVoice = { voice?: string; style?: string; speed?: number; tone?: number };
+export type ChatMessage = { who: string; text: string; side: "me" | "them"; label: string };
+/** A text-message story's choices, and (shown only) the people, whose phone it is and the messages. */
+export type StoryChat = {
+  contact: string; me: string; people: Record<string, PersonVoice>; theme: string; badge: number; sounds: boolean;
+  read_aloud: boolean; pace: string;
+  names: string[]; whose_phone: string; shown_contact: string; group: boolean; messages: ChatMessage[];
+};
+export type ChatPatch = Partial<{ contact: string; me: string; people: Record<string, PersonVoice | null>;
+  theme: string; badge: number; sounds: boolean; read_aloud: boolean; pace: string }>;
+/** A chat look's colours (#rrggbb): the card, its header, the line under it, their bubbles and words, my bubbles and
+ * words, names, icons and the grey of small text. */
+export type ChatTheme = { id: string; label: string; card: string; head: string; rule: string; them: string;
+  them_text: string; me: string; me_text: string; name: string; accent: string; muted: string };
 export type Story = {
-  id: string; name: string; own_name: string; title: string; script: string; words: number; seconds: number;
+  id: string; name: string; own_name: string; kind: StoryKind; chat: StoryChat | null; title: string; script: string;
+  words: number; seconds: number;
   voice: StoryVoice; pronunciations: Pronunciation[]; captions: StoryCaptions; backgrounds: Background[];
   status: StoryStatus; stage: "" | "write" | "preview" | "export"; message: string; error: string; working: boolean;
   job: { progress: number; message: string } | null;
-  narration: { ready: boolean; voice?: string; fallback?: string; timing?: string; rule?: string; duration?: number };
+  narration: { ready: boolean; voice?: string; fallback?: string; timing?: string; rule?: string; duration?: number;
+    messages?: number };
   made: { preview: Made; export: Made };
   writer: { notes: string[] | null; model: string | null; local: boolean | null };
   project_id: string; updated_at: number;
   steps: { script: boolean; voice: boolean; background: boolean; preview: boolean; export: boolean };
 };
 export type StoryListItem = { id: string; name: string; status: StoryStatus; words: number; exported: boolean;
-  updated_at: number };
+  kind: StoryKind; messages: number; updated_at: number };
 export type Favourite = { voice: string; speed: number; tone: number; style: string };
 export type StoryOptions = {
   voices: VoiceChoice[]; default_voice: string; styles: VoiceStyle[]; tone_range: [number, number];
@@ -44,11 +62,20 @@ export type StoryOptions = {
   favourites: Record<string, Favourite>;
   limits: { max_words: number; max_title: number; wpm: number; max_backgrounds: number };
   links: { ai: string; makers: string };
+  kinds: { id: StoryKind; label: string }[];
+  chat: {
+    themes: ChatTheme[]; paces: { id: string; label: string }[]; tones: { id: string; label: string }[];
+    lengths: { id: string; label: string }[];
+    limits: { max_messages: number; max_words: number; max_message: number; max_seconds: number;
+      max_people: number };
+    emoji_note: string;
+  };
 };
 export type BackgroundChoice = { asset_id: string; filename: string; duration: number; width: number; height: number;
   score: number; why: string };
 export type StoryPatch = Partial<{ name: string; title: string; script: string; voice: Partial<StoryVoice>;
-  pronunciations: Pronunciation[]; captions: Partial<StoryCaptions>; backgrounds: Partial<Background>[] }>;
+  pronunciations: Pronunciation[]; captions: Partial<StoryCaptions>; backgrounds: Partial<Background>[];
+  kind: StoryKind; chat: ChatPatch }>;
 
 const BASE = "/api/studio/text-stories";
 const one = (id: string) => `${BASE}/${encodeURIComponent(id)}`;
@@ -56,7 +83,8 @@ const one = (id: string) => `${BASE}/${encodeURIComponent(id)}`;
 export const textStories = {
   options: () => req<StoryOptions>("GET", `${BASE}/options`),
   list: () => req<{ stories: StoryListItem[] }>("GET", BASE),
-  create: (body: { name?: string; title?: string; script?: string } = {}) => req<Story>("POST", BASE, body),
+  create: (body: { name?: string; title?: string; script?: string; kind?: StoryKind } = {}) =>
+    req<Story>("POST", BASE, body),
   get: (id: string) => req<Story>("GET", one(id)),
   change: (id: string, body: StoryPatch) => req<Story>("PATCH", one(id), body),
   remove: (id: string) => req<{ deleted: boolean }>("DELETE", one(id)),

@@ -1343,7 +1343,7 @@ JSON_FIELDS = {
     "learned_items": {"value", "evaluation"},
     "learned_versions": {"items", "evaluation"},
     "text_stories": {"voice", "pronunciations", "captions", "backgrounds", "narration", "preview", "export",
-                     "writer"},
+                     "writer", "chat"},
     "voice_favorites": set(),
     "text_story_exports": set(),
     "cast_library": {"locked", "refs"},
@@ -1473,6 +1473,9 @@ ADDED_COLUMNS = {
     # and a delete that started before it keeps it when it went to someone else (table asset_hand_outs says whom:
     # studio/project_delete._handed_out)
     "assets": {"reused_at": "REAL DEFAULT 0"},
+    # a Text Story's kind: "narrated" (read aloud with captions) or "chat" (a text-message conversation, its people,
+    # voices and look: makers/chatstory.py)
+    "text_stories": {"kind": "TEXT DEFAULT 'narrated'", "chat": "TEXT DEFAULT '{}'"},
 }
 
 
