@@ -18,7 +18,7 @@ What it does, in this order (each step is written in the plan's notes, and every
    to a short natural breath, and "um"/"uh" are cut when they are heard on their own. Pauses are found from the word
    timings and confirmed in the sound itself (a stretch at least 30 dB below the speaker's level), so a cut never
    lands inside an audible word. The joins inside one recording are straight cuts with a 10 ms sound fade (no clicks);
-   "fast-paced" also punches in a little on every other cut to hide the jump.
+   it also punches in a little on every other cut to hide the jump (both levels; the owner can turn it off).
 4. **Adds pictures.** Your images are shown over the video while the talking goes on (B-roll): an image whose file
    name matches something said appears when it is said; the others are spread over long talking stretches. Each one
    pushes in slowly and fades in and out. Without any speech, images stay in the sequence as before.

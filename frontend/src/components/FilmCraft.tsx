@@ -9,13 +9,16 @@ export function MadeWithLine({ m }: { m: MadeWith }) {
   const fc = m.filmcraft;
   if (m.fallback) return <span className="small">{m.fallback}</span>;
   if (m.engine !== "filmcraft" || !fc) return <span className="small muted">Made with the built-in editor.</span>;
-  if (fc.hand_edited) return <span className="small">Finished by hand in FilmCraft&apos;s editor and rendered by FilmCraft.</span>;
+  const skipped = (m.skipped ?? []).map((t) => ` ${t}`).join("");
+  if (fc.hand_edited) {
+    return <span className="small">Finished by hand in FilmCraft&apos;s editor and rendered by FilmCraft.{skipped}</span>;
+  }
   const shots = fc.shots.map((s) => `${s.what} (${s.app})`).join(", ");
   return (
     <span className="small">Edited and rendered in FilmCraft with {fc.steps} of its tools
       {fc.failed ? `, ${fc.failed} of them did not apply` : ""}{shots ? `. Effect shots: ${shots}` : ""}.
       {fc.ai?.used && <> The AI ({fc.ai.provider}) finished it: {fc.ai.summary || `${fc.ai.steps} more edits`}
-        {fc.ai.refused ? ` (${fc.ai.refused} of its suggestions were not allowed)` : ""}.</>}
+        {fc.ai.refused ? ` (${fc.ai.refused} of its suggestions were not allowed)` : ""}.</>}{skipped}
     </span>
   );
 }

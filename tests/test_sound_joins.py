@@ -96,6 +96,55 @@ def test_music_is_started_so_its_own_end_lands_on_the_last_frame():
     assert SJ.back_time_offset(30, 0) == 0             # unknown length: as before
 
 
+def test_which_music_is_back_timed_and_room_tone_in_blocks():
+    from clipfoundry.studio import engine
+
+    bed = {"role": "music", "asset_id": "m"}
+    assert SJ.back_times(bed, "ClipForge music - Sunny steps (balanced).m4a")   # a bed in whole bars
+    assert not SJ.back_times(bed, "my song.mp3")                                # your song keeps its start
+    assert SJ.back_times({**bed, "back_time": True}, "my song.mp3")             # unless you tick it
+    assert not SJ.back_times({**bed, "back_time": False}, "ClipForge music - Sunny steps (balanced).m4a")
+    assets = {"m": {"filename": "ClipForge music - x.m4a"}}
+    to_end = {"loop": True, "out_start_ms": 0, "out_end_ms": 10000}
+    assert engine._back_timed(bed, to_end, 10000, assets)  # noqa: SLF001
+    # music set to play for 3 s (under the opening only) keeps its start: its ending is not the video's
+    assert not engine._back_timed(bed, {**to_end, "out_end_ms": 3000}, 10000, assets)  # noqa: SLF001
+    assert not engine._back_timed(bed, {**to_end, "loop": False}, 10000, assets)  # noqa: SLF001
+    # room tone is made a copy at a time: an hour costs no more memory than a second
+    sample = np.random.default_rng(2).standard_normal((4800, 2)).astype(np.float32)
+    blocks = list(SJ.loop_tone_blocks(sample, 3600 * 48000 // 100, 48000))
+    assert max(len(b) for b in blocks) <= len(sample) and sum(len(b) for b in blocks) == 3600 * 480
+    assert np.allclose(np.concatenate(blocks)[:48000], SJ.loop_tone(sample, 48000, 48000))
+
+
+def test_room_tone_steps_aside_where_a_voiceover_plays():
+    from clipfoundry.studio import engine
+
+    els = [{"start_f": 0, "end_f": 90}, {"start_f": 90, "end_f": 150}, {"start_f": 150, "end_f": 240}]
+    items = {"v": {"role": "voiceover"}, "m": {"role": "music"}}
+    placed = [{"audio_id": "v", "track": "voiceover", "out_start_ms": 3200, "out_end_ms": 4500},
+              {"audio_id": "m", "track": "music", "out_start_ms": 0, "out_end_ms": 8000}]
+    tracks = engine.default_tracks()
+    spans = engine._voiceovers(placed, items, tracks)  # noqa: SLF001
+    assert spans == [(3200, 4500)]
+    assert engine._voiceovers(placed, items, {**tracks, "voiceover": {"mute": True}}) == []  # noqa: SLF001
+    # a voiceover inside a photo (3.0-5.0 s): the photo keeps its tone before and after it
+    assert engine._narrated(els, spans, 30) == set()  # noqa: SLF001
+    # one that covers it from end to end, also in two pieces or with a rounding sliver left: no tone at all
+    assert engine._narrated(els, [(2990, 5000.4)], 30) == {1}  # noqa: SLF001
+    assert engine._narrated(els, [(3000, 4200), (4100, 5000)], 30) == {1}  # noqa: SLF001
+    # a voiceover that runs 10 ms on past its clip takes nothing from the photo after it
+    assert engine._narrated(els, [(0, 3010)], 30) == {0}  # noqa: SLF001
+    assert SJ.uncovered_ms(0, 1000, [(100, 300), (200, 400), (900, 1200)]) == 600
+    # the tone is silent under the voiceover and fades over `ramp` samples just outside it
+    gain = SJ.duck_gain(0, 1000, [(400, 600)], 100)[:, 0]
+    assert gain[0] == gain[299] == gain[700] == gain[999] == 1.0
+    assert gain[400] == gain[500] == gain[600] == 0.0 and gain[350] == pytest.approx(0.5)
+    assert gain[650] == pytest.approx(0.5)
+    assert SJ.duck_gain(0, 250, [(400, 600)], 100) is None  # nowhere near: nothing to change
+    assert SJ.duck_gain(1000, 100, [(400, 600)], 100) is None
+
+
 def test_the_editing_defaults_that_go_with_it():
     from clipfoundry.pipeline import captions, render
     from clipfoundry.studio import smart_edit, video_flow
@@ -124,13 +173,16 @@ def test_whooshes_at_changes_of_recording_are_rationed():
 
 
 # ------------------------------------------------------------------ a real render
-def _recording(path: Path, freq: int, speak: tuple[float, float], hum: int, seconds: float = 6.0) -> Path:
+def _recording(path: Path, freq: int, speak: tuple[float, float], hum: int, seconds: float = 6.0,
+               seed: int | None = None) -> Path:
     """A video whose sound is a tone (the "speech") from speak[0] to speak[1] over its room: quiet pink noise and
-    a faint hum at `hum` Hz that tells the two rooms apart."""
+    a faint hum at `hum` Hz that tells the two rooms apart. The noise has a fixed seed (FFmpeg picks a random one),
+    so a measurement gives the same answer every run."""
     a, b = speak
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=size=640x360:rate=30:d={seconds}",
                     "-f", "lavfi", "-i", f"sine=frequency={freq}:sample_rate=48000:duration={seconds}",
-                    "-f", "lavfi", "-i", f"anoisesrc=color=pink:amplitude=0.01:duration={seconds}:sample_rate=48000",
+                    "-f", "lavfi", "-i", f"anoisesrc=color=pink:amplitude=0.01:duration={seconds}:sample_rate=48000:"
+                    f"seed={hum if seed is None else seed}",
                     "-f", "lavfi", "-i", f"sine=frequency={hum}:sample_rate=48000:duration={seconds}",
                     "-filter_complex", f"[1:a]volume='if(between(t,{a},{b}),0.5,0)':eval=frame[s];[3:a]volume=0.004[h];"
                     "[s][2:a][h]amix=inputs=3:normalize=0[a]", "-map", "0:v", "-map", "[a]", "-c:v", "libx264",
@@ -167,7 +219,7 @@ def test_a_render_splits_the_cut_fills_the_photo_with_room_tone_and_ends_the_mus
              {"id": "p", "asset_id": "pic", "kind": "image", "in_ms": 0, "out_ms": 2000, "include": True}]
     audio = [{"id": "m", "asset_id": "bed", "role": "music", "label": "bed", "start_ms": 0, "in_ms": 0,
               "out_ms": None, "length_ms": None, "gain_db": 0.0, "mute": False, "fade_in_ms": 0, "fade_out_ms": 0,
-              "duck": False, "loop": True, "anchor": None}]
+              "duck": False, "loop": True, "anchor": None, "back_time": True}]  # "End on the last frame" ticked
     plan = _plan(clips, audio=audio)
     assert engine.validate(plan, assets) == []
     info = engine.render(plan, assets, words, tmp_path / "out.mp4", preview=True)
@@ -179,7 +231,8 @@ def test_a_render_splits_the_cut_fills_the_photo_with_room_tone_and_ends_the_mus
     # the J cut: B's room (its 7 kHz hum) under A's last 8 frames (3.33-3.6 s) in place of A's (5 kHz), and no
     # speech moved: A's tone ends at 2.9 s, B's starts at 4.0 s
     b_room = _band(pcm, 3.65, 3.95, 7000)
-    assert _band(pcm, 3.39, 3.58, 7000) > 0.7 * b_room and _band(pcm, 2.9, 3.25, 7000) < 0.2 * b_room
+    # (before the lead, A's own pink noise alone measures 0.1-0.2 of B's hum here; B's hum would measure about 1)
+    assert _band(pcm, 3.39, 3.58, 7000) > 0.7 * b_room and _band(pcm, 2.9, 3.25, 7000) < 0.4 * b_room
     assert _band(pcm, 3.39, 3.58, 5000) < 0.1 * _band(pcm, 2.95, 3.25, 5000)
     assert _band(pcm, 3.36, 3.58, 440) < 0.02 * _band(pcm, 1.0, 2.5, 440)
     assert _band(pcm, 3.0, 3.58, 660) < 0.02 * _band(pcm, 4.5, 6.5, 660)
@@ -192,3 +245,108 @@ def test_a_render_splits_the_cut_fills_the_photo_with_room_tone_and_ends_the_mus
     assert _band(pcm, total - 0.9, total - 0.5, 220) > 5 * _band(pcm, total - 0.9, total - 0.5, 1000)
     # it therefore starts inside the bed, so it fades in rather than starting on a hard edge
     assert _band(pcm, 0.0, 0.25, 220) < 0.4 * _band(pcm, 1.2, 2.2, 220)
+
+
+@pytest.mark.slow
+def test_looping_aac_music_repeats_without_gaps_and_still_ends_on_the_last_frame(tmp_path, monkeypatch):
+    """FFmpeg's own looping of an AAC (or MP3) file drifts by the encoder's padding on every repeat, until its
+    resampler pads in about 0.1 s of silence every 5 repeats: a gap in the music, and a back-timed ending 0.1 s
+    late (its last bar cut off). The engine repeats one decoded pass instead."""
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    from clipfoundry.studio import engine
+
+    from test_studio_editor_render import _asset, _band, _pcm, _plan
+
+    img = tmp_path / "pic.png"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:d=1", "-frames:v",
+                    "1", str(img)], check=True)
+    pic = {"id": "pic", "kind": "image", "filename": "pic.png", "path": str(img), "sha256": "pic",
+           "probe": {"width": 640, "height": 360}}
+    # a 1 s AAC bed at 44.1 kHz: 220 Hz, then a 1000 Hz "last bar" in its final 0.1 s
+    music = tmp_path / "bed.m4a"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=0.9:"
+                    "sample_rate=44100", "-f", "lavfi", "-i", "sine=frequency=1000:duration=0.1:sample_rate=44100",
+                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1,volume=0.3[m]", "-map", "[m]", "-c:a", "aac",
+                    "-b:a", "128k", str(music)], check=True)
+    bed = _asset(music, "audio")
+    clips = [{"id": "p", "asset_id": "pic", "kind": "image", "in_ms": 0, "out_ms": 11500, "include": True}]
+    audio = [{"id": "m", "asset_id": "bed", "role": "music", "label": "bed", "start_ms": 0, "in_ms": 0,
+              "out_ms": None, "length_ms": None, "gain_db": 0.0, "mute": False, "fade_in_ms": 0, "fade_out_ms": 0,
+              "duck": False, "loop": True, "anchor": None, "back_time": True}]
+    plan = _plan(clips, audio=audio)
+    info = engine.render(plan, {"pic": pic, "bed": bed}, {}, tmp_path / "out.mp4", preview=True)
+    assert info["sound_joins"]["music_back_timed_s"]["m"] > 0
+    pcm = _pcm(tmp_path / "out.mp4")
+    total = info["duration"]
+    # about 12 repeats: no stretch of silence anywhere after the fade-in (the drift put two 0.1 s gaps in it)
+    win = 1440  # 30 ms
+    usable = pcm[48000:int((total - 0.05) * 48000)]
+    rms = np.sqrt((usable[: len(usable) // win * win].reshape(-1, win) ** 2).mean(axis=1))
+    assert rms.min() > 0.3 * np.median(rms), (rms.min(), np.median(rms))
+    # and the bed's own last 0.1 s (1000 Hz) is what plays at the very end
+    assert _band(pcm, total - 0.09, total - 0.01, 1000) > 5 * _band(pcm, total - 0.09, total - 0.01, 220)
+    assert _band(pcm, total - 0.6, total - 0.2, 220) > 5 * _band(pcm, total - 0.6, total - 0.2, 1000)
+
+
+def _quiet_recording(path: Path, speak: tuple[float, float], seconds: float = 6.0, seed: int = 1) -> Path:
+    """A video: a 440 Hz "voice" from speak[0] to speak[1] over pink-noise room sound (a fixed seed)."""
+    a, b = speak
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=size=640x360:rate=30:d={seconds}",
+                    "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={seconds}",
+                    "-f", "lavfi", "-i", f"anoisesrc=color=pink:amplitude=0.01:duration={seconds}:sample_rate=48000:"
+                    f"seed={seed}",
+                    "-filter_complex", f"[1:a]volume='if(between(t,{a},{b}),0.5,0)':eval=frame[s];"
+                    "[s][2:a]amix=inputs=2:normalize=0[a]", "-map", "0:v", "-map", "[a]", "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(path)], check=True)
+    return path
+
+
+@pytest.mark.slow
+def test_room_tone_runs_under_a_clips_own_fade_and_stays_out_from_under_a_voiceover(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    from clipfoundry.studio import engine
+
+    from test_studio_editor_render import _asset, _plan
+
+    A = _asset(_quiet_recording(tmp_path / "A.mp4", (0.3, 2.0)), "video")
+    B = _asset(_quiet_recording(tmp_path / "B.mp4", (1.5, 3.5), seed=2), "video")
+    img = tmp_path / "pic.png"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:d=1", "-frames:v",
+                    "1", str(img)], check=True)
+    pic = {"id": "pic", "kind": "image", "filename": "pic.png", "path": str(img), "sha256": "pic",
+           "probe": {"width": 640, "height": 360}}
+    vo_file = tmp_path / "vo.wav"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=2",
+                    "-ar", "48000", str(vo_file)], check=True)
+    vo = _asset(vo_file, "audio")
+    clips = [{"id": "a", "asset_id": "A", "kind": "video", "in_ms": 0, "out_ms": 3000, "include": True,
+              "fade_out_ms": 400},
+             {"id": "p", "asset_id": "pic", "kind": "image", "in_ms": 0, "out_ms": 2000, "include": True},
+             {"id": "b", "asset_id": "B", "kind": "video", "in_ms": 1000, "out_ms": 4000, "include": True,
+              "fade_in_ms": 400},
+             {"id": "p2", "asset_id": "pic", "kind": "image", "in_ms": 0, "out_ms": 2000, "include": True}]
+    audio = [{"id": "v", "asset_id": "vo", "role": "voiceover", "label": "vo", "start_ms": 0, "in_ms": 0,
+              "out_ms": 2000, "length_ms": None, "gain_db": 0.0, "mute": False, "fade_in_ms": 0, "fade_out_ms": 0,
+              "duck": False, "loop": False, "anchor": {"clip_id": "p2", "offset_ms": 500}}]
+    plan = _plan(clips, audio=audio)
+    assets = {"A": A, "B": B, "pic": pic, "vo": vo}
+    assert engine.validate(plan, assets) == []
+    info = engine.render(plan, assets, {"A": _words((0.3, 2.0)), "B": _words((1.5, 3.5))}, tmp_path / "o.mp4",
+                         preview=True)
+    # the first photo, and the second until its voiceover starts (8.5 s; it runs to the end)
+    assert info["sound_joins"]["room_tone_s"] == 2.5
+    steep = ",".join(["highpass=f=3000"] * 3)  # the room's hiss only: no voice, no voiceover
+    hiss = subprocess.check_output(["ffmpeg", "-v", "error", "-i", str(tmp_path / "o.mp4"), "-af", steep,
+                                    "-f", "f32le", "-ac", "1", "-ar", "48000", "-"])
+    hp = np.frombuffer(hiss, dtype=np.float32)
+
+    def db(t0: float, t1: float) -> float:
+        return float(20 * np.log10(np.sqrt(np.mean(hp[int(t0 * 48000):int(t1 * 48000)] ** 2)) + 1e-12))
+    room = db(2.15, 2.55)  # A's room after its words, before its fade
+    # A fades out into the photo's room tone and the tone fades out into B's fade-in: the room never dips
+    windows = [db(t, t + 0.05) for t in np.arange(2.55, 5.45, 0.05)]
+    assert min(windows) > room - 4.5, (room, min(windows))
+    # the second photo has the room until the voiceover, then steps aside: under the voiceover (8.5-10 s) no second
+    # room, only what the voiceover brings (a 300 Hz tone, filtered out)
+    assert db(8.05, 8.35) > room - 4.5
+    assert db(8.6, 9.8) < room - 20

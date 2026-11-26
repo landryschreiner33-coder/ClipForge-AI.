@@ -384,13 +384,13 @@ def test_routes_keep_requests_inside_their_workspace(env, monkeypatch):
     theirs = _project(env, workspace="ws-b")
     elsewhere = er.ask(theirs["id"], "ws-b", "remove clip 1")
     with TestClient(app, base_url="http://127.0.0.1:8765") as api:
-        same = api.post(f"/api/studio/videos/{mine['id']}/requests", json={"text": "use dissolves"}).json()
-        assert same["status"] == "unsupported" and "already" in same["message"]  # the rough cut uses dissolves
-        r = api.post(f"/api/studio/videos/{mine['id']}/requests", json={"text": "use cuts", "base_revision": 1})
+        same = api.post(f"/api/studio/videos/{mine['id']}/requests", json={"text": "use cuts"}).json()
+        assert same["status"] == "unsupported" and "already" in same["message"]  # the rough cut uses hard cuts
+        r = api.post(f"/api/studio/videos/{mine['id']}/requests", json={"text": "use dissolves", "base_revision": 1})
         assert r.status_code == 200 and r.json()["status"] == "ready", r.text
         rid = r.json()["id"]
         changes = api.get(f"/api/studio/requests/{rid}").json()["proposal"]["changes"]
-        assert changes[0] == "Transitions: dissolve → cut" and changes[1].startswith("Length ")
+        assert changes[0] == "Transitions: cut → dissolve" and changes[1].startswith("Length ")
         assert api.get(f"/api/studio/videos/{mine['id']}/requests").json()[0]["id"] == rid
         applied = api.post(f"/api/studio/requests/{rid}/apply")
         assert applied.status_code == 200 and applied.json()["applied_revision"] == 2

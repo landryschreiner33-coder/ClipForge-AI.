@@ -10,11 +10,17 @@ docs/clipforge/EDITING_CRAFT_RESEARCH.md, what the owner sees in docs/clipforge/
   unrelated sounds keep their level through it, where a straight-line crossfade dips 3 dB).
 * **Room tone.** A title card, a photo or a video without sound would leave digital silence, which sounds like a
   dropout; it gets the room sound of the nearest recording instead (its quietest stretch between words, looped
-  with crossfades), so the background never stops.
-* **Music back-timed.** A music bed is started so that its own end (a song's real ending, or the end of a library
-  bed's last whole bar) lands on the video's last frame, instead of being cut wherever the video stops. It then
-  starts inside the music, so it fades in (at least 1 s). Only music set to repeat ("loop") is moved: a song placed
-  to play once from its start stays as placed, and `back_time: false` on an item keeps it as before.
+  with crossfades), so the background never stops. It steps aside wherever a voiceover plays (the narration brings
+  its own room).
+* **Music back-timed.** ClipForge's own music beds (made in whole bars, no intro to lose) are started so that their
+  own end lands on the video's last frame, instead of being cut wherever the video stops; they then start inside
+  the music, so they fade in (at least 1 s). Only music set to repeat ("loop") that plays to the end is moved. The
+  owner's own songs start at their start unless "End on the last frame" is ticked for them (`back_time` on the
+  item, which also turns it off for a bed). Looping music repeats one decoded pass sample for sample (engine
+  _one_pass), so the ending lands where this module says it will.
+
+FilmCraft's timeline (craft/finish.py) has none of this, so with the editing app on "auto" a final that would use
+it is rendered by the built-in engine, like the preview the owner approved (`engine.sound_joins_in_use`).
 """
 from __future__ import annotations
 
@@ -31,6 +37,9 @@ TONE_CANDIDATES = 3         # the longest stretches measured; the quietest usabl
 TONE_RANGE_DB = (-75.0, -38.0)  # quieter is digital silence (nothing to add); louder is not room sound
 TONE_XFADE_S = 0.08         # crossfade where the looped sample repeats
 BACK_TIME_FADE_IN_MS = 1000  # a back-timed bed starts inside the music, so it always fades in at least this long
+LIBRARY_MUSIC_PREFIX = "ClipForge music - "  # library.filename's music beds: back-timed unless the item says not
+TONE_BLOCK = 1 << 16        # room tone is written in blocks of this many samples (any length, bounded memory)
+TONE_DUCK_MS = 100          # room tone fades out this long before a voiceover and back in after it
 
 
 def _busy(words: list[dict], a: float, b: float, before: float = 0.0, after: float = 0.0) -> bool:
@@ -105,32 +114,84 @@ def usable_tone(level: float) -> bool:
     return TONE_RANGE_DB[0] <= level <= TONE_RANGE_DB[1]
 
 
-def loop_tone(sample, n: int, sr: int):
-    """`n` samples of room tone from `sample` (shape (m, 2)): the sample repeated with equal-power crossfades, every
-    other copy played backwards so the seams and any slow change in it do not repeat the same way."""
+def loop_tone_blocks(sample, n: int, sr: int):
+    """`n` samples of room tone from `sample` (shape (m, 2)), in pieces: the sample repeated with equal-power
+    crossfades, every other copy played backwards so the seams and any slow change in it do not repeat the same way.
+    Only one copy is held at a time, so an hour of tone takes no more memory than a second."""
     import numpy as np
 
     sample = np.asarray(sample, dtype=np.float32)
     m = len(sample)
-    if n <= 0 or m == 0:
-        return np.zeros((max(0, n), 2), dtype=np.float32)
+    if n <= 0:
+        return
+    if m == 0:
+        for at in range(0, n, TONE_BLOCK):
+            yield np.zeros((min(TONE_BLOCK, n - at), 2), dtype=np.float32)
+        return
     xf = min(int(TONE_XFADE_S * sr), m // 4)
-    out = np.zeros((n + m, 2), dtype=np.float32)
-    pos, k = 0, 0
     t = (np.arange(xf, dtype=np.float64) + 0.5) / max(1, xf)
     rise = np.sin(t * np.pi / 2).astype(np.float32)[:, None]
     fall = np.cos(t * np.pi / 2).astype(np.float32)[:, None]
-    while pos < n:
-        piece = sample if k % 2 == 0 else sample[::-1]
-        piece = piece.copy()
+    carry = None   # the faded tail of the copy before, which overlaps the start of the next
+    written, k = 0, 0
+    while written < n:
+        piece = (sample if k % 2 == 0 else sample[::-1]).copy()
         if k and xf:
             piece[:xf] *= rise
         if xf:
             piece[m - xf:] *= fall
-        out[pos:pos + m] += piece
-        pos += m - xf if xf else m
+        if carry is not None:
+            piece[:xf] += carry
+        body, carry = (piece[:m - xf], piece[m - xf:]) if xf else (piece, None)
+        take = min(len(body), n - written)
+        yield body[:take]
+        written += take
         k += 1
-    return out[:n]
+
+
+def uncovered_ms(a: float, b: float, spans: list[tuple[float, float]]) -> float:
+    """How much of [a, b] (ms) no span covers (spans may overlap each other)."""
+    covered, reach = 0.0, a
+    for s, e in sorted(spans):
+        s, e = max(s, reach), min(e, b)
+        if e > s:
+            covered += e - s
+            reach = e
+    return max(0.0, b - a - covered)
+
+
+def duck_gain(at: int, m: int, quiet: list[tuple[int, int]], ramp: int):
+    """The gain of samples at..at+m of a room-tone part that steps aside for a voiceover: 0 inside each `quiet`
+    range (samples, relative to the part), a straight ramp over `ramp` samples just outside it, 1 elsewhere. None
+    when no range comes near these samples (nothing to change)."""
+    import numpy as np
+
+    near = [(s, e) for s, e in quiet if s - ramp < at + m and e + ramp > at]
+    if not near:
+        return None
+    t = np.arange(at, at + m, dtype=np.float64)
+    gain = np.ones(m)
+    for s, e in near:
+        away = np.maximum(s - t, t - e)  # > 0 outside the range: samples to its nearer edge
+        gain = np.minimum(gain, np.clip(away / max(1, ramp), 0.0, 1.0))
+    return gain.astype(np.float32)[:, None]
+
+
+def loop_tone(sample, n: int, sr: int):
+    """loop_tone_blocks in one array (for short tones and tests)."""
+    import numpy as np
+
+    blocks = list(loop_tone_blocks(sample, n, sr))
+    return np.concatenate(blocks) if blocks else np.zeros((0, 2), dtype=np.float32)
+
+
+def back_times(item: dict, filename: str) -> bool:
+    """Whether a music item that repeats and plays to the end is back-timed: as the item says ("End on the last
+    frame"), else only ClipForge's own beds; the owner's own song keeps its start (often why it was chosen)."""
+    choice = item.get("back_time")
+    if choice is not None:
+        return bool(choice)
+    return str(filename or "").startswith(LIBRARY_MUSIC_PREFIX)
 
 
 def back_time_offset(n: int, file_n: int) -> int:

@@ -52,6 +52,10 @@ function Gain({ label, value, min, max, onCommit, disabled }: { label: string; v
 
 const STRENGTHS = [25, 50, 75, 100];
 
+/** ClipForge's own music beds (made in whole bars) end on the last frame unless the owner says otherwise. */
+const isLibraryMusic = (v: Video, item: AudioItem) =>
+  (v.assets.find((a) => a.id === item.asset_id)?.filename ?? "").startsWith("ClipForge music - ");
+
 /** The version shown in the preview (its render reports say what it did). */
 const shownVersion = (v: Video) =>
   v.preview ? v.artifacts.find((a) => a.kind === "preview" && a.revision === v.preview!.revision) : undefined;
@@ -193,6 +197,8 @@ function ClipInspector({ c, plan, v, edit, busy }: { c: PlanClip; plan: Plan; v:
 
 function AudioRow({ item, v, edit, busy }: { item: AudioItem; v: Video; edit: EditFn; busy: boolean }) {
   const placed = v.audio_timeline.find((a) => a.audio_id === item.id);
+  // only music that plays to the video's end can end on its last frame (engine._back_timed)
+  const toEnd = !!placed && placed.out_end_ms >= v.duration * 1000 - 40;
   const anchor = item.anchor && v.plan?.clips.find((c) => c.id === item.anchor?.clip_id);
   const set = (field: string, value: unknown) => edit({ op: "audio_set", audio_id: item.id, field, value });
   return (
@@ -223,6 +229,9 @@ function AudioRow({ item, v, edit, busy }: { item: AudioItem; v: Video; edit: Ed
             <label><input type="checkbox" checked={item.mute} disabled={busy} onChange={(e) => set("mute", e.target.checked)} /> Mute</label>
             {item.role !== "voiceover" && <label><input type="checkbox" checked={item.duck} disabled={busy} onChange={(e) => set("duck", e.target.checked)} /> Dips while people speak</label>}
             <label><input type="checkbox" checked={item.loop} disabled={busy} onChange={(e) => set("loop", e.target.checked)} /> Loop</label>
+            {item.role === "music" && item.loop && toEnd && <label title="It starts inside the music and fades in, so its own ending plays as the video ends">
+              <input type="checkbox" checked={item.back_time ?? isLibraryMusic(v, item)} disabled={busy}
+                onChange={(e) => set("back_time", e.target.checked)} /> End on the last frame</label>}
             {item.anchor ? <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "audio_move", audio_id: item.id, start_ms: placed?.out_start_ms ?? 0 })}>Stop following the clip</button> : null}
             <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "audio_remove", audio_id: item.id })}><Icon name="trash" />Remove from the track</button>
           </div>
@@ -233,8 +242,9 @@ function AudioRow({ item, v, edit, busy }: { item: AudioItem; v: Video; edit: Ed
 }
 
 const LEVELS: [SmartLevel, string, string][] = [
-  ["smart", "Edit it for me", "Cut pauses, repeated takes and weak parts; pictures, music and sound effects"],
-  ["tight", "Fast-paced", "Shorter pauses and a small zoom on every other cut"],
+  ["smart", "Edit it for me",
+    "Cut pauses, repeated takes and weak parts; a small zoom at cuts; pictures, music and sound effects"],
+  ["tight", "Fast-paced", "Everything above with shorter pauses, for a quicker pace"],
   ["off", "Keep my clips as they are", "Only the silence at the start and end is trimmed"]];
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -631,7 +641,7 @@ export default function VideoReview({ id }: { id: string }) {
             {v.short?.voice_rule && <p className="short-label-note"><Icon name="alert" className="sm" />
               <span><b>Before you post it.</b> {v.short.voice_rule}</span></p>}
             {finals.length > 0 && <ul className="file-list">{finals.map((a) => (
-              <li key={a.id} className="file-row"><Icon name="check" /><div><b>Version {a.revision}</b><span className="block small muted">{fmtTime(a.duration)} · checked{a.audio_ok ? ", audio timing valid" : ""}{a.engine === "filmcraft" ? " · made in FilmCraft" : ""}</span>{a.fallback && <span className="block"><MadeWithLine m={a} /></span>}</div>
+              <li key={a.id} className="file-row"><Icon name="check" /><div><b>Version {a.revision}</b><span className="block small muted">{fmtTime(a.duration)} · checked{a.audio_ok ? ", audio timing valid" : ""}{a.engine === "filmcraft" ? " · made in FilmCraft" : ""}</span>{(a.fallback || (a.skipped?.length ?? 0) > 0) && <span className="block"><MadeWithLine m={a} /></span>}</div>
                 <a className="btn btn-small" href={`/api/studio/videos/${v.id}/media?kind=final&revision=${a.revision}&download=1`}><Icon name="download" />Download</a></li>
             ))}</ul>}
             <ul className="small version-list">{v.revisions.slice(0, 12).map((r) => (

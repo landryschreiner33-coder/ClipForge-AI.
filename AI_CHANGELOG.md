@@ -1,5 +1,41 @@
 # AI changelog
 
+## Editing quality, batch 3: full videos (split edits, room tone, music that ends on time) — 2026-11-26 (Claude Code)
+
+Batch 3 of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 2 (PR #82). Details:
+[docs/clipforge/LONG_EDITING.md](docs/clipforge/LONG_EDITING.md).
+
+- **Split edits (J and L cuts)** at straight cuts between two recordings: the sound edit moves 8, 6 or 4 frames off
+  the picture cut, only where no word changes hands (`studio/sound_joins.py`, the sound section of `engine.render`).
+- **No clicks where two recordings meet:** 40 ms equal-power crossfades that only reach into room sound.
+- **Room tone** under title cards, photos and videos without sound: the nearest recording's quietest stretch between
+  words, looped seamlessly at that recording's volume, written a block at a time; it steps aside where a voiceover
+  plays (0.1 s fades) and stays off muted clips; it runs on under a neighbouring clip's own fade.
+- **Music that ends on the last frame:** ClipForge's own beds (and any music with the new "End on the last frame"
+  ticked) start so their end lands on the last frame, fading in at least 1 s. Looping music now repeats one decoded
+  pass exactly (FFmpeg's own looping of AAC/MP3 padded in 0.1 s of silence every 5 repeats, before this batch too).
+- **FilmCraft:** with "auto", finals that use any of this stay on the built-in engine so they sound like the preview
+  (`engine.sound_joins_in_use`, which takes the preview's own report of room tone and moved music when there is
+  one); a FilmCraft render says what it skipped (`craft_skipped`, now shown with the version, together with batch 1's
+  colour note, which was computed but not shown before); a version finished by hand in FilmCraft says nothing.
+- **Defaults:** the balanced feel cuts instead of dissolving (calm keeps dissolves); "Edit it for me" punches in at
+  its normal level too; whooshes at most every 15 s; a short's hook title is on its first frame; one-piece clips fade
+  their sound over 10 ms at both ends.
+- **Where:** the video editor's Sound panel says what the last render did; music items set to Loop have "End on the
+  last frame" (`audio_set` field `back_time`).
+- **Review before the PR** (2 reviewers, 9 findings; the verifiers ran out of usage after 2): all 9 handled. FilmCraft
+  finals (2), owner's songs back-timed and impossible to turn off, a set-length loop back-timed, the container length
+  used for MP3/AAC, a dip where a clip's own fade meets room tone, room tone in memory, level wording; and split edits
+  rarely fit the app's own tight edits, which the doc now says (the 0.1 s word margin is kept). A second review (3
+  reviewers, each finding checked by a verifier) found 5 more, all fixed: gaps and a late ending in looped AAC/MP3
+  music, room tone dropped from a whole photo a voiceover only touched, FilmCraft skipped on "auto" when no room tone
+  was found, a wrong note on hand-finished FilmCraft versions, and "End on the last frame" shown for music that stops
+  before the end.
+- **Tests:** `tests/test_sound_joins.py` (9 fast, 3 real renders that fail when a feature is turned off) and the
+  FilmCraft routing in `tests/test_craft.py`. Not verified: real recordings with real room noise.
+
 ## Editing quality, batch 2: short clips (punch-ins on cuts, sound effects, caption timing) — 2026-11-26 (Claude Code)
 
 Batch 2 of Landry's "majorly improve the editing" (plan in

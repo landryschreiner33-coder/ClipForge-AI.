@@ -139,7 +139,9 @@ export type SmartReport = { level: SmartLevel; options: Record<string, unknown>;
 export type AudioRole = "voiceover" | "music" | "effect";
 export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: string; start_ms: number; in_ms: number;
   out_ms: number | null; length_ms: number | null; gain_db: number; mute: boolean; fade_in_ms: number; fade_out_ms: number;
-  duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null; auto?: boolean };
+  duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null; auto?: boolean;
+  /** Music set to repeat ends on the video's last frame (engine sound joins); unset: only ClipForge's own beds. */
+  back_time?: boolean };
 export type TrackName = "source" | "voiceover" | "music" | "effects";
 /** A video's colour choices (engine plan "color"); a plan made before colour existed has none. */
 export type PlanColour = { auto: boolean; match: boolean; look: string; strength: number; clean: boolean };
@@ -256,7 +258,9 @@ export type ChangeRequest = { id: string; project_id: string; base_revision: num
     question?: string; choices?: { label: string; request: string }[]; duration_ms?: [number, number] } };
 
 /** Which editor made a rendered version, and what FilmCraft, EffectCraft and the AI did in it. */
-export type MadeWith = { engine?: string; fallback?: string; filmcraft?: { hand_edited: boolean; steps: number;
+export type MadeWith = { engine?: string; fallback?: string;
+  /** What of ClipForge's own editing FilmCraft could not apply (colour step, sound joins), in sentences. */
+  skipped?: string[]; filmcraft?: { hand_edited: boolean; steps: number;
   failed: number; shots: { what: string; app: string; use: string }[]; notes: string[];
   ai: { used: boolean; summary: string; provider: string; steps: number; refused: number } | null } };
 

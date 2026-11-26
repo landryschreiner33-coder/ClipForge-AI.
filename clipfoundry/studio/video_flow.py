@@ -1090,6 +1090,10 @@ def _audio_edit(p: dict, edit: dict, assets: dict[str, dict]) -> str:
             item[field] = value
         elif field in ("fade_in_ms", "fade_out_ms"):
             item[field] = _ms(value, "A fade")
+        elif field == "back_time" and type(value) is bool:
+            if item["role"] != "music":
+                raise VideoError("Only music can be timed to end on the last frame.")
+            item["back_time"] = value  # music set to repeat ends on the video's last frame (studio/sound_joins.py)
         elif field == "loop" and type(value) is bool:
             if value and not item["loop"]:
                 item.update(loop=True, in_ms=0, out_ms=None, length_ms=None)
@@ -1618,11 +1622,30 @@ def _pieces(project: dict, preview: bool) -> Path:
     return video_dir(project["id"]) / f"pieces-{'preview' if preview else 'final'}"
 
 
-def _colour_skipped(info: dict, plan: dict, assets: dict, project: dict) -> dict:
-    """A FilmCraft render says so when the plan's colour choices were not applied (FilmCraft cannot apply them)."""
+def _preview_joins(project: dict, revision: int) -> dict | None:
+    """What the preview of this version did to the sound (engine info["sound_joins"]), None without one: whether
+    room tone was found and the music moved is only known by measuring, and the preview did that."""
+    rows = db.select("studio_artifacts", "project_id = ? AND revision = ? AND kind = ?",
+                     (project["id"], revision, "preview"))
+    joins = (rows[0].get("info") or {}).get("sound_joins") if rows else None
+    return joins if isinstance(joins, dict) else None
+
+
+def _colour_skipped(info: dict, plan: dict, assets: dict, project: dict, words: dict | None = None,
+                    joins: dict | None = None) -> dict:
+    """A FilmCraft render says what of ClipForge's own editing it could not apply (`craft_skipped`, shown with the
+    version): the colour step and the sound joins (split edits, room tone, back-timed music)."""
+    skipped = []
     if engine.colour_in_use(plan, assets, _pieces(project, False)):
         info["colour_skipped"] = ("FilmCraft rendered this version without ClipForge's colour step (correction, "
                                   "look, phone HDR). Choose the built-in editor in Settings, Editing apps, to use it.")
+        skipped.append(info["colour_skipped"])
+    if words is not None and engine.sound_joins_in_use(plan, assets, words, joins):
+        skipped.append("FilmCraft joined the sound without ClipForge's split edits, crossfades, room tone and music "
+                       "timing, so it may differ from the preview. Choose the built-in editor in Settings, Editing "
+                       "apps, to use them.")
+    if skipped:
+        info["craft_skipped"] = skipped
     return info
 
 
@@ -1649,6 +1672,12 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         # look): when that step changes the picture, the built-in engine renders the final so it looks like the
         # preview the owner approved (a well-shot video with no look still goes to FilmCraft)
         return None, ""
+    joins = None if hand else _preview_joins(project, job["revision"])
+    if not hand and choice == "auto" and engine.sound_joins_in_use(plan, assets, words, joins):
+        # nor ClipForge's sound joins (studio/sound_joins.py: split edits, crossfades between recordings, room tone,
+        # back-timed music): the built-in engine renders the final so it sounds like the approved preview (whose
+        # own report says whether it found room tone or moved the music)
+        return None, ""
     if not apps.find_cli("filmcraft"):
         if hand:
             raise VideoError("This version was finished in FilmCraft's editor, and FilmCraft is not set up here to "
@@ -1673,13 +1702,13 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         saved = filmcraft_saves(project["id"]) / f"{hand.get('project', '')}.fcproj"
         if not re.fullmatch(r"[0-9a-f]{64}", str(hand.get("project", ""))) or not saved.is_file():
             raise VideoError("The FilmCraft edit of this version is missing; go back to the version before.")
-        info = finish.render_saved(saved, plan, words, out, preview=preview, cancelled=stop, progress=report)
-        return _colour_skipped(info, plan, assets, project), ""
+        # the preview came from FilmCraft too, and the Settings choice does not apply: nothing to say it skipped
+        return finish.render_saved(saved, plan, words, out, preview=preview, cancelled=stop, progress=report), ""
     try:
         info = finish.render(plan, assets, words, out, name=project.get("name") or "Video", revision=job["revision"],
                              settings=settings, cancelled=stop, progress=report,
                              context={"workspace_id": project["workspace_id"], "project_id": project["id"]})
-        return _colour_skipped(info, plan, assets, project), ""
+        return _colour_skipped(info, plan, assets, project, words, joins), ""
     except Exception as exc:
         if choice == "filmcraft" or lease.canceled():
             raise
@@ -1774,6 +1803,8 @@ def _made_with(info: dict) -> dict:
     out = {"engine": info.get("engine") or "ffmpeg"}
     if info.get("filmcraft_fallback"):
         out["fallback"] = info["filmcraft_fallback"]
+    if info.get("craft_skipped"):
+        out["skipped"] = list(info["craft_skipped"])[:3]
     if fc:
         ai = fc.get("ai") or {}
         out["filmcraft"] = {"hand_edited": bool(fc.get("hand_edited")), "steps": fc.get("steps", 0),
