@@ -2,7 +2,7 @@ import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "reac
 import { errorText } from "../api";
 import { Banner, EmptyState, Icon, PageHead, Segmented, Skel, toast } from "../components/ui";
 import { navigate } from "../router";
-import { cancelUpload, uploadFile } from "../studio";
+import { cancelUpload, MediaResult, studio, uploadFile } from "../studio";
 import {
   Background, BackgroundChoice, clock, Story, StoryListItem, StoryOptions, StoryPatch, StoryVoice, textStories,
 } from "../textStories";
@@ -540,6 +540,87 @@ function swapUp<T>(all: T[], i: number): T[] {
   return all.map((x, k) => (k === i - 1 ? all[i] : k === i ? all[i - 1] : x));
 }
 
+const FOOTAGE_IDEAS = ["parkour", "satisfying", "minecraft parkour", "slime", "subway train", "ocean waves"];
+
+/** Search the free footage sources (Settings → Media sources) for a background, and use one: it is copied into
+ * your videos with where it came from and its license, and goes behind the story. Only footage whose license lets
+ * it be trimmed and used in a video for any purpose is offered. */
+function FreeFootage({ title, onUse, close }: { title: string; onUse: (b: Partial<Background>) => void;
+  close: () => void }) {
+  const [query, setQuery] = useState(FOOTAGE_IDEAS[0]);
+  const [found, setFound] = useState<MediaResult[] | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");   // the result being copied in
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  const search = async (words = query) => {
+    if (words.trim().length < 2) return;
+    setQuery(words);
+    setNote("Searching…");
+    try {
+      const got = await studio.searchMedia({ kind: "footage", query: words.trim(), filters: { license: "fits" } });
+      const fits = got.results.filter((r) => r.fits.eligible && (r.duration_s ?? 0) >= 5);
+      setFound(fits);
+      const down = got.providers.filter((p) => p.state !== "ready" && p.message).map((p) => p.message);
+      setNote(fits.length ? "" : `Nothing usable came back for “${words.trim()}”.${down.length ? ` ${down[0]}` : ""}`
+        + " Try other words, or turn on more sources in Settings → Media sources.");
+    } catch (e) {
+      setNote(errorText(e));
+    }
+  };
+  const use = async (r: MediaResult) => {
+    setBusy(r.id);
+    try {
+      let job = await studio.importMedia({ result_id: r.id });
+      for (let i = 0; i < 400 && alive.current && (job.status === "queued" || job.status === "importing"); i++) {
+        await new Promise((ok) => window.setTimeout(ok, 1500));
+        job = await studio.mediaImport(job.id);
+      }
+      if (!alive.current) return;
+      if (job.status !== "ready" || !job.asset_id) throw new Error(job.error || "The footage could not be copied in.");
+      const credit = r.fits.credit_required && r.credit ? ` Credit: ${r.credit}` : "";
+      onUse({ asset_id: job.asset_id, in_s: 0, out_s: r.duration_s || 10, focus_x: 0.5, focus_y: 0.5,
+        why: `Free footage from ${r.provider_name} (${r.license_name}).${credit}`.slice(0, 200) });
+      toast(r.fits.credit_required ? "Added. Its license asks for a credit: put the credit line in your post."
+        : "Added behind the story.");
+    } catch (e) {
+      if (alive.current) toast(errorText(e), true);
+    } finally {
+      if (alive.current) setBusy("");
+    }
+  };
+  return (
+    <section className="stack-2" aria-label="Find free footage">
+      <form className="row wrap" onSubmit={(e) => { e.preventDefault(); void search(); }}>
+        <input type="search" value={query} maxLength={80} aria-label="What the footage shows"
+          onChange={(e) => setQuery(e.target.value)} />
+        <button type="submit" className="btn btn-small"><Icon name="search" />Search</button>
+        <button type="button" className="btn btn-small btn-quiet" onClick={close}>Close</button>
+      </form>
+      <div className="row wrap" role="group" aria-label="Ideas">
+        {[...FOOTAGE_IDEAS.slice(1), ...(title.trim() ? [title.trim().split(/\s+/).slice(0, 3).join(" ")] : [])]
+          .map((idea) => <button key={idea} type="button" className="btn btn-small btn-quiet"
+            onClick={() => void search(idea)}>{idea}</button>)}
+      </div>
+      {note && <p className="small muted" role="status">{note}</p>}
+      {found && found.length > 0 && (
+        <div className="bg-choices" role="group" aria-label="Free footage">
+          {found.slice(0, MAX_SHOWN * 2).map((r) => (
+            <button key={r.id} type="button" className="bg-choice" disabled={!!busy} onClick={() => void use(r)}>
+              {r.preview.image ? <img src={r.preview.image} alt="" loading="lazy" />
+                : <span className="bg-swatch" aria-hidden="true" />}
+              <b className="small">{busy === r.id ? "Copying it in…" : r.title || "Untitled"}</b>
+              <span className="small muted">{clock(r.duration_s || 0)} · {r.provider_name} · {r.license_name}
+                {r.fits.credit_required ? " · credit required" : ""}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** One of ClipForge's own backgrounds as a CSS gradient (its colours). */
 function swatch(opts: StoryOptions, builtin?: string): string | undefined {
   const colours = opts.builtins.find((x) => x.id === builtin)?.colors;
@@ -551,6 +632,7 @@ function Backgrounds({ story, opts, locked, onChange, onStory }: { story: Story;
   const [choices, setChoices] = useState<BackgroundChoice[] | null>(null);
   const [replacing, setReplacing] = useState<number | null>(null);
   const [upload, setUpload] = useState("");
+  const [finding, setFinding] = useState(false);
   const file = useRef<HTMLInputElement>(null);
   // the clip being sent, for Cancel upload: stop sending, then the server deletes what it received
   const sending = useRef<{ ctl: AbortController; id: string; file: File; canceled: boolean } | null>(null);
@@ -680,12 +762,16 @@ function Backgrounds({ story, opts, locked, onChange, onStory }: { story: Story;
         <button type="button" className="btn" disabled={locked} onClick={() => void browse(null)}>
           <Icon name="folder" />From my videos
         </button>
+        <button type="button" className="btn" disabled={locked} aria-expanded={finding}
+          onClick={() => setFinding(!finding)}><Icon name="search" />Find free footage</button>
         <input ref={file} type="file" accept="video/*" hidden onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = "";
           if (f) void sendFile(f);
         }} />
       </div>
+      {finding && !locked && <FreeFootage title={story.title} onUse={(b) => { add(b); setFinding(false); }}
+        close={() => setFinding(false)} />}
       {upload && <p className="small row wrap" role="status">{upload}
         {sending.current && !sending.current.canceled && <button type="button" className="btn btn-small"
           onClick={() => void cancelSend()}><Icon name="x" />Cancel upload</button>}</p>}
