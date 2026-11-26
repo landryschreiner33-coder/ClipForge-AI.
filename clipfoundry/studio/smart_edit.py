@@ -44,7 +44,7 @@ from pathlib import Path
 
 from ..pipeline.text_utils import (EMOTION_WORDS, HOOK_WORDS, PAYOFF_PHRASES, STOPWORDS, build_sentences,
                                    content_tokens, tokens)
-from . import engine
+from . import engine, retime
 
 LEVELS = {"smart": {"pause_s": 0.7, "pad_s": 0.16, "label": "Edit it for me"},
           "tight": {"pause_s": 0.4, "pad_s": 0.1, "label": "Fast-paced"}}
@@ -956,7 +956,7 @@ def cold_open(clips: list[dict], talks: list[dict], table: list[dict], ai: dict,
     sentence when it named one that plays, else the kept sentence with the best `hook_score` after the first
     HOOK_SKIP_S of the video and inside its first HOOK_SHARE (so it teases what comes), at least HOOK_SCORE.
     Returns {"clip", "outline", "note", "said"} or None; the line still plays where it was said."""
-    played = sum(c["out_ms"] - c["in_ms"] for c in clips if c.get("include", True) and c.get("kind") == "video")
+    played = sum(retime.out_len_ms(c) for c in clips if c.get("include", True) and c.get("kind") == "video")
     if played < (OPEN_MIN_VIDEO_S if open_with.strip() else HOOK_MIN_VIDEO_S) * 1000:
         return None
     kept: list[tuple[float, dict, dict]] = []  # (output position, talk, sentence)
@@ -964,12 +964,12 @@ def cold_open(clips: list[dict], talks: list[dict], table: list[dict], ai: dict,
     for c in clips:
         if not c.get("include", True):
             continue
-        length = c["out_ms"] - c["in_ms"]
+        length = retime.out_len_ms(c)
         t = next((t for t in talks if t["asset"]["id"] == c["asset_id"]), None) if c.get("kind") == "video" else None
         if t:
             for k, s in enumerate(t["sents"]):
                 if t["status"][k] == "keep" and c["in_ms"] <= s["start"] * 1000 and s["end"] * 1000 <= c["out_ms"]:
-                    kept.append(((at + s["start"] * 1000 - c["in_ms"]) / 1000, t, s))
+                    kept.append(((at + retime.out_at(c, s["start"] * 1000 - c["in_ms"])) / 1000, t, s))
         at += length
     if not kept:
         return None
@@ -1053,6 +1053,7 @@ def _place_pictures(plan: dict, images: list[dict], talks: list[dict], ai: dict,
     otherwise spread over the longest talking stretches, never in the first 3 s or the last 2 s, 4 s apart."""
     length = OVERLAY_MS.get(feel, 3500)
     segs = {s["clip_id"]: s for s in engine.timeline(plan)}
+    clips = {c["id"]: c for c in plan["clips"]}
     total = engine.duration_ms(plan)
     taken: list[tuple[int, int]] = []
 
@@ -1063,7 +1064,7 @@ def _place_pictures(plan: dict, images: list[dict], talks: list[dict], ai: dict,
         seg = segs.get(where["clip_id"])
         if not seg:
             return False
-        start = seg["out_start_ms"] + where["offset_ms"]
+        start = seg["out_start_ms"] + engine.offset_out_ms(clips[where["clip_id"]], where["offset_ms"])
         end = min(seg["out_end_ms"], start + (most or length))
         if end - start < 1500 or not free(start, end):
             return False
@@ -1115,8 +1116,9 @@ def _place_pictures(plan: dict, images: list[dict], talks: list[dict], ai: dict,
                 end = min(s["out_end_ms"], start + length, total - 2000)
                 if end - start >= 1500 and free(start, end):
                     d = abs((start + end) / 2 - want)
-                    if best is None or d < best[0]:
-                        best = (d, s["clip_id"], start - s["out_start_ms"], end - start)
+                    if best is None or d < best[0]:  # an offset is file time into the clip (engine)
+                        best = (d, s["clip_id"], round(retime.src_at(clips[s["clip_id"]], start - s["out_start_ms"])),
+                                end - start)
         if best:
             put(img, {"clip_id": best[1], "offset_ms": best[2]}, "spread over a long talking stretch", best[3])
 
@@ -1132,11 +1134,12 @@ def _near(plan: dict, segs: dict, asset_id: str, said_ms: int, length: int):
     seg = segs.get(where["clip_id"])
     if not seg:
         return
+    clip = next(c for c in plan["clips"] if c["id"] == where["clip_id"])
     clip_len = seg["out_end_ms"] - seg["out_start_ms"]
-    earlier = max(0, clip_len - length)
+    earlier = round(retime.src_at(clip, max(0, clip_len - length)))  # offsets are file time into the clip
     if earlier < where["offset_ms"]:
         yield {"clip_id": where["clip_id"], "offset_ms": earlier}
-    said_out = seg["out_start_ms"] + where["offset_ms"] + 300
+    said_out = seg["out_start_ms"] + engine.offset_out_ms(clip, where["offset_ms"]) + 300
     order = [c["id"] for c in plan["clips"] if c.get("include", True)]
     k = order.index(where["clip_id"]) if where["clip_id"] in order else -1
     if 0 <= k < len(order) - 1:
@@ -1176,7 +1179,8 @@ def _place_effects(plan: dict, library: dict, stats: dict) -> None:
             if swishes >= 20:
                 break
             item = _audio_item(f"a{len(plan['audio']) + 1}", library["swish"], "effect", gain_db=-18.0)
-            item.update(anchor={"clip_id": o["clip_id"], "offset_ms": o["offset_ms"] - 270}, auto=True,
+            # 270 ms of the video before the picture appears, at any speed of its clip (engine.anchor_lead_ms)
+            item.update(anchor={"clip_id": o["clip_id"], "offset_ms": o["offset_ms"], "lead_ms": 270}, auto=True,
                         label="Soft swish (ClipForge)")
             plan["audio"].append(item)
             swishes += 1
@@ -1211,8 +1215,10 @@ def _chapters(plan: dict, talks: list[dict], table: list[dict], ai: dict) -> lis
 def chapter_times(plan: dict) -> list[dict]:
     """The chapters with their times in the current plan, or [] when YouTube would not accept them."""
     segs = {s["clip_id"]: s for s in engine.timeline(plan)}
+    clips = {c["id"]: c for c in plan.get("clips") or []}
     rows = sorted(({"title": c["title"], "ms": min(segs[c["clip_id"]]["out_end_ms"] - 1,
-                                                    segs[c["clip_id"]]["out_start_ms"] + int(c.get("offset_ms") or 0))}
+                                                   segs[c["clip_id"]]["out_start_ms"]
+                                                   + engine.offset_out_ms(clips[c["clip_id"]], c.get("offset_ms")))}
                    for c in plan.get("chapters") or [] if c.get("clip_id") in segs), key=lambda r: r["ms"])
     if not rows:
         return []

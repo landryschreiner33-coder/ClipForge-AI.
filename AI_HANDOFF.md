@@ -23,6 +23,40 @@ video. It learns from the owner's real results, within limits. Design and source
   mounted while it uploads. The "Make the AI really watch and listen" thread (PR #88)
   also adds a bounded term to `deep.clip_score`; the predictor does not read `p.senses` yet, so a later change could
   feed its watched/heard features into the channels (keep the bounds and avoid counting a moment twice).
+## Editing quality, batch 4a: speed, ramps, freeze frames, camera moves — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** a clip in a full video can now play slower or faster (with the voice at its normal
+pitch), ramp smoothly into slow motion and out again, hold a frame, or slowly zoom and pan, from the clip panel or in
+plain words.
+
+- **Where things are:** `studio/retime.py` (constants, presets, the time map `out_at`/`src_at`/`src_positions`,
+  `setpts`, `motion_filter`, `split_ramp`/`split_motion`, `problems`, `describe`, the WSOLA `stretch`); the engine
+  uses it in `_dur`, `validate`, `timeline`, `render_timeline`, `offset_out_ms` (overlays, anchored sound, chapters),
+  `output_words` (captions), `_video_input` (picture), `_timing_key` (piece cache), the crossfade clearance and
+  `_retimed_sound`; `engine.retiming_in_use` decides FilmCraft routing. Editor edits: `video_flow._timing_set`,
+  `_split_clip`, `_freeze` (op `freeze`). Plain words: `edit_requests._timing_rule`. Export:
+  `interchange._time_effects`.
+- **Storage:** `clip.speed`; `clip.speed_ramp = {preset, points: [{at: share of the file range, speed}],
+  range?: [file in, file out]}` (the part of the file the curve covers: a split gives each half the same curve);
+  `clip.motion = {preset, ease, keys: [{at: share of the move, zoom, x, y}], range?: [w0, w1]}` (the share of the
+  move this clip plays; a freeze of a moving clip gets `[s, s]`); a freeze frame is its own clip `{kind: "freeze",
+  in_ms == out_ms (the held frame, on the file's frame grid), hold_ms}`. Offsets of overlays, anchored sound and
+  chapters stay FILE time from the in point (video time on a freeze) and are mapped with `engine.offset_out_ms`, so
+  old plans read the same at speed 1. A negative offset (a lead before the clip) is video time 1:1, and an anchor's
+  optional `lead_ms` starts a sound that much video time before its moment (the swish before a picture). The
+  editor's attached-sound field sends `audio_move.out_offset_ms` (video time) and reads the video view's
+  `anchor_ms` ({audio id: video-time start from its clip's start}, also for muted sounds).
+- **Worth knowing:** past a clip's ends the edge speed continues (fades, crossfade handles). Setting `zoom` > 1 drops
+  `motion` and setting `motion` drops `zoom`. Split edits are skipped next to a retimed clip. FilmCraft gets retimed
+  finals only when chosen by hand. The AI thread owns `brain/operations.py`: the new clip_set fields (`speed`,
+  `speed_ramp`, `motion`, `hold_ms`) and op `freeze` are not yet exposed to ClipForge AI's own commands (plain-words
+  edit requests already reach them). The op `freeze` needs the project's assets (`video_flow._freeze(p, edit,
+  assets)`) to find frames; without `at_ms` it holds the clip's last shown frame. The speed and camera-move rules
+  return None (ClipForge AI's turn) for phrases that do not name clips.
+- **Review lesson:** the first version passed its own tests but a review with real renders on 24/60 fps files and
+  sound longer than picture found 15 problems. Test retiming on several frame rates and on files whose streams differ
+  in length; compare splits against the whole clip to the microsecond.
+
 ## Text-message stories, up to ten minutes — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** Text Stories can now be a text-message chat like the TikTok ones: a phone chat appears a

@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import math
 
+from . import retime
+
 SPLIT_FRAMES = (8, 6, 4)    # how far the sound edit may move off the picture cut (research: 4-12 frames)
 SPLIT_MIN_FRAMES = 3        # each side keeps at least this many times the split as its own sound
 WORD_MARGIN_S = 0.1         # a word this close to the frames that change hands still counts (transcript timing)
@@ -57,6 +59,8 @@ def split_edits(els: list[dict], sounding: list[bool], words_by_asset: dict[str,
         p, q = els[k - 1], els[k]
         if not (sounding[k - 1] and sounding[k]) or q["ov_in"] or p["asset_id"] == q["asset_id"]:
             continue
+        if retime.retimed(p.get("clip") or {}) or retime.retimed(q.get("clip") or {}):
+            continue  # a sped-up or slowed side: its sound edit stays with its picture (a crossfade only)
         pw, qw = words_by_asset.get(p["asset_id"]), words_by_asset.get(q["asset_id"])
         if pw is None or qw is None:
             continue
