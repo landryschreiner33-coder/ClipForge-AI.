@@ -45,13 +45,14 @@ class NewStory(BaseModel):
     name: str = ""
     title: str = ""
     script: str = ""
+    kind: str = "narrated"
 
 
 @router.post(BASE)
 def new_story(body: NewStory) -> dict:
     try:
         return textstory.view(textstory.create(principal.workspace_id(), name=body.name, title=body.title,
-                                               script=body.script))
+                                               script=body.script, kind=body.kind))
     except textstory.StoryError as exc:
         raise _bad(exc) from exc
 
@@ -69,6 +70,8 @@ def one_story(text_story_id: str) -> dict:
 
 
 class StoryChange(BaseModel):
+    kind: str | None = None
+    chat: dict | None = None
     name: str | None = None
     title: str | None = None
     script: str | None = None
