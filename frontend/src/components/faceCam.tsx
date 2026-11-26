@@ -1,6 +1,6 @@
 import { KeyboardEvent, PointerEvent, useEffect, useRef, useState } from "react";
 import { announce, Icon, ProgressBar, Segmented, toast } from "./ui";
-import { api, CamCheck, Clip, errorText, FaceCamState, Project, uploadCamera } from "../api";
+import { api, CamCheck, Clip, errorText, FaceCamState, Project, uploadCamera, UploadCanceled } from "../api";
 
 /** A box drawn over a video's picture, in shares of it: [x0, y0, x1, y1]. */
 export type Box = number[];
@@ -97,6 +97,7 @@ export function FaceCamPanel({ project, clip, layout, box, setBox, pipCorner, se
   const [work, setWork] = useState<Box | null>(null);
   const [offset, setOffset] = useState("");
   const [upload, setUpload] = useState<number | null>(null);
+  const sending = useRef<AbortController | null>(null);   // the recording being sent, for Cancel upload
   const [changedHere, setChangedHere] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -133,12 +134,16 @@ export function FaceCamPanel({ project, clip, layout, box, setBox, pipCorner, se
   };
   const addCamera = async (file: File) => {
     setUpload(0);
+    const ctl = new AbortController();
+    sending.current = ctl;
     try {
-      done(await uploadCamera(project.id, file, "", setUpload), "Camera recording added. Render the clip to see it.");
+      done(await uploadCamera(project.id, file, "", setUpload, ctl.signal),
+        "Camera recording added. Render the clip to see it.");
       setWork(null);
     } catch (e) {
-      toast(errorText(e), true);
+      toast(e instanceof UploadCanceled ? e.message : errorText(e), !(e instanceof UploadCanceled));
     } finally {
+      sending.current = null;
       setUpload(null);
       if (fileRef.current) fileRef.current.value = "";
     }
@@ -235,7 +240,11 @@ export function FaceCamPanel({ project, clip, layout, box, setBox, pipCorner, se
           {upload === null
             ? <label className="btn btn-small" htmlFor={`cam-file-${project.id}`}><Icon name="upload" />
               Add a camera recording</label>
-            : <ProgressBar value={upload} label={upload < 1 ? "Copying the camera recording" : "Lining it up"} />}
+            : <div className="row wrap">
+              <ProgressBar value={upload} label={upload < 1 ? "Copying the camera recording" : "Lining it up"} />
+              {upload < 1 && <button type="button" className="btn btn-small" onClick={() => sending.current?.abort()}>
+                <Icon name="x" />Cancel upload</button>}
+            </div>}
         </>)}
       </div>
       {changedHere && (

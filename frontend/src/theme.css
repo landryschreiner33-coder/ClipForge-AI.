@@ -1,5 +1,5 @@
 /* ClipForge owner choices (docs/clipforge/DESIGN_SPEC.md). Loaded after styles.css. This file holds only what
-   Customize studio can change: the four palettes, the six accents, density and text size, and reduced motion, applied
+   Customize studio can change: the eight palettes, the nine accents, density and text size, and reduced motion, applied
    through data-* attributes on <html>. Every component in styles.css is drawn from these tokens, so a palette or accent
    choice reaches every page. ClipForge is dark only. tests/test_theme_contrast.py reads the colour blocks below and
    fails when any text, status or accent colour drops below WCAG 2.1 contrast on any palette's surfaces. */
@@ -20,6 +20,10 @@
 :root[data-palette="midnight"] { --canvas: #070B18; --surface: #0E1529; --raised: #151D3B; --hover: #1C2548; --border: #28365F; --neutral-tint: #172142; }
 :root[data-palette="graphite"] { --canvas: #0D0E10; --surface: #151619; --raised: #1C1D21; --hover: #24262B; --border: #34363C; --neutral-tint: #212226; }
 :root[data-palette="plum"] { --canvas: #0F0A16; --surface: #180F22; --raised: #20162D; --hover: #2A1F3A; --border: #382B4C; --neutral-tint: #231A31; }
+:root[data-palette="forest"] { --canvas: #07110C; --surface: #0C1A13; --raised: #12241B; --hover: #182E23; --border: #284536; --neutral-tint: #16271E; }
+:root[data-palette="ocean"] { --canvas: #051214; --surface: #0A1C1F; --raised: #102629; --hover: #163034; --border: #24474D; --neutral-tint: #13292D; }
+:root[data-palette="ember"] { --canvas: #120A08; --surface: #1B100D; --raised: #241713; --hover: #2E1E19; --border: #48302A; --neutral-tint: #2A1B17; }
+:root[data-palette="black"] { --canvas: #000000; --surface: #0B0B0C; --raised: #141416; --hover: #1C1C1F; --border: #303036; --neutral-tint: #17171A; }
 
 /* Accents: each checked at >= 4.5:1 as text on every palette's surfaces, and for the dark text on an accent button.
    Glacier (the id stays "blue") is the default: the space studio's cyan controls. */
@@ -29,6 +33,9 @@
 :root[data-accent="coral"] { --primary: #FF8A5B; --primary-hover: #FFA884; --primary-tint: #3A2117; }
 :root[data-accent="green"] { --primary: #3DD68C; --primary-hover: #6BE3A8; --primary-tint: #10301F; }
 :root[data-accent="pink"] { --primary: #FF6FB5; --primary-hover: #FF96C8; --primary-tint: #3A1730; }
+:root[data-accent="gold"] { --primary: #F5C451; --primary-hover: #F8D47D; --primary-tint: #33280F; }
+:root[data-accent="red"] { --primary: #FF6B6B; --primary-hover: #FF9090; --primary-tint: #3A1A1A; }
+:root[data-accent="lime"] { --primary: #A3E635; --primary-hover: #BEF264; --primary-tint: #1F2E0C; }
 
 /* Text size: everything sized in rem follows (the office's labels included). */
 :root[data-text="large"] { font-size: 112.5%; }

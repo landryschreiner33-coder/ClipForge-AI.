@@ -64,7 +64,7 @@ def release(app: Path, sources: Path, work: Path, identity: str, profile: str, c
     run('spctl', '--assess', '--type', 'execute', '--verbose=4', signed)
     # Verify hardened signatures still permit the actual runtime and the studio.
     run('python3', Path(__file__).parent / 'desktop_smoke.py', '--app', signed, '--evidence', work / 'signed-evidence')
-    dmg = work / 'ClipFoundry-Mac-Apple-Silicon.dmg'
+    dmg = work / 'ClipForge-Mac-Apple-Silicon.dmg'   # the app inside keeps its folder name (build_desktop.FOLDER_NAME)
     package(signed, dmg)
     run('codesign', '--sign', identity, '--timestamp', dmg)
     dmg_receipt = notarize(dmg, profile)

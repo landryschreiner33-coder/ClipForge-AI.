@@ -20,13 +20,15 @@ APPEARANCE_SCHEMA = 3  # 2: dark only (theme removed); palette, text size, offic
 # 3: the space studio; its glacier accent (id "blue") replaced violet as the default
 LAYOUT_SCHEMA = 2      # 2: the Studio page's panels; the Create and Office entries, which no screen used, removed
 OLD_THEMES = ("system", "light", "dark")  # accepted from an older page and ignored: there is one (dark) theme
-PALETTES = ("studio", "midnight", "graphite", "plum")
-ACCENTS = ("violet", "teal", "blue", "coral", "green", "pink", "custom")  # custom: accent_color, made readable
+PALETTES = ("studio", "midnight", "graphite", "plum", "forest", "ocean", "ember", "black")
+ACCENTS = ("violet", "teal", "blue", "coral", "green", "pink", "gold", "red", "lime", "custom")  # custom: accent_color, made readable
 _HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # Every palette's surfaces (frontend/src/theme.css; tests/test_theme_contrast.py checks this list against it) and
 # the dark text drawn on an accent button: a custom accent is made light enough to read on all of them.
 SURFACES = ("#060A18", "#0B1226", "#111B35", "#182444", "#070B18", "#0E1529", "#151D3B", "#1C2548", "#0D0E10",
-            "#151619", "#1C1D21", "#24262B", "#0F0A16", "#180F22", "#20162D", "#2A1F3A")
+            "#151619", "#1C1D21", "#24262B", "#0F0A16", "#180F22", "#20162D", "#2A1F3A",
+            "#07110C", "#0C1A13", "#12241B", "#182E23", "#051214", "#0A1C1F", "#102629", "#163034", "#120A08",
+            "#1B100D", "#241713", "#2E1E19", "#000000", "#0B0B0C", "#141416", "#1C1C1F")
 ON_ACCENT = "#0B0D14"
 CANVAS = "#060A18"
 DENSITIES = ("comfortable", "compact")

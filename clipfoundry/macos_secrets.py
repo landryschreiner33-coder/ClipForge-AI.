@@ -9,7 +9,8 @@ import re
 from . import config, locks
 
 PREFIX = "keychain:v1:"
-SERVICE = "ClipFoundry profile encryption"
+SERVICE = "ClipForge profile encryption"
+OLD_SERVICE = "ClipFoundry profile encryption"   # before the rename: moved to SERVICE the first time it is read
 
 
 def _backend():
@@ -28,6 +29,8 @@ def _key(identifier: str, create: bool = False) -> bytes:
     try:
         backend = _backend()
         value = backend.get_password(SERVICE, identifier)
+        if value is None:
+            value = _move_old(backend, identifier)
         if value is None and create:
             value = base64.b64encode(os.urandom(32)).decode("ascii")
             backend.set_password(SERVICE, identifier, value)
@@ -39,6 +42,22 @@ def _key(identifier: str, create: bool = False) -> bytes:
         return result
     finally:
         lock.release()
+
+
+def _move_old(backend, identifier: str) -> str | None:
+    """A key saved under the old name ("ClipFoundry profile encryption") is saved under the new one, read back, and
+    only then is the old item removed, so Keychain Access shows ClipForge. If any step fails the old item stays
+    and is used: the key is never lost."""
+    value = backend.get_password(OLD_SERVICE, identifier)
+    if value is None:
+        return None
+    try:
+        backend.set_password(SERVICE, identifier, value)
+        if backend.get_password(SERVICE, identifier) == value:
+            backend.delete_password(OLD_SERVICE, identifier)
+    except Exception:  # noqa: BLE001 - the old item keeps working
+        pass
+    return value
 
 
 def seal(text: str) -> str:

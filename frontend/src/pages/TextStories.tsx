@@ -2,7 +2,7 @@ import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "reac
 import { errorText } from "../api";
 import { Banner, EmptyState, Icon, PageHead, Segmented, Skel, toast } from "../components/ui";
 import { navigate } from "../router";
-import { uploadFile } from "../studio";
+import { cancelUpload, uploadFile } from "../studio";
 import {
   Background, BackgroundChoice, clock, Story, StoryListItem, StoryOptions, StoryPatch, StoryVoice, textStories,
 } from "../textStories";
@@ -552,6 +552,8 @@ function Backgrounds({ story, opts, locked, onChange, onStory }: { story: Story;
   const [replacing, setReplacing] = useState<number | null>(null);
   const [upload, setUpload] = useState("");
   const file = useRef<HTMLInputElement>(null);
+  // the clip being sent, for Cancel upload: stop sending, then the server deletes what it received
+  const sending = useRef<{ ctl: AbortController; id: string; file: File; canceled: boolean } | null>(null);
   const list = story.backgrounds;
   const plain = (b: Background): Partial<Background> => ({ id: b.id, asset_id: b.asset_id, builtin: b.builtin,
     in_s: b.in_s, out_s: b.out_s, loop: b.loop, focus_x: b.focus_x, focus_y: b.focus_y, why: b.why });
@@ -585,14 +587,36 @@ function Backgrounds({ story, opts, locked, onChange, onStory }: { story: Story;
   };
   const sendFile = async (f: File) => {
     setUpload(`Uploading ${f.name}…`);
+    const now = { ctl: new AbortController(), id: "", file: f, canceled: false };
+    sending.current = now;
     try {
-      const asset = await uploadFile(f, (p) =>
-        setUpload(p.size ? `Uploading ${f.name}: ${Math.round((p.received / p.size) * 100)}%` : ""));
+      const asset = await uploadFile(f, (p) => {
+        if (p.id) now.id = p.id;
+        setUpload(p.size ? `Uploading ${f.name}: ${Math.round((p.received / p.size) * 100)}%` : "");
+      }, now.ctl.signal);
+      if (now.canceled) return;   // it finished while Cancel was pressed: the server's answer decides (below)
       if (asset.kind !== "video") throw new Error("Choose a video file.");
       add({ asset_id: asset.id, in_s: 0, out_s: asset.duration || 10, focus_x: 0.5, focus_y: 0.5,
         why: "You uploaded it." });
     } catch (e) {
-      toast(errorText(e), true);
+      if (!now.canceled) toast(errorText(e), true);
+    } finally {
+      if (sending.current === now) sending.current = null;
+      if (!now.canceled) setUpload("");
+    }
+  };
+  const cancelSend = async () => {
+    const now = sending.current;
+    if (!now) return;
+    now.canceled = true;
+    now.ctl.abort();
+    setUpload("Canceling the upload…");
+    try {
+      const out = now.id ? await cancelUpload(now.id, now.file) : { canceled: true, status: "", message: "" };
+      toast(out.canceled ? "Upload canceled. Nothing was kept; your file is still on this computer."
+        : out.message || "It had already finished uploading, so it was kept in your videos.");
+    } catch (e) {
+      toast(`Could not cancel: ${errorText(e)}`, true);
     } finally {
       setUpload("");
     }
@@ -662,7 +686,9 @@ function Backgrounds({ story, opts, locked, onChange, onStory }: { story: Story;
           if (f) void sendFile(f);
         }} />
       </div>
-      {upload && <p className="small" role="status">{upload}</p>}
+      {upload && <p className="small row wrap" role="status">{upload}
+        {sending.current && !sending.current.canceled && <button type="button" className="btn btn-small"
+          onClick={() => void cancelSend()}><Icon name="x" />Cancel upload</button>}</p>}
       {choices && (
         <div className="bg-choices" role="group" aria-label={replacing !== null ? "Replace with" : "Add a background"}>
           {choices.length === 0 && <span className="small muted">No videos of yours can be used yet (they need to run 5

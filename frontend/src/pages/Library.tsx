@@ -189,7 +189,7 @@ function EmptyLibrary() {
     </>}>
       <p>
         Add a video to make clips yourself, or put videos you made in your videos folder
-        ({folder ? <span className="mono break">{folder}</span> : <>Videos\ClipFoundry in your user folder</>}).
+        ({folder ? <span className="mono break">{folder}</span> : <>Videos\ClipForge in your user folder</>}).
         While Autopilot is on, it makes clips from what you put there.
       </p>
     </EmptyState>

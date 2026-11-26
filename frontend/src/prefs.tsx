@@ -9,7 +9,8 @@ import { studio } from "./studio";
  * draft live (setDraft / setLayoutDraft) and saves it, or drops it on Cancel. Robot display names are applied to the
  * cast registry, so every label, tooltip and card uses them while every ID stays the same.
  */
-export type Appearance = { palette: "studio" | "midnight" | "graphite" | "plum"; accent: string;
+export type Appearance = {
+  palette: "studio" | "midnight" | "graphite" | "plum" | "forest" | "ocean" | "ember" | "black"; accent: string;
   density: "comfortable" | "compact"; text_size: "standard" | "large" | "larger"; motion: "system" | "full" | "reduced";
   office_size: "compact" | "expanded"; pinned: string[]; clips_mode: "highlights" | "full_stories" | "story_parts";
   remember_style: boolean;

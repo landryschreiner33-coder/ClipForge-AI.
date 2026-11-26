@@ -590,9 +590,12 @@ export function uploadVideo(
   });
 }
 
+/** An upload stopped with Cancel upload (not a failure: nothing was added). */
+export class UploadCanceled extends Error {}
+
 /** A separate camera recording for a video; it is lined up by sound unless `offset` (seconds) is given. */
 export function uploadCamera(projectId: string, file: File, offset: string,
-  onProgress: (fraction: number) => void): Promise<FaceCamState> {
+  onProgress: (fraction: number) => void, signal?: AbortSignal): Promise<FaceCamState> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file);
@@ -611,6 +614,10 @@ export function uploadCamera(projectId: string, file: File, offset: string,
       }
     };
     xhr.onerror = () => reject(new Error("Adding the camera recording failed: server not reachable"));
+    // Cancel upload: the request stops before the server has the whole file, so nothing is added
+    xhr.onabort = () => reject(new UploadCanceled("Upload canceled. Nothing was added; your file is still on this computer."));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    if (signal?.aborted) return reject(new UploadCanceled("Upload canceled. Nothing was added."));
     xhr.send(form);
   });
 }
