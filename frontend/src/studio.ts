@@ -170,7 +170,9 @@ export type Plan = { schema: number; output: { aspect: string; fps: number }; la
 export type Segment = { clip_id: string; asset_id: string; kind: string; src_in_ms: number; src_out_ms: number;
   out_start_ms: number; out_end_ms: number; speed?: number; ramp?: boolean; freeze?: boolean; hold_ms?: number };
 export type Placed = { audio_id: string; asset_id: string; role: AudioRole; track: TrackName; out_start_ms: number;
-  out_end_ms: number; src_in_ms: number; loop: boolean; cut_ms: number };
+  out_end_ms: number; src_in_ms: number; loop: boolean; cut_ms: number;
+  /** An attached sound: where it starts from its clip's start, in the video's time (a sped-up clip included). */
+  clip_ms?: number };
 export type SoundJoins = { split_edits?: { at_s: number; j_frames: number; l_frames: number }[]; room_tone_s?: number;
   music_back_timed_s?: Record<string, number> };
 export type Video = { id: string; name: string; status: string; message: string; asset_ids: string[];

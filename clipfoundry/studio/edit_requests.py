@@ -176,19 +176,34 @@ def _stem(t: str) -> str:
     return t
 
 
+NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+                "ten": 10, "eleven": 11, "twelve": 12}
+ORDINALS = {"second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9,
+            "tenth": 10, "eleventh": 11, "twelfth": 12}
+_CLIP_NO = (r"(?:the )?(?:clip|part|shot) (?:number )?(\d+|" + "|".join(NUMBER_WORDS) +
+            r")|(?:the )?(\d+)(?:st|nd|rd|th)? clip")
+_CLIP_AT = r"(?:the )?(first|opening|last|final|closing|" + "|".join(ORDINALS) + r") (?:clip|part|shot)"
+CLIP_REF = _CLIP_NO + "|" + _CLIP_AT  # a clip named by its number or its place, never by what is said in it
+
+
 def _match(phrase: str, rows: list[dict]) -> tuple[list[dict], str]:
-    """The clips a phrase names: "clip 4", "the first/last clip", or words said in (or naming) a clip. Several
-    neighbouring clips that all match are one part. Returns (clips, what was looked for)."""
+    """The clips a phrase names: "clip 4" (or "clip four"), "the first/second/last clip" (counting the clips still
+    in the video), or words said in (or naming) a clip. Several neighbouring clips that all match are one part.
+    Returns (clips, what was looked for)."""
     p = _norm(phrase)
-    m = re.fullmatch(r"(?:the )?(?:clip|part|shot) (?:number )?(\d+)", p) or re.fullmatch(r"(?:the )?(\d+)(?:st|nd|rd|th)? clip", p)
+    m = re.fullmatch(_CLIP_NO, p)
     if m:
-        n = int(m.group(1))
+        k = m.group(1) or m.group(2)
+        n = int(k) if k.isdigit() else NUMBER_WORDS[k]
         return ([r for r in rows if r["n"] == n], f"clip {n}")
     included = [r for r in rows if r["included"]]
-    if re.fullmatch(r"(?:the )?(?:first|opening) (?:clip|part|shot)", p) and included:
-        return [included[0]], "the first clip"
-    if re.fullmatch(r"(?:the )?(?:last|final|closing) (?:clip|part|shot)", p) and included:
-        return [included[-1]], "the last clip"
+    m = re.fullmatch(_CLIP_AT, p)
+    if m:
+        word = m.group(1)
+        if word in ("last", "final", "closing"):
+            return included[-1:], "the last clip"
+        k = 1 if word in ("first", "opening") else ORDINALS[word]
+        return included[k - 1:k], f"the {word} clip"
     keys = [_stem(t) for t in _tokens(p) if t not in FILLER]
     if not keys:
         return [], p
@@ -233,6 +248,10 @@ class _Explain(Exception):
 
 def _one_part(phrase: str, rows: list[dict], verb: str, rest: str) -> list[dict]:
     hits, looked = _match(phrase, rows)
+    if not hits and re.fullmatch(CLIP_REF, _norm(phrase)):
+        raise _Ask(f"There is no {looked.removeprefix('the ')} in this video: it has clips 1 to {len(rows)}. Which one "
+                   f"do you mean? For "
+                   f"example “{verb} clip {min(3, len(rows)) or 1}{rest}”.")
     if not hits:
         raise _Ask(f"Which part do you mean by “{_text(phrase, 60)}”? Nothing said in the video or in a clip's name "
                    f"matches “{looked}”. You can name it by number, for example “{verb} clip 3{rest}”.")
@@ -244,6 +263,19 @@ def _one_part(phrase: str, rows: list[dict], verb: str, rest: str) -> list[dict]
             choices.append({"label": _describe(g)[:120], "request": f"{verb} {which}{rest}"})
         raise _Ask(f"“{_text(phrase, 60)}” comes up in {len(groups)} places. Which one?", choices)
     return groups[0]
+
+
+def _video_end(x: str, rows: list[dict]) -> tuple[str, dict] | None:
+    """("start", the first playing clip) for "the intro", "the opening" or "the beginning"; ("end", the last one)
+    for "the ending", "the end" or "the outro". None for any other phrase."""
+    p = _norm(x)
+    which = "start" if re.fullmatch(OPENING, p) else "end" if re.fullmatch(CLOSING, p) else None
+    if not which:
+        return None
+    playing = [r for r in rows if r["included"] and r["kind"] != "freeze"]
+    if not playing:
+        raise _Explain("There is no clip in the video to change.")
+    return which, playing[0] if which == "start" else playing[-1]
 
 
 def _span(phrase: str, rows: list[dict], verb: str, rest: str) -> list[dict]:
@@ -646,7 +678,16 @@ def _color_rule(t: str, plan: dict) -> tuple[list[dict], str, str] | None:
 
 
 # ------------------------------------------------------------------ speed, freeze frames, camera moves
-NOT_A_PART = r"\b(music|song|soundtrack|captions?|subtitles?|pace|pacing|cuts|editing|transitions?|voice|talking)\b"
+# a phrase about one of these is not a clip to retime (it goes to other rules or to ClipForge AI)
+NOT_A_PART = (r"\b(music|song|soundtrack|captions?|subtitles?|pace|pacing|cuts|editing|transitions?|voice|talking|"
+              r"volume|gain|loudness|audio|sound|brightness|contrast|saturation|exposure|colou?rs?)\b")
+# words that point at something the rules cannot see ("make it faster", "speed up the video"): ClipForge AI's
+PRONOUNS = (r"(?:it|this|that|these|those|them|everything|all of (?:it|them)|(?:the |my |this )?(?:whole |entire )?"
+            r"(?:video|thing|edit))")
+# the start or the end of the video, named without a clip: its first or last playing clip
+OPENING = r"(?:the )?(?:intro|opening|beginning|start)(?: of the video)?"
+CLOSING = r"(?:the )?(?:ending|end|outro|close)(?: of the video)?"
+DURATION = r"(?:\d+(?:\.\d+)?|a|one|two|three) ?(?:s|sec|secs|seconds?)"
 PHOTOS = r"(?:all )?(?:the |my |of the )?(?:photos?|pictures?|images?|stills?)"
 HOLD = r"(?: for (?P<n>\d+(?:\.\d+)?|a|one|two|three) ?(?:s|sec|secs|seconds?))?"
 SPEED_NAMES = {"half": 0.5, "quarter": 0.25, "double": 2.0, "twice": 2.0, "triple": 3.0, "normal": 1.0,
@@ -673,7 +714,7 @@ UNDO_RE = (r"(?:please )?(?:remove|undo|drop|take off|take out|get rid of|turn o
 RAMP_RE = r"(?:add |put |use |do )?(?:a )?speed ramp (?:on|to|for|in|into) (?P<x>.+)"
 FREEZE_RES = (
     r"(?:add |put |do |use )?(?:a )?freeze[- ]?frame(?: (?:at|on) the (?P<w>end|start|beginning))?"
-    r"(?: (?:of|on|in|at|for|after) (?P<x>.+?))?" + HOLD,
+    r"(?: (?:of|on|in|at|for|after) (?!" + DURATION + r"$)(?P<x>.+?))?" + HOLD,
     r"(?:freeze|hold) (?:on )?(?:the )?(?P<w>last|final|first|opening|end|ending) (?:frame|moment|shot|picture)"
     r"(?: (?:of|in|on) (?P<x>.+?))?" + HOLD,
     r"freeze (?P<x>.+?)(?: at the (?P<w>end|start|beginning))?" + HOLD,
@@ -681,7 +722,7 @@ FREEZE_RES = (
 MOTION_RE = (r"(?:slowly |gently |gradually )?(?:add |do |use |put )?(?:a )?(?:slow |gentle |subtle |gradual )?"
              r"(?P<m>zoom(?:ing)? ?in|zoom(?:ing)? ?out|push(?:ing)? ?in|pull(?:ing)? ?(?:out|back)|"
              r"pan(?:ning)? (?:left|right|up|down)|ken burns(?: effect)?|slow zoom|camera move)"
-             r"(?: (?:on|to|into|of|across|over|for|in) (?P<x>.+))?")
+             r"(?: (?:(?:on|to|into|of|across|over|for|in) )?(?P<x>.+))?")
 
 
 def _amount(text: str | None, faster: bool | None) -> float | None:
@@ -708,16 +749,37 @@ def _speed_words(s: float) -> str:
     return named + (" (slow motion)" if s < 1 else "")
 
 
+def _names_clips(x: str | None, rows: list[dict]) -> bool:
+    """Whether the speed and camera-move rules should take a phrase: no phrase (they ask which clip), a clip named
+    by number, place or range ("clip 3", "the second clip", "clips 2 to 4"), the photos, the intro or the ending,
+    or words said in (or naming) a clip. Anything else ("the volume of clip 3", "my face at 0:30", "it") goes to
+    ClipForge AI, which can read the request whole."""
+    if x is None:
+        return True
+    p = _norm(x)
+    if re.search(NOT_A_PART, p) or re.fullmatch(PRONOUNS, p):
+        return False
+    if re.fullmatch(PHOTOS, p) or re.fullmatch(OPENING, p) or re.fullmatch(CLOSING, p) or \
+            re.fullmatch(CLIP_REF, p) or re.fullmatch(r"(?:the )?clips? (\d+) (?:to|through|-|–) (?:clip )?(\d+)", p):
+        return True
+    return bool(_match(p, rows)[0])
+
+
 def _targets(x: str | None, rows: list[dict], verb: str, rest: str, kinds=("video",)) -> list[dict]:
-    """The clips a phrase names; "the photos" means every photo still in the video."""
+    """The clips a phrase names; "the photos" means every photo still in the video, "the intro" and "the ending"
+    its first and last playing clip when no clip is named that way."""
     if x and re.fullmatch(PHOTOS, x):
+        if "image" not in kinds:
+            raise _Explain("A photo already stands still, so it has no frame to freeze." if "freeze" in verb else
+                           "A photo already stands still: only video can change speed.")
         got = [r for r in rows if r["included"] and r["kind"] == "image"]
         if not got:
             raise _Explain("This video has no photos.")
         return got
     if not x:
         raise _Ask(f"Which clip should that be? For example “{verb} clip 3{rest}”.")
-    group = _span(x, rows, verb, rest)
+    end = _video_end(x, rows)
+    group = [end[1]] if end else _span(x, rows, verb, rest)
     wrong = [r for r in group if r["kind"] not in kinds]
     if wrong:
         what = {"image": "a photo", "freeze": "a freeze frame", "video": "a video clip"}.get(wrong[0]["kind"], "clip")
@@ -736,17 +798,38 @@ def _length_change(plan: dict, group: list[dict], field: str, value) -> str:
     return f"{before / 1000:.1f} s → {after / 1000:.1f} s"
 
 
+def _undo_test(what: str, by_id: dict[str, dict]):
+    """Which clips "remove the <what>" is about: slow motion only slowed clips, a fast forward only sped-up ones,
+    a ramp only ramps, a zoom a camera move or a punch-in, a pan or camera move only a camera move."""
+    def speeds(r: dict) -> list[float]:
+        c = by_id[r["id"]]
+        pts = retime.ramp_points(c)
+        return [s for _, s in pts] if pts else [retime.speed(c)]
+
+    if what.startswith(("zoom", "slow zoom", "camera", "pan", "ken")):
+        punch = what.startswith("zoom")
+        return lambda r: bool(r["motion"]) or punch and float(by_id[r["id"]].get("zoom") or 1.0) > 1.001
+    timed = (lambda r: r["kind"] != "freeze" and bool(r["timing"]))
+    if what.startswith("slow"):
+        return lambda r: timed(r) and min(speeds(r)) < 1 - 1e-9
+    if what.startswith("fast") or what == "speeding up":
+        return lambda r: timed(r) and max(speeds(r)) > 1 + 1e-9
+    if "ramp" in what:
+        return lambda r: timed(r) and bool(retime.ramp_points(by_id[r["id"]]))
+    return timed
+
+
 def _timing_rule(t: str, plan: dict, rows: list[dict]) -> tuple[list[dict], str, str] | None:
     """Speed (slow motion, faster, a ramp), freeze frames and slow camera moves, in words (studio/retime.py)."""
     by_id = {c["id"]: c for c in plan.get("clips") or []}
     m = re.fullmatch(UNDO_RE, t)
-    if m and not (m.group("x") and re.search(NOT_A_PART, m.group("x"))):
+    if m and _names_clips(m.group("x"), rows):
         what, x = m.group("what"), m.group("x")
         verb = "remove the " + what
         if what.startswith("freeze"):
             frozen = [r for r in rows if r["included"] and r["kind"] == "freeze"]
             if x:
-                named = _span(x, rows, verb + " from", "")
+                named = _targets(x, rows, verb + " from", "", kinds=("video", "image", "freeze"))
                 ids = {r["id"] for r in named}
                 order = [r["id"] for r in rows]
                 frozen = [r for r in frozen if r["id"] in ids or any(
@@ -759,27 +842,36 @@ def _timing_rule(t: str, plan: dict, rows: list[dict]) -> tuple[list[dict], str,
                                                    for r in frozen[:4]])
             return ([{"op": "remove", "clip_id": r["id"]} for r in frozen],
                     f"Remove the freeze frame{'s' if len(frozen) > 1 else ''} ({_describe(frozen)}).", "")
-        moving = what.startswith(("zoom", "slow zoom", "camera", "pan", "ken"))
-        has = (lambda r: bool(r["motion"])) if moving else \
-            (lambda r: bool(r["timing"]) and r["kind"] != "freeze")
-        group = _span(x, rows, verb + " from", "") if x else [r for r in rows if r["included"] and has(r)]
+        w = what.replace("-", " ")
+        moving = w.startswith(("zoom", "slow zoom", "camera", "pan", "ken"))
+        punch = w.startswith("zoom")  # "remove the zoom" also means a still punch-in, not "remove the slow zoom"
+        has = _undo_test(w, by_id)
+        group = _targets(x, rows, verb + " from", "", kinds=("video", "image", "freeze")) if x else \
+            [r for r in rows if r["included"] and has(r)]
         group = [r for r in group if has(r)]
         if not group:
-            raise _Explain("No clip there has " + ("a camera move." if moving else "a speed change."))
-        ops = []
+            raise _Explain("No clip there has " + ("a zoom or camera move." if punch else "a camera move." if moving
+                                                   else "slow motion." if w.startswith("slow") else
+                                                   "a fast forward." if w.startswith("fast") or "up" in w else
+                                                   "a speed ramp." if "ramp" in w else "a speed change."))
+        ops, said = [], []
         for r in group:
             c = by_id[r["id"]]
             if moving:
-                ops.append({"op": "clip_set", "clip_id": r["id"], "field": "motion", "value": None})
-            elif retime.ramp_points(c):
-                ops.append({"op": "clip_set", "clip_id": r["id"], "field": "speed_ramp", "value": None})
+                if retime.motion_keys(c):
+                    ops.append({"op": "clip_set", "clip_id": r["id"], "field": "motion", "value": None})
+                if punch and float(c.get("zoom") or 1.0) > 1.001:
+                    ops.append({"op": "clip_set", "clip_id": r["id"], "field": "zoom", "value": 1.0})
+                said.append(f"No {'zoom or ' if punch else ''}camera move on {_describe([r])}.")
             else:
-                ops.append({"op": "clip_set", "clip_id": r["id"], "field": "speed", "value": 1})
-        said = f"No camera move on {_describe(group)}." if moving else \
-            f"Play {_describe(group)} at normal speed again."
-        return ops, said, ""
+                if retime.ramp_points(c):
+                    ops.append({"op": "clip_set", "clip_id": r["id"], "field": "speed_ramp", "value": None})
+                else:
+                    ops.append({"op": "clip_set", "clip_id": r["id"], "field": "speed", "value": 1})
+                said.append(f"Play {_describe([r])} at normal speed again.")
+        return ops, " ".join(said), ""
     m = re.fullmatch(RAMP_RE, t)
-    if m and not re.search(NOT_A_PART, m.group("x")):
+    if m and _names_clips(m.group("x"), rows):
         group = _targets(m.group("x"), rows, "add a speed ramp to", "")
         label = retime.RAMPS["fast_slow_fast"][0].lower()
         return ([{"op": "clip_set", "clip_id": r["id"], "field": "speed_ramp", "value": "fast_slow_fast"}
@@ -788,7 +880,7 @@ def _timing_rule(t: str, plan: dict, rows: list[dict]) -> tuple[list[dict], str,
                 f"({_length_change(plan, group, 'speed_ramp', 'fast_slow_fast')}).", "")
     for pattern, faster in [*((p, False) for p in SLOW_RES), *((p, True) for p in FAST_RES), (PLAY_AT, None)]:
         m = re.fullmatch(pattern, t)
-        if not m or re.search(NOT_A_PART, m.group("x")):
+        if not m or not _names_clips(m.group("x"), rows):
             continue
         amt = m.groupdict().get("amt")
         speed = _amount(amt, faster)
@@ -811,9 +903,11 @@ def _timing_rule(t: str, plan: dict, rows: list[dict]) -> tuple[list[dict], str,
                 "")
     for pattern in FREEZE_RES:
         m = re.fullmatch(pattern, t)
-        if not m or (m.group("x") and re.search(NOT_A_PART, m.group("x"))):
+        if not m or not _names_clips(m.group("x"), rows):
             continue
-        start = (m.group("w") or "") in ("first", "opening", "start", "beginning")
+        end = _video_end(m.group("x"), rows) if m.group("x") else None
+        start = (m.group("w") or "") in ("first", "opening", "start", "beginning") or \
+            bool(end and not m.group("w") and end[0] == "start")  # "freeze the intro": its first frame
         n = m.group("n")
         hold = WORD_NUMBERS.get(n, None) if n in WORD_NUMBERS else float(n) if n else retime.FREEZE_DEFAULT_MS / 1000
         if not retime.FREEZE_MIN_MS / 1000 <= hold <= 60:
@@ -830,16 +924,19 @@ def _timing_rule(t: str, plan: dict, rows: list[dict]) -> tuple[list[dict], str,
                 raise _Explain(f"The video {'starts' if start else 'ends'} on a photo (clip {r['n']}), which already "
                                "stands still.")
         c = by_id[r["id"]]
-        at = int(c["in_ms"]) if start else int(c["out_ms"]) - 40
-        return ([{"op": "freeze", "clip_id": r["id"], "at_ms": at, "length_ms": round(hold * 1000)}],
+        # its first frame, or (no moment) the last frame it shows, found on the file's own frame grid by the editor
+        op = {"op": "freeze", "clip_id": r["id"], "length_ms": round(hold * 1000)}
+        if start:
+            op["at_ms"] = int(c["in_ms"])
+        return ([op],
                 f"Hold the {'first' if start else 'last'} frame of {_describe([r])} for {hold:g} s (with the room's "
                 "sound under it).", "")
     m = re.fullmatch(MOTION_RE, t)
-    if m and not (m.group("x") and re.search(NOT_A_PART, m.group("x"))):
+    if m and _names_clips(m.group("x"), rows):
         word = m.group("m").replace("ing", "").replace(" ", "")
         preset = ("zoom_out" if word in ("zoomout", "pullout", "pullback") else
                   f"pan_{word.removeprefix('pan')}" if word.startswith("pan") else "zoom_in")
-        group = _targets(m.group("x"), rows, m.group("m"), "", kinds=("video", "image", "freeze"))
+        group = _targets(m.group("x"), rows, m.group("m") + " on", "", kinds=("video", "image", "freeze"))
         label, a, b = retime.MOTIONS[preset]
         detail = f"{a[0] * 100:.0f}% → {b[0] * 100:.0f}%" if a[0] != b[0] else "at 120%"
         return ([{"op": "clip_set", "clip_id": r["id"], "field": "motion", "value": preset} for r in group],
@@ -863,6 +960,8 @@ def by_rules(text: str, plan: dict, rows: list[dict], assets: dict[str, dict] | 
     except _Ask as q:
         return {"question": str(q.question), "choices": q.choices}
     except _Explain as e:
+        return {"explain": str(e)}
+    except vf.VideoError as e:  # a rule tried an edit the editor refuses: say why instead of failing the request
         return {"explain": str(e)}
     return {"operations": ops, "summary": " ".join(said)}
 

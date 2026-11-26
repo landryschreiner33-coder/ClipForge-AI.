@@ -1179,7 +1179,8 @@ def _place_effects(plan: dict, library: dict, stats: dict) -> None:
             if swishes >= 20:
                 break
             item = _audio_item(f"a{len(plan['audio']) + 1}", library["swish"], "effect", gain_db=-18.0)
-            item.update(anchor={"clip_id": o["clip_id"], "offset_ms": o["offset_ms"] - 270}, auto=True,
+            # 270 ms of the video before the picture appears, at any speed of its clip (engine.anchor_lead_ms)
+            item.update(anchor={"clip_id": o["clip_id"], "offset_ms": o["offset_ms"], "lead_ms": 270}, auto=True,
                         label="Soft swish (ClipForge)")
             plan["audio"].append(item)
             swishes += 1

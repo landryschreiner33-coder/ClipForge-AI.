@@ -76,6 +76,8 @@ ASPECTS = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080), "4:5
 FPS = (24, 25, 30, 50, 60)  # each divides 48000, so a frame always holds a whole number of samples
 SR = 48000
 PREVIEW_HEIGHT = 360
+RETIME_PRE_MS = 100   # a sped-up or slowed piece is read from this far before its first moment (one frame or more)
+FREEZE_PRE_S = 0.2    # a freeze frame is found among the frames this far before its moment
 TRANSITIONS = {"cut": None, "dissolve": "fade", "fade": "fadeblack"}
 LAYOUTS = ("fit", "fill")
 ROLES = ("voiceover", "music", "effect")
@@ -94,6 +96,7 @@ SUPPORTED = {"clips", "trim", "reorder", "include", "image", "transition", "titl
              "replace", "split", "word_fixes", "joins", "zoom", "overlays", "clean_sound", "color", "speed",
              "speed_ramp", "freeze", "motion"}
 ZOOM_RANGE = (1.0, 1.5)       # a clip's punch-in
+LEAD_MAX_MS = 10000           # how far a sound may start before (or after) the moment it is attached to
 OVERLAY_KINDS = ("image", "video")
 OVERLAY_MOTIONS = ("still", "zoom")
 OVERLAY_FITS = ("fill", "fit")
@@ -206,6 +209,10 @@ def _validate_audio(plan: dict, assets: dict[str, dict]) -> list[str]:
         anchor = item.get("anchor")
         if anchor and anchor.get("clip_id") not in clip_ids:
             out.append(f"“{name}” is attached to a clip that is not in this video.")
+        lead = (anchor or {}).get("lead_ms")
+        if lead is not None and (isinstance(lead, bool) or not isinstance(lead, (int, float))
+                                 or abs(lead) > LEAD_MAX_MS):
+            out.append(f"“{name}” starts more than {LEAD_MAX_MS // 1000} s away from the moment it is attached to.")
         if not anchor and int(item.get("start_ms") or 0) < 0:
             out.append(f"“{name}” starts before the video.")
         if item.get("loop"):
@@ -513,8 +520,31 @@ def render_timeline(plan: dict, fps: int) -> list[dict]:
 
 def offset_out_ms(clip: dict, offset_ms) -> int:
     """Where something attached to a clip at `offset_ms` (an overlay, a sound, a chapter: file time from the in
-    point, video time on a freeze frame) plays, in ms from the clip's start in the video."""
-    return round(retime.out_at(clip, float(offset_ms or 0)))
+    point, video time on a freeze frame) plays, in ms from the clip's start in the video. A lead before the clip
+    (a negative offset: a whoosh into a cut) is video time, whatever the clip's speed."""
+    off = float(offset_ms or 0)
+    return round(retime.out_at(clip, max(0.0, off)) + min(0.0, off))
+
+
+def offset_from_out_ms(clip: dict, out_ms) -> int:
+    """The anchor offset for a moment `out_ms` after the clip starts in the video (the inverse of offset_out_ms):
+    file time inside a clip, video time before it or on a freeze frame."""
+    o = float(out_ms or 0)
+    if o < 0 or retime.is_freeze(clip):
+        return round(o)
+    return round(retime.src_at(clip, o))
+
+
+def anchor_lead_ms(anchor: dict | None) -> int:
+    """How long (video ms) a sound starts before the moment it is attached to: a swish before a picture appears
+    stays 270 ms ahead of it at any speed of the clip. 0 when missing or unreadable (validate reports that)."""
+    v = (anchor or {}).get("lead_ms")
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) <= LEAD_MAX_MS else 0
+
+
+def anchor_out_ms(clip: dict, anchor: dict) -> int:
+    """Where a sound attached to `clip` starts, in ms from the clip's start in the video."""
+    return offset_out_ms(clip, anchor.get("offset_ms")) - anchor_lead_ms(anchor)
 
 
 def audio_timeline(plan: dict, segs: list[dict] | None = None, total_ms: int | None = None) -> list[dict]:
@@ -532,7 +562,8 @@ def audio_timeline(plan: dict, segs: list[dict] | None = None, total_ms: int | N
         if anchor:
             if anchor.get("clip_id") not in starts:
                 continue
-            start = starts[anchor["clip_id"]] + offset_out_ms(clips[anchor["clip_id"]], anchor.get("offset_ms"))
+            clip_ms = anchor_out_ms(clips[anchor["clip_id"]], anchor)
+            start = starts[anchor["clip_id"]] + clip_ms
         else:
             start = int(item.get("start_ms") or 0)
         start = max(0, start)
@@ -544,7 +575,9 @@ def audio_timeline(plan: dict, segs: list[dict] | None = None, total_ms: int | N
         out.append({"audio_id": item["id"], "asset_id": item["asset_id"], "role": item["role"],
                     "track": ROLE_TRACK[item["role"]], "out_start_ms": start, "out_end_ms": end,
                     "src_in_ms": 0 if item.get("loop") else int(item.get("in_ms") or 0),
-                    "loop": bool(item.get("loop")), "cut_ms": start + length - end})
+                    "loop": bool(item.get("loop")), "cut_ms": start + length - end,
+                    # an attached sound: where it starts from its clip's start, in the video's own time
+                    **({"clip_ms": clip_ms} if anchor else {})})
     return out
 
 
@@ -779,18 +812,33 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
     if e["kind"] == "image":
         args = ["-loop", "1", "-framerate", str(fps), "-t", f"{secs:.3f}", "-i", path]
     elif e["kind"] == "freeze":  # one frame, held (every piece of a freeze reads the same frame)
-        args = ["-ss", f"{e['src_in_ms'] / 1000:.6f}", "-t", "1", "-i", path]
-        lines.append(f"{src}trim=end_frame=1,setpts=PTS-STARTPTS,fps={fps},tpad=stop=-1:stop_mode=clone[fr{idx}]")
+        # the frame on screen at the held moment: read a little before it and keep the last frame at or before it
+        # (a seek to the moment itself drops that frame when it started earlier, and at a file's very end, where
+        # the sound runs on past the picture, nothing would be left to hold)
+        at = e["src_in_ms"] / 1000
+        pre = min(at, FREEZE_PRE_S)
+        args = ["-ss", f"{at - pre:.6f}", "-t", f"{pre + 0.1:.6f}", "-i", path]
+        lines.append(f"{src}trim=end={pre + 0.0005:.6f},reverse,trim=end_frame=1,setpts=PTS-STARTPTS,fps={fps},"
+                     f"tpad=stop=-1:stop_mode=clone[fr{idx}]")
         src = f"[fr{idx}]"
     else:
         # the source moment at this piece's first frame, and as much file as its frames show at this speed
         u0 = retime.src_at(clip, rel_frame * 1000 / fps)
         span = retime.src_at(clip, (rel_frame + frames) * 1000 / fps) - u0
-        args = ["-ss", f"{(e['src_in_ms'] + u0) / 1000:.6f}", "-t", f"{span / 1000 + 0.5:.3f}", "-i", path]
-        timing = retime.setpts(clip, u0)
-        if timing:  # each source frame to its time in the video, then whole output frames (repeated or dropped)
-            lines.append(f"{src}{timing},fps={fps}[sp{idx}]")
+        if retime.retimed(clip):
+            # read from a little before the piece's first moment: an accurate seek drops the frame already on
+            # screen there, and at slow speeds one source frame lasts several output frames; the frames before get
+            # negative times and the first output frame shows the source frame the time map says
+            pre = min(e["src_in_ms"] + u0, RETIME_PRE_MS)
+            args = ["-ss", f"{(e['src_in_ms'] + u0 - pre) / 1000:.6f}", "-t", f"{(span + pre) / 1000 + 0.5:.3f}",
+                    "-i", path]
+            lines.append(f"{src}{retime.setpts(clip, u0, u0 - pre)},fps={fps}:start_time=0:round=up[sp{idx}]")
             src = f"[sp{idx}]"
+        else:
+            args = ["-ss", f"{(e['src_in_ms'] + u0) / 1000:.6f}", "-t", f"{span / 1000 + 0.5:.3f}", "-i", path]
+            if retime.motion_keys(clip):  # the move is timed by frame count: count output frames, not the file's
+                lines.append(f"{src}fps={fps}[fp{idx}]")
+                src = f"[fp{idx}]"
     # (the whole element's length: a move runs over the clip, not over each piece of it)
     move = retime.motion_filter(clip, rel_frame, e.get("frames", rel_frame + frames), width, height)
     if move:  # a slow camera move: the framing window, per frame and by fractions of a pixel
@@ -1482,7 +1530,18 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         # each straight cut between two different sounds (recordings, or room tone) gets an equal-power crossfade
         # around its sound edit: (samples before it, samples after it, ramp length) for the cut into element k
         xfades: dict[int, tuple[int, int, int]] = {}
+        straight: set[int] = set()  # joins crossfaded in a straight line (the same sound on both sides)
         for k in range(1, len(els)):
+            p_c, q_c = els[k - 1].get("clip") or {}, els[k].get("clip") or {}
+            if own[k - 1] and own[k] and els[k - 1]["asset_id"] == els[k]["asset_id"] and not els[k]["ov_in"] and \
+                    int(p_c.get("out_ms", -1)) == int(q_c.get("in_ms", -2)) and \
+                    (retime.retimed(p_c) or retime.retimed(q_c)):
+                # one recording going on across a split, faster or slower on one side: a stretched sound ends up to
+                # 8 ms off its map (retime.stretch), so the two sides meet with a short straight-line crossfade, each
+                # reaching into the other's own sound (the same moments of the file, so no word is cut or doubled)
+                xfades[k] = (xf // 2, xf - xf // 2, xf)
+                straight.add(k)
+                continue
             if els[k]["ov_in"] or not (heard[k - 1] and heard[k]) or \
                     (own[k - 1] and own[k] and els[k - 1]["asset_id"] == els[k]["asset_id"]) or \
                     k in tone_lead or k - 1 in tone_tail:
@@ -1536,10 +1595,11 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                 raw = _write_tone(tones[k], n, tmp / f"tone{k}.raw", quiet)
                 bus = free  # never counted as speech (it would hold the music down)
             bus.append({"start": start, "n": n, "path": raw,
-                        "ramp_in": x_in[2] if x_in else tone_lead.get(k) or e["ov_in"] * spf, "power_in": bool(x_in),
+                        "ramp_in": x_in[2] if x_in else tone_lead.get(k) or e["ov_in"] * spf,
+                        "power_in": bool(x_in) and k not in straight,
                         "ramp_out": x_out[2] if x_out else tone_tail.get(k) or
                         (els[k + 1]["ov_in"] if k + 1 < len(els) else 0) * spf,
-                        "power_out": bool(x_out)})
+                        "power_out": bool(x_out) and k + 1 not in straight})
             if not own[k] and k == 0:
                 bus[-1].update(ramp_in=xf, power_in=True)  # room tone under an opening title fades in
             if not own[k] and k == len(els) - 1:

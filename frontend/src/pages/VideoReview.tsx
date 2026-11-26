@@ -275,8 +275,8 @@ function AudioRow({ item, v, edit, busy }: { item: AudioItem; v: Video; edit: Ed
       <Disclosure summary="Change">
         <div className="stack-3">
           <div className="grid-3">
-            {item.anchor ? <TimeField label="Starts after its clip (s)" ms={item.anchor.offset_ms} disabled={busy}
-              onCommit={(ms) => edit({ op: "audio_move", audio_id: item.id, clip_id: item.anchor!.clip_id, offset_ms: ms })} />
+            {item.anchor ? <TimeField label="Starts after its clip (s)" ms={placed?.clip_ms ?? item.anchor.offset_ms} disabled={busy}
+              onCommit={(ms) => edit({ op: "audio_move", audio_id: item.id, clip_id: item.anchor!.clip_id, out_offset_ms: ms })} />
               : <TimeField label="Starts at (s)" ms={item.start_ms} disabled={busy} onCommit={(ms) => edit({ op: "audio_move", audio_id: item.id, start_ms: ms })} />}
             {item.loop ? <TimeField label="Plays for (s, 0 = to the end)" ms={item.length_ms || 0} disabled={busy}
               onCommit={(ms) => edit({ op: "audio_trim", audio_id: item.id, length_ms: ms || null })} />

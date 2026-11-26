@@ -68,6 +68,33 @@ def is_freeze(c: dict) -> bool:
     return c.get("kind") == "freeze"
 
 
+def frame_ms_of(asset: dict | None) -> float:
+    """How long one frame of a video file lasts (ms), from its probed frame rate (30 fps when unknown)."""
+    fps = ((asset or {}).get("probe") or {}).get("fps")
+    return 1000.0 / float(fps) if _num(fps) and fps > 0 else 1000.0 / 30
+
+
+def last_frame_ms(asset: dict | None, frame_ms: float | None = None) -> float | None:
+    """When a video's last frame starts (ms into the file), or None when its length is unknown. The picture
+    stream's own length counts: a phone or camera file's sound often runs on a little past its last frame."""
+    p = (asset or {}).get("probe") or {}
+    length = p.get("video_duration") if _num(p.get("video_duration")) and p["video_duration"] > 0 else p.get("duration")
+    if not _num(length) or length <= 0:
+        return None
+    return max(0.0, float(length) * 1000 - (frame_ms or frame_ms_of(asset)))
+
+
+def frame_start_ms(asset: dict | None, at_ms: float) -> float:
+    """The start of the frame on screen at `at_ms` in a video file (its frames start on a regular grid from 0), no
+    later than the last frame."""
+    fm = frame_ms_of(asset)
+    start = math.floor(max(0.0, at_ms) / fm + 1e-6) * fm
+    last = last_frame_ms(asset, fm)
+    if last is not None:
+        start = min(start, math.floor(last / fm + 1e-6) * fm)
+    return start
+
+
 def ramp_points(c: dict) -> list[tuple[float, float]] | None:
     r = c.get("speed_ramp")
     pts = r.get("points") if isinstance(r, dict) else None
@@ -96,17 +123,14 @@ def motion_keys(c: dict) -> list[dict] | None:
     return keys or None
 
 
-def _segments(c: dict) -> tuple[list[tuple[float, float, float, float, float]], float]:
-    """([(source start, source end, rate at start, rate at end, output start)] in ms from the in point, output
-    length in ms), where rate = 1 / speed."""
-    length = float(int(c["out_ms"]) - int(c["in_ms"]))
-    pts = ramp_points(c) or [(0.0, speed(c)), (1.0, speed(c))]
-    segs, o = [], 0.0
-    for (p0, s0), (p1, s1) in zip(pts, pts[1:]):
-        a, b, r0, r1 = p0 * length, p1 * length, 1.0 / s0, 1.0 / s1
-        segs.append((a, b, r0, r1, o))
-        o += (b - a) * (r0 + r1) / 2
-    return segs, o
+def ramp_range(c: dict) -> tuple[float, float] | None:
+    """The file range [in, out] (ms) a speed ramp is drawn over when it is not the clip's own: kept by a split, so
+    each half plays its part of the same curve, and by a trim, so the curve stays where it was in the file."""
+    r = c.get("speed_ramp")
+    rng = r.get("range") if isinstance(r, dict) else None
+    if isinstance(rng, (list, tuple)) and len(rng) == 2 and all(_num(v) for v in rng) and rng[1] > rng[0]:
+        return float(rng[0]), float(rng[1])
+    return None
 
 
 def _seg_out(seg, u: float) -> float:
@@ -115,6 +139,42 @@ def _seg_out(seg, u: float) -> float:
         return o
     v = (u - a) / (b - a)
     return o + (b - a) * (r0 * v + (r1 - r0) * (v ** 3 - v ** 4 / 2))
+
+
+def _seg_rate(seg, u: float) -> float:
+    a, b, r0, r1, _o = seg
+    v = 0.0 if b <= a else min(1.0, max(0.0, (u - a) / (b - a)))
+    return r0 + (r1 - r0) * v * v * (3 - 2 * v)
+
+
+def _segments(c: dict) -> tuple[list[tuple[float, float, float, float, float]], float]:
+    """([(source start, source end, rate at start, rate at end, output start)] in ms from the in point, output
+    length in ms), where rate = 1 / speed. Only the segments the clip plays are listed; the first may start before
+    the in point and the last end after the out point (a clip playing part of its ramp's range). Where the clip
+    reaches past its ramp's range, the edge speed goes on."""
+    length = float(int(c["out_ms"]) - int(c["in_ms"]))
+    rng = ramp_range(c)
+    off, span = (int(c["in_ms"]) - rng[0], rng[1] - rng[0]) if rng else (0.0, length)
+    pts = ramp_points(c) or [(0.0, speed(c)), (1.0, speed(c))]
+    knots = [(p * span - off, 1.0 / s) for p, s in pts]
+    if knots[0][0] > 0:
+        knots.insert(0, (0.0, knots[0][1]))
+    if knots[-1][0] < length:
+        knots.append((length, knots[-1][1]))
+    full, o = [], 0.0
+    for (a, r0), (b, r1) in zip(knots, knots[1:]):
+        full.append((a, b, r0, r1, o))
+        o += (b - a) * (r0 + r1) / 2
+    at0 = next(s for s in full if s[1] >= 0 or s is full[-1])
+    shift = _seg_out(at0, 0.0)  # the curve's output at the in point: the clip starts there
+    segs = [(a, b, r0, r1, so - shift) for a, b, r0, r1, so in full if b > 0 and a < length and b > a]
+    if not segs:  # a zero-length range (never valid): one flat piece so nothing divides by zero
+        segs = [(0.0, max(length, 1e-6), 1.0, 1.0, 0.0)]
+    return segs, _seg_out(segs[-1], length)
+
+
+def _edge_rates(segs, length: float) -> tuple[float, float]:
+    return _seg_rate(segs[0], 0.0), _seg_rate(segs[-1], length)
 
 
 def out_exact_ms(c: dict) -> float:
@@ -136,8 +196,11 @@ def edge_speeds(c: dict) -> tuple[float, float]:
     """The speed at the clip's first and last moment (0 for a freeze: no source time passes)."""
     if is_freeze(c):
         return 0.0, 0.0
-    pts = ramp_points(c)
-    return (pts[0][1], pts[-1][1]) if pts else (speed(c), speed(c))
+    if not ramp_points(c):
+        return speed(c), speed(c)
+    segs, _total = _segments(c)
+    r0, r1 = _edge_rates(segs, float(int(c["out_ms"]) - int(c["in_ms"])))
+    return 1.0 / r0, 1.0 / r1
 
 
 def out_at(c: dict, src_rel_ms: float) -> float:
@@ -148,10 +211,12 @@ def out_at(c: dict, src_rel_ms: float) -> float:
     if not retimed(c):
         return float(src_rel_ms)
     segs, total = _segments(c)
+    length = float(int(c["out_ms"]) - int(c["in_ms"]))
+    r0, r1 = _edge_rates(segs, length)
     if src_rel_ms <= 0:
-        return src_rel_ms * segs[0][2]
-    if src_rel_ms >= segs[-1][1]:
-        return total + (src_rel_ms - segs[-1][1]) * segs[-1][3]
+        return src_rel_ms * r0
+    if src_rel_ms >= length:
+        return total + (src_rel_ms - length) * r1
     for seg in segs:
         if src_rel_ms <= seg[1]:
             return _seg_out(seg, src_rel_ms)
@@ -166,14 +231,16 @@ def src_at(c: dict, out_rel_ms: float) -> float:
     if not retimed(c):
         return float(out_rel_ms)
     segs, total = _segments(c)
+    length = float(int(c["out_ms"]) - int(c["in_ms"]))
+    r0, r1 = _edge_rates(segs, length)
     if out_rel_ms <= 0:
-        return out_rel_ms / segs[0][2]
+        return out_rel_ms / r0
     if out_rel_ms >= total:
-        return segs[-1][1] + (out_rel_ms - total) / segs[-1][3]
+        return length + (out_rel_ms - total) / r1
     for k, seg in enumerate(segs):
         end = segs[k + 1][4] if k + 1 < len(segs) else total
         if out_rel_ms <= end:
-            lo, hi = seg[0], seg[1]
+            lo, hi = max(seg[0], 0.0), min(seg[1], length)
             for _ in range(60):  # out is strictly increasing: bisection to well under a microsecond
                 mid = (lo + hi) / 2
                 if _seg_out(seg, mid) < out_rel_ms:
@@ -181,7 +248,7 @@ def src_at(c: dict, out_rel_ms: float) -> float:
                 else:
                     hi = mid
             return (lo + hi) / 2
-    return segs[-1][1]
+    return length
 
 
 def src_positions(c: dict, out_rel_ms):
@@ -192,40 +259,46 @@ def src_positions(c: dict, out_rel_ms):
     if not retimed(c):
         return t.copy()
     segs, total = _segments(c)
+    length = float(int(c["out_ms"]) - int(c["in_ms"]))
+    r0, r1 = _edge_rates(segs, length)
     us, os_ = [], []
     for seg in segs:
-        u = np.linspace(seg[0], seg[1], 513)
+        u = np.linspace(max(seg[0], 0.0), min(seg[1], length), 513)
         v = (u - seg[0]) / max(seg[1] - seg[0], 1e-9)
         us.append(u)
         os_.append(seg[4] + (seg[1] - seg[0]) * (seg[2] * v + (seg[3] - seg[2]) * (v ** 3 - v ** 4 / 2)))
     u, o = np.concatenate(us), np.concatenate(os_)
     out = np.interp(t, o, u)
     lo, hi = t < 0, t > total
-    out[lo] = t[lo] / segs[0][2]
-    out[hi] = segs[-1][1] + (t[hi] - total) / segs[-1][3]
+    out[lo] = t[lo] / r0
+    out[hi] = length + (t[hi] - total) / r1
     return out
 
 
-def setpts(c: dict, u0_ms: float) -> str:
-    """FFmpeg setpts for picture read from `u0_ms` into the clip's source range (the seek point): each source frame
-    goes to its output time from the piece's start. Empty at normal speed."""
+def setpts(c: dict, u0_ms: float, seek_ms: float | None = None) -> str:
+    """FFmpeg setpts for picture read from `seek_ms` into the clip's source range (the seek point, `u0_ms` when not
+    given): each source frame goes to its output time from the moment `u0_ms` (the piece's first frame), so frames
+    read before it get negative times. Empty at normal speed."""
     if not retimed(c) or is_freeze(c):
         return ""
-    pts = ramp_points(c)
-    if not pts:
-        return f"setpts=PTS*{1.0 / speed(c):.9f}"
-    segs, total = _segments(c)
+    seek = u0_ms if seek_ms is None else seek_ms
     f0 = out_at(c, u0_ms) / 1000
+    if not ramp_points(c):
+        rate = 1.0 / speed(c)
+        return f"setpts='({seek / 1000:.9f}+T)*{rate:.9f}/TB-{f0:.9f}/TB'"
+    segs, total = _segments(c)
+    length = float(int(c["out_ms"]) - int(c["in_ms"]))
+    e0, e1 = _edge_rates(segs, length)
     u = "ld(0)"
-    expr = f"{total / 1000:.9f}+({u}-{segs[-1][1] / 1000:.9f})*{segs[-1][3]:.9f}"  # past the end: edge speed
-    for a, b, r0, r1, o in reversed(segs):
-        if b <= a:
-            continue
+    expr = f"{total / 1000:.9f}+({u}-{length / 1000:.9f})*{e1:.9f}"  # past the end: the edge speed goes on
+    for k in range(len(segs) - 1, -1, -1):
+        a, b, r0, r1, o = segs[k]
         ln = (b - a) / 1000
         v = f"(({u}-{a / 1000:.9f})/{ln:.9f})"
         piece = f"{o / 1000:.9f}+{ln:.9f}*({r0:.9f}*{v}+{r1 - r0:.9f}*(pow({v},3)-pow({v},4)/2))"
-        expr = f"if(lt({u},{b / 1000:.9f}),{piece},{expr})"
-    return f"setpts='st(0,{u0_ms / 1000:.9f}+T);({expr}-{f0:.9f})/TB'"
+        expr = f"if(lt({u},{min(b, length) / 1000:.9f}),{piece},{expr})"
+    expr = f"if(lt({u},0),{u}*{e0:.9f},{expr})"  # before the in point: the edge speed too
+    return f"setpts='st(0,{seek / 1000:.9f}+T);({expr}-{f0:.9f})/TB'"
 
 
 def _ease(w: str, ease: str) -> str:
@@ -256,7 +329,9 @@ def motion_filter(c: dict, rel_frame: int, frames: int, width: int, height: int)
     ease = (c.get("motion") or {}).get("ease", "smooth")
     deepest = max(float(k["zoom"]) for k in keys)
     tw, th = math.ceil(width * deepest), math.ceil(height * deepest)
-    pos = f"st(0,clip(({rel_frame}+in)/{max(1, frames - 1)},0,1));"
+    w0, w1 = motion_range(c)
+    # where this frame is in the move: its share of the element, within the part of the move the clip plays
+    pos = f"st(0,{w0:.6f}+{w1 - w0:.6f}*clip(({rel_frame}+in)/{max(1, frames - 1)},0,1));"
     zoom = f"st(1,{_key_expr(keys, 'zoom', ease)});"
     left = f"{pos}{zoom}st(2,{_key_expr(keys, 'x', ease)});clip(ld(2)*W-W/ld(1)/2,0,W-W/ld(1))"
     top = f"{pos}{zoom}st(2,{_key_expr(keys, 'y', ease)});clip(ld(2)*H-H/ld(1)/2,0,H-H/ld(1))"
@@ -268,53 +343,53 @@ def motion_filter(c: dict, rel_frame: int, frames: int, width: int, height: int)
 
 def speed_at(c: dict, share: float) -> float:
     """The clip's speed at a share (0 to 1) of its source range."""
-    pts = ramp_points(c)
-    if not pts:
+    if not ramp_points(c):
         return speed(c)
-    for (a, s0), (b, s1) in zip(pts, pts[1:]):
-        if share <= b:
-            v = 0.0 if b <= a else min(1.0, max(0.0, (share - a) / (b - a)))
-            r = 1 / s0 + (1 / s1 - 1 / s0) * v * v * (3 - 2 * v)
-            return 1 / r
-    return pts[-1][1]
+    segs, _total = _segments(c)
+    u = share * float(int(c["out_ms"]) - int(c["in_ms"]))
+    seg = next((s for s in segs if u <= s[1]), segs[-1])
+    return 1.0 / _seg_rate(seg, u)
 
 
-def split_ramp(c: dict, share: float) -> tuple[dict, dict]:
-    """A ramp cut in two at a share of the source range (a split clip): each half keeps its part of the curve, both
-    meeting at the speed of that moment."""
-    pts = ramp_points(c) or []
-    mid = round(speed_at(c, share), 4)
-    first = [(a / share, s) for a, s in pts if a < share] + [(1.0, mid)]
-    second = [(0.0, mid)] + [((a - share) / (1 - share), s) for a, s in pts if a > share]
-    return ({"points": [{"at": round(a, 6), "speed": s} for a, s in first]},
-            {"points": [{"at": round(a, 6), "speed": s} for a, s in second]})
+def split_ramp(c: dict, _share: float = 0.0) -> tuple[dict, dict]:
+    """A ramp for each half of a split clip: both keep the whole curve and the file range it is drawn over, so each
+    half plays exactly its part of it (the two together play as the whole did)."""
+    r = c.get("speed_ramp") or {}
+    rng = ramp_range(c) or (float(int(c["in_ms"])), float(int(c["out_ms"])))
+    half = {**r, "range": [round(rng[0], 3), round(rng[1], 3)]}
+    return dict(half), dict(half)
+
+
+def _range_ok(rng) -> bool:
+    return isinstance(rng, (list, tuple)) and len(rng) == 2 and all(_num(v) for v in rng) and 0 <= rng[0] <= rng[1] <= 1
+
+
+def motion_range(c: dict) -> tuple[float, float]:
+    """The part of its camera move a clip plays (shares of the move, 0 to 1): all of it, or a split half's part
+    (`motion.range`), or one moment for a freeze frame held from a moving clip (both ends equal)."""
+    m = c.get("motion")
+    rng = m.get("range") if isinstance(m, dict) else None
+    return (float(rng[0]), float(rng[1])) if _range_ok(rng) else (0.0, 1.0)
 
 
 def split_motion(c: dict, share: float) -> tuple[dict, dict]:
-    """A camera move cut in two at a share of the clip's length in the video: the first half ends on the framing
-    of that moment and the second starts from it."""
+    """A camera move cut in two at a share of the clip's length in the video: each half keeps the whole move and
+    plays its part of it, so the framing goes on smoothly across the cut."""
     m = c.get("motion") or {}
-    keys = motion_keys(c) or []
-    ease = m.get("ease", "smooth")
-    here = {"at": share}
-    for k0, k1 in zip(keys, keys[1:]):
-        if share <= float(k1["at"]):
-            a, b = float(k0["at"]), float(k1["at"])
-            v = 0.0 if b <= a else min(1.0, max(0.0, (share - a) / (b - a)))
-            w = v if ease == "linear" else v * v * (3 - 2 * v)
-            here = {f: round(float(k0[f]) + (float(k1[f]) - float(k0[f])) * w, 4) for f in ("zoom", "x", "y")}
-            break
-    else:
-        here = {f: float(keys[-1][f]) for f in ("zoom", "x", "y")} if keys else {"zoom": 1.0, "x": 0.5, "y": 0.5}
-    first = [{**k, "at": round(float(k["at"]) / share, 6)} for k in keys if float(k["at"]) < share]
-    first.append({"at": 1.0, **here})
-    second = [{"at": 0.0, **here}] + [{**k, "at": round((float(k["at"]) - share) / (1 - share), 6)} for k in keys
-                                      if float(k["at"]) > share]
-    if first[0]["at"] > 0:
-        first.insert(0, {**first[0], "at": 0.0})
-    if second[-1]["at"] < 1:
-        second.append({**second[-1], "at": 1.0})
-    return {"ease": ease, "keys": first[-MOTION_KEYS[1]:]}, {"ease": ease, "keys": second[:MOTION_KEYS[1]]}
+    w0, w1 = motion_range(c)
+    mid = round(w0 + (w1 - w0) * min(1.0, max(0.0, share)), 6)
+    return {**m, "range": [w0, mid]}, {**m, "range": [mid, w1]}
+
+
+def held_motion(c: dict, share: float) -> dict | None:
+    """The camera move for a freeze frame held from a moving clip at a share of its length: the framing of that
+    moment, held still."""
+    m = c.get("motion")
+    if not motion_keys(c):
+        return None
+    w0, w1 = motion_range(c)
+    at = round(w0 + (w1 - w0) * min(1.0, max(0.0, share)), 6)
+    return {**m, "range": [at, at]}
 
 
 def problems(c: dict, asset: dict | None, frame_ms: float = 1000 / 30) -> list[str]:
@@ -338,6 +413,8 @@ def problems(c: dict, asset: dict | None, frame_ms: float = 1000 / 30) -> list[s
             out.append(f"The speed ramp of “{name}” is not readable.")
         elif kind != "video":
             out.append(f"Only a video clip can have a speed ramp (“{name}”).")
+        elif ramp.get("range") is not None and ramp_range(c) is None:
+            out.append(f"The speed ramp of “{name}” has a file range that is not readable.")
         elif not RAMP_POINTS[0] <= len(pts) <= RAMP_POINTS[1]:
             out.append(f"A speed ramp has {RAMP_POINTS[0]} to {RAMP_POINTS[1]} points (“{name}”).")
         elif pts[0][0] != 0 or pts[-1][0] != 1 or any(b[0] <= a[0] for a, b in zip(pts, pts[1:])):
@@ -351,8 +428,8 @@ def problems(c: dict, asset: dict | None, frame_ms: float = 1000 / 30) -> list[s
             out.append(f"The freeze frame “{name}” must hold for at least {FREEZE_MIN_MS / 1000:g} s.")
         if asset is not None and asset.get("kind") != "video":
             out.append(f"A freeze frame holds a frame of a video (“{name}”).")
-        length = float((asset or {}).get("probe", {}).get("duration") or 0) * 1000
-        if int(c.get("in_ms") or 0) < 0 or (length and int(c.get("in_ms") or 0) > length - frame_ms):
+        last = last_frame_ms(asset, frame_ms)  # (a moment inside the last frame holds that frame)
+        if int(c.get("in_ms") or 0) < 0 or (last is not None and int(c.get("in_ms") or 0) > last + frame_ms - 1):
             out.append(f"The freeze frame “{name}” is outside its file.")
     m = c.get("motion")
     if m is not None:
@@ -361,6 +438,8 @@ def problems(c: dict, asset: dict | None, frame_ms: float = 1000 / 30) -> list[s
             out.append(f"The camera move of “{name}” is not readable.")
         elif m.get("ease", "smooth") not in EASES:
             out.append(f"The camera move of “{name}” has an unknown easing.")
+        elif m.get("range") is not None and not _range_ok(m["range"]):
+            out.append(f"The camera move of “{name}” has a part that is not readable.")
         elif not MOTION_KEYS[0] <= len(keys) <= MOTION_KEYS[1]:
             out.append(f"A camera move has {MOTION_KEYS[0]} to {MOTION_KEYS[1]} keys (“{name}”).")
         else:

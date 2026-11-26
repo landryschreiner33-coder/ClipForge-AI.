@@ -7,6 +7,8 @@ drawn in its brightness) with a stepped tone shows the source frame and the soun
 """
 from __future__ import annotations
 
+import copy
+import math
 import subprocess
 from pathlib import Path
 
@@ -36,7 +38,9 @@ def test_constant_speed_and_its_inverse():
     c = _clip(speed=2)
     assert retime.out_len_ms(c) == 2000 and retime.edge_speeds(c) == (2.0, 2.0)
     assert retime.out_at(c, 3000) == 1500 and retime.src_at(c, 1500) == 3000
-    assert retime.setpts(c, 0) == "setpts=PTS*0.500000000"
+    assert retime.setpts(c, 0) == "setpts='(0.000000000+T)*0.500000000/TB-0.000000000/TB'"
+    # read from 100 ms before the piece's first moment: those frames get negative times
+    assert retime.setpts(c, 1000, 900) == "setpts='(0.900000000+T)*0.500000000/TB-0.500000000/TB'"
     slow = _clip(speed=0.25)
     assert retime.out_len_ms(slow) == 16000 and retime.src_at(slow, 16000) == 4000
     assert retime.describe(c) == "2×"
@@ -90,7 +94,9 @@ def test_validate_names_what_is_wrong_with_speed_ramps_freezes_and_moves(tmp_pat
     assert any("not readable" in p for p in problems(speed_ramp={"points": [{"at": 0}]}))
     assert problems(kind="freeze", a=3000, b=3000, hold_ms=2000) == []
     assert any("at least 0.2 s" in p for p in problems(kind="freeze", a=3000, b=3000, hold_ms=100))
-    assert any("outside its file" in p for p in problems(kind="freeze", a=9990, b=9990, hold_ms=1000))
+    # 30 fps, 10 s: the last frame starts at 9966.7 ms, so 9990 is inside it and 10000 is past the picture
+    assert problems(kind="freeze", a=9990, b=9990, hold_ms=1000) == []
+    assert any("outside its file" in p for p in problems(kind="freeze", a=10000, b=10000, hold_ms=1000))
     assert any("frame of a video" in p for p in problems(asset="pic", kind="freeze", a=0, b=0, hold_ms=1000))
     assert any("unknown kind" in p for p in problems(kind="hologram"))
     assert problems(motion=retime.motion_value("zoom_in")) == []
@@ -175,11 +181,11 @@ def test_the_editors_own_edits_set_speed_ramps_moves_and_freeze_frames():
     p, _ = vf.apply_edit(p, {"op": "split", "clip_id": "a", "at_ms": 2000}, {})
     first, second = p["clips"][0], p["clips"][1]
     assert retime.edge_speeds(first)[1] == retime.edge_speeds(second)[0] == pytest.approx(0.35)
-    assert retime.out_exact_ms(first) + retime.out_exact_ms(second) == pytest.approx(whole, rel=0.08)
-    # a freeze frame at the end, inside and at the start of a clip
+    assert retime.out_exact_ms(first) + retime.out_exact_ms(second) == pytest.approx(whole, abs=1e-6)
+    # a freeze frame at the end, inside and at the start of a clip (frames on a 30 fps grid without a probe)
     p, said = vf.apply_edit(p, {"op": "freeze", "clip_id": "b"}, {})
     held = p["clips"][3]
-    assert held["kind"] == "freeze" and held["in_ms"] == held["out_ms"] == 7960 and held["hold_ms"] == 2000
+    assert held["kind"] == "freeze" and held["in_ms"] == held["out_ms"] == 7967 and held["hold_ms"] == 2000
     assert held["join"] == "cut" and "after" in said and engine.validate is not None
     p, said = vf.apply_edit(p, {"op": "freeze", "clip_id": "b", "at_ms": 6000, "length_ms": 1000}, {})
     kinds = [(c["id"], c.get("kind"), c["in_ms"], c["out_ms"], c.get("join")) for c in p["clips"][2:]]
@@ -197,17 +203,118 @@ def test_the_editors_own_edits_set_speed_ramps_moves_and_freeze_frames():
     assert "motion" not in p["clips"][2]
 
 
+def test_a_split_plays_every_ramp_and_move_exactly_as_before():
+    """Review of batch 4a: a split (or a freeze inside a clip) must not change how the clip plays. Each half keeps
+    the whole clip's curve over its own share of the file (speed_ramp.range, motion.range)."""
+    from clipfoundry.studio import video_flow as vf
+
+    for preset in retime.RAMPS:
+        for at in (1600, 2900, 4400):
+            whole = _clip("a", a=1000, b=5000, speed_ramp=retime.ramp_value(preset))
+            p, _ = vf.apply_edit(_plan([copy.deepcopy(whole)]), {"op": "split", "clip_id": "a", "at_ms": at}, {})
+            first, second = p["clips"]
+            assert retime.out_exact_ms(first) + retime.out_exact_ms(second) == pytest.approx(
+                retime.out_exact_ms(whole), abs=1e-6), (preset, at)
+            for u in (0, 333, at - 1000, 2500, 3999):  # each file moment plays when it did in the whole clip
+                half, rel = (first, u) if u < at - 1000 else (second, u - (at - 1000))
+                lead = 0 if half is first else retime.out_exact_ms(first)
+                assert lead + retime.out_at(half, rel) == pytest.approx(retime.out_at(whole, u), abs=1e-6)
+            assert retime.speed_at(first, 1.0) == pytest.approx(retime.speed_at(second, 0.0), abs=1e-6)
+    # a camera move: the first half ends where the second starts, each moving over its share of the move
+    whole = _clip("m", a=0, b=4000, motion=retime.motion_value("zoom_in"))
+    p, _ = vf.apply_edit(_plan([copy.deepcopy(whole)]), {"op": "split", "clip_id": "m", "at_ms": 1000}, {})
+    assert retime.motion_range(p["clips"][0]) == (0.0, 0.25) and retime.motion_range(p["clips"][1]) == (0.25, 1.0)
+    p, _ = vf.apply_edit(p, {"op": "split", "clip_id": "ms", "at_ms": 3000}, {})
+    assert [retime.motion_range(c) for c in p["clips"]] == [(0.0, 0.25), (0.25, 0.75), (0.75, 1.0)]
+    assert retime.motion_filter(p["clips"][1], 0, 60, 640, 360) == retime.motion_filter(
+        {**whole, "motion": {**whole["motion"], "range": [0.25, 0.75]}}, 0, 60, 640, 360)
+
+
+def test_attached_things_stay_with_their_moment_through_a_split_and_a_freeze():
+    from clipfoundry.studio import video_flow as vf
+
+    plan = _plan([_clip("a", a=0, b=8000)],
+                 overlays=[{"id": "o", "asset_id": "pic", "clip_id": "a", "offset_ms": 5000, "length_ms": 2000}],
+                 chapters=[{"clip_id": "a", "offset_ms": 6000, "title": "Summit"},
+                           {"clip_id": "a", "offset_ms": 1000, "title": "Start"}])
+    plan["audio"] = [{"id": "s", "asset_id": "fx", "label": "fx", "role": "effect", "in_ms": 0, "out_ms": 300,
+                      "anchor": {"clip_id": "a", "offset_ms": 6000}},
+                     {"id": "w", "asset_id": "fx", "role": "effect", "in_ms": 0, "out_ms": 300,
+                      "anchor": {"clip_id": "a", "offset_ms": 5000, "lead_ms": 270}}]
+    p, _ = vf.apply_edit(plan, {"op": "freeze", "clip_id": "a", "at_ms": 3000, "length_ms": 2000}, {})
+    assert [c["id"] for c in p["clips"]] == ["a", "f2", "as"]
+    placed = {x["audio_id"]: x["out_start_ms"] for x in engine.audio_timeline(p)}
+    assert placed == {"s": 8000, "w": 7000 - 270}  # file second 6 now plays at 8.0 s; the swish leads its picture
+    assert engine.overlay_timeline(p)[0]["out_start_ms"] == 7000
+    assert sorted((c["clip_id"], c["offset_ms"]) for c in p["chapters"]) == [("a", 1000), ("as", 3000)]
+
+
+def test_leads_before_a_moment_are_video_time_at_any_speed(tmp_path):
+    """A whoosh 540 ms before a cut and a swish 270 ms before a picture stay that far ahead when the clip is slowed
+    or sped up; the editor's "Starts after its clip" is video time too."""
+    from clipfoundry.studio import video_flow as vf
+
+    for s in (0.25, 0.5, 1, 2, 4):
+        c = _clip("b", a=0, b=8000, speed=s)
+        assert engine.offset_out_ms(c, -540) == -540
+        assert engine.anchor_out_ms(c, {"offset_ms": 2000, "lead_ms": 270}) == round(2000 / s) - 270
+        assert engine.offset_from_out_ms(c, engine.offset_out_ms(c, 3000)) == 3000
+    assert engine.anchor_lead_ms({"lead_ms": True}) == 0 and engine.anchor_lead_ms(None) == 0
+    plan = _plan([_clip("a", a=0, b=2000), _clip("b", a=0, b=8000, speed=0.25)])
+    plan["audio"] = [{"id": "s", "asset_id": "fx", "label": "fx", "role": "effect", "in_ms": 0, "out_ms": 300,
+                      "anchor": {"clip_id": "b", "offset_ms": 0}}]
+    p, _ = vf.apply_edit(plan, {"op": "audio_move", "audio_id": "s", "clip_id": "b", "out_offset_ms": 1000}, {})
+    assert p["audio"][0]["anchor"] == {"clip_id": "b", "offset_ms": 250}
+    assert engine.audio_timeline(p)[0]["clip_ms"] == 1000 and engine.audio_timeline(p)[0]["out_start_ms"] == 3000
+    with pytest.raises(vf.VideoError, match="at most 10 s before"):
+        vf.apply_edit(p, {"op": "audio_move", "audio_id": "s", "clip_id": "b", "out_offset_ms": -20000}, {})
+    (tmp_path / "fx.m4a").write_bytes(b"x")
+    fx = {"id": "fx", "kind": "audio", "filename": "fx.m4a", "path": str(tmp_path / "fx.m4a"), "probe": {"duration": 1}}
+    p["audio"][0]["anchor"]["lead_ms"] = 99999
+    assert any("more than 10 s" in x for x in engine.validate(p, {"fx": fx}))
+
+
+def test_freeze_frames_land_on_the_files_own_frames(tmp_path):
+    """24 fps footage (frames 41.7 ms apart): the last frame of a 3 s file starts at 2958.3 ms, past its sound's
+    end is no frame at all; a freeze inside holds the frame on screen, a freeze near the end ends the clip on it,
+    and a freeze of a moving clip keeps the framing it had there."""
+    from clipfoundry.studio import video_flow as vf
+
+    f = tmp_path / "c24.mp4"
+    f.write_bytes(b"x")
+    a24 = {"id": "c24", "kind": "video", "filename": "c24.mp4", "path": str(f),
+           "probe": {"duration": 3.05, "video_duration": 3.0, "fps": 24.0}}
+    assets = {"c24": a24}
+    p, said = vf.apply_edit(_plan([_clip("a", "c24", a=0, b=3050)]), {"op": "freeze", "clip_id": "a"}, {}, assets)
+    assert p["clips"][1]["in_ms"] == 2959 and engine.validate(p, assets) == []
+    p, _ = vf.apply_edit(_plan([_clip("a", "c24", a=0, b=3000)]),
+                         {"op": "freeze", "clip_id": "a", "at_ms": 1510}, {}, assets)
+    assert [(c["id"], c["in_ms"], c["out_ms"]) for c in p["clips"]] == [("a", 0, 1500), ("f2", 1500, 1500),
+                                                                        ("as", 1500, 3000)]
+    p, said = vf.apply_edit(_plan([_clip("a", "c24", a=0, b=3000)]),
+                            {"op": "freeze", "clip_id": "a", "at_ms": 2700}, {}, assets)
+    assert p["clips"][0]["out_ms"] == 2709 and p["clips"][1]["in_ms"] == 2667 and "now ends there" in said
+    moving = _clip("m", "c24", a=0, b=3000, motion=retime.motion_value("zoom_in"))
+    p, _ = vf.apply_edit(_plan([moving]), {"op": "freeze", "clip_id": "m", "at_ms": 1500}, {}, assets)
+    held = p["clips"][1]
+    assert retime.motion_range(held) == (0.5, 0.5) and retime.motion_range(p["clips"][2]) == (0.5, 1.0)
+    assert any("outside its file" in x for x in engine.validate(
+        _plan([_clip("f", "c24", a=3010, b=3010, kind="freeze", hold_ms=1000)]), assets))
+
+
 # ---------------------------------------------------------------- real renders
-def _clock_video(path: Path, seconds: float = 8, size: str = "320x180") -> Path:
+def _clock_video(path: Path, seconds: float = 8, size: str = "320x180", sound_after: float = 0.0) -> Path:
     """Each frame's number N drawn in its brightness (left half: N mod 25, right half: N div 25, 8 and 20 levels a
     step above a dark grey, so a preview's coarse encoding cannot blur it),
-    with a tone that steps up every second (300, 500, 700, ... Hz)."""
+    with a tone that steps up every second (300, 500, 700, ... Hz). `sound_after`: the sound runs on that long
+    after the last frame, as a phone's or camera's often does."""
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
                     f"nullsrc=s={size}:r=30:d={seconds},format=yuv420p,"
                     "geq=lum='if(lt(X,W/2),30+mod(N,25)*8,30+floor(N/25)*20)':cb=128:cr=128",
-                    "-f", "lavfi", "-i", f"aevalsrc='0.5*sin(2*PI*(300+200*floor(t))*t)':s=48000:d={seconds}",
+                    "-f", "lavfi", "-i",
+                    f"aevalsrc='0.5*sin(2*PI*(300+200*floor(t))*t)':s=48000:d={seconds + sound_after}",
                     "-c:v", "libx264", "-crf", "4", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "256k",
-                    "-shortest", str(path)], check=True)
+                    *([] if sound_after else ["-shortest"]), str(path)], check=True)
     return path
 
 
@@ -357,3 +464,79 @@ def test_changing_only_the_speed_renders_that_clip_again(tmp_path, monkeypatch):
                   cache_dir=cache)
     frames = _source_frames(tmp_path / "b.mp4")
     assert len(frames) == 120 and frames[1] == 0 and frames[2] == 1 and frames[-1] in (59, 60)
+
+
+@pytest.mark.slow
+def test_freezes_and_slow_motion_show_the_exact_frame_of_the_file(tmp_path, monkeypatch):
+    """Review of batch 4a, rendered. A freeze at the end of a file whose sound runs 0.2 s past its picture holds the
+    last picture (no empty frame), the clip ends on it and the next clip starts clean; 0.25× slow motion from an in
+    point on or inside a frame shows, at every output frame, exactly the file frame the time map points at."""
+    from clipfoundry.studio import video_flow as vf
+
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    (tmp_path / "a").mkdir()
+    clock = _asset(_clock_video(tmp_path / "a" / "clock.mp4", 3, sound_after=0.2))
+    assets = {"clock": clock}
+    length = engine._length(clock)  # noqa: SLF001 (the sound's end: 3.2 s)
+    plan = _plan([_clip("c", a=1000, b=length), _clip("d", a=0, b=1000)])
+    p, said = vf.apply_edit(plan, {"op": "freeze", "clip_id": "c"}, {}, assets)
+    assert [(c["in_ms"], c["out_ms"]) for c in p["clips"]] == [(1000, 3000), (2967, 2967), (0, 1000)], said
+    assert engine.validate(p, assets) == []
+    info = engine.render(p, assets, {}, tmp_path / "freeze.mp4", preview=True)
+    frames = _source_frames(tmp_path / "freeze.mp4")
+    assert info["frames"] == len(frames) == 150
+    assert frames[:60] == list(range(30, 90)) and set(frames[60:120]) == {89} and frames[120:] == list(range(30))
+
+    slow = _asset(_clock_video(tmp_path / "clock.mp4", 4))
+    for a_ms in (1000, 1010, 1030):
+        c = _clip(a=a_ms, b=a_ms + 600, speed=0.25)
+        engine.render(_plan([c]), {"clock": slow}, {}, tmp_path / f"slow{a_ms}.mp4", preview=True)
+        shown = _source_frames(tmp_path / f"slow{a_ms}.mp4")
+        want = [math.floor((a_ms + retime.src_at(c, i * 1000 / 30)) * 30 / 1000 + 1e-6) for i in range(len(shown))]
+        assert len(shown) == 72 and shown == want, (a_ms, shown, want)
+
+
+@pytest.mark.slow
+def test_slow_zooms_keep_their_pace_on_24_and_60_fps_footage(tmp_path, monkeypatch):
+    """Review of batch 4a: the move counts the video's own frames, so on 60 fps footage a 2 s zoom does not finish
+    in 1 s and on 24 fps footage it does not stop at 80 %."""
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    for fps in (24, 60):
+        ramp = tmp_path / f"ramp{fps}.mp4"
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                        f"nullsrc=s=640x360:r={fps}:d=3,format=yuv420p,geq=lum='16+X*200/W':cb=128:cr=128",
+                        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-shortest", "-c:v", "libx264", "-crf",
+                        "4", "-c:a", "aac", str(ramp)], check=True)
+        plan = _plan([_clip("v", ramp.stem, a=0, b=2000, motion=retime.motion_value("zoom_in"))])
+        engine.render(plan, {ramp.stem: _asset(ramp)}, {}, tmp_path / f"out{fps}.mp4")
+        y = _lumas(tmp_path / f"out{fps}.mp4")
+        x = np.linspace(0, 1, y.shape[2])
+        slopes = np.array([np.polyfit(x[8:-8], f[20:70].mean(axis=0)[8:-8], 1)[0] for f in y])
+        zoom = slopes[0] / slopes
+        assert len(zoom) == 60
+        assert abs(zoom[-1] - 1.2) < 0.02 and abs(zoom[30] - 1.1) < 0.02, (fps, zoom[[0, 15, 30, 45, 59]])
+
+
+@pytest.mark.slow
+def test_a_split_inside_a_slowed_clip_joins_without_a_click(tmp_path, monkeypatch):
+    """Review of batch 4a: the two halves of a slowed (or ramped) clip are stretched apart, so their sound is joined
+    with a short straight crossfade; the join is as smooth as the tone around it."""
+    from clipfoundry.studio import video_flow as vf
+
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    tone = tmp_path / "tone.mov"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=160x90:r=30:d=5",
+                    "-f", "lavfi", "-i", "sine=f=440:r=48000:d=5", "-af", "volume=0.6", "-c:v", "libx264",
+                    "-c:a", "pcm_s16le", "-shortest", str(tone)], check=True)
+    for edits in ([{"op": "set", "clip_id": "c", "field": "speed", "value": 0.5}],
+                  [{"op": "set", "clip_id": "c", "field": "speed_ramp", "value": "slow_middle"}]):
+        p = _plan([_clip("c", "tone", a=0, b=4000)])
+        for e in [*edits, {"op": "split", "clip_id": "c", "at_ms": 2000}]:
+            p, _ = vf.apply_edit(p, e, {})
+        engine.render(p, {"tone": _asset(tone)}, {}, tmp_path / "out.mp4", preview=True)
+        join = int(engine.timeline(p)[1]["out_start_ms"] * SR / 1000)
+        bend = np.abs(np.diff(_pcm(tmp_path / "out.mp4"), 2))
+        around = bend[join - 480:join + 480].max()
+        elsewhere = np.percentile(np.concatenate([bend[int(0.3 * SR):join - 2400], bend[join + 2400:-int(0.3 * SR)]]),
+                                  99.9)
+        assert around < 2 * elsewhere, (edits, around, elsewhere)

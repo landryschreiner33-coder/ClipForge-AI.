@@ -13,16 +13,25 @@ plain words.
   `_retimed_sound`; `engine.retiming_in_use` decides FilmCraft routing. Editor edits: `video_flow._timing_set`,
   `_split_clip`, `_freeze` (op `freeze`). Plain words: `edit_requests._timing_rule`. Export:
   `interchange._time_effects`.
-- **Storage:** `clip.speed`; `clip.speed_ramp = {preset, points: [{at: share of the file range, speed}]}`;
-  `clip.motion = {preset, ease, keys: [{at: share of the clip's output length, zoom, x, y}]}`; a freeze frame is its
-  own clip `{kind: "freeze", in_ms == out_ms (the held frame), hold_ms}`. Offsets of overlays, anchored sound and
+- **Storage:** `clip.speed`; `clip.speed_ramp = {preset, points: [{at: share of the file range, speed}],
+  range?: [file in, file out]}` (the part of the file the curve covers: a split gives each half the same curve);
+  `clip.motion = {preset, ease, keys: [{at: share of the move, zoom, x, y}], range?: [w0, w1]}` (the share of the
+  move this clip plays; a freeze of a moving clip gets `[s, s]`); a freeze frame is its own clip `{kind: "freeze",
+  in_ms == out_ms (the held frame, on the file's frame grid), hold_ms}`. Offsets of overlays, anchored sound and
   chapters stay FILE time from the in point (video time on a freeze) and are mapped with `engine.offset_out_ms`, so
-  old plans read the same at speed 1.
+  old plans read the same at speed 1. A negative offset (a lead before the clip) is video time 1:1, and an anchor's
+  optional `lead_ms` starts a sound that much video time before its moment (the swish before a picture). The
+  editor's attached-sound field sends `audio_move.out_offset_ms` (video time) and reads `audio_timeline[].clip_ms`.
 - **Worth knowing:** past a clip's ends the edge speed continues (fades, crossfade handles). Setting `zoom` > 1 drops
   `motion` and setting `motion` drops `zoom`. Split edits are skipped next to a retimed clip. FilmCraft gets retimed
   finals only when chosen by hand. The AI thread owns `brain/operations.py`: the new clip_set fields (`speed`,
   `speed_ramp`, `motion`, `hold_ms`) and op `freeze` are not yet exposed to ClipForge AI's own commands (plain-words
-  edit requests already reach them).
+  edit requests already reach them). The op `freeze` needs the project's assets (`video_flow._freeze(p, edit,
+  assets)`) to find frames; without `at_ms` it holds the clip's last shown frame. The speed and camera-move rules
+  return None (ClipForge AI's turn) for phrases that do not name clips.
+- **Review lesson:** the first version passed its own tests but a review with real renders on 24/60 fps files and
+  sound longer than picture found 15 problems. Test retiming on several frame rates and on files whose streams differ
+  in length; compare splits against the whole clip to the microsecond.
 
 ## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code, cloud session)
 

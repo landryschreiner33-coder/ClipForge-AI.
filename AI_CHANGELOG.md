@@ -22,9 +22,19 @@ Batch 4a of Landry's "majorly improve the editing" (plan in
 - **FilmCraft:** with "auto", finals that use any of this stay on the built-in engine (`engine.retiming_in_use`); a
   FilmCraft render says what it skipped. The timeline export carries speed as a linear time warp and freezes as
   freeze-frame effects and lists the rest as not carried.
-- **Tests:** `tests/test_retime.py` (12 fast, 4 real renders read frame by frame from a numbered test video), plain
+- **Tests:** `tests/test_retime.py` (16 fast, 7 real renders read frame by frame from a numbered test video), plain
   words in `tests/test_studio_edit_requests.py`, routing in `tests/test_craft.py`. Not verified: real speech at
   extreme speeds, phone footage with variable frame rate.
+- **Review fixes (before merging):** a review with real renders found 15 problems, all fixed: frames are found on the
+  file's own frame grid and never past the picture's last frame (freezes at a clip's end, 24 fps freezes, a freeze
+  near the end ends the clip on it); retimed pieces read 100 ms early and use `fps round=up`, so every frame is the
+  mapped one; camera moves count output frames (60 and 24 fps footage keep the pace); splits give each half its part
+  of the same ramp or move (`speed_ramp.range`, `motion.range`, exact) and move attached pictures, sounds and chapters
+  with their moment; a 40 ms straight crossfade where two halves of a slowed clip meet; leads before a moment are
+  video time (negative offsets, the swish's new anchor `lead_ms`), and the editor's "Starts after its clip" is video
+  time (`audio_move.out_offset_ms`, `audio_timeline[].clip_ms`); the speed and camera-move rules take only phrases
+  that name clips (numbers in words, ordinals, the intro, the ending), refuse photos in words, undo only the right
+  direction and also clear a punch-in. List in docs/clipforge/RANGE_EDITING.md, "Review".
 
 ## ClipForge AI sets "End on the last frame" from words — 2026-11-26 (Claude Code)
 

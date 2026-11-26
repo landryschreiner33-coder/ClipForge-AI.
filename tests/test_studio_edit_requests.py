@@ -470,7 +470,8 @@ def test_speed_slow_motion_ramps_freeze_frames_and_camera_moves_in_plain_words(e
     prop = ask("add a speed ramp to clip 1")
     assert prop["operations"][0]["value"] == "fast_slow_fast" and "fast, slow, fast" in prop["summary"]
     prop = ask("freeze the last frame for 3 seconds")
-    assert prop["operations"] == [{"op": "freeze", "clip_id": "c4", "at_ms": 9960, "length_ms": 3000}]
+    # no moment: the editor finds the clip's last frame on the file's own frame grid
+    assert prop["operations"] == [{"op": "freeze", "clip_id": "c4", "length_ms": 3000}]
     assert any(c.startswith("New freeze frame") for c in prop["changes"])
     assert prop["duration_ms"][1] - prop["duration_ms"][0] == 3000
     prop = ask("slowly zoom in on clip 2 and pan left on clip 3")
@@ -490,6 +491,66 @@ def test_speed_slow_motion_ramps_freeze_frames_and_camera_moves_in_plain_words(e
     r = er.ask(pid, "local", "remove the freeze frame")
     assert r["status"] == "unsupported" and "no freeze frame" in r["message"]
     assert calls == []
+
+
+def test_timing_rules_leave_other_requests_to_clipforge_ai_and_read_clips_by_place(monkeypatch):
+    """Review of batch 4a: the speed, freeze and camera-move rules take only phrases that name clips (by number,
+    place or words said in them, the intro, the ending, the photos); anything else goes to ClipForge AI. Undoing
+    slow motion leaves sped-up clips alone, and a photo is refused in words, never with a server error."""
+    from clipfoundry.studio import edit_requests as er
+    from clipfoundry.studio import video_flow as vf
+
+    def clip(cid, asset, a, b, **kw):
+        return {"id": cid, "asset_id": asset, "label": kw.pop("label", cid), "in_ms": a, "out_ms": b,
+                "include": True, "kind": "video", **kw}
+    plan = {"clips": [clip("c1", "A", 0, 5000, label="intro.mp4"), clip("c2", "B", 0, 10000, label="trail.mp4",
+                                                                        speed=0.5),
+                      clip("c3", "C", 0, 8000, label="summit.mp4", zoom=1.2),
+                      clip("c4", "D", 0, 10000, label="descent.mp4", speed=2),
+                      clip("c5", "E", 0, 3000, label="map.png", kind="image")],
+            "output": {"fps": 30}, "transition": {"type": "cut", "ms": 0}, "title": {"enabled": False, "ms": 2500},
+            "audio": [], "overlays": [],
+            "outline": [{"clip_id": "c2", "summary": "walking on the trail"},
+                        {"clip_id": "c4", "summary": "the trail"}]}
+    words = {"A": [{"w": "hello", "start": 0.5, "end": 0.9}], "B": [{"w": "trail", "start": 1.0, "end": 1.4}],
+             "C": [{"w": "summit", "start": 1.0, "end": 1.5}], "D": [{"w": "down", "start": 1.0, "end": 1.4}]}
+    rows = er.clip_rows(plan, words)
+
+    def rules(text):
+        return er.by_rules(text, plan, rows)
+
+    def ops(text):
+        r = rules(text)
+        assert r and "operations" in r, (text, r)
+        return [{k: v for k, v in o.items() if k != "op"} for o in r["operations"]]
+    for text in ("set the volume of clip 3 to 50%", "set the brightness of clip 2 to 150%", "make it faster",
+                 "zoom in on my face at 0:30", "speed up the video"):
+        assert rules(text) is None, text
+    q = rules("zoom in on the trail")
+    assert [c["request"] for c in q["choices"]] == ["zoom in on clip 2", "zoom in on clip 4"]
+    assert ops(q["choices"][0]["request"]) == ops("zoom in clip 2") == [
+        {"clip_id": "c2", "field": "motion", "value": "zoom_in"}]
+    assert ops("pan left clip 4")[0]["value"] == "pan_left"
+    assert ops("play the second clip at 2x") == [{"clip_id": "c2", "field": "speed", "value": 2.0}]
+    assert ops("speed up the third clip")[0]["clip_id"] == "c3" and ops("slow down clip two")[0]["clip_id"] == "c2"
+    assert ops("speed up the intro")[0]["clip_id"] == "c1"
+    # "3 seconds" is how long, not a clip; this video ends on a photo, which has no frame to hold
+    assert "ends on a photo (clip 5)" in rules("add a freeze frame for 3 seconds")["explain"]
+    assert ops("freeze the last frame of clip 4 for 3 seconds") == [{"clip_id": "c4", "length_ms": 3000}]
+    assert ops("freeze the intro") == [{"clip_id": "c1", "length_ms": 2000, "at_ms": 0}]
+    r = rules("remove the slow motion")
+    assert r["operations"] == [{"op": "clip_set", "clip_id": "c2", "field": "speed", "value": 1}]
+    assert "clip 2" in r["summary"] and "clip 4" not in r["summary"] and "2–4" not in r["summary"]
+    assert ops("remove the fast forward") == [{"clip_id": "c4", "field": "speed", "value": 1}]
+    assert ops("remove the zoom on clip 3") == [{"clip_id": "c3", "field": "zoom", "value": 1.0}]
+    assert "photo already stands still" in rules("speed up the photos")["explain"]
+    assert "no frame to freeze" in rules("freeze the photos")["explain"]
+    assert "There is no clip 12" in rules("speed up clip 12")["question"]
+
+    def refuse(*_a):
+        raise vf.VideoError("Only a video clip can change speed.")
+    monkeypatch.setattr(er, "_length_change", refuse)  # a refusal deeper down is an answer, never a server error
+    assert rules("speed up clip 2") == {"explain": "Only a video clip can change speed."}
 
 
 def test_music_can_be_asked_to_end_on_the_last_frame(env, monkeypatch):
