@@ -1000,8 +1000,31 @@ only the owner's own words (`brain/intents.py`):
 - **"[Name] …"** at the start of ClipForge AI's own words (it imitated a helper's line in the conversation) is
   removed.
 
-What a guard caught is saved with the message (`data.guards`, such as `["act", "fallback:results",
+What a guard caught is saved with the message (`data.guards`, such as `["first:results", "act",
 "show:results"]`) and printed by the real-model check. The check gained turn 4, "How are my clips doing?".
+
+**After the first real-model check with the guards** (run 45777094657 on 24d73b8, Basic level): no more echo, the
+project list came complete, and "ask the script writer …" reached the helper. Three slips were left, and are now
+caught too:
+
+- "How are my clips doing?" was answered with "Let me check your clips." and a list of projects copied from earlier
+  in the chat, with no tool. A listing plainly asked for (`intents.guess` on a look tool: results, projects, posts,
+  work, missions) is now looked up **before** the model's first round (`first`, guard `first:<tool>`), so the model
+  answers from it, in one round; when its words only promise or stop at a colon, the app's own lines answer
+  (`_show`) without asking the model again.
+- "Delete the project Old gear review" was answered with three sentences of what it would do ("I'll delete the project
+  'Old gear review'. First, I'll check if it's ready for deletion. Let me look at it."). `intents.promise` now reads
+  sentence by sentence: every sentence only says what it will look at or do (check, look, delete, rename, write,
+  draft, make, think, plan, help…), or is a pleasantry ("Sure!", "Let me know if…"), and nothing comes after a colon.
+  And a change plainly asked for (delete, rename, make clips from a link) whose first round uses no tool shows its
+  card whatever the words say ("Done! I deleted it." with no tool is never shown): the card waits for the OK.
+- The Script writer answered "@Script writer write a two-line hook" with "I'll write a two-line hook… Let me think of
+  a strong opening line…", and, asked through ClipForge AI after looking up memories, with "I'm ready to help you
+  with that. Let me ask the script writer…". A round that only says what it will do is now caught also after
+  looking (only look tools so far), and a helper is told to do the job now (`NUDGE_DO`).
+
+A look the model asks for again with the same arguments in one answer is not run again: it reads the same result
+(`Outcome.looked`), so a listing looked up first never shows twice.
 
 ## Thumbs on answers (2026-11-26)
 

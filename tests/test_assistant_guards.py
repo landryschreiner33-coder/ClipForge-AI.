@@ -144,7 +144,8 @@ def test_let_me_look_without_looking_uses_the_plain_reading_or_is_asked_to_look(
     out = _think(_tools("find_projects"), said, fallback=intents.guess(said, {"find_projects"}))
     assert [s["tool"] for s in out.steps] == ["find_projects"] and len(fake.calls) == 2
     assert out.text.startswith("Here are your projects:\n\n- “Lake swim” — clips project") and "“Hike day”" in out.text
-    assert "Let me look" not in out.text and out.slips == ["act", "fallback:find_projects", "show:find_projects"]
+    assert "Let me look" not in out.text and out.slips == ["act", "fallback:find_projects", "short",
+                                                           "show:find_projects"]
     # without a plain reading it is asked to use its tool
     fake = install(monkeypatch, say("Let me check."), say("", ("find_projects", {})),
                    say("You have “Hike day” and “Lake swim”."))
@@ -192,7 +193,72 @@ def test_how_are_my_clips_doing_reads_the_results_even_when_the_model_does_not(d
     m, _c = _ask("How are my clips doing?")
     assert m["status"] == "done" and "“Rage quit”" in m["text"] and not m["text"].startswith("Let me look")
     assert [s["tool"] for s in m["data"]["steps"]] == ["results"]
-    assert m["data"]["guards"] == ["act", "fallback:results", "show:results"] and len(fake.calls) == 2
+    # the results are read before the model's first round: one round, and the app's own lines when it only promises
+    assert m["data"]["guards"] == ["first:results", "act", "show:results"] and len(fake.calls) == 1
+    assert "results: " in fake.last_user(0) and "Rage quit" in fake.last_user(0)
+
+
+def test_a_look_the_model_asks_for_again_is_not_run_twice(data, monkeypatch):
+    from clipfoundry import db
+
+    db.create_project("Hike day", workspace_id=WS, status="ready")
+    fake = install(monkeypatch, say("", ("find_projects", {})), say("You have one: “Hike day”."))
+    m, _c = _ask("what projects do I have?")
+    assert [s["tool"] for s in m["data"]["steps"]] == ["find_projects"] and m["text"] == "You have one: “Hike day”."
+    assert m["data"]["guards"] == ["first:find_projects"] and len(fake.calls) == 2
+    assert "find_projects: " in fake.last_user(1)  # the same result again, not a second run
+
+
+def test_an_answer_of_sentences_that_only_say_what_it_will_do_is_a_promise():
+    from clipfoundry.brain import intents
+
+    for words in ("I'll delete the project 'Old gear review'. First, I'll check if it's ready for deletion. Let me "
+                  "look at it.",
+                  "I'll write a two-line hook about mountain biking. Let me think of a strong opening line that grabs "
+                  "attention and leads into the topic.",
+                  "I'm ready to help you with that. Let me ask the script writer for a title.",
+                  "Sure! Let me look at your projects. Let me know if you need more."):
+        assert intents.promise(words), words
+    for words in ("Got it: your channel is about mountain biking. I'll save this rule for future reference.",
+                  "I can see you have 3 projects.", "Got it! I'll make sure to never use red captions.",
+                  "Your channel is about mountain biking. I remember that rule now.", "I'll write it: “Send it”",
+                  "The script writer has been asked to create a title. I'll now provide the results.",
+                  "Let me look. Here are your projects: Hike day, Lake swim.", "Which one should I delete?"):
+        assert not intents.promise(words), words
+
+
+def test_delete_the_project_shows_its_card_when_the_model_only_talks_about_it(data, monkeypatch):
+    from clipfoundry import db
+
+    p = db.create_project("Old gear review", workspace_id=WS, status="ready")
+    # the real Basic model's answer (check run 45777094657): three sentences of what it will do, no tool
+    install(monkeypatch, say("I'll delete the project 'Old gear review'. First, I'll check if it's ready for "
+                             "deletion. Let me look at it."))
+    m, _c = _ask("Delete the project Old gear review")
+    assert [c["tool"] for c in m["data"]["pending"]] == ["delete_project"] and m["data"]["pending"][0]["state"] == \
+        "waiting" and m["data"]["guards"] == ["act", "fallback:delete_project"]
+    # one that claims it is done is no answer either: the card shows, and the claim does not
+    install(monkeypatch, say("Done! I deleted “Old gear review”."))
+    m, _c = _ask("Delete the project Old gear review")
+    assert m["data"]["pending"][0]["state"] == "waiting" and "Done!" not in m["text"]
+    assert m["data"]["guards"] == ["fallback:delete_project"] and db.get_project(p["id"]) is not None
+
+
+def test_a_helper_that_only_says_what_it_will_write_is_asked_to_write_it(data, monkeypatch):
+    from clipfoundry.brain import agents, assistant
+
+    agents.add(WS, template="script_writer")
+    fake = install(monkeypatch, say("I'll write a two-line hook about mountain biking. Let me think of a strong "
+                                    "opening line."), say("“I almost didn't make it down.” / “Here's why.”"))
+    m, _c = _ask("@Script writer write a two-line hook about mountain biking")
+    assert m["role"] == "agent" and m["text"] == "“I almost didn't make it down.” / “Here's why.”"
+    assert fake.last_user(1) == assistant.NUDGE_DO and m["data"]["guards"] == ["act"]
+    # after looking something up, too: reading is not the job
+    fake = install(monkeypatch, say("", ("recall", {"words": "mountain biking"})),
+                   say("I'm ready to help you with that. Let me ask the script writer for a title."),
+                   say("Title: “The ridge at dawn”."))
+    m, _c = _ask("@Script writer a title for my biking video")
+    assert m["text"] == "Title: “The ridge at dawn”." and fake.last_user(2) == assistant.NUDGE_DO
 
 
 def test_delete_the_project_shows_its_card_when_the_model_only_says_it_will_look(data, monkeypatch):

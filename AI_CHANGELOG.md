@@ -1,5 +1,19 @@
 # AI changelog
 
+## Guards, second round: what the real built-in model still got wrong — 2026-11-26 (Claude Code)
+
+Same thread. The real-model check on PR #79 (Basic level, run 45777094657) showed the first guards working (no echo,
+complete project lists, the helper hand-off) and three slips left. Details: docs/clipforge/CLIPFORGE_AI.md, "Guards
+for a small model", "After the first real-model check".
+
+- A listing plainly asked for ("how are my clips doing?", "what projects do I have?") is looked up before the
+  model's first round, so it answers from real numbers in one round.
+- `intents.promise` reads sentence by sentence: "I'll delete … First, I'll check … Let me look at it." is a promise.
+- A plainly asked change (delete, rename, make clips from a link) whose first round uses no tool shows its card,
+  whatever the words claim; it waits for the OK.
+- A helper that only says what it will write is told to write it now (`NUDGE_DO`), also after looking things up.
+- The same look asked again in one answer is not run twice (`Outcome.looked`).
+
 ## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code)
 
 Same thread, after the real Basic model (Qwen3-VL 2B) check on GitHub's machines showed it echoing the owner,

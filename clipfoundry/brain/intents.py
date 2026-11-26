@@ -14,7 +14,8 @@ of handing the job over. The assistant (assistant.think) uses these readings:
   that only repeat the owner, promise to look, or stop at a colon. A change it reads always shows its card and waits
   for the OK, even when ClipForge AI acts on its own (assistant.think).
 * `echo`: the words only repeat the owner's message.
-* `promise`: the words only say it will look or do something ("Let me check.").
+* `promise`: the words only say what it will look at or do ("Let me check.", "I'll write a hook. Let me think of
+  a strong opening line."), sentence by sentence.
 
 Everything here is a reading of the owner's own message; a tool it names still runs with the app's own checks, and a
 change or a delete still shows its card (deleting always waits for the OK).
@@ -26,7 +27,7 @@ import re
 import unicodedata
 
 ECHO = 0.85          # how alike (word by word) the answer and the owner's message must be to be an echo
-PROMISE_CHARS = 240  # a promise is a short answer: a long one says more than that it will look
+PROMISE_CHARS = 320  # a promise is a short answer: a long one says more than what it will do
 
 _URL = re.compile(r"https?://[^\s<>\"']+", re.I)
 _QUOTES = "\"'“”‘’«»"
@@ -59,29 +60,45 @@ def echo(said: str, owner: str) -> bool:
     return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= ECHO
 
 
-# A promise is the whole answer: it begins by saying it will look or do it ("Let me look.", "One moment, I'll check
-# your projects.", "I'll ask the Script writer."), and says nothing more. "Let me know if you want more", "Let's get
-# you a title: “Ride the Ridge”" and "I'll be honest: the hook is weak" are answers.
+# A promise is the whole answer: every sentence only says what it will look at or do ("Let me look.", "One moment,
+# I'll check your projects.", "I'll delete the project “Old gear review”. First, I'll check it. Let me look at it.",
+# "I'll write a two-line hook. Let me think of a strong opening line."), or is a pleasantry ("Sure!", "Let me know if
+# you want more."), and nothing more. "Let's get you a title: “Ride the Ridge”", "I'll be honest: the hook is weak",
+# "Got it: your channel is about biking. I'll save it." and "I can see you have 3 projects." are answers.
 _PROMISE = re.compile(
-    r"^(?:(?:ok(?:ay)?|sure|alright|all right|of course|certainly|great|no problem)[,!.]?\s+)?"
+    r"^(?:(?:ok(?:ay)?|sure|alright|all right|of course|certainly|great|no problem|absolutely)[,!.]?\s+)?"
     r"(?:(?:one (?:moment|sec(?:ond)?)|give me a (?:moment|sec(?:ond)?)|hold on|just a (?:moment|sec(?:ond)?))"
     r"[,.!…]*\s*)?"
-    r"(?:let me|let's|lemme|i(?:'ll| will|’ll| am going to|'m going to|’m going to))\s+(?:quickly\s+|just\s+|now\s+|go\s+)?"
-    r"(?:check|look|find|see|search|pull up|fetch|open|review|read|dig|take a look|have a look|ask (?:the|your|my)|"
-    r"get (?:that|it|your|the|those|them)|do that|take care of (?:it|that)|handle (?:it|that))\b",
+    r"(?:(?:first|now|then|next|so)(?:,\s*|\s+))?"
+    r"(?:let me|let's|lemme|happy to|i(?:'ll| will|’ll| am going to|'m going to|’m going to| am ready to|'m ready to|"
+    r"’m ready to|'d be happy to|’d be happy to| would be happy to))\s+(?:quickly\s+|just\s+|now\s+|go\s+|first\s+|"
+    r"also\s+|then\s+|go ahead and\s+)?"
+    r"(?:check|look|find|see|search|pull up|fetch|open|review|read|dig|go through|take a look|have a look|"
+    r"ask (?:the|your|my)|get (?:that|it|your|the|those|them|back)|do (?:that|it|this|so)|take care of (?:it|that)|"
+    r"handle (?:it|that)|delete|remove|rename|write|draft|make(?! sure)|create|come up with|think|plan|"
+    r"put together|work on|generate|prepare|figure out|help|provide|give you|show you|list|gather|proceed)\b",
     re.I)
 _NOT_PROMISE = re.compile(r"^(?:let me know|let's (?:get|make|try|go|do|start|write)\b)", re.I)
+_PLEASANTRY = re.compile(r"^(?:ok(?:ay)?|sure(?: thing)?|alright|all right|of course|certainly|absolutely|great"
+                         r"(?: question| idea)?|no problem|got it|happy to help|hi(?: there)?|hello(?: there)?|hey"
+                         r"(?: there)?|let me know (?:if|when|what|how)\b.*)[\s!.,…]*$", re.I)
+_SENTENCE = re.compile(r"(?<=[.!…])\s+")
 
 
 def promise(said: str) -> bool:
-    """The answer only says it will look or do something ("Let me look.", "I'll check for the project “Old gear
-    review”."): it begins with that, is one sentence, and adds nothing after a colon."""
+    """The answer only says what it will look at or do (`_PROMISE`): every sentence does, or is a pleasantry, at
+    least one says it, nothing comes after a colon, and there is no question."""
     s = " ".join((said or "").split())
-    m = _PROMISE.match(s)
-    if not m or len(s) > PROMISE_CHARS or "?" in s or _NOT_PROMISE.match(s):
+    if not s or len(s) > PROMISE_CHARS or "?" in s:
         return False
-    rest = s[m.end():].rstrip(".!… ")  # after "let me look": one sentence, nothing after a colon
-    return not re.search(r"[.!]\s+\S", rest) and not rest.partition(":")[2].strip()
+    promised = False
+    for part in _SENTENCE.split(s):
+        if not part or _PLEASANTRY.match(part):
+            continue
+        if not _PROMISE.match(part) or _NOT_PROMISE.match(part) or part.rstrip(".!… ").partition(":")[2].strip():
+            return False
+        promised = True
+    return promised
 
 
 def stops_short(said: str) -> bool:

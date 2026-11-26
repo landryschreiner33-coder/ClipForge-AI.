@@ -1,5 +1,21 @@
 # AI handoff
 
+## Guards, second round — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** the real built-in model, checked on GitHub with the first guards, no longer repeats you and
+lists your projects in full, but it still answered "how are my clips doing?" without looking, answered "delete the
+project …" with sentences about what it would do, and its Script writer said "I'll write a hook…" without writing
+it. Now the results (or projects, posts, work, missions) you plainly ask for are looked up before the model answers,
+a delete or rename you plainly ask for always shows its OK card when the model does nothing, and a helper that only
+promises is told to do the job.
+
+- **Where:** `assistant._turn` (a look guess becomes `first`), `assistant._rounds` (`idle`, `_looked_only`, the
+  fallback when the first round uses no tool, `NUDGE_DO`), `assistant.use` (`Outcome.looked`), `intents.promise`
+  (`_PROMISE`, `_PLEASANTRY`, `_SENTENCE`).
+- **Worth knowing:** `data.guards` now also records a slip that was not nudged ("act" after a listing was found);
+  `first:<tool>` names a look done before the model. A test that wants the model itself to call find_projects for
+  "what projects do I have?" sees it done first; the model's own same call reads the same result.
+
 ## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** the small built-in model sometimes repeated your message, said "Let me look." and never
