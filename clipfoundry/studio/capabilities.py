@@ -54,6 +54,8 @@ class Field:
             return "Shots: keep each file whole" if not value else f"Shots: about {value:g} s, pauses cut out"
         if self.name == "duck_depth_db":
             return f"Music dips {value:g} dB under speech"
+        if self.name == "look_strength":
+            return f"Look strength: {value:g}%"
         return f"{self.label}: {self.words.get(value, value)}"
 
 
@@ -65,6 +67,15 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
           applies="caption placement", words={"bottom": "lower third", "middle": "centre", "top": "top",
                                               "above": "above the picture"}),  # story clips' own (guidance.py)
     Field("caption_emphasis", "Caption emphasis", "bool", CLIP_MODES, applies="highlighted key words"),
+    Field("auto_color", "Automatic colour", "bool", ALL,
+          applies="white balance, exposure and contrast corrected once per recording (phone HDR is always "
+                  "converted)"),
+    Field("look", "Look", "choice", ALL, tuple(config.LOOKS), applies="the picture's colour style",
+          words={"natural": "natural (corrected, no added style)", "bright": "clean and bright",
+                 "teal_orange": "teal and orange", "mono": "black and white"}),
+    Field("look_strength", "Look strength", "number", ALL, minimum=0, maximum=100,
+          applies="how strongly the look is applied (100 = as designed)"),
+    Field("clean_picture", "Clean up noise", "bool", ALL, applies="grainy, low-light picture cleaned up"),
     Field("captions", "Captions", "bool", ("full_video",), applies="whether captions are burned in"),
     Field("pacing", "Pacing", "choice", ("highlights",), ("safe_cuts", "continuous"),
           applies="removal of weak middle sentences", words={"safe_cuts": "tighten when safe",

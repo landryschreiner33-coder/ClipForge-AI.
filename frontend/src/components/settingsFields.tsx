@@ -30,7 +30,9 @@ add("defaults", {
   highlight_words: "Word highlight", tracking: "Framing", layout: "Layout", split_view: "Split view",
   split_game: "Under the face cam", silence: "Silence cleanup",
   auto_zoom: "Auto-zoom", remove_fillers: "Cut filler words", caption_emphasis: "Emphasize key words",
-  hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", clean_sound: "Clean up the sound", autopilot_daily_target: "Daily clip cap",
+  hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", clean_sound: "Clean up the sound",
+  auto_color: "Automatic colour", look: "Look", look_strength: "Look strength", clean_picture: "Clean up grainy footage",
+  autopilot_daily_target: "Daily clip cap",
   autopilot_active_start: "Posting hours (from)", autopilot_active_end: "Posting hours (to)", trend_topics: "Topics",
   auto_trims: "Start on the first real word", post_always_hashtags: "Hashtags on every post",
 });
@@ -110,6 +112,7 @@ const RANGES: Record<string, [number, number]> = {
   nvidia_max_output_tokens: [100, 4000], nvidia_timeout_s: [5, 300], nvidia_price_per_mtok_usd: [-1, 1000],
   nvidia_daily_spend_cap_usd: [0, 1000],
   brain_min_clips: [30, 1000], brain_max_step: [0.01, 0.1], brain_min_views: [1, 100_000], brain_min_testers: [2, 100],
+  look_strength: [0, 100],
 };
 const INTEGER = new Set([
   "clip_count", "crf", "max_fps", "ai_max_candidates", "ai_edit_requests_per_day", "whisper_beam_size", "autopilot_daily_target",
@@ -120,7 +123,7 @@ const INTEGER = new Set([
   "youtube_search_discovery_share", "gpu_min_free_vram_mb", "gpu_wait_minutes", "tavily_free_credits",
   "nvidia_daily_requests", "nvidia_daily_tokens", "nvidia_max_input_tokens", "nvidia_max_output_tokens",
   "brain_min_clips", "brain_min_views", "brain_min_testers",
-  "discovery_candidates_per_scan", "discovery_queue_limit", "discovery_creator_limit",
+  "discovery_candidates_per_scan", "discovery_queue_limit", "discovery_creator_limit", "look_strength",
 ]);
 
 export function validTimeZone(tz: string): boolean {

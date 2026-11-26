@@ -1,5 +1,37 @@
 # AI handoff
 
+## Editing quality, batch 1: colour — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** phone HDR video no longer comes out grey, each recording's white balance, brightness and
+contrast are gently corrected once (a good picture is left alone), recordings in a full video are matched, and nine
+looks with a strength are a choice in Settings, the clip editor, the video editor and plain-word edit requests.
+Batches 2-5 (shorts, long videos, range, quality checks) are planned in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md).
+
+- **Where things are:** everything in `pipeline/grade.py` (`for_footage` measures and decides, `apply` is the colour
+  maths, `lut_file` the cached table, `rgb_filters` for the clip renderer, `yuv_filters` for the full-video engine);
+  the clip renderer's decode chain in `pipeline/render.py` (step "Checking the colour", before the captions step so
+  the office's stage mapping is unchanged); the engine's `grades`, `color_options`, `default_color` and
+  `_grade_key` in `studio/engine.py`; the edits in `studio/video_flow.py` (`_set_color`, `COLOR_FIELDS`,
+  `color_grade`); plain-word rules in `studio/edit_requests.py` (`_color_rule`, `LOOK_PHRASES`); the UI in
+  `frontend/src/looks.ts`, `ClipEditor.tsx` (Colour tab), `VideoReview.tsx` (`ColourPanel`), `Settings.tsx`.
+- **Worth knowing:** a plan without `color` (made before this) only gets the HDR conversion, so old videos render as
+  before; `_set_color` on such a plan starts from that, so one choice changes only that. A proxy keeps the original's
+  colour values, so the grade is always computed from the original's tags. Compare decoded pictures through
+  `format=gbrp16le` (swscale's packed-RGB path upsamples colour edges differently, up to 100 codes on test patterns).
+  The skin mask is broad (yellow and grass count), so it only protects, it never steers the white balance. ClipForge
+  AI's own commands (brain/operations.py) do not offer the colour choices yet; the AI thread owns that file.
+- **Review fixes (same PR):** the range is read from each frame's own tag (a scale or proxy before the colour step
+  turns full range into limited and re-tags it), and a "fit" picture is made limited range before FFmpeg's overlay
+  (`engine.EVEN_RANGE`: overlay in FFmpeg 6.1 hands on limited values tagged full, lifting blacks of phone/OBS video
+  and JPEG photos); the measurement reads untagged HD as BT.709 like the render; a cancelled measurement is never
+  cached and a failed probe is not remembered; HDR10 peaks come from the first frame's MaxCLL/mastering data; grain
+  cleanup is scaled to the size the picture is shown at (`engine._shown_at`, previews); levels subtract each
+  channel's own black. **FilmCraft routing:** under "auto", a final whose colour step does something
+  (`engine.colour_in_use`) stays on the built-in engine, because FilmCraft does not run the colour step; the review
+  page says so. Plain-word requests: a colour word inside a part's name ("remove the black and white intro"), a part
+  of the video ("make the ending cooler") or a sound ("remove the noise") is never taken as a colour change.
+
 ## Guards, second round — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** the real built-in model, checked on GitHub with the first guards, no longer repeats you and
@@ -74,6 +106,7 @@ need (the Growth coach reads your results first; the hook, edit, critic and thum
   (`learner.usable`). A helper added before this build is upgraded once only if its tools or instructions are still
   the old ready-made ones; whatever the owner changed stays. The safety test's reading budget is now measured from
   the system prompt's own length, because every new tool makes the prompt longer.
+
 
 ## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code, cloud session)
 

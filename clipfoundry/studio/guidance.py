@@ -165,7 +165,8 @@ def _story_clips(values: dict, decisions: dict[str, dict]) -> None:
 
 def render_values(snapshot: dict) -> dict:
     """The snapshot's values the clip renderer understands (render.effective_options keys)."""
-    keys = ("caption_style", "caption_position", "caption_emphasis", "layout", "tracking")
+    keys = ("caption_style", "caption_position", "caption_emphasis", "layout", "tracking", "auto_color", "look",
+            "look_strength", "clean_picture")
     return {k: v for k, v in (snapshot.get("values") or {}).items() if k in keys}
 
 

@@ -9,6 +9,7 @@ import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings }
 import { navigate, useLeaveGuard } from "../router";
 import { useStatus } from "../status";
 import { AnimationMode, useMotion } from "../motion";
+import { LOOKS, lookOf } from "../looks";
 import {
   AccountBadge, ConnectButton, PLATFORM_NAME, TikTokSetupSteps, YouTubeSetupSteps,
 } from "../components/accounts";
@@ -574,6 +575,22 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
           <Seg k="clean_sound" c={c}
             options={[{ value: "off", label: "Off" }, { value: "auto", label: "Auto" },
               { value: "gentle", label: "Gentle" }, { value: "strong", label: "Strong" }]} />
+        </SettingRow>
+        <SettingRow k="auto_color" label="Automatic colour"
+          hint={"Each recording's white balance, brightness and contrast are measured once and gently corrected. "
+            + "Phone HDR video is always turned into normal video, so it never looks grey."}>
+          <Switch k="auto_color" c={c} />
+        </SettingRow>
+        <SettingRow k="look" label="Look" hint={lookOf(s.look).what}>
+          <Select k="look" c={c} options={LOOKS.map((l) => ({ value: l.value, label: l.label }))} />
+        </SettingRow>
+        <SettingRow k="look_strength" label="Look strength (%)"
+          hint="100 is the full look; lower keeps more of the original colours." errors={errors}>
+          <NumInput k="look_strength" c={c} label="Look strength" step={5} width={90} />
+        </SettingRow>
+        <SettingRow k="clean_picture" label="Clean up grainy footage"
+          hint="Only a picture with visible grain (low light) is cleaned; a clean picture is left as it is.">
+          <Switch k="clean_picture" c={c} />
         </SettingRow>
         <SettingRow k="silence" label="Silence cleanup" hint="Removes long pauses" group>
           <Seg k="silence" c={c}

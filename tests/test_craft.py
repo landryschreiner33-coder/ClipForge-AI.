@@ -618,6 +618,14 @@ def test_final_render_engine_choice_and_backup(env, monkeypatch):  # noqa: F811
         video_flow._craft_render(*args, {"edit_engine": "filmcraft"}, _Lease(), False)
     monkeypatch.setattr(apps, "find_cli", lambda key: {"path": "/x", "version": "", "source": "env"})
     monkeypatch.setattr(finish, "render", lambda *a, **k: {"engine": "filmcraft"})
+    # FilmCraft cannot run ClipForge's colour step: with "auto", a final whose colour step changes the picture (a
+    # look here) stays on the built-in engine; with the colour left alone it goes to FilmCraft
+    looked = {**plan, "color": {"auto": False, "match": False, "look": "film", "strength": 80, "clean": False}}
+    assert video_flow._craft_render(project, job, looked, assets, words, out, {"edit_engine": "auto"}, _Lease(),
+                                    False) == (None, "")
+    assert video_flow._craft_render(project, job, looked, assets, words, out, {"edit_engine": "filmcraft"},
+                                    _Lease(), False)[0]["colour_skipped"].startswith("FilmCraft rendered")
+    plan["color"] = {"auto": False, "match": False, "look": "natural", "strength": 100, "clean": False}
     assert video_flow._craft_render(*args, {"edit_engine": "auto"}, _Lease(), False) == ({"engine": "filmcraft"}, "")
     assert video_flow._craft_render(*args, {"edit_engine": "ffmpeg"}, _Lease(), False) == (None, "")
     assert video_flow._craft_render(*args, {"edit_engine": "auto"}, _Lease(), True) == (None, "")  # previews: quick

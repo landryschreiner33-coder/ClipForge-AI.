@@ -1,5 +1,29 @@
 # Implementation status
 
+## Editing quality, batch 1: colour — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on the release line at 9cd25e9. Landry asked to "do deep research on how to edit
+videos and what goes into it and majorly improve the editing". The research summary and the five-batch plan are in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](clipforge/EDITING_CRAFT_RESEARCH.md); this batch is colour
+([docs/clipforge/COLOUR.md](clipforge/COLOUR.md)): phone HDR converted, white balance and levels corrected once per
+recording, recordings matched, nine looks with a strength, measured grain cleaned, in clips and full videos, with
+the choices in Settings, the clip editor, the video editor and plain-word edit requests. Full Cloud jobs carry the
+colour choices. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | `pytest tests/test_grade.py` (15 new) and the studio suites (193) | passed |
+| 2026-11-26 | Independent review (six areas) | 17 colour findings confirmed and fixed (1 more was not real); 11 tests added for them (full-range 8-bit and 10-bit video and JPEG photos through both renderers, "fit", previews and proxies; cancelling; HDR10 peaks; probe failures; grain scale; FilmCraft routing; colour words in other requests) |
+| 2026-11-26 | `pytest` on the colour, studio (video, render, editor, edit requests, guidance), FilmCraft and clip-editing files after the fixes | all passed (195; 1 FilmCraft routing test updated for the new rule) |
+| 2026-11-26 | `pytest -m "not slow"` on the merged tree (before the review fixes; the files they touch were re-run after, row above) | 3,421 passed, 2 skipped (1 outdated guidance test updated for the colour fields) |
+| 2026-11-26 | `pytest -m slow` (incl. 2 new in `tests/test_grade_render.py`: a full render with a blue-cast and an HLG recording, the clip renderer's chain) | 38 passed, 1 skipped (after the review fixes) |
+| 2026-11-26 | Before/after video made by the real engine (`/mnt/project-files/editing-upgrade/colour-before-after.mp4`) | looked at frame by frame |
+
+Not verified: real phone HDR footage (iPhone, Android, Dolby Vision) and real low-light grain (the cloud has no
+sample media); the colour step on Landry's Mac (the Mac desktop check now asserts the bundled FFmpeg has `lut3d`,
+`atadenoise` and `fftdnoiz` and that a render reports its colour step).
+
 ## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code)
 
 Shipped from `claude/project-thread-8ua98o` (PR #72) on the release line at 3baaa34. A check of the batch 4 head

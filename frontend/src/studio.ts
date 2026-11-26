@@ -1,5 +1,6 @@
 /** ClipForge studio API: uploads, Make clips, full videos, stories, styles, skills, accounts, preferences. */
 import { req, responseError } from "./api";
+import type { ColourReport } from "./looks";
 import type { ShortView } from "./shorts";
 
 export type Asset = { id: string; kind: "video" | "audio" | "image"; filename: string; sha256: string; size: number;
@@ -140,7 +141,10 @@ export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: 
   out_ms: number | null; length_ms: number | null; gain_db: number; mute: boolean; fade_in_ms: number; fade_out_ms: number;
   duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null; auto?: boolean };
 export type TrackName = "source" | "voiceover" | "music" | "effects";
+/** A video's colour choices (engine plan "color"); a plan made before colour existed has none. */
+export type PlanColour = { auto: boolean; match: boolean; look: string; strength: number; clean: boolean };
 export type Plan = { schema: number; output: { aspect: string; fps: number }; layout: string; clean_sound?: string; clips: PlanClip[];
+  color?: PlanColour;
   transition: { type: string; ms: number }; title: { enabled: boolean; text: string; ms: number };
   captions: { enabled: boolean; style: string; position: string; size?: string; /** The word being said lights up. */ highlight?: boolean };
   audio: AudioItem[]; tracks: Record<TrackName, { gain_db: number; mute: boolean }>; ducking?: { depth_db: number };
@@ -158,8 +162,9 @@ export type Placed = { audio_id: string; asset_id: string; role: AudioRole; trac
 export type Video = { id: string; name: string; status: string; message: string; asset_ids: string[];
   brief: Record<string, unknown>; plan_revision: number; rendered_revision: number; guidance: Snapshot; plan: Plan | null;
   duration: number; assets: Asset[]; bin: string[]; timeline: Segment[]; audio_timeline: Placed[];
-  artifacts: ({ id: string; revision: number; kind: string; sha256: string; duration: number; audio_ok: boolean } &
-    MadeWith)[];
+  artifacts: ({ id: string; revision: number; kind: string; sha256: string; duration: number; audio_ok: boolean;
+    /** What the render did to each recording's colour, by asset id. */
+    colour?: Record<string, ColourReport> } & MadeWith)[];
   preview: { revision: number; stale: boolean } | null;
   jobs: { id: string; kind: string; revision: number; status: string; progress: number; message: string; error: string }[];
   revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];
