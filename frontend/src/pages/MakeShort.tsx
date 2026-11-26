@@ -1,10 +1,12 @@
 import { ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { errorText } from "../api";
+import { hasLookArt, LookExample } from "../components/lookArt";
 import { HearButton } from "../components/ShortScenes";
-import { Banner, Icon, PageHead, Segmented, Skel } from "../components/ui";
+import { Banner, Icon, PageHead, ProgressBar, Segmented, Skel } from "../components/ui";
 import { navigate } from "../router";
 import {
-  aboutLength, ShortLength, ShortLook, ShortMode, ShortMotion, ShortOptions, shorts, speakingSeconds, spokenWords,
+  aboutLength, LookExamples, ShortLength, ShortLook, ShortMode, ShortMotion, ShortOptions, shorts, speakingSeconds,
+  spokenWords,
 } from "../shorts";
 import "./shorts.css";
 
@@ -56,6 +58,45 @@ function LookSwatch({ look }: { look: ShortLook }) {
     <span className="look-swatch" aria-hidden="true" style={{ background: `linear-gradient(180deg, ${top}, ${bottom})` }}>
       <i style={{ background: HEX.test(look.accent) ? look.accent : "#FFFFFF" }} />
     </span>
+  );
+}
+
+/** The picture maker's own examples of the looks, asked again every 1.5 s while they are drawn. */
+function useLookExamples(enabled: boolean) {
+  const [ex, setEx] = useState<LookExamples | null>(null);
+  const [problem, setProblem] = useState("");
+  const working = ex?.job?.status === "queued" || ex?.job?.status === "running";
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    const load = () => shorts.lookExamples().then((x) => alive && setEx(x)).catch(() => undefined);
+    load();
+    const t = working ? window.setInterval(load, 1500) : 0;
+    return () => {
+      alive = false;
+      if (t) window.clearInterval(t);
+    };
+  }, [enabled, working]);
+  const act = (call: () => Promise<LookExamples>) => {
+    setProblem("");
+    call().then(setEx).catch((e) => setProblem(errorText(e)));
+  };
+  return { ex, working, problem, make: () => act(shorts.makeLookExamples), stop: () => act(shorts.stopLookExamples) };
+}
+
+/** The chosen look, larger: its example and what it is. */
+function LookPreview({ look, made }: { look: ShortLook; made?: { url: string; engine: string } }) {
+  return (
+    <div className="look-preview" aria-live="polite">
+      <span className="look-thumb look-thumb-large"><LookExample look={look.id} name={look.name} made={made} /></span>
+      <div className="stack-2">
+        <b>{look.name}</b>
+        <p className="small">{look.about}</p>
+        <p className="small muted">{made
+          ? `Made by ${made.engine} on this computer, from the same idea for every look.`
+          : "Drawn by ClipForge to show the style. Your pictures are made by your picture maker in this look."}</p>
+      </div>
+    </div>
   );
 }
 
@@ -121,6 +162,9 @@ export default function MakeShort() {
   const writer = opts?.writer;
   const canWrite = !!writer?.configured;
   const engines = opts?.engines;
+  const lookEx = useLookExamples(!!engines?.image.ready);
+  const examples = lookEx.ex?.examples ?? {};
+  const chosenLook = opts && c ? opts.looks.find((l) => l.id === c.look) : undefined;
   const why = !opts || !c ? "" : mode === "paste"
     ? (!words ? "Paste your script first." : tooLong ? `Shorten the script to ${maxWords} words or fewer.` : "")
     : (!canWrite ? "Writing needs ClipForge AI. Set it up, or paste your own script." : !topic.trim() ? "Type a topic first." : "");
@@ -234,7 +278,9 @@ export default function MakeShort() {
             {opts.looks.map((l) => (
               <label key={l.id} className="look-card">
                 <input type="radio" name={`${ids}-look-choice`} value={l.id} checked={c.look === l.id} onChange={() => set("look", l.id)} />
-                <LookSwatch look={l} />
+                {hasLookArt(l.id) || examples[l.id]
+                  ? <span className="look-thumb"><LookExample look={l.id} name={l.name} made={examples[l.id]} /></span>
+                  : <LookSwatch look={l} />}
                 <span className="look-check" aria-hidden="true"><Icon name="check" /></span>
                 <b>{l.name}</b>
                 <span className="small muted">{l.about}</span>
@@ -243,6 +289,33 @@ export default function MakeShort() {
           </div>
         ) : (
           <div className="look-grid" aria-hidden="true">{[0, 1, 2, 3].map((i) => <Skel key={i} className="look-skel" />)}</div>
+        )}
+        {chosenLook && <LookPreview look={chosenLook} made={examples[chosenLook.id]} />}
+        {engines?.image.ready && lookEx.ex && (
+          <div className="look-examples-row">
+            {lookEx.working ? (
+              <>
+                <div className="look-examples-progress">
+                  <ProgressBar value={lookEx.ex.job?.progress ?? 0} label="Example pictures" />
+                  <span className="small muted">{lookEx.ex.job?.message || "Waiting for the picture maker"}</span>
+                </div>
+                <button type="button" className="btn btn-small" onClick={lookEx.stop}><Icon name="stop" />Stop</button>
+              </>
+            ) : (
+              <>
+                <span className="small muted">{Object.keys(examples).length
+                  ? "The cards show your picture maker's own examples."
+                  : `See what ${engines.image.engine || "your picture maker"} draws in each look: one small picture per look, kept on this computer.`}</span>
+                <button type="button" className="btn btn-small" disabled={!lookEx.ex.can_make} onClick={lookEx.make}>
+                  <Icon name="image" />{Object.keys(examples).length ? "Make them again" : "Make examples with my picture maker"}
+                </button>
+              </>
+            )}
+            {lookEx.ex.job?.status === "failed" && lookEx.ex.job.error && !lookEx.working && (
+              <p className="short-warn small"><Icon name="alert" className="sm" /><span>{lookEx.ex.job.error}</span></p>
+            )}
+            {lookEx.problem && <p className="short-warn small"><Icon name="alert" className="sm" /><span>{lookEx.problem}</span></p>}
+          </div>
         )}
       </section>
 

@@ -30,12 +30,12 @@ const ALIASES: [RegExp, string][] = [
   [/^create$/, "create/clips"],
   [/^create\/(?!(clips|video|short|link|transcript)$)(?!video\/[\w-]+$).*$/, "create/clips"],
   [/^settings\/accounts$/, "accounts"],
-  [/^settings\/(?!(appearance|media|ai|apps|makers|cloud|defaults|integrations|advanced)$).*$/, "settings"],
+  [/^settings\/(?!(appearance|media|ai|apps|makers|processing|cloud|defaults|integrations|advanced)$).*$/, "settings"],
   [/^setup\/(?!(videos|mode|posting)$).*$/, "setup"],
   [/^dev(\/(?!robots$).*)?$/, "dev/robots"],
 ];
-const PAGES = ["", "office", "missions", "projects", "publishing", "create", "project", "clip", "publish", "post", "setup",
-  "settings", "brain", "dev", "accounts", "video"];
+const PAGES = ["", "office", "missions", "projects", "stories", "publishing", "create", "project", "clip", "publish",
+  "post", "setup", "settings", "brain", "dev", "accounts", "video"];
 const NEEDS_ID = ["project", "clip", "publish", "post", "video"];
 
 export type Route = {

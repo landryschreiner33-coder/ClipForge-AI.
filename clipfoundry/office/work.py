@@ -19,11 +19,14 @@ STUDIO_KINDS = {"link_import": "Fetching the video from your link", "video_build
                 "video_media": "Reading files added to a video", "video_preview": "Rendering a preview",
                 "video_render": "Rendering the final video", "media_import": "Downloading media you picked",
                 "media_suggest": "Searching for supporting media", "reference_analysis": "Measuring an example video",
-                "filmcraft_edit": "Editing in FilmCraft", "short_build": "Making the animated short"}
+                "filmcraft_edit": "Editing in FilmCraft", "short_build": "Making the animated short",
+                "text_story_write": "Writing a text story", "text_story_render": "Making a text story video",
+                "look_examples": "Drawing example pictures of the looks"}
 # what a Make clips project's pipeline stage means, in words, when the pipeline left no message
 STAGE_WORDS = {"queued": "Waiting to start", "download": "Getting the video", "probe": "Reading the video",
                "audio": "Extracting the sound", "transcribe": "Transcribing", "candidates": "Finding the best moments",
-               "scoring": "Scoring moments", "render": "Making clips"}
+               "scoring": "Scoring moments", "render": "Making clips",
+               "upload": "Sending the video to your worker", "fetch": "Bringing the clips back from your worker"}
 
 
 def workspace() -> str | None:

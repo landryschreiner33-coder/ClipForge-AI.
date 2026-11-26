@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { motionChoice, OfficeActivity, useMotion } from "../motion";
+import { motionChoice, OfficeActivity, SpaceLook, useMotion } from "../motion";
 import { Appearance, deviceClass, Panel, useAppearance } from "../prefs";
 import { PREVIEW_MESSAGE } from "../preview";
 import { ACCENTS, PALETTES } from "./Customize";
@@ -23,6 +23,17 @@ export default function AppearanceSettings() {
   const { appearance, set, state, retry, setCustomizing } = useAppearance();
   const motion = useMotion();
   const accent = ACCENTS.find(([id]) => id === appearance.accent);
+  const shades = appearance.accent_shades;
+  // the colour picker sends a colour for every step of a drag: the last one is saved
+  const [picking, setPicking] = useState<string | null>(null);
+  useEffect(() => {
+    if (!picking) return;
+    const t = window.setTimeout(() => {
+      set({ accent: "custom", accent_color: picking.toUpperCase() });
+      setPicking(null);
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [picking, set]);
   return (
     <div className="ap-space">
       <section className="ap-form" aria-labelledby="ap-look">
@@ -45,9 +56,25 @@ export default function AppearanceSettings() {
                   <i style={{ background: hex }} aria-hidden="true" />
                 </label>
               ))}
+              <label className={`ap-swatch ap-custom${appearance.accent === "custom" ? " on" : ""}`}
+                title="Your own colour">
+                <input type="radio" name="ap-accent" value="custom" aria-label="Your own colour"
+                  checked={appearance.accent === "custom"} onChange={() => set({ accent: "custom" })} />
+                <i style={{ background: shades?.primary || appearance.accent_color }} aria-hidden="true" />
+              </label>
             </div>
-            <span className="ap-accent-name" aria-hidden="true">{accent ? accent[1] : appearance.accent}</span>
+            <label className="ap-pick">
+              <input type="color" value={(picking || appearance.accent_color).toLowerCase()}
+                onChange={(e) => setPicking(e.target.value)} aria-describedby="ap-accent-note" />
+              <span>Pick your own</span>
+            </label>
+            <span className="ap-accent-name" aria-hidden="true">
+              {appearance.accent === "custom" ? "Your own" : accent ? accent[1] : appearance.accent}</span>
           </div>
+          {appearance.accent === "custom" && shades?.adjusted && (
+            <p className="ap-hint" id="ap-accent-note">Made a little lighter ({shades.primary}) so links, buttons and
+              selected things stay readable on every background.</p>
+          )}
         </div>
         <Choice id="ap-palette" label="Background" value={appearance.palette}
           onChange={(v) => set({ palette: v as Appearance["palette"] })}
@@ -72,6 +99,30 @@ export default function AppearanceSettings() {
               {motion.systemReducedMotion && motion.reduceMotion ? " Your computer asks for less motion." : ""}</p>
           </div>
         </div>
+        <Choice id="ap-space" label="Space view" value={motion.spaceLook}
+          onChange={(v) => motion.setSpaceLook(v as SpaceLook)}
+          options={[["orbit", "Orbit the black hole"], ["lighter", "Lighter"]]}
+          hint="Orbit follows the ship round the black hole and bends its light; Lighter draws the turning disk only,
+            for computers whose graphics struggle (ClipForge switches to it by itself if the orbit is not smooth)." />
+        <div className="ap-row">
+          <span className="ap-label" id="ap-sounds">Sound effects</span>
+          <div className="ap-control">
+            <Segmented labelledBy="ap-sounds" value={motion.sounds ? "on" : "off"}
+              onChange={(v) => motion.setSounds(v === "on")}
+              options={[{ value: "off", label: "Off" }, { value: "on", label: "On" }]} />
+            <p className="ap-hint">Little sounds, like the robot office's Taser. Saved in this browser.</p>
+          </div>
+        </div>
+        <div className="ap-row">
+          <span className="ap-label" id="ap-taser">Taser in the office</span>
+          <div className="ap-control">
+            <Segmented labelledBy="ap-taser" value={motion.taser ? "show" : "hide"}
+              onChange={(v) => motion.setTaser(v === "show")}
+              options={[{ value: "show", label: "Show" }, { value: "hide", label: "Hide" }]} />
+            <p className="ap-hint">A joke button in the robot office: zap a robot for a cartoon spark. Their work carries
+              on.</p>
+          </div>
+        </div>
         <Choice id="ap-life" label="Robot activity" value={motion.officeActivity}
           onChange={(v) => motion.setOfficeActivity(v as OfficeActivity)}
           options={[["full", "Full"], ["calm", "Calm"], ["low_power", "Low power"]]}
@@ -80,6 +131,9 @@ export default function AppearanceSettings() {
         <div className="ap-foot">
           <button type="button" className="btn btn-outline" onClick={() => setCustomizing(true)}>
             <Icon name="layers" />Customize studio</button>
+          <button type="button" className="btn btn-ghost" onClick={() => set({ palette: "studio", accent: "blue" })}
+            disabled={appearance.palette === "studio" && appearance.accent === "blue"}>
+            <Icon name="back" />Reset colors</button>
           <span className="ap-foot-note">Layouts are saved by device (this is a {deviceClass()}).</span>
         </div>
       </section>

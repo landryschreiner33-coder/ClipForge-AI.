@@ -278,19 +278,29 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "engines_video": "",               # the video model; empty: the one set up
     "engines_voice": "",               # the voice; empty: the one set up
     "engines_idle_minutes": 10.0,      # ClipForge's ComfyUI stops after this long without work, freeing its memory
+    # Settings → Processing (fullcloud/): where Make clips projects run. local: this computer | hybrid: this computer,
+    # with pictures and video on the cloud computer (engines_comfyui "remote") | full_cloud: the whole clip pipeline
+    # on the owner's ClipForge worker (a ClipForge started with CLIPFOUNDRY_WORKER_KEY on a rented computer)
+    "processing_mode": "local",
+    "worker_url": "",                  # the worker's address: https (plain http only to this computer)
+    "worker_key": "",                  # the worker's key (CLIPFOUNDRY_WORKER_KEY there; sealed like a password)
+    "worker_price_per_hour": 0.0,      # what the owner pays an hour for the worker (for estimates); 0: not known
+    "worker_month_hours": 10.0,        # worker time a month ClipForge may use; 0: none
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-               "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key", "engines_remote_key"}
+               "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key", "engines_remote_key",
+               "worker_key"}
 SEARCH_API_KEYS = {"youtube_api_key", "tavily_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
 # set only by their own routes, never by PUT /api/settings (the cloud computer's address and key: only from ClipForge's
 # own page, POST /api/engines/remote, so no other page can point the key somewhere else)
 ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port",
-                    "engines_remote_url", "engines_remote_key"}
+                    "engines_remote_url", "engines_remote_key", "worker_url", "worker_key"}
 # not secret enough to seal, but shown as ******** by GET /api/settings (which any page could ask): whoever has the
 # cloud computer's address can use it while it is on. Its own page reads it from GET /api/engines (this computer only).
-UNSHOWN_KEYS = {"engines_remote_url"}
+UNSHOWN_KEYS = {"engines_remote_url", "worker_url"}
+PROCESSING_MODES = ["local", "hybrid", "full_cloud"]
 AUTOPILOT_PROCESS = ["separate", "in_app"]
 YOUTUBE_PRIVACY = ["private", "public"]  # public also needs an explicitly confirmed public audience
 AUDIENCE_INTENTS = ["selected", "owner_only", "local_only", "public"]
@@ -366,9 +376,15 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             v = v.rstrip("/")
             if len(v) > 300 or (v and not _remote_url_ok(v)):  # never cut short: that would be another address
                 continue
-        elif key == "engines_remote_key":  # it goes in a header as it is: printable ASCII only
+        elif key in ("engines_remote_key", "worker_key"):  # it goes in a header as it is: printable ASCII only
             if len(v) > 1024 or any(not 33 <= ord(c) <= 126 for c in v):
                 continue
+        elif key == "worker_url":  # the key and the video cross the internet: never in clear
+            v = v.rstrip("/")
+            if len(v) > 300 or (v and not _remote_url_ok(v)):
+                continue
+        elif key == "processing_mode" and v not in PROCESSING_MODES:
+            continue
         elif key in ("engines_picture", "engines_video", "engines_voice"):
             v = v[:80]
             if v and not all(c.isalnum() or c in "-._" for c in v):
@@ -443,6 +459,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),
     "nvidia_timeout_s": (5.0, 300.0), "nvidia_price_per_mtok_usd": (-1.0, 1000.0),
     "nvidia_daily_spend_cap_usd": (0.0, 1000.0),
+    "worker_price_per_hour": (0.0, 1000.0), "worker_month_hours": (0.0, 744.0),
     "autopilot_daily_target": (0, 100), "autopilot_sources_per_day": (0, 30), "autopilot_clips_per_source": (1, 10),
     "autopilot_min_quality": (0.0, 100.0), "autopilot_replacement_threshold": (0.0, 500.0),
     "autopilot_replacement_cooldown_hours": (0.0, 168.0),

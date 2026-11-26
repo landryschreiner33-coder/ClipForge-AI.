@@ -256,8 +256,14 @@ def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
     db.update_publication(pub["id"], remote_id=init["publish_id"], info={**(pub.get("info") or {}),
                                                                          "username": username})
     tiktok.upload_chunks(init["upload_url"], pub["video_path"], _progress_writer(pub["id"]), cancelled)
+    # Every part arrived, so TikTok has the whole video and nothing can stop it now (a Cancel pressed while the last
+    # part was on its way included): from here the status is read to the end, and a Cancel upload is told it was late.
+    def late() -> bool:
+        return bool(((db.get_publication(pub["id"]) or {}).get("info") or {}).get("cancel_requested_at"))
+
     db.update_publication(pub["id"], status="processing", progress=1.0,
-                          message=f"Uploaded. TikTok is processing it. {tiktok.PROCESSING_NOTE}")
+                          message=TOO_LATE_TIKTOK + TIKTOK_PROCESSING if late() else
+                          f"Uploaded. TikTok is processing it. {tiktok.PROCESSING_NOTE}")
     deadline = time.time() + tiktok.POLL_TIMEOUT
     while time.time() < deadline:
         time.sleep(tiktok.POLL_SECONDS)
@@ -268,10 +274,12 @@ def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
             asked = asked_to_wait(exc)
             if asked is None or asked > SHORT_WAIT:
                 raise
-            sleep_exactly(asked, cancelled)
+            sleep_exactly(asked)  # never cut short by a Cancel: it could no longer stop TikTok
             continue
         outcome = _tiktok_outcome(current, st, username)
         if outcome:
+            if outcome["status"] in ("done", "action_needed") and late():
+                outcome["message"] = TOO_LATE_TIKTOK + outcome["message"]
             db.update_publication(pub["id"], **outcome)
             return
     db.update_publication(pub["id"], message="Uploaded; TikTok is still processing it. Use Refresh status later, "
@@ -302,6 +310,8 @@ def _hold_manual_unknown(pub: dict, exc: PublishError) -> dict:
 
 
 TOO_LATE = "Too late to cancel: YouTube already had the whole video, so it is uploaded. "
+TOO_LATE_TIKTOK = "Too late to cancel: TikTok already had the whole video, so it is uploaded. "
+TIKTOK_PROCESSING = "TikTok is processing it; delete it in the TikTok app if you do not want it."
 TOO_LATE_YOUTUBE = TOO_LATE + "YouTube is processing it; delete it in YouTube Studio if you do not want it."
 CANCELED_PART = "Upload canceled. YouTube had only part of the video, so nothing was posted."
 

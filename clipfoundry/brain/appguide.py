@@ -37,6 +37,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "make_clips": ("Make clips", "#/create/clips"),
     "make_video": ("Make a YouTube video", "#/create/video"),
     "make_short": ("Make an animated short", "#/create/short"),
+    "text_stories": ("Text Stories", "#/stories"),
     "from_link": ("Make clips from a link", "#/create/link"),
     "live_streams": ("Missions → Live streams", "#/missions/live"),
     "missions": ("Missions", "#/missions"),
@@ -79,7 +80,8 @@ SECTIONS: tuple[Section, ...] = (
         "text, edits full YouTube videos from your files, makes animated voice-over shorts, and posts to your "
         "YouTube and TikTok accounts.",
         "Everything starts from the Make button in the top bar or the Studio's Make tab: Make clips, Make a YouTube "
-        "video, Make an animated short, Clip a live stream. The Studio's Working on tab shows what is being made, "
+        "video, Make an animated short, Make a text story, Clip a live stream. The Studio's Working on tab shows "
+        "what is being made, "
         "what's going on and the next post.",
         "It runs on this computer; your videos stay here unless you post them."),
         ("clipforge", "app", "program", "features", "can it", "what can", "overview", "start", "begin", "new here",
@@ -168,6 +170,17 @@ SECTIONS: tuple[Section, ...] = (
         "The short's page has a Scenes panel to change one picture or one line and make it again."),
         ("animated", "animation", "short", "faceless", "voice over", "voiceover", "ai video", "ai pictures",
          "story short", "script", "narration", "scenes", "cartoon"), "make_short"),
+    Section("text_stories", "Making a text story", (
+        "Text Stories in the main menu: a story read aloud over background video with a title card and big "
+        "captions. Steps: Script, Voice, Background, On-screen text, Preview, Export.",
+        "Paste the story, or ClipForge AI writes one from a topic and revises it (Make the ending scarier).",
+        "Voice styles (Energetic storyteller, Casual commentary, Dramatic suspense, Fast meme narration) with Hear; "
+        "speed, tone, pronunciations; a favourite voice per style or per story.",
+        "Backgrounds: upload clips (trim, loop, move, replace), pick from your videos, or Let ClipForge pick. "
+        "Export makes 1080 × 1920 with Download and Open in the editor."),
+        ("text story", "text stories", "reddit story", "story video", "narrated story", "gameplay background",
+         "minecraft parkour", "subway surfers", "satisfying", "voice style", "pronunciation", "tts", "background "
+         "video"), "text_stories"),
     Section("projects", "Projects, downloads and deleting", (
         "Projects lists everything you made, with filters for Clips, Full videos and Animated shorts, and search.",
         "Open a project to preview, download or post its clips.",

@@ -7,6 +7,7 @@ import { ROOM_ACCENT, ROOMS, roomOf, VIEW } from "./world";
 import { Listener, LIVE_SECONDS } from "./useOffice";
 import { OfficeMotion, placements, WorkCard } from "./OfficeMotion";
 import SHIP from "../space/ship-world.json";
+import { reaction, zapSound } from "./taser";
 import type { StudioScene } from "./StudioScene";
 
 export type Card = WorkCard;
@@ -51,7 +52,23 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   simple?: boolean;
 }) {
   const wrap = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null);
-  const { pageHidden, officeActivity } = useMotion();
+  const { pageHidden, officeActivity, taser, sounds } = useMotion();
+  // the Taser easter egg: armed, a click on a robot zaps it (taser.ts) instead of opening it
+  const [armed, setArmed] = useState(false);
+  const [zaps, setZaps] = useState<{ key: number; id: string; x: number; y: number; words: string }[]>([]);
+  const zapCount = useRef(0);
+  useEffect(() => {
+    if (!taser) setArmed(false);
+  }, [taser]);
+  const zap = (id: string) => {
+    const el = buttons.current.get(id);
+    if (!el) return;
+    const key = ++zapCount.current;
+    const x = el.offsetLeft + el.offsetWidth / 2, y = el.offsetTop + el.offsetHeight * 0.35;
+    setZaps((list) => [...list.filter((z) => z.id !== id), { key, id, x, y, words: reaction() }]);
+    if (sounds) zapSound();
+    window.setTimeout(() => setZaps((list) => list.filter((z) => z.key !== key)), 1700);
+  };
   // drawing stops while the ship is scrolled out of view
   const onScreen = useRef(true);
   const choreography = useRef<OfficeMotion | null>(null);
@@ -271,13 +288,21 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
           style={{ width: pct(40, VIEW.w), height: pct(56, VIEW.h) }}
           aria-label={label(c.id)} aria-pressed={selected === c.id} data-id={c.id}
           data-state={rows[c.id]?.state || "unavailable"}
-          onClick={() => onRobot(c.id, motion.actors.get(c.id)?.card || null)}>
+          onClick={() => (armed ? zap(c.id) : onRobot(c.id, motion.actors.get(c.id)?.card || null))}>
           <span className={`robot-state state-${rows[c.id]?.state || "unavailable"}`} aria-hidden="true"
             title={stale ? "Last known state" : STATE_WORDS[rows[c.id]?.state || "unavailable"]}>
             <Icon name={STATE_ICON[rows[c.id]?.state || "unavailable"]} size={12} />
           </span>
           <span className="robot-tag" aria-hidden="true">{c.name}</span>
         </button>)}
+        {zaps.map((z) => <span key={z.key} className="taser-zap" style={{ left: z.x, top: z.y }} aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="64" height="64">
+            <polyline points="30,2 22,26 34,28 20,62 44,24 32,22 40,2" />
+            <polyline className="arc" points="6,30 14,26 10,36 18,32" />
+            <polyline className="arc" points="58,30 50,24 54,36 46,32" />
+          </svg>
+          <span className="taser-words">{z.words}</span>
+        </span>)}
       </div>
       {renderer === "plain" && <p className="ship-missing small">The ship pictures could not load. The rooms and
         robots below still work, and every robot is listed under Activity.</p>}
@@ -290,6 +315,11 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         {ROOMS.map(r => <option key={r.id} value={r.id}>{ROOM_NAMES[r.id]}</option>)}
       </select></label>
       {tools}
+      {taser && <button type="button" className={`btn btn-ghost taser-btn${armed ? " on" : ""}`} aria-pressed={armed}
+        onClick={() => setArmed((a) => !a)} title="An easter egg: zap a robot for a cartoon spark. Work carries on.">
+        <Icon name="spark" size={14} />{armed ? "Taser on: pick a robot" : "Taser"}</button>}
+      <span className="sr-only" role="status" aria-live="polite">{zaps.length ? `${BY_ID[zaps[zaps.length - 1].id]
+        ?.name || "The robot"}: ${zaps[zaps.length - 1].words}` : ""}</span>
       <span ref={transferNote} className="handoff-note" data-phase="idle" role="status" aria-live="polite" />
       {!simple && (["working", "queued", "waiting", "idle", "paused", "error"] as RoleState[]).map(state =>
         <span key={state} className="legend-state"><Icon name={STATE_ICON[state]} size={13} />

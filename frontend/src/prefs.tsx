@@ -14,10 +14,15 @@ export type Appearance = { palette: "studio" | "midnight" | "graphite" | "plum";
   office_size: "compact" | "expanded"; pinned: string[]; clips_mode: "highlights" | "full_stories" | "story_parts";
   remember_style: boolean;
   /** Make a YouTube video: ClipForge AI asks questions when something is unclear, or just does it. */
-  video_setup_mode: "ask" | "auto" };
+  video_setup_mode: "ask" | "auto";
+  /** The colour picked for the Custom accent (accent "custom"). */
+  accent_color: string;
+  /** Worked out by the server from accent_color: the shades that keep text readable on every palette. */
+  accent_shades?: AccentShades };
+export type AccentShades = { primary: string; primary_hover: string; primary_tint: string; adjusted: boolean };
 export const DEFAULT_APPEARANCE: Appearance = { palette: "studio", accent: "blue", density: "comfortable",
   text_size: "standard", motion: "system", office_size: "expanded", pinned: [], clips_mode: "highlights",
-  remember_style: true, video_setup_mode: "ask" };
+  remember_style: true, video_setup_mode: "ask", accent_color: "#6CCFF6" };
 const DEFAULT = DEFAULT_APPEARANCE;
 const LOCAL = "clipforge.appearance";  // per-browser copy, so the first paint already has the right palette
 
@@ -65,6 +70,13 @@ function apply(a: Appearance) {
   delete root.dataset.theme;  // there is one (dark) theme
   root.dataset.palette = a.palette;
   root.dataset.accent = a.accent;
+  // the Custom accent: its readable shades (worked out by the server), or the preset's colours from theme.css
+  const custom = a.accent === "custom" ? a.accent_shades : undefined;
+  for (const [token, value] of [["--primary", custom?.primary], ["--primary-hover", custom?.primary_hover],
+    ["--primary-tint", custom?.primary_tint]] as const) {
+    if (value) root.style.setProperty(token, value);
+    else root.style.removeProperty(token);
+  }
   root.dataset.density = a.density;
   root.dataset.text = a.text_size;
   // Motion is not applied here: the per-browser Animations choice (motion.tsx) is its one owner, so a saved account
@@ -74,6 +86,7 @@ function apply(a: Appearance) {
 function clean(v: Partial<Appearance> & { theme?: unknown }): Appearance {
   const out = { ...DEFAULT };
   for (const k of Object.keys(DEFAULT) as (keyof Appearance)[]) if (v[k] !== undefined) (out as Record<string, unknown>)[k] = v[k];
+  if (v.accent_shades) out.accent_shades = v.accent_shades;
   return out;  // a saved Light or System theme from before is simply not read: ClipForge is dark only
 }
 
@@ -181,6 +194,11 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     try {
       const r = await studio.saveAppearance(patch);  // a patch: other devices' fields are not overwritten
       revision.current = r.revision;
+      // the Custom accent's readable shades come back from the server, for the colour that was saved
+      const back = r.value as Partial<Appearance>;
+      if (back.accent_shades) {
+        setAppearance((a) => (a.accent_color === back.accent_color ? { ...a, accent_shades: back.accent_shades } : a));
+      }
       pending.current = null;
       setState("saved");
     } catch {

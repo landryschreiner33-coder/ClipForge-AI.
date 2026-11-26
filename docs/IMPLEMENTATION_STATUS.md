@@ -1,11 +1,50 @@
 # Implementation status
 
+## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code)
+
+Built on `claude/project-thread-hqwolr`, shipped from `claude/project-thread-8ua98o` on top of batch 3 (PR #70).
+Landry's final-release prompt, sections 1, 6, 7 and 8: the ship and camera orbiting the black hole, your own accent
+colour and the office Taser; Text Stories; characters and places for animated shorts with an example picture for every
+look; and Full Cloud processing on the owner's own ClipForge worker. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md),
+[FULL_CLOUD.md](clipforge/FULL_CLOUD.md), [deploy/WORKER.md](../deploy/WORKER.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_theme_contrast` (accent colour readable on every palette), `test_studio_prefs` | passed |
+| 2026-11-25 | pytest `test_text_stories` (13): script, AI write and revise, voice styles and tone, pronunciations kept out of the captions, favourite voices, uploaded / picked / colour backgrounds, preview, export, Stop | passed (real local voice, FFmpeg render) |
+| 2026-11-25 | pytest `test_studio_shorts_cast` (7), `test_look_examples` (4), `test_local_engines` (80, reference pictures in the picture graph) | passed |
+| 2026-11-25 | pytest `test_full_cloud` (9): a real worker started as a second process with its own data folder and key; worker-only answers, the same footage made here and on the worker gives the same clips (start, end, title) whose files are here and play, an edit renders again here, a job picked up again without a second upload, Stop deletes the job there, the private test job, the monthly limit, a job over the limit never reaches the worker, the Processing routes, style choices sent without their names | passed |
+| 2026-11-25 | Exports: a Text Story with an uploaded background, one with a background ClipForge picked from the library, one with its own moving colour | 1080×1920 MP4s with voice, title card and highlighted captions, in `/mnt/project-files/final-release/batch4/` |
+| 2026-11-25 | Screenshots and videos (black hole orbit video, Studio orbit, own colour, Taser, Text Stories editor / preview / phone, characters panel, references, change proposal, drift warning, scene timing, look examples on a computer and a phone, Settings → Processing, a Full Cloud project running and done, the test job on a phone) | in `/mnt/project-files/final-release/batch4/` |
+| 2026-11-25 | Mac FilmCraft check (PR #69): the moving sky took about 2.6 s of every 12 s of the page's thread on Projects and 8.9 s on the Studio in headless Chromium without a graphics card, and FilmCraft's editor loads on that thread | `covered.ts` holds the sky and black holes still while the editor is open (from batch 2, `a684076`) |
+| 2026-11-25 | Restore on a new cloud machine: the batch 4 patch (`restore/b4` on `claude/project-thread-hqwolr`) joined, decoded and applied on top of batch 3; `npx tsc --noEmit -p frontend` and `npm run build` | sha256 matched, applied cleanly; passed |
+| 2026-11-25 | Review findings 7 to 25 (`restore/REMAINING.md`): 20 new tests in `test_text_stories` (15) and `test_studio_shorts_cast` (5), run on the code before the fixes and after | before the fixes: 19 failed, 1 passed; after: all passed |
+| 2026-11-25 | Full Cloud folder guard: `test_tidying_a_worker_job_never_deletes_a_folder_outside_the_projects_folder` (uses only the test's own temporary folder) | passed |
+| 2026-11-25 | The app on a seeded demo folder: Delete in the characters library (confirm, then gone from the list); Keep this voice for this story, then another style and a reload | Captain Ortiz gone, Mia and The lighthouse kept; the voice stayed British man while the style changed speed to 0.90× and tone to −2; `character-library-delete-confirm.png`, `character-library-deleted.png`, `text-story-keep-voice.png` in `/mnt/project-files/final-release/batch4/` |
+| 2026-11-25 | A second review of the fixes (two read-only reviewers: Text Stories; shorts, characters, Full Cloud) | 7 problems confirmed in the fixes, all fixed; 8 new tests (`test_text_stories` 3, `test_studio_shorts_cast` 4, `test_full_cloud` 1): before the fixes all 8 failed, after them all pass |
+| 2026-11-25 | A last look at those fixes (the same two areas) | 3 smaller problems, all fixed: a library Delete at the moment a short takes the character, a cut the owner set in the editor, an older Stop against a newer job; 3 new tests fail before and pass after |
+| 2026-11-25 | `pytest -m "not slow"` on this cloud machine before the second review | 3,303 passed, 2 skipped, 1 failed: `test_the_reschedule_route_takes_a_clock_time_and_answers_a_conflict_with_a_suggestion` planned from 6 AM today and failed after 11:10 Chicago time; it now plans from tomorrow |
+| 2026-11-25 | `pytest -m "not slow"` on `b139683` (after the second review and the last look) | 3,315 passed, 2 skipped (31 min) |
+| 2026-11-25 | GitHub "Native Mac desktop app" run 45671098686 on `b139683` | slow suite passed; the Mac build was cancelled after 15 minutes without a Mac machine |
+| 2026-11-25 | GitHub FilmCraft check run 45670662326 on `b139683` | Linux passed; Mac failed: the editor page check timed out waiting for `.craft-editor`. Cause: the batch 4 patch had removed `covered.ts` and the check's busy-page handling (a684076, 72c4ab6); a forward `git apply --check` of every batch 2 and 3 commit found no other lost change. Restored, with the orbiting hole holding still too; `tsc`, build, `test_craft`, `test_studio_filmcraft`, `test_theme_contrast`: 60 passed |
+| 2026-11-25 | Fact-check of the plain-language release report against the code (3 readers by area, each finding checked again) | 21 sentences corrected in the report (3 more findings refuted); 1 real problem in the code: a TikTok upload stopped after its last part ended as "Nothing was published" or went back for a second upload |
+| 2026-11-25 | TikTok fix: `test_a_cancel_that_comes_while_the_last_part_is_sent_never_says_nothing_was_published`, `test_a_stop_after_tiktok_has_the_whole_video_never_plans_a_second_upload`; then the TikTok, YouTube, planned, unattended and public publishing files | both failed before the fix (cancelled; approved again) and pass after; 133 passed |
+
+Not verified: Full Cloud on a rented server (the tests and screenshots use a real worker on the same machine), real
+speech transcription on the worker (no voice in the cloud: the test job sent its words as a transcript), a character's
+reference pictures on a real FLUX.2 klein (the graph is built and checked, the model is not in the cloud), the drift
+warning's colours on real pictures (stored by hand for the screenshot), a ClipForge AI change proposal from a real
+model (the screenshot's answer was placed as the model would answer), Text Story writing from a real model, the
+orbit's frame rate on Landry's Mac.
+
 ## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code)
 
-Branch `claude/project-thread-hqwolr` on top of batch 2. Landry's final-release prompt, sections 4 and 5: ClipForge AI
-commands with the app's own tools and OK cards, queued work followed in the chat, the crew's final check and
-report, saved chats, and Brain → Learned (what your edits taught, checked before use, versions and rollback).
-Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md), [CLIPFORGE_AI.md](clipforge/CLIPFORGE_AI.md).
+Built on `claude/project-thread-hqwolr` on top of batch 2; merged as pull request #70 (`f1c0618`). Landry's
+final-release prompt, sections 4 and 5: ClipForge AI commands with the app's own tools and OK cards, queued work
+followed in the chat, the crew's final check and report, saved chats, and Brain → Learned (what your edits taught,
+checked before use, versions and rollback). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md),
+[CLIPFORGE_AI.md](clipforge/CLIPFORGE_AI.md).
 
 | When | Command | Result |
 | --- | --- | --- |

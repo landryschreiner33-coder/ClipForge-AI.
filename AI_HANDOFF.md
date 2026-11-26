@@ -1,5 +1,47 @@
 # AI handoff
 
+## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code, cloud session)
+
+**Plain-English summary:** the last batch of Landry's final-release prompt. The Studio's ship and camera now orbit
+the big black hole with its light bending; Settings → Appearance takes your own accent colour, Reset colours, sound
+effects and the office Taser. Text Stories reads a story over background video (yours, one ClipForge picks, or a
+moving colour), with voice styles, tone, pronunciations and favourite voices. Animated shorts keep characters and
+places the same from shot to shot (details plus reference pictures), propose changes before applying them, warn when
+a scene's colours drift, and every look shows an example picture. Settings → Processing adds Full Cloud: Make clips
+runs on your own ClipForge worker and the clips come back into the project.
+
+- **Where things are:** space look in `blackHoleOrbit.ts`, `shipArt.ts`, `BlackHole.tsx`, `prefs.accent_shades`;
+  Text Stories in `makers/textstory.py`, `makers/textstory_routes.py`, `makers/voice_styles.py`, `TextStories.tsx`;
+  characters in `makers/cast.py`, `ShortCast.tsx`; look examples in `makers/look_examples.py`, `lookArt.tsx`; Full
+  Cloud in `clipfoundry/fullcloud/` (`runner.py` desktop side, `worker_api.py` worker side, `client.py`, `usage.py`,
+  `testjob.py`, `routes.py`), `ProcessingSettings.tsx`, `projectCloud.tsx`, docs in
+  [docs/clipforge/FULL_CLOUD.md](docs/clipforge/FULL_CLOUD.md) and [deploy/WORKER.md](deploy/WORKER.md).
+- **Worth knowing:** a worker is the same ClipForge started with `CLIPFOUNDRY_WORKER_KEY`; `WorkerOnly` answers
+  404 to everything else and `api.lifespan` starts no publishing, Autopilot, phone listener or editing-app download
+  there. Worker rows come back as JSON text and `runner._mapped` swaps the worker's folder and project id in
+  strings. `runner.lean_guidance` keeps style, skill and Brain note names on this computer; `_import` names them
+  again from the local snapshot. `ffmpeg_utils.probe` has no `has_video` key (use `video_codec` and `width`). Every
+  new Settings tab must also go in the settings pattern in `frontend/src/router.ts`. `covered.ts`: anything that
+  covers the whole window and does heavy work on the page's thread should call `useCoverPage()`.
+- **Review fixes (Text Stories):** a job writes its result only through `textstory._patch_working` (the row must
+  still be working on the same job), so a late Stop or a newer job wins; `get()` settles a story whose job is gone
+  (`_unstick`). Exports are remembered by fingerprint in `text_story_exports` so they are never picked as a
+  background. `voice_styles.for_style` decides the voice a new style brings. Full Cloud deletes or fills a folder only
+  when `worker_api.own_folder` says it is a project's own folder in the projects folder. The Brain note about a written
+  story is recorded by `write_job` after `_patch_working` (`write_story(remember=False)` + `remember_story`).
+- **Transitions in shorts:** fit them with `shorts._fit_transition`, which uses `engine.transition_too_long` (the
+  editor's own check, also on whole frames); `plan["short"]["fitted"]` = {"from", "to"} remembers what ClipForge
+  changed so it is asked for again. `project_delete.drop_unnamed(ws, ids)` deletes files nothing names any more.
+- **TikTok after the last part:** once `upload_chunks` returns, TikTok has the whole video; `run_tiktok` reads the
+  status to the end (no stop cuts its waits) and a Cancel upload mark makes the message start with
+  `jobs.TOO_LATE_TIKTOK`. Never end a finished TikTok upload as cancelled: a planned post would be uploaded twice.
+- **Restoring work from a patch:** a patch made from a tree without a later fix removes that fix when applied (batch 4
+  lost `covered.ts`). After applying one, check every commit since the patch's base with
+  `git show <c> -- <file> | git apply --check -`: a forward patch that still applies is a change the head lacks.
+- **Blockers:** Full Cloud was tested with a real worker on the same machine, not a rented server; the cloud has no
+  speech model, voice for the worker's transcription, FLUX.2 klein or AI model, so those parts are tested with a
+  transcript, a built graph and placed answers.
+
 ## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code, cloud session)
 
 **Plain-English summary:** ClipForge AI can now do things, not just talk: move or fix scheduled posts, cancel an

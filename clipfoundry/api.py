@@ -32,6 +32,7 @@ from .studio import local_routes, project_delete, routes as studio_routes
 from .craft import routes as craft_routes
 from .engines import routes as engine_routes
 from .makers import routes as maker_routes
+from .makers import textstory_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
@@ -44,6 +45,7 @@ from .office import routes as office_routes
 from .cloud import auth_routes, ownership, principal
 from .cloud import settings as cloud_settings
 from .cloud.middleware import CloudGuard
+from .fullcloud import routes as fullcloud_routes, worker_api
 
 
 def _cloud_startup() -> None:
@@ -68,7 +70,7 @@ async def lifespan(_: FastAPI):
         worker.resume(db.interrupted_work())
         worker.start()
         from .studio import edit_requests, jobs as studio_jobs, link_import, media_sources, reference, video_flow  # noqa: F401
-        from .makers import shorts  # noqa: F401 - the short_build job handler
+        from .makers import shorts, textstory  # noqa: F401 - the short_build and text story job handlers
         from .brain import chat as brain_chat
 
         studio_jobs.recover()  # builds, renders and link downloads that were waiting or running continue
@@ -82,12 +84,18 @@ async def lifespan(_: FastAPI):
         except Exception:  # noqa: BLE001 - housekeeping never stops the app from starting
             logging.getLogger(__name__).exception("Could not clean old unfinished uploads")
         project_delete.finish_later()  # files of deleted projects that were open in another program last time
-        publish_jobs.worker.start()
-        publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
-        autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
-        if not cloud_settings.enabled():  # the phone listener is a desktop feature; cloud has its own sign-in
+        # a Full Cloud worker only makes clips for its desktop: it never posts, runs Autopilot, listens for phones or
+        # fetches the editing apps (deploy/WORKER.md)
+        desktop = not worker_api.enabled()
+        if not desktop:
+            worker_api.start_tidying()  # jobs nobody fetched go after worker_api.KEEP_HOURS, checked every hour
+        if desktop:
+            publish_jobs.worker.start()
+            publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
+            autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
+        if desktop and not cloud_settings.enabled():  # the phone listener is a desktop feature; cloud has its sign-in
             phone.manager.restore()
-        if not cloud_settings.enabled() and os.environ.get("CLIPFOUNDRY_WORKERS", "").lower() != "off":
+        if desktop and not cloud_settings.enabled() and os.environ.get("CLIPFOUNDRY_WORKERS", "").lower() != "off":
             from .craft import apps as craft_apps
 
             craft_apps.auto_install()  # FilmCraft and EffectCraft, fetched once in the background (Settings: off)
@@ -121,6 +129,9 @@ def _youtube_retention() -> None:
 app = FastAPI(title=config.APP_NAME, version=__version__, lifespan=lifespan,
               dependencies=[Depends(ownership.check)])
 app.add_middleware(CloudGuard)  # cloud mode only: host check, sign-in, CSRF, rate limits, security headers
+app.add_middleware(worker_api.WorkerOnly)  # a Full Cloud worker (CLIPFOUNDRY_WORKER_KEY set) answers only /api/worker
+app.include_router(worker_api.router)  # the worker's side of Full Cloud (404 unless the key is set)
+app.include_router(fullcloud_routes.router)  # Settings → Processing (this computer's side)
 app.include_router(auth_routes.router)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(connection_routes.router)
@@ -130,6 +141,7 @@ app.include_router(project_delete.router)  # what deleting a project does, and d
 app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
 app.include_router(engine_routes.router)  # local makers: pictures, video, voice (before the UI catch-all)
 app.include_router(maker_routes.router)  # Make → Animated short
+app.include_router(textstory_routes.router)  # Text Stories, voice previews and favourites
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
@@ -158,7 +170,10 @@ def _clip_or_404(clip_id: str) -> dict:
 
 
 def _public_project(p: dict) -> dict:
+    from .fullcloud import runner
+
     out = {k: v for k, v in p.items() if k not in {"source_path"}}
+    out["cloud"] = runner.view(p)  # None unless it runs (or ran) on the owner's worker
     out["has_thumbnail"] = (Path(p["source_path"]).parent / "thumb.jpg").exists() if p.get("source_path") else False
     if (p.get("info") or {}).get("link"):  # made from a supplied video link
         from .studio import link_import
@@ -508,6 +523,9 @@ def reprocess(project_id: str, body: ProcessBody) -> dict:
         return get_project(project_id)
     opts = {**(p.get("options") or {}), **_clean_options(body.options)}
     db.update_project(project_id, options=opts)
+    from .fullcloud import runner
+
+    runner.decide(project_id, again=True)  # Settings → Processing as it is now
     worker.submit_project(project_id, url=p.get("source_url") if not Path(p["source_path"]).exists() else None)
     return get_project(project_id)
 

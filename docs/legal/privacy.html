@@ -36,8 +36,9 @@
       or TikTok, importing a video or recording a live stream from a link you add, searching for pictures, footage and
       sounds with Find media,
       downloading the speech-recognition model or the picture, video and
-      voice makers you set up, a cloud computer you rent to make pictures and video, or an optional AI service you
-      turn on. It goes straight from your computer to that service.</li>
+      voice makers you set up, a cloud computer you rent to make pictures and video, your own ClipForge worker if you
+      choose Full Cloud, or an optional AI service you turn on. It goes straight from your computer to that
+      service.</li>
     <li>You sign in on Google's and TikTok's own pages. ClipForge never sees or stores your passwords.</li>
     <li>If you enable the optional phone dashboard, a paired phone receives a small read-only status snapshot
       directly from your PC. It includes video titles, work progress, posting counts and system-check status.
@@ -442,6 +443,86 @@
   runs that computer under its own terms and privacy policy.
 </p>
 
+<h3 id="characters">Characters, places and look examples in animated shorts (added 2026-11-25)</h3>
+<p>
+  An animated short also keeps, in the same data folder, its characters and places (up to 6): each one's name, what
+  it looks like, its clothes, colours and what it carries, which of these details are locked, up to 3 reference
+  pictures, which shots it is in, any change made for one shot only, and for each picture a maker drew, which details
+  the look check found missing and whether you pressed Looks right. A reference picture you drop is stored like your
+  other uploads; one taken from a shot is that shot's picture. When you keep a character or place in your library
+  (From my library), a copy of its details and reference pictures stays in the data folder for your other shorts
+  until you delete it from the library: deleting a short does not delete it, and its reference pictures stay while
+  the library uses them. Deleting it from the library deletes its details and those reference pictures that no
+  short, video or other character still uses; the others go when you delete what uses them.
+</p>
+<p>
+  Each picture of a shot a character or place is in is made with its details in the picture's words. With a picture
+  model that can follow reference pictures (FLUX.2 [klein]), up to 4 of them are also handed to ComfyUI with each
+  such picture, as a smaller PNG copy (about one megapixel) made on this computer without the details written into
+  the original file (such as where and when a photo was taken). They go where the picture's words go (the ComfyUI
+  row in section 3): your own ComfyUI on this computer, the ComfyUI app, an address you typed, or the cloud computer
+  you chose. ComfyUI keeps each one in its <code>input</code> folder, like the pictures it animates. The look check
+  measures the picture's colours on this computer; when ClipForge AI is the built-in model with Eyes on, the picture
+  and the details are also shown to that model, on this computer. Nothing of the check is sent anywhere.
+</p>
+<p>
+  Describe a change sends the character's or place's details (and which are locked) and the words you typed to the
+  AI service you chose for ClipForge AI: it stays on this computer with the built-in model and goes online only if
+  you chose an online service (section 3). Nothing is changed until you press Apply. Make examples with my picture
+  maker (Make → Animated short → Look) asks your picture maker for one picture in each look from ClipForge's own words
+  (a fox on a hill at dusk) and keeps a small copy of each, with which maker made it and when, in the data folder's
+  <code>look_examples</code> until you make them again or delete the data folder.
+</p>
+
+<h3 id="text-stories">Text Stories (added 2026-11-25)</h3>
+<p>
+  A Text Story keeps, in the same data folder: its name, title and script; the voice, voice style, speed and tone you
+  chose and your pronunciations; the caption style, place and size; its backgrounds (which of your videos or uploaded
+  clips, where each is trimmed, whether it loops, how it is framed, and why ClipForge picked it when it did); the
+  recorded narration with each word's time; the latest preview and exported video; and what ClipForge AI was last
+  asked to write, with its notes. Favourite voices are kept for each voice style and each story. When ClipForge picks
+  the backgrounds, it looks only at your own videos in ClipForge (their names, lengths and shapes); when you have
+  none, it draws a moving colour background itself. Clips you upload as backgrounds are kept with your other uploads
+  (section 7). With the local voice engine, the engine's own copy of the narration and its note (which holds the words
+  read) are moved into the story's folder. Deleting a story deletes its row, its favourite voices, its narration,
+  preview and export files and that copy (<code>text_stories/&lt;id&gt;</code>), and what ClipForge AI remembered
+  about writing it (its Brain memories kept for that story); a video made from its export in the editor stays until
+  you delete that video. When you open an export in the editor, ClipForge keeps a fingerprint of that video (a hash
+  of its bytes, not the video), also after the story is deleted, so a copy of it is never offered back as a
+  background. The voice, the captions and the video are made on this computer.
+</p>
+<p>
+  The Hear buttons play a sample made on this computer. The usual sample sentence is kept in
+  <code>voices/previews</code> for each voice, speed and tone, so it plays at once next time; a sample of your own
+  story's first words is sent to the page once and deleted, and is not kept.
+</p>
+<p>
+  Write it for me and Revise send your topic (or the story's title and script with the change you typed), the tone
+  and length, your standing rules and the facts that fit (up to 6) and the built-in know-how that fits, to the AI
+  service you chose for ClipForge AI: it stays on this computer with the built-in model and goes online only if you
+  chose an online service (section 3).
+</p>
+
+<h3 id="full-cloud">Full Cloud: your own ClipForge worker (added 2026-11-25)</h3>
+<p>
+  If you choose Full Cloud in Settings → Processing, Make clips runs on a ClipForge worker: a copy of ClipForge that
+  you start, with a key, on a computer you rent. ClipForge keeps the worker's address in its settings and the key
+  encrypted like your other keys; the key is sent only to that address and is not shown again. With each project made
+  there, ClipForge keeps what was sent (file names and sizes, or the link), the worker's address, which stages ran
+  there, a log of what happened and the estimate. It also keeps a record of each worker job (when it started and
+  ended, its worker time, the bytes sent, the estimate and, for a test job, its results), which counts this month's
+  worker time. Deleting a project keeps that record so the month's time stays right; it goes with the data folder.
+  The clips come back into the project's folder here, like clips made on this computer, and the project's video stays
+  here (a video from a link comes back with the clips).
+</p>
+<p>
+  On the worker, each job is a project in the worker's own data folder: the video (or the video it downloaded from
+  the link), the transcript file, the transcription, the analysis and the clips. ClipForge deletes the job there as
+  soon as the clips are back here, or when you press Stop; a job that is never fetched is deleted 72 hours after it
+  ended. The worker also keeps, as its own settings, the last clip choices it was sent, and its own log files. That
+  computer is run by the company you rent it from, under its own terms and privacy policy.
+</p>
+
 <h3 id="learned">What ClipForge learns from your edits (added 2026-11-25)</h3>
 <p>
   When you save an edit of a clip in the clip editor, ClipForge keeps a note of it in the same data folder, to find
@@ -573,11 +654,14 @@
       audience and look, your standing rules (up to 8) and up to 6 of your facts that fit it (about 900 characters of
       them in all), and the know-how that fits (asked once more when the first answer cannot be used or is far from
       the length); with Paste my script, when a scene has no picture line, your
-      whole script with its title and look and the memories and know-how that fit, for picture ideas. Each request
+      whole script with its title and look and the memories and know-how that fit, for picture ideas; with Describe
+      a change on a character or place, its details (and which are locked) and the words you typed. For a Text
+      Story: with Write it for me, your topic, tone and length, or with Revise, the story's title and script and the
+      change you typed, with your standing rules, the facts that fit (up to 6) and the know-how that fits. Each request
       ClipForge AI, a helper agent, the video planner or the editor (a change request) sends to an online service
       counts once against "AI requests a day" in Settings → Advanced (0 sends none); a short's script and picture
-      ideas are neither counted nor limited by it, so they are sent to the online service you chose even when it is
-      0.
+      ideas, a Text Story's writing and Describe a change are neither counted nor limited by it, so they are sent to
+      the online service you chose even when it is 0.
       If you choose an AI program on your own computer (such as Ollama or LM Studio),
       ClipForge sends this text only to the address you set for that program; an Ollama cloud model (a model name
       ending in "cloud") answers online even through the Ollama on your computer. If you choose a cloud AI service (for
@@ -620,8 +704,10 @@
       computer's operating system and its version (on Linux, also the distribution, its version and the C library's
       version), processor and Python version, and whether a build-server (CI) setting is present</td></tr>
     <tr><td>ComfyUI</td><td>Each time an animated short or a try in Settings makes a picture or a clip</td>
-      <td>The picture's or clip's words (for a short: the scene's picture idea, the main character and the look's style
-      words; for a try in Settings: ClipForge's example words); for a clip, the video model's own built-in words to
+      <td>The picture's or clip's words (for a short: the scene's picture idea, the main character, the details of the
+      characters and places in the shot and the look's style words; for a try in Settings or a look example:
+      ClipForge's example words); for a picture of a character or place with reference pictures, up to 4 smaller
+      copies of them (section 2); for a clip, the video model's own built-in words to
       avoid; the seed, size and model names; and to animate a picture, the picture file itself, unchanged (in a short,
       the scene's picture, which may be one you chose yourself), with any details written into it, such as where and
       when a photo was taken. ClipForge's own ComfyUI
@@ -633,6 +719,18 @@
       (https), with the key you saved if you set one, along with checks of its status, its graphics card and memory,
       and which model files it has. That computer is run by the company you rent it from (for example RunPod), and
       what it keeps stays there until you delete it (section 2)</td></tr>
+    <tr><td>Your ClipForge worker (Full Cloud, added 2026-11-25)</td><td>You choose Full Cloud and make clips from a
+      video or a link; you save or check the worker, or run a test job; while a job runs, and when ClipForge starts
+      again with a job still on the worker</td><td>The video (ClipForge's copy of it) or the link; the transcript file
+      you added, if any; the project's name and clip type; the clip choices from Settings (language, length and count,
+      captions, framing and layout, silence and filler removal, sound and quality) and this project's style choices
+      (the values, and for each one which kind of choice decided it, with that choice's id and version number, but
+      without the names or contents of the styles, skills, examples or Brain notes they came from); requests for
+      the job's progress, to fetch its clips and to delete it; and the key with each request, over an encrypted
+      connection (https; http only to this computer). A test job sends a one-minute test video ClipForge made (a test
+      pattern with ClipForge's test words, read by this computer's voice or given as a transcript). Accounts, posts,
+      Brain notes, ClipForge AI keys and other projects are never sent. With a link, the worker downloads the video
+      from that site itself, so the site sees the worker's address. What the worker keeps: section 2</td></tr>
     <tr><td>YouTube, TikTok and other video sites (including Twitch and Kick live streams)</td><td>You explicitly
       submit a public video or stream link. For a live stream, while Autopilot is on, also by itself: every few
       minutes until the stream starts (for up to a day after you added it), throughout the recording, including
@@ -804,8 +902,12 @@
     ClipForge's access on the platform (sections 4 and 5). Then close ClipForge and delete its data folder.
     Deleting the folder alone does not cancel ClipForge's access to YouTube or TikTok. Your videos folder and any
     files you exported are separate, and stay until you delete them, and so do the models ClipForge put in the
-    ComfyUI app's own folders and what that app kept (remove those in the app), and the models and copies on a cloud
-    computer you rent (delete them there, or delete the rented computer; on RunPod: Terminate).</li>
+    ComfyUI app's own folders and what that app kept (remove those in the app), the models and copies on a cloud
+    computer you rent (delete them there, or delete the rented computer; on RunPod: Terminate), and a ClipForge
+    worker's own data folder (delete it there, or delete the rented computer).</li>
+  <li><b>Stop using a worker:</b> Settings → Processing → Local; Remove worker forgets its address and key here. A job
+    still on the worker is deleted there 72 hours after it ended; to delete everything there at once, delete the
+    worker's data folder or the rented computer.</li>
   <li><b>Remove the picture, video and voice makers:</b> in Settings → Pictures, video, voice. Remove ComfyUI
     deletes ClipForge's copy of ComfyUI and its Python environment; the models, the private Python, uv, the work
     folders, the logs and the made files stay. A model's Remove deletes the files ClipForge downloaded for it into

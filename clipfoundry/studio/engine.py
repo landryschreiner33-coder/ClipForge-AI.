@@ -253,16 +253,8 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
     t = (plan.get("transition") or {})
     if t.get("type", "cut") not in TRANSITIONS:
         out.append("Unknown transition.")
-    elif t.get("type", "cut") != "cut" and clips:
-        joins = _joins(plan)
-        sides = [c for c in clips if any(joins[c["id"]])]  # clips that take part in a transition
-        too_long = bool(sides) and int(t.get("ms") or 0) * 2 >= min(_dur(c) for c in sides)
-        if not too_long and int((plan.get("output") or {}).get("fps") or 30) in FPS:
-            els, _overlap = frame_map(plan, int((plan.get("output") or {}).get("fps") or 30))
-            too_long = any(e["frames"] < e["ov_in"] + (els[k + 1]["ov_in"] if k + 1 < len(els) else 0)
-                           for k, e in enumerate(els))
-        if too_long:
-            out.append("A transition is longer than half of the shortest clip; shorten it.")
+    elif transition_too_long(plan):
+        out.append("A transition is longer than half of the shortest clip; shorten it.")
     captions = plan.get("captions") or {}
     if captions.get("size", "medium") not in CAPTION_SIZES:
         out.append("Unknown caption size.")
@@ -306,6 +298,25 @@ def _validate_overlays(plan: dict, assets: dict[str, dict]) -> list[str]:
             if src_in < 0 or (_length(a) and src_in + int(length or 0) > _length(a) + 50):
                 out.append(f"“{name}” is trimmed outside its file.")
     return out
+
+
+def transition_too_long(plan: dict) -> bool:
+    """Whether the plan's dissolve or fade is longer than half of a clip it joins: in milliseconds, or on the whole
+    output frames the render uses (frame_map), where a clip a little over twice the transition can still be a frame
+    short. The makers fit their transitions with this same check (makers/shorts.py)."""
+    t = plan.get("transition") or {}
+    clips = [c for c in plan.get("clips") or [] if c.get("include", True)]
+    if t.get("type", "cut") == "cut" or t.get("type") not in TRANSITIONS or not clips:
+        return False
+    joins = _joins(plan)
+    sides = [c for c in clips if any(joins[c["id"]])]  # clips that take part in a transition
+    if sides and int(t.get("ms") or 0) * 2 >= min(_dur(c) for c in sides):
+        return True
+    fps = int((plan.get("output") or {}).get("fps") or 30)
+    if fps not in FPS:
+        return False
+    els, _overlap = frame_map(plan, fps)
+    return any(e["frames"] < e["ov_in"] + (els[k + 1]["ov_in"] if k + 1 < len(els) else 0) for k, e in enumerate(els))
 
 
 def _joins(plan: dict) -> dict[str, tuple[int, int]]:

@@ -1248,6 +1248,8 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
             p["captions"]["size"] = value
         elif field == "transition" and value in engine.TRANSITIONS:
             p["transition"] = {"type": value, "ms": 0 if value == "cut" else 400}
+            if isinstance(p.get("short"), dict):  # the owner's choice now: an animated short no longer re-asks for
+                p["short"] = {k: v for k, v in p["short"].items() if k != "fitted"}  # what ClipForge fitted
         elif field == "music_level_db" and isinstance(value, (int, float)) and -36 <= value <= -6 and \
                 any(i["role"] == "music" for i in p.get("audio") or []):
             for i in p["audio"]:

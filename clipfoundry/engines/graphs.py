@@ -72,15 +72,49 @@ def check_video(width: int = 256, height: int = 256, frames: int = 25, fps: int 
 
 # ------------------------------------------------------------------ pictures
 def picture(model: Model, prompt: str, negative: str, width: int, height: int, seed: int, *,
-            names: dict[str, str] | None = None, prefix: str = f"{PREFIX}/picture") -> tuple[dict, str]:
+            names: dict[str, str] | None = None, prefix: str = f"{PREFIX}/picture",
+            references: list[str] | tuple[str, ...] = ()) -> tuple[dict, str]:
     """(graph, the node whose steps are the progress) for one picture. `names` maps a model file's name to the name
     the ComfyUI in use lists it by (a ComfyUI app may keep it in a subfolder: "flux2/<name>", "flux2\\<name>" on
     Windows); `prefix` is where ComfyUI saves it (a new one for each job: ComfyUI answers an identical graph from its
-    cache without saving the file again)."""
+    cache without saving the file again). `references`: pictures ComfyUI already has (upload_image) that the new
+    picture should keep the look of (a character's reference pictures); only a model that takes reference pictures
+    (takes_references) uses them."""
     builder = {"zimage": _zimage, "flux2": _flux2}.get(model.graph)
     if builder is None:
         raise ValueError(f"no picture graph for {model.graph!r}")
-    return builder(model, prompt, negative, width, height, seed, _files(model, names), prefix)
+    g, node = builder(model, prompt, negative, width, height, seed, _files(model, names), prefix)
+    if references and takes_references(model):
+        _add_references(g, list(references)[:MAX_REFERENCES])
+    return g, node
+
+
+MAX_REFERENCES = 4  # reference pictures one picture is drawn with (each one costs memory and time)
+REFERENCE_NODES = ("LoadImage", "VAEEncode", "ReferenceLatent")
+
+
+def takes_references(model: Model) -> bool:
+    """Whether the model draws a new picture that keeps the look of reference pictures: FLUX.2 [klein] does (its
+    ReferenceLatent conditioning, as in ComfyUI's own FLUX.2 [klein] image-edit template); Z-Image does not, so a
+    character is kept by the written description only."""
+    return model.graph == "flux2"
+
+
+def _add_references(g: dict, references: list[str]) -> None:
+    """Chain each reference picture into both sides of the FLUX.2 guider, as ComfyUI's FLUX.2 [klein] image-edit
+    template does: LoadImage → VAEEncode → ReferenceLatent on the positive and on the zeroed negative conditioning.
+    The pictures arrive already scaled to about one megapixel (engines/makers.py), so no scaling node is needed (its
+    inputs changed between ComfyUI versions)."""
+    pos, neg = ["4", 0], ["10", 0]
+    for k, name in enumerate(references):
+        load, enc, rp, rn = f"r{k}l", f"r{k}e", f"r{k}p", f"r{k}n"
+        g[load] = _n("LoadImage", image=name)
+        g[enc] = _n("VAEEncode", pixels=[load, 0], vae=["3", 0])
+        g[rp] = _n("ReferenceLatent", conditioning=pos, latent=[enc, 0])
+        g[rn] = _n("ReferenceLatent", conditioning=neg, latent=[enc, 0])
+        pos, neg = [rp, 0], [rn, 0]
+    g["9"]["inputs"]["positive"] = pos
+    g["9"]["inputs"]["negative"] = neg
 
 
 def _files(model: Model, names: dict[str, str] | None = None) -> dict[str, str]:
@@ -180,7 +214,8 @@ def _wan22_5b(model: Model, prompt: str, negative: str, width: int, height: int,
 LABELS = {"UNETLoader": "Loading the model", "CLIPLoader": "Loading the model", "VAELoader": "Loading the model",
           "CLIPTextEncode": "Reading the words", "KSampler": "Drawing", "SamplerCustomAdvanced": "Drawing",
           "VAEDecode": "Finishing", "SaveImage": "Saving", "CreateVideo": "Putting the frames together",
-          "SaveVideo": "Saving", "LoadImage": "Reading the picture", "Wan22ImageToVideoLatent": "Preparing"}
+          "SaveVideo": "Saving", "LoadImage": "Reading the picture", "Wan22ImageToVideoLatent": "Preparing",
+          "VAEEncode": "Reading the reference pictures", "ReferenceLatent": "Reading the reference pictures"}
 
 
 def labels(graph: dict) -> dict[str, str]:

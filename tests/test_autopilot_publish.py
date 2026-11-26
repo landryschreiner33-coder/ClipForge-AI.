@@ -686,6 +686,35 @@ def test_cancel_upload_when_youtube_already_has_the_whole_video_shows_it_is_post
     assert len(g.videos) == 1 and len(g.sessions) == 1
 
 
+def test_a_stop_after_tiktok_has_the_whole_video_never_plans_a_second_upload(env, monkeypatch):
+    """Stop all (or cancelling the job, which only postpones a post) reached the upload after its last part, while
+    TikTok asked ClipForge to wait a second before reading the finished upload's status. The wait was cut short,
+    the post went back to "approved" for a new time and would have been uploaded and posted on TikTok a second time.
+    Once every part is sent, the status is read to the end and the post is recorded as posted."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue
+    from clipfoundry.publish import tiktok
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    worker_host = host.WorkerHost(periodic=False)
+    job = queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
+                        ref=("scheduled", item["id"]))
+    real = tiktok.upload_chunks
+
+    def stop_once_every_part_is_sent(*args, **kwargs):
+        real(*args, **kwargs)
+        worker_host.running()[job["id"]].cancel_event.set()  # the stop reaches the running job
+
+    monkeypatch.setattr(tiktok, "upload_chunks", stop_once_every_part_is_sent)
+    t.rate_limit_status, t.retry_after = 1, "1"  # TikTok asks to wait a second before its status is read
+    worker_host._run("publisher", queue.claim("publisher", "test-host"))
+    row = db.fetch("scheduled_publications", item["id"])
+    assert row["status"] == "published", row
+    assert len(t.uploads) == 1 and db.get_publication(row["publication_id"])["status"] == "done"
+
+
 def test_cancel_upload_while_the_job_waits_for_youtube_is_not_undone_by_a_restart(env):
     from clipfoundry import db
     from clipfoundry.autopilot import publisher, queue, scheduler

@@ -15,6 +15,7 @@ import Studio from "./pages/Studio";
 import MakeClips from "./pages/MakeClips";
 import MakeVideo from "./pages/MakeVideo";
 import MakeShort from "./pages/MakeShort";
+import TextStories from "./pages/TextStories";
 import VideoReview from "./pages/VideoReview";
 import Customize from "./components/Customize";
 import Projects from "./pages/Projects";
@@ -36,16 +37,17 @@ import SettingsPage from "./pages/Settings";
 export { navigate };
 
 // Studio combines Home and the Office (studio upgrade handoff, section 2); #/office is the Studio's expanded office.
-type NavKey = "studio" | "talk" | "projects" | "missions" | "brain" | "publishing" | "accounts" | "settings";
+type NavKey = "studio" | "talk" | "projects" | "stories" | "missions" | "brain" | "publishing" | "accounts" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
   "": "studio", create: "studio", projects: "projects", project: "projects", clip: "projects", publish: "projects",
   video: "projects", brain: "brain", publishing: "publishing", post: "publishing", accounts: "accounts",
-  office: "studio", missions: "missions", setup: "studio", dev: "studio", settings: "settings",
+  office: "studio", missions: "missions", setup: "studio", dev: "studio", settings: "settings", stories: "stories",
 };
 const SECTION_TITLE: Record<string, string> = {
   "": "Studio", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
   video: "Video", brain: "Brain", publishing: "Publishing", post: "Post review", accounts: "Accounts",
   office: "Studio · Office", missions: "Missions", setup: "Set up", dev: "Robot gallery", settings: "Settings",
+  stories: "Text Stories",
 };
 
 function page(route: Route) {
@@ -57,6 +59,7 @@ function page(route: Route) {
     case "create": return id === "video" ? <MakeVideo key={route.parts[2] || "new"} id={route.parts[2] || ""} /> : id === "short" ? <MakeShort /> : id === "transcript" ? <Create />
       : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
+    case "stories": return <TextStories id={id || ""} />;
     case "project": return <ProjectView id={id} key={id} focus={route.parts[2] || ""} />;
     case "clip": return <ClipEditor id={id} key={id} />;
     case "publish": return <PublishPage id={id} key={id} />;
@@ -178,6 +181,7 @@ function Shell({ me }: { me: Me }) {
       <NavLink href="#/" icon="clapper" label="Studio" on={active === "studio"} />
       <NavLink href="#/brain/talk" icon="chat" label="Talk to AI" on={active === "talk"} />
       <NavLink href="#/projects" icon="folder" label="Projects" on={active === "projects"} />
+      <NavLink href="#/stories" icon="story" label="Text Stories" on={active === "stories"} />
       <NavLink href="#/missions" icon="satellite" label="Missions" on={active === "missions"} />
       <NavLink href="#/brain/styles" icon="brain" label="Brain" on={active === "brain"} />
       <NavLink href="#/publishing/review" icon="layers" label="Publishing" on={active === "publishing"}
@@ -250,6 +254,7 @@ function Shell({ me }: { me: Me }) {
                   <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>The best moments, or each story from start to finish</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>Drop in your files and tell ClipForge AI your idea</span></a>
                   <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
+                  <a role="menuitem" href="#/stories" onClick={() => setMakeOpen(false)}><b>Make a text story</b><span>A story read aloud over gameplay or any background, with big captions</span></a>
                   <a role="menuitem" href="#/missions/live" onClick={() => setMakeOpen(false)}><b>Clip a live stream</b><span>Clips while it is live, one or several streams at once</span></a>
                 </div>
               )}

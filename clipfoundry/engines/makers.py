@@ -17,6 +17,7 @@ import json
 import logging
 import secrets
 import struct
+import tempfile
 import threading
 import time
 import uuid
@@ -338,6 +339,26 @@ def _drop_comfy_copy(out: dict) -> None:
             pass
 
 
+REFERENCE_PIXELS = 1_048_576  # a reference picture is sent at about one megapixel, as ComfyUI's own template scales
+
+
+def reference_copy(src: Path, dest: Path) -> Path:
+    """A PNG copy of a reference picture at about one megapixel with sides that are multiples of 16 (what the FLUX.2
+    autoencoder takes), for upload_image."""
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(src) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            w, h = im.size
+            k = (REFERENCE_PIXELS / max(1, w * h)) ** 0.5
+            size = (max(16, int(w * k) // 16 * 16), max(16, int(h * k) // 16 * 16))
+            im.resize(size, Image.LANCZOS).save(dest, "PNG")
+    except (OSError, ValueError) as exc:
+        raise EngineError("A reference picture could not be read; choose it again.") from exc
+    return dest
+
+
 def png_size(path: Path) -> tuple[int, int]:
     with open(path, "rb") as fh:
         head = fh.read(24)
@@ -347,17 +368,30 @@ def png_size(path: Path) -> tuple[int, int]:
 
 
 def make_image(prompt: str, *, negative: str = "", style: str = "", width: int = 1080, height: int = 1920,
-               seed: int | None = None, progress: Progress | None = None, cancel: Cancel | None = None) -> Path:
+               seed: int | None = None, progress: Progress | None = None, cancel: Cancel | None = None,
+               references: list[Path] | tuple[Path, ...] = ()) -> Path:
+    """One picture. `references`: pictures the new one should keep the look of (a character's reference pictures);
+    a model that takes reference pictures (graphs.takes_references) is given them, scaled to about one megapixel,
+    and the picture's note says how many it used ("references")."""
     prompt = " ".join(str(prompt or "").split())
     if not prompt:
         raise EngineError("Say what the picture should show.")
     words = f"{prompt}. {style.strip()}" if style and style.strip() else prompt
     s = _seed(seed)
+    refs = [Path(r) for r in references or () if Path(r).is_file()][:graphs.MAX_REFERENCES]
 
     def graph_for(model: catalog.Model, client: Comfy, names: dict[str, str], prefix: str):
         w, h = graphs.picture_size(model, width, height)
-        g, node = graphs.picture(model, words[:4000], negative[:2000], w, h, s, names=names, prefix=prefix)
-        return g, node, {"width": w, "height": h}
+        sent: list[str] = []
+        # an older ComfyUI without the reference nodes still makes the picture, from the words alone
+        if refs and graphs.takes_references(model) and not client.missing_nodes(list(graphs.REFERENCE_NODES)):
+            with tempfile.TemporaryDirectory(prefix="clipforge-refs-") as tmp:
+                for k, ref in enumerate(refs):
+                    sent.append(client.upload_image(reference_copy(ref, Path(tmp) / f"ref-{s}-{k}.png")))
+        g, node = graphs.picture(model, words[:4000], negative[:2000], w, h, s, names=names, prefix=prefix,
+                                 references=sent)
+        return g, node, {"width": w, "height": h, "references": len(sent),
+                         "reference_mode": "pictures" if sent else ("words" if refs else "")}
 
     path, info = _run("picture", "image", graph_for, {"prompt": words[:4000], "negative": negative[:2000], "seed": s,
                                                      "asked_width": width, "asked_height": height},

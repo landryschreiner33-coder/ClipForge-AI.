@@ -304,7 +304,8 @@ def test_the_reschedule_route_takes_a_clock_time_and_answers_a_conflict_with_a_s
 
     make_clip(data, "A", 70)
     make_clip(data, "B", 60)
-    scheduler.plan_new(db.get_settings(), _at(6))
+    # planned from tomorrow morning: the route takes only times in the future, and today's slots pass as the day goes
+    scheduler.plan_new(db.get_settings(), _at(6, days=1))
     a, b = db.select("scheduled_publications", "", (), "planned_at")
     h = {"X-ClipFoundry": "1"}
     with TestClient(app, base_url="http://127.0.0.1:8765") as c:

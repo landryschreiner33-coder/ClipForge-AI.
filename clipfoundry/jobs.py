@@ -31,6 +31,9 @@ class Worker:
     # ------------------------------------------------------------- submit
     def submit_project(self, project_id: str, url: str | None = None) -> None:
         self.cancelled.discard(project_id)
+        from .fullcloud import runner
+
+        runner.decide(project_id)  # this computer, or the owner's worker (Settings → Processing)
         db.update_project(project_id, status="queued", progress=0, stage="queued", error="",
                           message="Waiting in queue")
         self.q.put(("project", project_id, url))
@@ -126,7 +129,8 @@ class Worker:
                     self._run_version(key)
                 elif kind == "studio":
                     from .studio import jobs as studio_jobs, link_import, video_flow  # noqa: F401 - handlers
-                    from .makers import shorts  # noqa: F401 - handlers
+                    from .fullcloud import testjob  # noqa: F401 - handlers
+                    from .makers import look_examples, shorts, textstory  # noqa: F401 - handlers
 
                     studio_jobs.run(key)
             except Exception:  # noqa: BLE001 - never let the worker die
@@ -137,6 +141,9 @@ class Worker:
 
     def _mark_cancelled(self, kind: str, key: str) -> None:
         if kind == "project":
+            from .fullcloud import runner
+
+            runner.stop_waiting(key)  # a Full Cloud job still on the worker is stopped and deleted there too
             db.update_project(key, status="cancelled", message="Cancelled")
         elif kind == "version":
             db.update_version(key, status="error", error="Cancelled")
@@ -158,10 +165,22 @@ class Worker:
 
         ctx = JobContext(report, lambda: project_id in self.cancelled)
         db.update_project(project_id, status="processing", message="Starting")
+        start_info = (db.get_project(project_id) or {}).get("info") or {}
+        on_worker = bool(start_info.get("worker_job"))  # a Full Cloud job this computer runs as the owner's worker
+        in_cloud = start_info.get("processing") == "full_cloud"  # this computer's project, run on the worker
+        if on_worker:
+            from .fullcloud import worker_api
+
+            worker_api.job_started(project_id)
         try:
-            if url:
-                self._download(project_id, url, ctx)
-            process.run_project(project_id, ctx)
+            if in_cloud:
+                from .fullcloud import runner
+
+                runner.run(project_id, url, ctx)
+            else:
+                if url:
+                    self._download(project_id, url, ctx)
+                process.run_project(project_id, ctx)
             clips = db.list_clips(project_id)
             ready = sum(1 for c in clips if c["status"] == "ready")
             msg = f"{ready} clip{'s' if ready != 1 else ''} ready" if clips else "No strong moments found"
@@ -179,6 +198,10 @@ class Worker:
             db.update_project(project_id, status="error", error=str(exc)[:1000], message="Failed")
         finally:
             self.cancelled.discard(project_id)
+            if on_worker:
+                from .fullcloud import worker_api
+
+                worker_api.job_ended(project_id)
 
     def _run_render(self, clip_id: str) -> None:
         ctx = JobContext(None, lambda: clip_id in self.cancelled)

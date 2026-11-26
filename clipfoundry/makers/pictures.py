@@ -4,6 +4,7 @@ words (cards.py). A failing engine never stops the short: the card stands in and
 """
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 from pathlib import Path
@@ -36,14 +37,15 @@ def _opens(path: Path) -> bool:
         return False
 
 
-
-
 def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: str = "", seed: int = 0,
          index: int = 0, cancel: Callable[[], bool] | None = None,
-         progress: Callable[[float, str], None] | None = None) -> dict:
+         progress: Callable[[float, str], None] | None = None, references: list[Path] | tuple = ()) -> dict:
     """Make the picture into `out_dir`: {"path", "source": "engine" | "card", "engine", "why", "tried", "prompt",
-    "negative", "note"}. `why` says why the engine did not make it ("" when it did); `tried`: the engine was asked
-    (so a card means it failed, not that none is set up). The maker's picture is taken out of its folder
+    "negative", "note", "references"}. `why` says why the engine did not make it ("" when it did); `tried`: the engine
+    was asked
+    (so a card means it failed, not that none is set up); `references`: how many of the `references` pictures (a
+    character's reference pictures) the engine drew with (0 when its model keeps a look by the words only). The
+    maker's picture is taken out of its folder
     (engines/made): copied to `out_dir`, then deleted there (left there, with its note, when another program has it
     open), and `note` is the note it saved with it, for the caller to keep with the picture ("" when the picture
     stayed). A picture of the maker's that cannot be used, or was made as the work was stopped, is deleted with its
@@ -59,7 +61,7 @@ def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: 
         try:
             made = Path(local_engines.module().make_image(  # type: ignore[union-attr]
                 prompt, negative=negative, style=look.id, width=PICTURE_SIZE[0], height=PICTURE_SIZE[1], seed=seed,
-                progress=progress, cancel=cancel))
+                progress=progress, cancel=cancel, **({"references": list(references)} if references else {})))
             suffix = made.suffix.lower() if made.suffix.lower() in SUFFIXES else ".png"
             if not made.is_file() or made.stat().st_size == 0:
                 raise _NoPicture("The picture maker gave no picture, so ClipForge drew a card.")
@@ -67,6 +69,7 @@ def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: 
                 raise _NoPicture("The picture maker's picture could not be opened, so ClipForge drew a card.")
             path = out_dir / f"picture-{seed}{suffix}"
             note = made.with_suffix(".json")
+            used = _references_used(note)
             shutil.copyfile(made, path)
             taken = False
             if local_engines.made_here(made):  # the short takes the maker's picture; its note goes with the short
@@ -76,7 +79,8 @@ def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: 
                 except OSError as exc:  # another program has it open (Windows): it stays there, with its note
                     log.warning("the picture maker's picture could not be taken out of engines/made: %s", exc)
             return {"path": path, "source": "engine", "engine": state["engine"], "why": "", "tried": True,
-                    "prompt": prompt, "negative": negative, "note": str(note) if taken and note.is_file() else ""}
+                    "prompt": prompt, "negative": negative, "note": str(note) if taken and note.is_file() else "",
+                    "references": used}
         except (Canceled, Cancelled):
             local_engines.discard_made(made)
             raise
@@ -97,4 +101,12 @@ def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: 
             raise Cancelled("Stopped.")
     path = cards.make_card(cards.key_words(narration), look, out_dir / f"card-{seed}.png", index=index, seed=seed)
     return {"path": Path(path), "source": "card", "engine": "", "why": why, "tried": bool(state["ready"]),
-            "prompt": prompt, "negative": negative}
+            "prompt": prompt, "negative": negative, "references": 0}
+
+
+def _references_used(note: Path) -> int:
+    """How many reference pictures the engine drew with, from the note it saved with the picture."""
+    try:
+        return max(0, int(json.loads(note.read_text(encoding="utf-8")).get("references") or 0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0

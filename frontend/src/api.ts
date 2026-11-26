@@ -22,6 +22,8 @@ export interface Project {
   best_score?: number | null;
   has_thumbnail: boolean;
   clips?: Clip[];
+  /** Made on the owner's worker (Settings → Processing → Full Cloud): what was sent, the stages, the log. */
+  cloud?: import("./processing").ProjectCloud | null;
 }
 
 /** Suggested trims for a clip (pipeline/trims.py): each with the edit it makes and why. */

@@ -20,6 +20,7 @@ import type { LinkProblem } from "../studio";
 import StoryReview from "../components/StoryReview";
 import { PostSelected } from "../components/postSelected";
 import "./library.css";
+import { ProjectCloudCard } from "../components/projectCloud";
 
 // The five real steps of making clips, and the backend stage names that belong to each.
 const STAGES = ["Prepare", "Transcribe", "Find moments", "Score & hooks", "Render 9:16"];
@@ -224,6 +225,7 @@ export default function ProjectView({ id, focus = "" }: { id: string; focus?: st
         </Banner>
       )}
       {info.stage2?.warning && <Banner tone="warn" title="About the ranking">{info.stage2.warning}</Banner>}
+      {p.cloud && <ProjectCloudCard c={p.cloud} status={p.status} />}
 
       <section className="panel" aria-labelledby="src-h">
         <div className="src-top">
