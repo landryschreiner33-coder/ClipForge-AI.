@@ -83,11 +83,14 @@ _PLEASANTRY = re.compile(r"^(?:ok(?:ay)?|sure(?: thing)?|alright|all right|of co
                          r"(?: question| idea)?|no problem|got it|happy to help|hi(?: there)?|hello(?: there)?|hey"
                          r"(?: there)?|let me know (?:if|when|what|how)\b.*)[\s!.,…]*$", re.I)
 _SENTENCE = re.compile(r"(?<=[.!…])\s+")
+# after "let me look", a dash, a semicolon or a comma begins the answer itself ("Let me see, your best clip is …")
+_GOES_ON = re.compile(r"\s[-–—]\s|[–—;]|,\s*\S")
 
 
 def promise(said: str) -> bool:
     """The answer only says what it will look at or do (`_PROMISE`): every sentence does, or is a pleasantry, at
-    least one says it, nothing comes after a colon, and there is no question."""
+    least one says it, nothing comes after a colon, a dash, a semicolon or a comma (that is the answer itself), and
+    there is no question."""
     s = " ".join((said or "").split())
     if not s or len(s) > PROMISE_CHARS or "?" in s:
         return False
@@ -95,7 +98,9 @@ def promise(said: str) -> bool:
     for part in _SENTENCE.split(s):
         if not part or _PLEASANTRY.match(part):
             continue
-        if not _PROMISE.match(part) or _NOT_PROMISE.match(part) or part.rstrip(".!… ").partition(":")[2].strip():
+        m = _PROMISE.match(part)
+        if not m or _NOT_PROMISE.match(part) or part.rstrip(".!… ").partition(":")[2].strip() or \
+                _GOES_ON.search(part[m.end():]):
             return False
         promised = True
     return promised
@@ -112,6 +117,11 @@ _ASK = re.compile(r"^(?:please\s+|hey\s+|ok(?:ay)?,?\s+)?(?:can you\s+|could you
                   r"\s+(?:the\s+|my\s+|our\s+)?", re.I)
 
 
+_POLITE_ASK = re.compile(r"^(?:please\s+|hey\s+|ok(?:ay)?,?\s+)?(?:can|could|would|will)\s+you\b", re.I)
+_NOT_A_JOB = re.compile(r"^(?:['’]s\b|rest\b|off\b|alone\b|be\b|go\b|know\b|sleep\b|wait\b|(?:to\s+)?not\b|"
+                        r"never\b|stop\b|don['’]?t\b|do not\b)", re.I)
+
+
 def handoff(ws: str, text: str) -> tuple[dict, str] | None:
     """(the helper, the job) when the owner's message asks one of their switched-on helpers by name: "Ask the script
     writer for a title for my biking video", "Get the Critic to review this", "have my Researcher dig into trail
@@ -121,6 +131,8 @@ def handoff(ws: str, text: str) -> tuple[dict, str] | None:
     raw = " ".join(str(text or "").split())
     m = _ASK.match(raw)
     if not m:
+        return None
+    if "?" in raw and not _POLITE_ASK.match(raw):  # "Have the Critic look?" no; "can you get the Critic to …?" yes
         return None
     rest = raw[m.end():]
     low = rest.casefold()
@@ -132,6 +144,9 @@ def handoff(ws: str, text: str) -> tuple[dict, str] | None:
     if not hits:
         return None
     agent = max(hits, key=lambda a: len(a["name"]))
+    after = low[len(agent["name"]):].lstrip()
+    if _NOT_A_JOB.match(after):  # "the Critic's notes", "let the Critic rest today", "tell the Critic not to"
+        return None
     return agent, f"The owner asked: “{raw}”. Do that job now, completely."
 
 
@@ -139,15 +154,16 @@ def handoff(ws: str, text: str) -> tuple[dict, str] | None:
 _SHORT = 10  # words: a plain request is short ("how are my clips doing?"); a longer message is for the conversation
 _PROJECTS = re.compile(r"^(?:(?:what|which)\s+(?:projects|videos|clips projects)\s+(?:do\s+)?i\s+(?:have|got)|"
                        r"(?:please\s+)?(?:list|show)(?:\s+me)?\s+(?:all\s+)?(?:of\s+)?my\s+(?:projects|videos)|"
-                       r"my\s+projects|what\s+(?:am i working on|have i (?:made|got)))\b", re.I)
+                       r"my\s+projects|what\s+(?:am i working on|have i (?:made|got)))(?:\s+(?:now|right now|please|today|so far|at the moment|again))*[\s?.!]*$", re.I)
 _POSTS = re.compile(r"^(?:what(?:'s|’s| is)\s+(?:scheduled|planned|coming up|going out)|"
                     r"(?:please\s+)?(?:show|list)(?:\s+me)?\s+my\s+(?:upcoming\s+|planned\s+|scheduled\s+|next\s+)?posts|"
-                    r"when\s+(?:is|are)\s+my\s+next\s+posts?|what\s+posts?\s+(?:is|are)\s+(?:scheduled|planned|coming))",
-                    re.I)
+                    r"when\s+(?:is|are)\s+my\s+next\s+posts?|what\s+posts?\s+(?:is|are)\s+(?:scheduled|planned|coming))"
+                    r"(?:\s+(?:now|right now|please|today|so far|at the moment|again))*[\s?.!]*$", re.I)
 _WORK = re.compile(r"^(?:what(?:'s|’s| is)\s+(?:running|stuck|in the queue)|"
                    r"is\s+(?:anything|something)\s+(?:running|stuck|working)|"
-                   r"(?:please\s+)?(?:show|check)(?:\s+me)?\s+(?:the\s+)?(?:work|queue|jobs)\b)", re.I)
-_MISSIONS = re.compile(r"^(?:please\s+)?(?:show|list)(?:\s+me)?\s+my\s+missions|^what\s+missions\b", re.I)
+                   r"(?:please\s+)?(?:show|check)(?:\s+me)?\s+(?:the\s+)?(?:work|queue|jobs))(?:\s+(?:now|right now|please|today|so far|at the moment|again))*[\s?.!]*$", re.I)
+_MISSIONS = re.compile(r"^(?:(?:please\s+)?(?:show|list)(?:\s+me)?\s+my\s+missions|what\s+missions\s+(?:do i have|"
+                       r"are (?:running|on)))(?:\s+(?:now|right now|please|today|so far|at the moment|again))*[\s?.!]*$", re.I)
 _DELETE = re.compile(r"^(?:please\s+)?(?:delete|remove)\s+(?:the\s+|my\s+)?(?P<kind>project|video|clips project)\s+"
                      r"(?P<x>.+?)\s*[.!]?$", re.I)
 _RENAME = re.compile(r"^(?:please\s+)?rename\s+(?:the\s+|my\s+)?(?:project\s+|video\s+)?(?P<x>.+?)\s+to\s+(?P<y>.+?)"
@@ -157,7 +173,11 @@ _RENAME = re.compile(r"^(?:please\s+)?rename\s+(?:the\s+|my\s+)?(?:project\s+|vi
 _MAKE = re.compile(r"^(?:please\s+)?(?:can you\s+|could you\s+)?(?:make|cut|create|get)\s+(?:me\s+)?(?:some\s+)?"
                    r"(?:clips|shorts)\s+(?:from|of|out of|for)(?:\s+(?:this|that|it))?(?:\s+video)?\s*:?\s*$|"
                    r"^(?:please\s+)?clip(?:\s+(?:this|that|it))?(?:\s+video)?\s*:?\s*$", re.I)
-_NEW_NAME_NOT = re.compile(r"(?:,|\bthen\b|\band\b|^something\b|^anything\b|\bbetter\b|\bcatchier\b)", re.I)
+_NEW_NAME_NOT = re.compile(r"(?:,|\bthen\b|\band\b|\bplease\b|\bpls\b|\bthanks\b|\bfor me\b|\bnow\b|"
+                           r"^(?:a|an|the|some|something|anything|whatever|any|my|your|one)\b|\bbetter\b|\bcatchier\b|"
+                           r"\bcatchy\b|\bcooler\b|\bnew name\b|\btitle\b|\bname\b|\byou\b)", re.I)
+_QUOTED_NAME = re.compile(r"^[\"“‘'«](.+?)[\"”’'»]$")
+NEW_NAME_WORDS = 6  # a plain new name, unquoted: a few words
 
 
 def _name(text: str) -> str:
@@ -213,7 +233,10 @@ def guess(text: str, names: set[str] | list[str], ws: str = "") -> dict | None:
             else ""
         return call("delete_project", {"project": _name(m.group("x")), **({"kind": kind} if kind else {})})
     m = _RENAME.match(t)
-    if m and _project_named(ws, _name(m.group("x"))) and _name(m.group("y")) and \
-            not _NEW_NAME_NOT.search(_name(m.group("y"))):
-        return call("rename_project", {"project": _name(m.group("x")), "name": _name(m.group("y"))})
+    if m and _project_named(ws, _name(m.group("x"))):
+        y = m.group("y").strip()
+        quoted = _QUOTED_NAME.match(y)  # “Summit push”: exactly that; unquoted, only plain words without filler
+        new = quoted.group(1).strip() if quoted else y
+        if new and (quoted or (len(new.split()) <= NEW_NAME_WORDS and not _NEW_NAME_NOT.search(new))):
+            return call("rename_project", {"project": _name(m.group("x")), "name": new})
     return None

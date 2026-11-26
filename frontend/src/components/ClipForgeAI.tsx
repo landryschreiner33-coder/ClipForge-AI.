@@ -397,9 +397,13 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   const rate = async (m: ChatMessage, good: boolean | null, why = "") => {
     if (!chat) return;
     try {
-      replace(await chatApi.rate(chat.id, m.id, good, why));
-      if (good === true) toast("Thanks: ClipForge AI will answer more like this.");
-      else if (good === false && why) toast("Thanks: ClipForge AI will keep that in mind.");
+      const { learning, ...rated } = await chatApi.rate(chat.id, m.id, good, why);
+      replace(rated);
+      // a helper's rating teaches that helper only; with learning off (Settings) nothing reads it yet
+      const who = m.role === "agent" ? m.data?.agent?.name || "This helper" : "ClipForge AI";
+      if (good !== null && learning === false) toast("Saved. Learning is off (Brain → Learned), so answers don't use it.");
+      else if (good === true) toast(`Thanks: ${who} will answer more like this.`);
+      else if (good === false && why) toast(`Thanks: ${who} will keep that in mind.`);
     } catch (e) {
       toast(errorText(e), true);
     }
@@ -661,7 +665,7 @@ const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onD
           {d.tool === "remember" && d.memory && <Remembered mem={d.memory} short />}
         </div>}
         {!thinking && <Meta d={d} failed={m.status === "failed"} />}
-        {!thinking && m.status === "done" && (m.text || (d.steps || []).length > 0) && d.tool !== "help" &&
+        {!thinking && m.status === "done" && (m.text || (d.steps || []).length > 0) && d.tool === "talk" &&
           <Rate m={m} onRate={onRate} />}
       </div>
     </div>

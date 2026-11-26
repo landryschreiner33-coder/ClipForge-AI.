@@ -1026,6 +1026,22 @@ caught too:
 A look the model asks for again with the same arguments in one answer is not run again: it reads the same result
 (`Outcome.looked`), so a listing looked up first never shows twice.
 
+**Where the guards stop** (a second review, each finding shown with a probe):
+
+- A sentence that goes on after "let me look" with a dash, a semicolon or a comma ("Let me see, your best clip is
+  “Rage quit” …") is the answer itself, never a promise.
+- A listing is read from the owner's words only when the whole short message asks for it ("what projects do I
+  have?", "… right now?"); "which videos do I have to finish first?" is for the model.
+- A rename is read only with a quoted new name (“Summit push”) or a plain one of six words or fewer without filler
+  ("please", "now", "a …", "the …", "whatever", "name", "title"); otherwise the model decides.
+- A helper is handed the job only for a request: never for a question about it ("Have the Critic's notes been
+  fixed?"), its possessive ("the Critic's …") or a "don't" ("let the Critic rest today"); "can you get my Script
+  writer to …?" still is.
+- A helper's answer that repeats its job, or the owner's words quoted in it, is an echo (`said` is the job it read).
+- "[…]" at the start of ClipForge AI's words is removed only when it names a helper (the owner's or a ready-made
+  one) or a note of the conversation ("… wrote:"); "[0:42–1:10] The jump …" stays.
+- A listing found before a later round failed is still shown with the failure.
+
 ## Thumbs on answers (2026-11-26)
 
 Every finished answer of ClipForge AI, and of a helper talked to with "@Name", has 👍 and 👎 under it
@@ -1042,11 +1058,13 @@ characters (800 for the built-in and local models, 1,500 for the others), kept i
   so only the reasons themselves, never the question or the answer they were about;
 - the liked answer to the question most like the new one (at least two shared words and 30% of all words), as an
   example of the way to answer, with the tools it used first ("You (after using find_projects): …") and a warning
-  never to copy its facts, which come from the app as it is now. It is shortened to fit, and left out below 120
-  characters.
+  never to copy its facts, which come from the app as it is now. It is shortened to fit, but never below 120
+  characters (a shorter answer fits whole or not at all).
 
-ClipForge AI's own answers teach ClipForge AI; a helper's teach that helper only. With learning off (Settings:
-`learn_from_edits`, the same switch as Brain → Learned) no rating is read. A rating is written under
+ClipForge AI's own answers teach ClipForge AI; a helper's teach that helper only. Only a model's answer
+(`data.tool == "talk"`) has thumbs: never the app's own replies (help, memories, results without a model) or the
+video planner's messages in a video's chat (Make a YouTube video). With learning off (`learn_from_edits`, the switch
+in Brain → Learned) no rating is read, the "Sent over the internet" line leaves them out, and the toast says so. A rating is written under
 `chat._decide_lock`, so an OK pressed on the same answer at the same moment keeps both. The chat's "Sent over the
 internet" line and the privacy page name the rated answers and the 👎 reasons an online model may read.
 
@@ -1087,17 +1105,24 @@ on its own you dont have to say ok". So:
   `operations.find_posts` narrows them strictly: a post must hold every post word of three letters or more; state
   words keep only posts in that state ("failed", "held", "waiting", "approved"…; "retry every failed post" never
   takes a canceled one); days are read in the posting time zone ("today", "tomorrow", a weekday as its next one,
-  "Nov 28", "28 November", "2026-11-28", "the 28th"; `scheduler._local`, so a daylight-saving change never moves a
-  day) and times exactly ("2 pm" and "14:00" are 14:00; "4:00" never takes 14:00); another number must be in the
+  "Nov 28", "28 November", "Nov 28, 2026", "2026-11-28", "the 28th", "yesterday"; `scheduler._local`, so a
+  daylight-saving change never moves a day; a month is a whole word, never the start of "marketing" or "novice"; a
+  month and day without a year is the nearest one, so "Dec 30" said on Jan 2 is the one just gone; a weekday or "the
+  28th" is both the next one and the one just gone, which the states tell apart: only future posts are cancelled,
+  past ones retried), parts of the day ("morning" 5-12, "afternoon" 12-17, "evening" 17-22, "night"), and times
+  exactly ("2 pm" and "14:00" are 14:00; "4:00" never takes 14:00; "27 Nov 2 pm" is Nov 27 at 14:00; "15 pm" is no
+  time); another number must be in the
   post's title, its clip's or its video's ("top 10"), never read from its time; otherwise it is a `ToolError` ("I
   could not read “28” …"), never ignored. An account (`approve_post` calls it
-  `channel`, since `account` is its own approval name) must hold every word of three letters or more. Upcoming posts
+  `channel`, since `account` is its own approval name) must hold every word of three letters or more, for one post
+  as for several ("my cooking channel" never finds a post on "Fishing channel"). Upcoming posts
   come first, soonest first, then past ones, newest first; at most `BULK_MAX` (50), and the card says "Only the first
   50 of the N posts that fit" when more do. One card lists them (`_bulk_preview`, 12 lines then "…and N more", each
   line with the post's state) and always waits for the owner's OK, in both modes, so a misread "all" never changes
   many posts on its own; when only one post fits, it is the ordinary one-post card, and it still waits (`ask`).
-  `approve_post` checks each post as the post page does and lists what it leaves out and why (a TikTok post always:
-  its own page); its result says "Posting now" only when `now: true` posted them. OK runs the one-post command for
+  `approve_post` checks every post that fits (up to 500) as the post page does, then offers the first 50 that can
+  be approved, so posts it can never approve (a TikTok post always: its own page) never hide the ones it can, and
+  lists what it leaves out and why; its result says "Posting now" only when `now: true` posted them. OK runs the one-post command for
   each (`_bulk_run`); one that cannot change any more (it went out meanwhile) is named, and the others still change.
 
 ## API

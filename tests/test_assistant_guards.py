@@ -345,3 +345,77 @@ def test_work_done_first_is_an_answer_even_when_the_time_is_up(data, monkeypatch
     out = _think(_tools("find_projects"), "my projects", first=[{"tool": "find_projects", "args": {}}],
                  ctx=Ctx(ws=WS, deadline=time.monotonic() + 3))
     assert out.rounds == 0 and fake.calls == [] and "“Hike day”" in out.text  # not "No time left"
+
+
+# ------------------------------------------------------------------ the second review's findings (Nov 26)
+def test_words_that_go_on_after_let_me_look_are_the_answer():
+    from clipfoundry.brain import intents
+
+    for words in ("Let me see, your best clip is “Rage quit” with 2,500 views.",
+                  "Let me look — you have “Hike day” and “Lake swim”.", "I'll check — nothing is running right now.",
+                  "Let me see; “Trail build” is nearly done, so finish that one first."):
+        assert not intents.promise(words), words
+
+
+def test_only_a_whole_plain_request_is_read_without_the_model(data):
+    from clipfoundry import db
+    from clipfoundry.brain import intents
+
+    db.create_project("Hike day", workspace_id=WS, status="ready")
+    every = {"find_projects", "rename_project", "missions", "work", "posts"}
+    assert intents.guess("which videos do I have to finish first?", every, WS) is None
+    assert intents.guess("what projects do I have right now?", every, WS)["tool"] == "find_projects"
+    assert intents.guess("show me my posts please", every, WS)["tool"] == "posts"
+    for said in ("rename Hike day to Summit push please", "rename Hike day to a catchy title",
+                 "rename Hike day to whatever you think works", "rename Hike day to a new name",
+                 "rename Hike day to something better"):
+        assert intents.guess(said, every, WS) is None, said
+    assert intents.guess("rename Hike day to “Summit push please”", every, WS)["args"]["name"] == \
+        "Summit push please"
+    assert intents.guess("rename Hike day to Summit push", every, WS)["args"] == {"project": "Hike day",
+                                                                               "name": "Summit push"}
+
+
+def test_a_question_or_a_dont_about_a_helper_is_no_job_for_it(data):
+    from clipfoundry.brain import agents, intents
+
+    critic = agents.add(WS, template="critic")
+    for said in ("Have the Critic's notes been fixed yet?", "Let the Critic rest today, I will review it myself",
+                 "tell the Critic not to bother", "Get the Critic's review out of my way"):
+        assert intents.handoff(WS, said) is None, said
+    assert intents.handoff(WS, "can you get my Critic to review this hook?")[0]["id"] == critic["id"]
+
+
+def test_a_helper_that_repeats_its_job_or_the_owners_words_is_asked_once_more(data, monkeypatch):
+    from clipfoundry.brain import agents, assistant
+
+    agents.add(WS, template="script_writer")
+    said = "Ask the script writer for a title for my biking video"
+    fake = install(monkeypatch, say(said), say("Title: “Ridge run at dawn”."),
+                   say("The Script writer suggests “Ridge run at dawn”."))
+    m, _c = _ask(said)
+    assert fake.last_user(1) == assistant.NUDGE_ECHO  # the helper's second round
+    assert m["data"]["helpers"][0]["text"] == "Title: “Ridge run at dawn”."
+
+
+def test_a_bracket_is_removed_only_when_it_names_a_helper(data, monkeypatch):
+    install(monkeypatch, say("[0:42–1:10] The jump is your best moment: start the clip there."))
+    out = _think([], "where should my clip start?")
+    assert out.text == "[0:42–1:10] The jump is your best moment: start the clip there."
+    install(monkeypatch, say("[Critic] Cut the first two seconds."))
+    assert _think([], "what would you cut?").text == "Cut the first two seconds."  # a ready-made helper's name
+
+
+def test_a_listing_found_before_a_later_round_failed_is_still_shown(data, monkeypatch):
+    import pytest
+
+    from clipfoundry import db
+    from clipfoundry.brain import assistant, intents
+
+    db.create_project("Hike day", workspace_id=WS, status="ready")
+    said = "what projects do I have?"
+    install(monkeypatch, say("Let me look."), RuntimeError("the engine fell over"))
+    out = assistant.Outcome()
+    with pytest.raises(Exception):
+        _think(_tools("find_projects"), said, fallback=intents.guess(said, {"find_projects"}), out=out)
+    assert "“Hike day”" in out.text and "Let me look" not in out.text

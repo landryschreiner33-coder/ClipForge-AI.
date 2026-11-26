@@ -13,6 +13,15 @@ for a small model", "After the first real-model check".
   whatever the words claim; it waits for the OK.
 - A helper that only says what it will write is told to write it now (`NUDGE_DO`), also after looking things up.
 - The same look asked again in one answer is not run twice (`Outcome.looked`).
+- **A second review (16 findings, each shown with a probe, all fixed):** "Let me see, your best clip is …" is an
+  answer, not a promise; listings are read only from a whole short request; a rename needs a quoted or plain new
+  name ("… please", "a catchy title" are left to the model); "Have the Critic's notes been fixed?" no longer runs the
+  Critic; a helper repeating its job is caught; "[0:42–1:10] …" stays; a listing found before a failure is shown.
+  Posts: "27 Nov 2 pm" is Nov 27 at 14:00, "marketing" and "novice" are no months, "Dec 30" on Jan 2 is the one
+  just gone, "yesterday", weekdays and "the 25th" also find past posts to retry, "morning"/"afternoon"/"evening",
+  "15 pm" is no time; one post on "my cooking channel" never comes from "Fishing channel"; approve all offers the
+  posts it can approve first. Thumbs: only a model's answers (never the video planner's), a short liked answer fits
+  whole, the "Sent over the internet" line and the toast say when learning is off.
 
 ## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code)
 

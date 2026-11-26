@@ -298,7 +298,7 @@ def run(ws: str, agent_id: str, task: str, *, context: str = "", chat: dict | No
                                                   task, tool_list, settings, agent=agent)
     # the conversation it is asked about (a script to review, a plan to check), as much as ClipForge AI itself reads
     msgs = assistant.history(chat["id"], assistant.budgets(settings)["history"]) if chat.get("id") else []
-    job = ("ClipForge AI asks you to do this for the owner:\n" + task.strip() +
+    job = (assistant.JOB_LEAD + "\n" + task.strip() +
            (f"\n\nMaterial for the job:\n{tools.clip(context, 3000)}" if context.strip() else ""))
     msgs.append({"role": "user", "content": job})
     ctx = tools.Ctx(ws=ws, chat=chat, project_id=chat.get("project_id") or project_id, agent=agent,
@@ -313,7 +313,7 @@ def run(ws: str, agent_id: str, task: str, *, context: str = "", chat: dict | No
     out = assistant.Outcome()
     try:
         assistant.think(settings, system, msgs, tool_list, ctx, max_tokens=RUN_TOKENS, max_steps=3, on_change=shown,
-                        out=out, said=task)
+                        out=out, said=job)
     except llm.Canceled:
         raise
     except (llm.ProviderError, assistant.Stopped) as exc:

@@ -778,7 +778,10 @@ def _slip(say: str, said: str) -> str:
 
     if not say.strip():
         return "empty"
-    if said and intents.echo(say, said):
+    # a helper's job holds the owner's words in quotes (intents.handoff), and its first line is ClipForge AI's own
+    job = said.startswith(JOB_LEAD)
+    if said and any(intents.echo(say, x) for x in (said, *((said.partition("\n")[2], *_QUOTED_JOB.findall(said))
+                                                           if job else ())) if x):
         return "echo"
     if intents.stops_short(say):
         return "short"
@@ -787,6 +790,8 @@ def _slip(say: str, said: str) -> str:
     return ""
 
 
+_QUOTED_JOB = re.compile(r"“([^”]{8,})”")
+JOB_LEAD = "ClipForge AI asks you to do this for the owner:"  # the first line of a helper's job (agents.run)
 SHOW_CHARS = 2400  # the most of one tool's listing added to an answer that left it out
 _NAMED = re.compile(r"“([^”\n]{2,80})”")
 
@@ -797,6 +802,22 @@ def _covered(text: str, show: str) -> bool:
     low = _fold(text).casefold()
     names = list(dict.fromkeys(n.strip().casefold() for n in _NAMED.findall(show)))
     return not names or sum(1 for n in names if _fold(n) in low) * 2 >= len(names)
+
+
+def _unbracket(say: str, ws: str) -> str:
+    """`say` without a helper's mark at its start ("[Script writer] …", "[Critic wrote: …"), which the model copied
+    from the conversation; any other bracket ("[0:42–1:10] The jump …") is the answer's own."""
+    m = _BRACKET.match(say)
+    if not m:
+        return say
+    inner = m.group(0).strip()[1:-1].strip().rstrip(":").strip().casefold()
+    if re.search(r"\bwrote$", inner) or inner.startswith("you did it"):
+        return say[m.end():]
+    from . import agents as agents_mod
+
+    names = {a["name"].casefold() for a in [*agents_mod.list_(ws), *agents_mod.TEMPLATES] if a.get("name")} | \
+        {"clipforge ai"}
+    return say[m.end():] if inner in names else say
 
 
 def _looked_only(out: Outcome) -> bool:
@@ -883,6 +904,7 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
                 on_change=on_change, said=said, fallback=fallback, start=start, room=room, held=held, wanted=wanted,
                 streaming=streaming)
     except BaseException:  # stopped, out of time or today's requests, or a model that failed: keep what came
+        _show(out, said, wanted)
         keep_held()
         raise
     _show(out, said, wanted)
@@ -919,7 +941,7 @@ def _rounds(settings: dict, system: str, msgs: list[dict], tool_list: list[tools
         reply = parse_reply(raw)
         out.live = ""
         if not ctx.agent:  # "[Script writer] …": the model imitated a helper's line in the conversation
-            reply["say"] = _BRACKET.sub("", reply["say"], count=1)
+            reply["say"] = _unbracket(reply["say"], ctx.ws)
         calls = [] if final else reply["do"]
         guessed = False
         idle = not (calls or out.pending or out.says) and _looked_only(out)  # nothing done yet, or only looking

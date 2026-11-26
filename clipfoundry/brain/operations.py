@@ -148,6 +148,11 @@ def _post_line(n: int, item: dict, settings: dict, clash: dict[str, dict]) -> st
     return text + "."
 
 
+def _account_words(said) -> set[str]:
+    """The words of an account's name said to narrow posts: three letters or more, not "my", "channel" or "account"."""
+    return {w for w in _said_words(str(said or "")) if len(w) > 2 and w not in _ACCOUNT_NOISE}
+
+
 def find_post(args: dict, statuses: tuple[str, ...], doing: str) -> dict:
     """The one post `args` names (post: words from its title, its video, its time like "18:30" or "Nov 26", or its
     id; platform; account: words from the account's name), among posts in `statuses`. Raises ToolError naming the
@@ -162,9 +167,9 @@ def find_post(args: dict, statuses: tuple[str, ...], doing: str) -> dict:
         return exact[0]
     if args.get("platform"):
         rows = [r for r in rows if r["platform"] == args["platform"]]
-    if args.get("account"):
-        who = set(_said_words(str(args["account"])))
-        rows = [r for r in rows if who & set(_said_words(_account(r)[1]))]
+    need = _account_words(args.get("account"))
+    if need:  # every word of the account's name that was said ("cooking channel": never "Fishing channel")
+        rows = [r for r in rows if need <= set(_said_words(_account(r)[1]))]
     if not rows:
         raise ToolError(f"There is no post that {doing}" + (" on that account or platform." if (
             args.get("platform") or args.get("account")) else ". Use posts to see them all."))
@@ -193,30 +198,42 @@ def _names(rows: list[dict], settings: dict) -> str:
 
 BULK_MAX = 50  # posts one command changes at once ("all": true)
 BULK_SHOWN = 12  # of them, the lines its card shows
+BULK_CHECKED = 500  # posts approve_post with all: true checks, to offer the first BULK_MAX that can be approved
 _BULK_NOISE = frozenset("""all every each my the a an and of for on in at to from them these those post posts video
-videos clip clips planned scheduled upcoming approve retry again cancel please""".split())
+videos clip clips planned scheduled upcoming approve retry again cancel please this next coming last""".split())
 # status words narrow the statuses ("retry every failed post": not the canceled ones)
 _STATUS_SAID = {"failed": ("failed",), "canceled": ("canceled",), "cancelled": ("canceled",),
                 "held": ("blocked", "action_needed"), "blocked": ("blocked",), "stuck": ("blocked", "action_needed"),
                 "waiting": ("awaiting_approval",), "awaiting": ("awaiting_approval",),
                 "approval": ("awaiting_approval",), "unapproved": ("awaiting_approval",), "approved": ("approved",)}
 _ACCOUNT_NOISE = frozenset({"my", "the", "channel", "channels", "account", "accounts", "page"})
-_MONTHS = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct",
-                                            "nov", "dec"))}
-_MONTH = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
+_MONTHS = {"jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3, "apr": 4, "april": 4, "may": 5,
+           "jun": 6, "june": 6, "jul": 7, "july": 7, "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9,
+           "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12}
+# a month as a whole word ("Nov", "November", "Nov."), never the start of "marketing", "novice" or "mario"
+_MONTH = r"(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\.?(?![a-z])"
 _WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_PARTS = {"morning": (5, 12), "afternoon": (12, 17), "evening": (17, 22), "night": (20, 29)}  # hours, 29 = 5 am
+_RX = re.I | re.A  # ASCII only: "ſep" is no month
+_YEAR = r"(?:,?\s+(\d{4})\b)?"
 _DATE_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
-_DATE_MD = re.compile(_MONTH + r"\s+(\d{1,2})(?:st|nd|rd|th)?\b", re.I)
-_DATE_DM = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?" + _MONTH, re.I)
-_DATE_TH = re.compile(r"\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b", re.I)
-_TIME = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\b\.?|\b(\d{1,2}):(\d{2})\b", re.I)
+# "27 Nov", "27th of November 2026" (never the "00" of "14:00 Nov 27")
+_DATE_DM = re.compile(r"(?<![\d:.])\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?" + _MONTH + _YEAR, _RX)
+# "Nov 27", "Nov 27, 2026" (never "Nov 2 pm": that 2 is an hour)
+_DATE_MD = re.compile(r"\b" + _MONTH + r"\s+(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*(?:[ap]\.?\s*m\b|[:.]\d))" + _YEAR, _RX)
+_DATE_TH = re.compile(r"\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b", _RX)
+_TIME = re.compile(r"\b(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?\s*m\b\.?|\b(\d{1,2}):(\d{2})\b", _RX)
 
 
-def _said_when(want: str, settings: dict) -> tuple[set, set[str], str, list[str]]:
-    """The days (local dates) and times ("HH:MM", 24-hour) `want` names, what is left of it, and the numbers left in
-    it that are neither (a title's "Top 10", or a day said too briefly, "on 28"): "Nov 28", "28 Nov", "2026-11-28",
-    "the 28th", "today", "tomorrow", "friday" (the next one, today included), "18:30", "6 pm", "6:30pm". Raises
-    ToolError for a date or time that cannot be ("Feb 30", "25:00")."""
+def _said_when(want: str, settings: dict) -> tuple[set, set[str], list[tuple[int, int]], str, list[str]]:
+    """The days (local dates), times ("HH:MM", 24-hour) and parts of the day (hour ranges) `want` names, what is
+    left of it, and the numbers left in it that are neither (a title's "Top 10", or a day said too briefly, "on
+    28"). Days: "Nov 28", "28 Nov", "Nov 28, 2026", "2026-11-28", "today", "tomorrow", "yesterday"; a month and day
+    without a year is the nearest such day (Jan 2 asking for "Dec 30" means the one just gone); "friday" and "the
+    28th" are both the nearest one ahead (today included) and the one just gone, since a command's states tell them
+    apart (only future posts are cancelled, past ones retried). Times: "18:30", "6 pm", "6:30pm", "6.30 pm"; parts:
+    "morning", "afternoon", "evening", "night". Raises ToolError for a date or time that cannot be ("Feb 30",
+    "25:00", "15 pm")."""
     import datetime as dt
 
     from ..autopilot import scheduler
@@ -225,52 +242,84 @@ def _said_when(want: str, settings: dict) -> tuple[set, set[str], str, list[str]
     days: set = set()
     times: set[str] = set()
 
+    def month_of(word: str) -> int:
+        n = _MONTHS.get(word.lower().rstrip("."))
+        if n is None:
+            raise ToolError(f"“{word}” is not a month.")
+        return n
+
     def day(year: int, month: int, d: int) -> None:
         try:
             days.add(dt.date(year, month, d))
         except ValueError as exc:
             raise ToolError(f"{d}/{month} is not a day of the calendar.") from exc
 
-    def near(month: int, d: int) -> None:  # this year's, or next year's when that is far behind (Dec → Jan)
-        year = today.year + (1 if (month, d) < (today.month, today.day) and today.month - month > 6 else 0)
-        day(year, month, d)
+    def near(month: int, d: int, year: str | None) -> None:  # without a year: the nearest such day, ahead or gone
+        if year:
+            return day(int(year), month, d)
+        found = []
+        for y in (today.year - 1, today.year, today.year + 1):
+            try:
+                found.append(dt.date(y, month, d))
+            except ValueError:
+                continue
+        if not found:
+            raise ToolError(f"{d}/{month} is not a day of the calendar.")
+        days.add(min(found, key=lambda x: abs((x - today).days)))
 
     rest = want
     for m in _DATE_ISO.finditer(rest):
         day(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     rest = _DATE_ISO.sub(" ", rest)
-    for m in _DATE_MD.finditer(rest):
-        near(_MONTHS[m.group(1).lower()[:3]], int(m.group(2)))
-    rest = _DATE_MD.sub(" ", rest)
     for m in _DATE_DM.finditer(rest):
-        near(_MONTHS[m.group(2).lower()[:3]], int(m.group(1)))
+        near(month_of(m.group(2)), int(m.group(1)), m.group(3))
     rest = _DATE_DM.sub(" ", rest)
-    for m in _DATE_TH.finditer(rest):  # "the 28th": this month's, or next month's once it has passed
+    for m in _DATE_MD.finditer(rest):
+        near(month_of(m.group(1)), int(m.group(2)), m.group(3))
+    rest = _DATE_MD.sub(" ", rest)
+    for m in _DATE_TH.finditer(rest):  # "the 28th": the next one (this month's or next month's) and the one gone
         d = int(m.group(1))
-        month, year = (today.month, today.year) if d >= today.day else \
-            ((today.month % 12) + 1, today.year + (1 if today.month == 12 else 0))
-        day(year, month, d)
+        if not 1 <= d <= 31:
+            raise ToolError(f"“{m.group(0).strip()}” is not a day of the month.")
+        ahead, gone = [], []
+        for k in range(-2, 3):
+            y, mo = divmod(today.year * 12 + today.month - 1 + k, 12)
+            try:
+                x = dt.date(y, mo + 1, d)
+            except ValueError:
+                continue
+            (ahead if x >= today else gone).append(x)
+        days.update(([min(ahead)] if ahead else []) + ([max(gone)] if gone else []))
     rest = _DATE_TH.sub(" ", rest)
     for m in _TIME.finditer(rest):
         if m.group(4):
             h, mi = int(m.group(4)), int(m.group(5))
         else:
-            h, mi = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "p" else 0), int(m.group(2) or 0)
+            h12, mi = int(m.group(1)), int(m.group(2) or 0)
+            if not 1 <= h12 <= 12:
+                raise ToolError(f"“{m.group(0).strip()}” is not a time of day.")
+            h = h12 % 12 + (12 if m.group(3).lower() == "p" else 0)
         if h > 23 or mi > 59:
             raise ToolError(f"“{m.group(0).strip()}” is not a time of day.")
         times.add(f"{h:02d}:{mi:02d}")
     rest = _TIME.sub(" ", rest)
     words = _said_words(rest)
+    parts = [_PARTS[w] for w in words if w in _PARTS]
     for w in words:
         if w in ("today", "tonight"):
             days.add(today)
         elif w == "tomorrow":
             days.add(today + dt.timedelta(days=1))
-        elif w in _WEEKDAYS:
-            days.add(today + dt.timedelta(days=(_WEEKDAYS.index(w) - today.weekday()) % 7))
+        elif w == "yesterday":
+            days.add(today - dt.timedelta(days=1))
+        elif w in _WEEKDAYS:  # the next one (today included) and the one just gone
+            ahead = (_WEEKDAYS.index(w) - today.weekday()) % 7
+            days.update({today + dt.timedelta(days=ahead), today - dt.timedelta(days=(7 - ahead) if ahead else 7)})
+    if "tonight" in words:
+        parts.append(_PARTS["evening"])
     left = re.findall(r"\d+", rest)
-    return days, times, " ".join(w for w in words if w not in ("today", "tonight", "tomorrow", *_WEEKDAYS)
-                                 and not w.isdigit()), left
+    return days, times, parts, " ".join(w for w in words if w not in ("today", "tonight", "tomorrow", "yesterday",
+                                                                    *_WEEKDAYS, *_PARTS)), left
 
 
 def _title_numbers(item: dict) -> set[str]:
@@ -281,18 +330,18 @@ def _title_numbers(item: dict) -> set[str]:
                                                                      project.get("name")))))
 
 
-def find_posts(args: dict, statuses: tuple[str, ...], doing: str) -> tuple[list[dict], int]:
+def find_posts(args: dict, statuses: tuple[str, ...], doing: str, *, every: bool = False) -> tuple[list[dict], int]:
     """Every post `args` names among posts in `statuses`, for a command on several at once (all: true), and how many
     fit in all. Narrowed strictly: status words keep only those statuses ("failed": not the canceled ones), a post
     must hold every other post word of three letters or more ("lake swim": both), be on a day named ("Nov 28",
     "tomorrow", "friday") and at a time named ("18:30", "6 pm"), on the platform, and on an account whose name
-    holds every account word. Upcoming posts first (soonest first), then past ones (newest first); at most
-    BULK_MAX. Raises ToolError when none fits."""
+    holds every account word. Upcoming posts first (soonest first), then past ones (newest first); at most BULK_MAX
+    (`every`: all of them, for a caller that leaves some out first). Raises ToolError when none fits."""
     from ..autopilot import scheduler
 
     settings = _settings()
     want = str(args.get("post") or "").strip()
-    days, times, rest, nums = _said_when(want, settings)
+    days, times, parts, rest, nums = _said_when(want, settings)
     said = _said_words(rest)
     named = {st for w in said for st in _STATUS_SAID.get(w, ())}
     if named:
@@ -300,19 +349,21 @@ def find_posts(args: dict, statuses: tuple[str, ...], doing: str) -> tuple[list[
         if not statuses:
             raise ToolError(f"No post that {doing} is in that state ({', '.join(sorted(named))}).")
     words = {w for w in said if len(w) > 2 and w not in _BULK_NOISE and w not in _STATUS_SAID and w not in _MONTHS}
+    need = _account_words(args.get("account"))
     marks = ",".join("?" * len(statuses))
     rows = db.select("scheduled_publications", f"status IN ({marks})", tuple(statuses), "", 5000)
     if args.get("platform"):
         rows = [r for r in rows if r["platform"] == args["platform"]]
-    need = {w for w in _said_words(str(args.get("account") or "")) if len(w) > 2 and w not in _ACCOUNT_NOISE}
     if need:
         rows = [r for r in rows if need <= set(_said_words(_account(r)[1]))]
 
     def fits(r: dict) -> bool:
         local = scheduler._local(r["planned_at"], settings) if r.get("planned_at") else None
-        if (days or times) and local is None:
+        if (days or times or parts) and local is None:
             return False
+        hour = local.hour if local else 0
         return (not days or local.date() in days) and (not times or local.strftime("%H:%M") in times) and \
+            (not parts or any(a <= hour < b or a <= hour + 24 < b for a, b in parts)) and \
             (not words or words <= set(_said_words(_post_words(r, settings)))) and \
             (not nums or set(nums) <= _title_numbers(r))  # a number only as a title's ("Top 10")
 
@@ -327,7 +378,7 @@ def find_posts(args: dict, statuses: tuple[str, ...], doing: str) -> tuple[list[
     now = time.time()
     rows.sort(key=lambda r: (0, r["planned_at"]) if (r.get("planned_at") or 0) >= now else
               (1, -(r.get("planned_at") or 0)))
-    return rows[:BULK_MAX], len(rows)
+    return (rows if every else rows[:BULK_MAX]), len(rows)
 
 
 def _bulk_lines(rows: list[dict], settings: dict) -> list[str]:
@@ -760,7 +811,10 @@ def _approve_preview(ctx: Ctx, args: dict) -> dict:
     doing = "waits for approval" if not now else "can be approved or posted"
     look = {**args, "account": str(args.get("channel") or "")}  # the model's words for the channel
     if args.get("all"):
-        rows, total = find_posts(look, statuses, doing)
+        # every post that fits is checked first, then the first BULK_MAX that can be approved are offered: posts that
+        # can never be approved here (TikTok's) never hide the ones that can
+        rows, total = find_posts(look, statuses, doing, every=True)
+        rows = rows[:BULK_CHECKED]
         if total > 1:  # each is checked as the post page checks it; one that cannot be approved is left out
             good, left = [], []
             for r in rows:
@@ -777,8 +831,9 @@ def _approve_preview(ctx: Ctx, args: dict) -> dict:
                 return {"label": f"{verb} {len(rows)} posts", "detail": [f"“{_post_name(r)}”" for r in rows[:6]],
                         "blocked": "None of them can be approved here: " + "; ".join(left[:4]) + ".",
                         "args": {"posts": [], "all": True}}
-            pv = _bulk_preview(good, total - len(left), f"{verb} these {len(good)} posts", settings, left_out=left,
-                               extra={"now": now, "accounts": [item_account(r) for r in good]})
+            offered = good[:BULK_MAX]
+            pv = _bulk_preview(offered, len(good), f"{verb} these {len(offered)} posts", settings, left_out=left,
+                               extra={"now": now, "accounts": [item_account(r) for r in offered]})
             pv["detail"].append("They go out now." if now else "Each goes out at its time" + (
                 "" if settings.get("autopilot_auto_publish") else " once you press Publish now (automatic publishing "
                 "is off)") + ".")

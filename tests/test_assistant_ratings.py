@@ -157,3 +157,47 @@ def test_a_liked_answer_shows_the_tools_it_used_and_an_ok_keeps_its_rating(data,
     chat.decide(WS, c["id"], m["id"], "a1", False)
     after = db.fetch("brain_chat_messages", m["id"])["data"]
     assert after["rating"]["good"] is True and after["pending"][0]["state"] == "skipped"
+
+
+# ------------------------------------------------------------------ the second review's findings (Nov 26)
+def test_only_a_models_answer_has_thumbs(data):
+    from clipfoundry import db
+    from clipfoundry.brain import chat, ratings
+
+    c = chat.open_chat(WS)
+    plan = db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": "ai",
+                                             "text": "Here is the plan: 9 scenes.", "data": {"tool": "plan"},
+                                             "status": "done"})
+    with pytest.raises(ratings.RatingError, match="Only ClipForge AI's answers"):
+        ratings.rate(WS, c["id"], plan["id"], False, "too many questions")
+    db.update("brain_chat_messages", plan["id"], data={"tool": "plan", "rating": {"good": False, "why": "too many",
+                                                                                   "question": "", "at": 1.0}})
+    assert ratings.rated(WS) == [] and ratings.taste(WS, "anything") == ""  # never read as ClipForge AI's
+
+
+def test_a_short_liked_answer_fits_whole_beside_long_reasons(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.brain import chat, ratings
+
+    db.create_project("Hike day", workspace_id=WS)
+    install(monkeypatch, say("You have one: Hike day."), *[say(f"Answer {n}.") for n in range(3)])
+    c = chat.open_chat(WS)
+    liked = _answer(c["id"], "Which hiking video projects do I have?")
+    ratings.rate(WS, c["id"], liked["id"], True)
+    for n in range(3):
+        m = _answer(c["id"], f"question number {n}")
+        ratings.rate(WS, c["id"], m["id"], False, f"reason {n} " + "x" * 130)
+    taste = ratings.taste(WS, "which hiking video projects do I have now", budget=800)
+    assert "“You have one: Hike day.”" in taste and len(taste) <= 800
+
+
+def test_the_page_learns_whether_the_thumbs_are_read(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.brain import chat, ratings
+
+    install(monkeypatch, say("Post at 6 pm."))
+    c = chat.open_chat(WS)
+    m = _answer(c["id"], "When should I post?")
+    assert ratings.rate(WS, c["id"], m["id"], True)["learning"] is True
+    db.save_settings({"learn_from_edits": False})
+    assert ratings.rate(WS, c["id"], m["id"], False, "say why")["learning"] is False

@@ -12,6 +12,13 @@ promises is told to do the job.
 - **Where:** `assistant._turn` (a look guess becomes `first`), `assistant._rounds` (`idle`, `_looked_only`, the
   fallback when the first round uses no tool, `NUDGE_DO`), `assistant.use` (`Outcome.looked`), `intents.promise`
   (`_PROMISE`, `_PLEASANTRY`, `_SENTENCE`).
+- **Second review, worth knowing:** `intents._GOES_ON` (a dash, semicolon or comma after "let me look" makes it an
+  answer); listings anchored with an end pattern; `_QUOTED_NAME`/`NEW_NAME_WORDS` for rename; `_NOT_A_JOB` and
+  `_POLITE_ASK` for handoff; `assistant.JOB_LEAD` is the first line of a helper's job and `_slip` checks the echo
+  against the job and the owner's quoted words; `_unbracket` strips only helper names; `operations._said_when`
+  returns parts of the day too and reads the nearest date (ahead or gone); `_account_words` is the strict account
+  rule for `find_post` and `find_posts`; `find_posts(..., every=True)` for approve; ratings only for
+  `data.tool == "talk"`, and the rating route returns `learning`.
 - **Worth knowing:** `data.guards` now also records a slip that was not nudged ("act" after a listing was found);
   `first:<tool>` names a look done before the model. A test that wants the model itself to call find_projects for
   "what projects do I have?" sees it done first; the model's own same call reads the same result.

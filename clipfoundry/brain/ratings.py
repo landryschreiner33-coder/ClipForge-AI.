@@ -16,7 +16,8 @@ What the next answers read (`taste`, in the system prompt):
 
 They fit in `budget` characters (assistant.budgets: "ratings"), kept in that order: the liked example is shortened or
 left out first. ClipForge AI's own answers teach ClipForge AI; a helper's (an answer to "@Name …") teach that helper
-only. With learning off (Settings: learn_from_edits, as in Brain → Learned) the answers read none of them.
+only. With learning off (learn_from_edits, the switch in Brain → Learned) the answers read none of them. Only a
+model's answer (data.tool "talk") is rated: never the app's own replies or the video planner's messages.
 """
 from __future__ import annotations
 
@@ -72,7 +73,8 @@ def rate(ws: str, chat_id: str, message_id: str, good: bool | None, why: str = "
     row = db.fetch("brain_chat_messages", message_id)
     if not row or row["chat_id"] != chat_id:
         raise RatingError("That answer is not there any more.", 404)
-    if row["role"] not in ("ai", "agent"):
+    if row["role"] not in ("ai", "agent") or (row.get("data") or {}).get("tool") != "talk":
+        # a model's answer only: never the app's own replies (help, memories) or the video planner's (Make a video)
         raise RatingError("Only ClipForge AI's answers and its helpers' can be rated.")
     if row["status"] == "thinking":
         raise RatingError("Wait for the answer to finish first.", 409)
@@ -88,13 +90,18 @@ def rate(ws: str, chat_id: str, message_id: str, good: bool | None, why: str = "
         else:
             data["rating"] = rating
         db.update("brain_chat_messages", message_id, data=data)
-    return chat._view(db.fetch("brain_chat_messages", message_id) or now, ws)  # noqa: SLF001 - the page's view
+    from . import learned
+
+    # the page's view, and whether the next answers read it (learning on: Settings, as in Brain → Learned)
+    return {**chat._view(db.fetch("brain_chat_messages", message_id) or now, ws),  # noqa: SLF001
+            "learning": learned.on()}
 
 
 def rated(ws: str, agent_id: str = "") -> list[dict]:
     """The newest rated answers of ClipForge AI (or of one helper): {good, why, question, answer, at}."""
     rows = db.select("brain_chat_messages", "workspace_id = ? AND role IN ('ai', 'agent') AND "
-                     "json_extract(data, '$.rating.good') IS NOT NULL", (ws,), "updated_at DESC", RECENT)
+                     "json_extract(data, '$.tool') = 'talk' AND json_extract(data, '$.rating.good') IS NOT NULL",
+                     (ws,), "updated_at DESC", RECENT)
     out = []
     for r in rows:
         data = r.get("data") or {}
@@ -155,7 +162,8 @@ def taste(ws: str, text: str, agent_id: str = "", budget: int = BUDGET, settings
                  "facts, which may be old: facts come from \"Right now\" and your tools.\n"
                  f"Owner: “{one_line(good['question'], QUESTION_CHARS)}”\n" +
                  (f"You (after using {', '.join(good['tools'][:4])}): “" if good["tools"] else "You: “"))
+        whole = one_line(good["answer"], EXAMPLE_CHARS)
         fits = min(EXAMPLE_CHARS, room - len(first) - 3)
-        if fits >= MIN_EXAMPLE:
-            example = first + one_line(good["answer"], fits) + "”"
+        if fits >= min(MIN_EXAMPLE, len(whole)):  # whole, or shortened to no less than MIN_EXAMPLE
+            example = first + one_line(whole, fits) + "”"
     return "\n\n".join(p for p in (disliked, said, example) if p)

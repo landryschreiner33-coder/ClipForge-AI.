@@ -185,3 +185,85 @@ def test_an_account_narrows_them_by_every_word_and_approve_takes_a_channel(data)
     with pytest.raises(ToolError, match="on that account"):
         _card("approve_post", {"all": True, "channel": "cooking"})
     assert "channel narrow it" in tools.signature(tool("approve_post"))
+
+
+# ------------------------------------------------------------------ the second review's findings (Nov 26)
+def _suffix(d: int) -> str:
+    return "th" if 10 <= d % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(d % 10, "th")
+
+
+def test_a_day_and_an_hour_said_together_are_read_apart(data):  # noqa: F811
+    import pytest
+
+    from clipfoundry.brain.tools import ToolError
+
+    a, b, c = _three(data)
+    t = dt.datetime.now(CHI).date() + dt.timedelta(days=1)
+    for said in (f"{t.day} {t.strftime('%b')} 2 pm", f"{t.strftime('%b')} {t.day} 2 pm",
+                 f"{t.day} {t.strftime('%B')} 14:00", f"{t.strftime('%b')} {t.day}, {t.year} at 2pm"):
+        assert _card("cancel_post", {"all": True, "post": said})["args"]["post"] == b["id"], said
+    assert set(_card("cancel_post", {"all": True, "post": f"{t.strftime('%b')} {t.day}, {t.year}"})["args"]["posts"]) \
+        == {a["id"], b["id"]}
+    for said in ("15 pm", "0 am"):
+        with pytest.raises(ToolError, match="not a time of day"):
+            _card("cancel_post", {"all": True, "post": said})
+    assert _card("cancel_post", {"all": True, "post": "tomorrow morning"})["args"]["post"] == a["id"]
+    assert _card("cancel_post", {"all": True, "post": "tomorrow afternoon"})["args"]["post"] == b["id"]
+
+
+def test_month_letters_inside_a_title_word_are_no_month(data):  # noqa: F811
+    import pytest
+
+    from clipfoundry import db
+    from clipfoundry.brain.tools import ToolError
+
+    a, b, c = _three(data)
+    db.update("scheduled_publications", c["id"], title="Novice 3 marketing tips")
+    for said in ("marketing", "novice 3", "marketing tips"):
+        assert _card("cancel_post", {"all": True, "post": said})["args"]["post"] == c["id"], said
+    with pytest.raises(ToolError):  # a readable error, never a crash ("ſ" is no "s" here)
+        _card("cancel_post", {"all": True, "post": "ſep 5"})
+
+
+def test_a_day_just_gone_finds_the_posts_that_failed_on_it(data):  # noqa: F811
+    from clipfoundry import db
+
+    a, b, c = _three(data)
+    gone = dt.datetime.now(CHI).date() - dt.timedelta(days=1)
+    for row, hour in ((a, 10), (b, 14)):
+        db.update("scheduled_publications", row["id"], status="failed", last_error="upload timed out",
+                  planned_at=dt.datetime.combine(gone, dt.time(hour), CHI).timestamp())
+    for said in ("yesterday", gone.strftime("%A").lower(), f"the {gone.day}{_suffix(gone.day)}",
+                 f"{gone.strftime('%b')} {gone.day}"):
+        assert set(_card("retry_post", {"all": True, "post": said})["args"]["posts"]) == {a["id"], b["id"]}, said
+
+
+def test_one_post_on_a_channel_is_found_by_every_word_of_its_name(data, monkeypatch):  # noqa: F811
+    import pytest
+
+    from clipfoundry.brain import operations
+    from clipfoundry.brain.tools import ToolError
+
+    a, b, c = _three(data)
+    names = {a["id"]: "Fishing channel", b["id"]: "Cooking show", c["id"]: "Cooking show"}
+    monkeypatch.setattr(operations, "_account", lambda item: ("conn", names.get(item["id"], "x")))
+    with pytest.raises(ToolError):  # "channel" alone never takes the Fishing channel's post
+        _card("approve_post", {"post": "summit sunrise", "channel": "my cooking channel"})
+    with pytest.raises(ToolError):
+        operations.find_post({"post": "summit sunrise", "account": "cooking channel"}, operations.CANCELABLE,
+                             "is planned")
+    assert operations.find_post({"post": "summit sunrise", "account": "fishing"}, operations.CANCELABLE,
+                                "is planned")["id"] == a["id"]
+
+
+def test_approve_all_offers_the_posts_it_can_approve_first(data, monkeypatch):  # noqa: F811
+    from clipfoundry.brain import operations
+
+    a, b, c = _three(data)
+    monkeypatch.setattr(operations, "BULK_MAX", 1)
+    monkeypatch.setattr(operations, "_approve_problems", lambda r, s: ["TikTok posts wait for you"]
+                        if r["id"] == a["id"] else [])
+    card = _card("approve_post", {"all": True})
+    assert not card["blocked"] and card["args"]["posts"] == [b["id"]]
+    text = " ".join(card["detail"])
+    assert "Only the first 1 of the 2 posts that fit" in text and "Left out: “Summit sunrise”: TikTok" in text

@@ -169,8 +169,9 @@ export const chatApi = {
   decide: (chatId: string, messageId: string, actionId: string, doIt: boolean) =>
     req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/actions/${actionId}`, { do: doIt }),
   /** 👍 (true) or 👎 (false) on an answer, with an optional reason for 👎; null takes it back. */
+  /** The rated message, and whether the next answers read ratings (learning on: Settings, as in Brain → Learned). */
   rate: (chatId: string, messageId: string, good: boolean | null, why = "") =>
-    req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/rating`, { good, why }),
+    req<ChatMessage & { learning?: boolean }>("POST", `${chats}/${chatId}/messages/${messageId}/rating`, { good, why }),
 };
 
 // ------------------------------------------------------------------ helper agents (Brain → Agents)
