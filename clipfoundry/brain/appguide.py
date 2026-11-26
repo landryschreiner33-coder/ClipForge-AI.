@@ -161,6 +161,19 @@ SECTIONS: tuple[Section, ...] = (
         "A script you drop is followed line by line, using the cleanest take of each line."),
         ("youtube video", "full video", "long form", "long-form", "edit my video", "footage", "rough cut", "script",
          "plan", "build my video", "vlog", "render", "version", "versions", "timeline"), "make_video"),
+    Section("video_timing", "A full video's speed, slow motion, freeze frames and camera moves", (
+        "On the video's page, pick a clip in Sequence. Speed goes from Very slow (25%) to Four times; Speed ramp "
+        "has Slow motion in the middle, Fast, slow, fast, Slow down to the end and Speed up to the end. A voice "
+        "keeps its pitch.",
+        "Split or freeze has Freeze here and Hold the last frame: a freeze frame is a clip of its own that holds "
+        "for 2 s unless you change Holds for, and the room's sound plays under it.",
+        "Camera move (recordings, freeze frames and photos): Slow zoom in, Slow zoom out, or Pan left, right, up or "
+        "down.",
+        "On a video you can also tell me: “put clip 3 in slow motion”, “freeze the last frame for 2 seconds”, "
+        "“slowly zoom in on clip 2”."),
+        ("speed", "slow motion", "slow-mo", "slowmo", "slow down", "speed up", "faster", "slower", "fast forward",
+         "speed ramp", "ramp", "freeze", "freeze frame", "hold the frame", "still frame", "zoom in", "zoom out",
+         "slow zoom", "pan", "ken burns", "camera move", "2x"), "projects"),
     Section("video_sound", "A full video's sound and music", (
         "On the video's page, Sound lists the music, voiceovers and effects; Change on each one sets its volume, "
         "the fades, Mute, Dips while people speak and Loop.",
