@@ -290,7 +290,8 @@ def candidate_pool(p: Prepared, ctx: JobContext) -> list[dict]:
     deep_on = bool(p.opts.get("deep_analysis"))
     pool = int(p.opts.get("pool_size") or 0) or (min(40, max(p.opts["clip_count"] * 4, 24)) if deep_on
                                                 else min(24, max(p.opts["clip_count"] * 2 + 2, 8)))
-    senses = p.senses if p.senses.any() else None
+    senses = getattr(p, "senses", None)   # a stand-in for Prepared may have none
+    senses = senses if senses is not None and senses.any() else None
     if p.sentences:
         overlap = 0.5 if deep_on else 0.15  # a broad pool; overlaps are resolved later
         cands = cand_mod.find_candidates(p.words, p.sentences, p.loud, p.opts, pool_size=pool, max_overlap=overlap)
@@ -371,7 +372,7 @@ def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywo
             p.sentences, p.words, p.loud, p.opts, ctx, p.project["name"], cands,
             video_path=p.project.get("source_path", ""), meta=p.meta, lo=P_ANALYZE, hi=P_SCORE,
             trend_keywords=trend_keywords, prior=prior, brief=p.brief, wav_path=p.pdir / "audio.wav",
-            senses=p.senses)
+            senses=getattr(p, "senses", None))
         if notes.get("judge"):
             p.info["judge"] = notes.pop("judge")
         report = scoring.quality_report(results, chosen, p.opts["clip_count"], min_score)
@@ -420,6 +421,8 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
     rows = []
     retained = db.list_clips(p.id) if durable and replace_existing else []
     df = scoring.document_frequencies(p.sentences)
+    sensed = getattr(p, "senses", None)   # what ClipForge AI saw and heard, for each clip's "Why" (may be none)
+    sensed = sensed if sensed is not None and sensed.any() else None
     for rank, r in enumerate(chosen, first_rank):
         ctx.check()
         if r.get("bounds"):
@@ -460,7 +463,7 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
                                         **({"taste": r["taste"]} if r.get("taste") else {}),
                                         **({"scout": r["scout"]} if r.get("scout") else {}),
                                         **({"sense": r["sense"]} if r.get("sense") else {}),
-                                        **({"senses": p.senses.summary(start, end)} if p.senses.any() else {}),
+                                        **({"senses": sensed.summary(start, end)} if sensed else {}),
                                         **({"clip_score": r["clip_score"], "explanation": r.get("explanation") or []}
                                            if r.get("clip_score") is not None else {}),
                                         **({"deep": _deep_summary(r["deep"])} if r.get("deep") else {})},
