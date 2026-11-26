@@ -158,6 +158,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "look_strength": 100,
     "clean_picture": True,            # measured noise (low light, webcams) is cleaned up
     "meaning_model": True,            # the small sentence-meaning model (embedder.py): downloaded once (90 MB)
+    "viral_predictor": True,          # predict each clip: score, hook, hold curve, reasons, fixes (predictor/)
     "encoder": "auto",                # auto | nvenc | videotoolbox | x264
     "crf": 20,
     "x264_preset": "veryfast",

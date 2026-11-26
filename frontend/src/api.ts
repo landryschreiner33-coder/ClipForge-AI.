@@ -256,6 +256,9 @@ export interface Clip {
   version: number;
   /** How sure the last render's face cam is; null when its layout uses none. */
   cam_check?: CamCheck | null;
+  /** The viral predictor's numbers for what would be posted (predictor.ts); null before it is predicted. */
+  prediction?: { score: number; band: string; hook: number | null; avg_view: number | null; rate: number | null;
+    fixes: number } | null;
 }
 
 export type Settings = Record<string, any>;

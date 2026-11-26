@@ -13,6 +13,8 @@ import {
   TabPanel, Tabs, Toggle, toast, TRACKING,
 } from "../components/ui";
 import { VersionsCard } from "../components/versions";
+import { ClipPredictorCard } from "../components/predictor";
+import type { PredictorFix } from "../predictor";
 import { SuggestedTrims } from "../components/suggestedTrims";
 import { FaceCamPanel } from "../components/faceCam";
 import { learnedApi } from "../brain";
@@ -185,6 +187,8 @@ export default function ClipEditor({ id }: { id: string }) {
   const [dialog, setDialog] = useState<"" | "discard" | "again" | "rewrite" | "export">("");
   const [pollTick, setPollTick] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const pendingSeek = useRef<number | null>(null);  // a predictor time to jump to once the rendered clip loads
+  const [fixesAdded, setFixesAdded] = useState<string[]>([]);
   const uid = useId();
   const posts = useClipPosts([id]);
 
@@ -239,6 +243,7 @@ export default function ClipEditor({ id }: { id: string }) {
       setJustRendered(true);
       setSavedHere(false);
       setShown(null);
+      setFixesAdded([]);  // the new video has its own prediction and fixes
       toast("Rendered. The new video gets its own final check before it is posted.");
     } else if (clip.status === "error") {
       announce("The render didn't finish. The reason is at the top of the page.");
@@ -507,6 +512,26 @@ export default function ClipEditor({ id }: { id: string }) {
     }
     if (view === "source" && (v.currentTime < start - 0.05 || v.currentTime >= end - 0.05)) v.currentTime = start;
     v.play().catch(() => toast("This video can't be played here.", true));
+  };
+  // The viral predictor's times are in the rendered clip: show it and jump there.
+  const seekClip = (at: number) => {
+    const v = videoRef.current;
+    if (view === "clip" && v) {
+      v.currentTime = at;
+      return;
+    }
+    pendingSeek.current = at;
+    setView("clip");
+  };
+  const applyFix = (f: PredictorFix) => {
+    const e = (f.edit || {}) as Partial<ClipEdit>;
+    if (e.start !== undefined || e.end !== undefined) setTrim(e.start ?? start, e.end ?? end);
+    const rest = { ...e };
+    delete rest.start;
+    delete rest.end;
+    if (Object.keys(rest).length) set(rest);
+    setFixesAdded((x) => [...x, f.id]);
+    toast(`“${f.label}” is in your edit. Save and render to see the new prediction.`);
   };
   const shownLabel = shown ? shown.label : "Original";
   const shownAt = shown ? renderedAt(shown.render_info) : clipAt;
@@ -909,6 +934,8 @@ export default function ClipEditor({ id }: { id: string }) {
                   aria-label={view === "source" ? "Source video" : `Clip preview: ${shownLabel}`}
                   onLoadedMetadata={(e) => {
                     if (view === "source") e.currentTarget.currentTime = start;
+                    else if (pendingSeek.current !== null) e.currentTarget.currentTime = pendingSeek.current;
+                    pendingSeek.current = null;
                     setT(e.currentTarget.currentTime);
                   }}
                   onTimeUpdate={(e) => {
@@ -961,6 +988,11 @@ export default function ClipEditor({ id }: { id: string }) {
           <Timeline lo={lo} hi={hi} start={start} end={end} words={words} playhead={view === "source" ? t : null}
             nowWord={nowWord} clickMode={clickMode} onClickMode={setClickMode} onTrim={setTrim} onWord={onWord}
             onReset={resetTrim} canReset={canReset} />
+
+          <ClipPredictorCard clipId={clip.id} versionId={shown?.id || ""} busy={busy}
+            stamp={`${clip.version}|${clip.status}|${shown?.id ?? ""}|${shown?.status ?? ""}`}
+            onSeek={seekClip} onApply={shown ? undefined : applyFix} applyLabel="Add to my edit"
+            appliedIds={fixesAdded} />
 
           <VersionsCard clip={clip} playing={view === "clip" ? shown?.id ?? "" : undefined}
             onPlay={(v) => {

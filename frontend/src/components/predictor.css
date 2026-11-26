@@ -1,0 +1,69 @@
+/* The viral predictor's panel (components/predictor.tsx). */
+.vp-panel { display: grid; gap: var(--s3); min-width: 0; }
+.vp-head { display: flex; gap: var(--s3); align-items: center; }
+.vp-head h2, .vp-head h3 { margin: 0; }
+.vp-ring { position: relative; flex: none; }
+.vp-ring svg { width: 100%; height: 100%; display: block; }
+.vp-ring .vp-track { fill: none; stroke: var(--border); stroke-width: 7; }
+.vp-ring .vp-value { fill: none; stroke: var(--primary); stroke-width: 7; stroke-linecap: round; }
+.vp-ring.hi .vp-value { stroke: var(--good); }
+.vp-ring.mid .vp-value { stroke: var(--warn); }
+.vp-ring.lo .vp-value { stroke: var(--bad); }
+.vp-ring-num { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1.05; }
+.vp-ring-num b { font-size: 1.35rem; }
+.vp-ring-num small { font-size: 0.68rem; color: var(--text-3); }
+
+.vp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: var(--s2); margin: 0; }
+.vp-stats > div { background: var(--raised); border: 1px solid var(--border); border-radius: var(--r-md, 8px); padding: 8px 10px; }
+.vp-stats dt { font-size: 0.75rem; color: var(--text-3); }
+.vp-stats dd { margin: 0; }
+.vp-stats dd.hi b { color: var(--good); }
+.vp-stats dd.mid b { color: var(--warn); }
+.vp-stats dd.lo b { color: var(--bad); }
+
+.vp-curve, .vp-heat { margin: 0; display: grid; gap: 4px; min-width: 0; }
+.vp-curve svg { width: 100%; height: auto; display: block; background: var(--raised); border: 1px solid var(--border); border-radius: var(--r-md, 8px); cursor: pointer; }
+.vp-curve .vp-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
+.vp-curve .vp-area { fill: var(--primary-tint); }
+.vp-curve .vp-line { fill: none; stroke: var(--primary); stroke-width: 2; }
+.vp-curve .vp-peak { stroke: var(--good); stroke-width: 2; stroke-dasharray: 3 3; }
+.vp-curve .vp-drop { fill: var(--bad); }
+.vp-key { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; }
+.vp-key-peak { background: var(--good); border-radius: 2px; width: 3px; }
+.vp-key-drop { background: var(--bad); }
+
+.vp-heat-grid { display: grid; gap: 2px; align-items: center; overflow: hidden; }
+.vp-heat-label { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vp-cell { height: 14px; border-radius: 2px; cursor: pointer; }
+.vp-cell.vision { background: var(--info); }
+.vp-cell.sound { background: var(--warn); }
+.vp-cell.language { background: var(--primary); }
+.vp-cell.attention { background: var(--good); }
+.vp-cell.memory { background: var(--bad); }
+
+.vp-sub { margin: var(--s2) 0 0; font-size: var(--fs-body); }
+.vp-fixes, .vp-reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.vp-fixes li { display: flex; gap: var(--s3); align-items: flex-start; padding: 8px 10px; background: var(--raised); border: 1px solid var(--border); border-radius: var(--r-md, 8px); }
+.vp-fixes p { margin: 2px 0; }
+.vp-gain { color: var(--good); }
+.vp-jump { display: block; margin-top: 2px; }
+.vp-reasons li { display: flex; gap: 6px; align-items: baseline; font-size: var(--fs-small, 0.9rem); }
+.vp-reasons li.good svg { color: var(--good); }
+.vp-reasons li.weak svg { color: var(--warn); }
+.vp-reasons li.unknown svg { color: var(--text-3); }
+
+.vp-badge { display: grid; gap: 2px; font-size: 0.8rem; justify-items: start; }
+.vp-badge-main { display: inline-flex; gap: 4px; align-items: center; }
+.vp-badge.hi b { color: var(--good); }
+.vp-badge.mid b { color: var(--warn); }
+.vp-badge.lo b { color: var(--bad); }
+
+/* Check a video */
+.vp-check-layout { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: var(--s5); align-items: start; }
+.vp-check-video { display: block; width: auto; max-width: 100%; max-height: 62vh; margin: 0 auto; background: var(--frame); border-radius: var(--r-md, 8px); }
+.vp-check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.vp-check-list button { width: 100%; text-align: left; display: flex; gap: var(--s3); align-items: center; padding: 8px 10px; background: var(--raised); border: 1px solid var(--border); border-radius: var(--r-md, 8px); color: inherit; cursor: pointer; }
+.vp-check-list button[aria-current="true"] { border-color: var(--primary); }
+.vp-acc-table { width: 100%; border-collapse: collapse; font-size: var(--fs-small, 0.9rem); }
+.vp-acc-table th, .vp-acc-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+@media (max-width: 860px) { .vp-check-layout { grid-template-columns: 1fr; } }

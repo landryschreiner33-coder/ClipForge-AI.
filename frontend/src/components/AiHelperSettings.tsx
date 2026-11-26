@@ -273,6 +273,7 @@ export default function AiHelperSettings() {
       </section>
 
       <MeaningSetup s={s} onSaved={async () => { await load(); }} />
+      <PredictorSetting s={s} onSaved={async () => { await load(); }} />
     </div>
   );
 }
@@ -355,6 +356,37 @@ function MeaningSetup({ s, onSaved }: { s: Settings; onSaved: () => Promise<void
           onClick={() => void act(() => api.meaningRemove(), "Removed. It is downloaded again the next time it is needed, when it is on.")}>Remove to free {mb(m.download_bytes)}</button>}
         {t.state === "error" && <Pill tone="bad" icon="alert">{t.error}</Pill>}
       </div>
+    </section>
+  );
+}
+
+/** The viral predictor (clipfoundry/predictor/): on by default, it runs on this computer after every render. */
+function PredictorSetting({ s, onSaved }: { s: Settings; onSaved: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const on = s.viral_predictor !== false;
+  const save = async (v: boolean) => {
+    setBusy(true);
+    try {
+      await api.saveSettings({ viral_predictor: v });
+      await onSaved();
+      toast(v ? "The viral predictor is on: new renders are predicted." : "The viral predictor is off.");
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setBusy(false);
+  };
+  return (
+    <section className="panel" aria-labelledby="ai-predictor">
+      <div className="panel-head"><h2 id="ai-predictor">Viral predictor</h2>
+        <Pill tone={on ? "good" : "info"} icon={on ? "check" : undefined}>{on ? "On" : "Off"}</Pill></div>
+      <p className="small">After every render ClipForge watches the finished clip on this computer and predicts how it will do:
+        a viral score, the hook, how long people stay, the strongest moment, and fixes it tried on the clip before suggesting
+        them. It also nudges which moments become clips (at most 5 points). Your own results calibrate it over time. It adds
+        about a second per 10 seconds of clip. <a className="textlink" href="#/create/check">Check any video</a>.</p>
+      <label className="row" style={{ gap: 6 }}>
+        <input type="checkbox" checked={on} disabled={busy} onChange={(e) => void save(e.target.checked)} />
+        Predict every clip
+      </label>
     </section>
   );
 }

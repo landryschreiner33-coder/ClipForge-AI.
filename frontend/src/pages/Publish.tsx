@@ -12,6 +12,7 @@ import { Connection, studio } from "../studio";
 import { loadPosts, Post, postStatus, privacyLabel, TIKTOK_PRIVACY, timeLabel } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
 import { YouTubeComments, YouTubeCommentsResult } from "../components/YouTubeComments";
+import { ClipPredictorCard } from "../components/predictor";
 import "./posts.css";
 import {
   Banner, ConfirmDialog, Disclosure, EmptyState, Icon, IconName, LoadingPage, PageHead, Pill, PlatformName, ProgressBar,
@@ -249,6 +250,16 @@ export default function PublishPage({ id }: { id: string }) {
               <Icon name="download" />Download MP4
             </a>
           </div>
+          {ready && (
+            <div className="panel tight">
+              <ClipPredictorCard clipId={clip.id} versionId={version?.id || ""} open={false}
+                stamp={`${clip.version}|${version?.id ?? ""}`} />
+              <p className="tiny faint">
+                Want to use a fix? <a className="textlink" href={`#/clip/${clip.id}`}>Open the editor</a>, add it with one
+                press, then render.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="stack-4">

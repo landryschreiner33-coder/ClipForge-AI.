@@ -385,6 +385,7 @@ const MAKE_CHOICES: { href: string; icon: IconName; title: string; words: string
   { href: "#/create/short", icon: "spark", title: "Make an animated short", words: "Moving pictures and a voice-over" },
   { href: "#/stories", icon: "story", title: "Make a text story", words: "A story read over a background" },
   { href: "#/missions/live", icon: "live", title: "Clip a live stream", words: "Clips while it is still live" },
+  { href: "#/create/check", icon: "graph", title: "Check a video", words: "Viral score, hook and what to fix" },
 ];
 
 function MakeTiles() {

@@ -447,6 +447,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
 
     clip_dir = Path(project["dir"]) / "clips" / clip["id"]
     clip_dir.mkdir(parents=True, exist_ok=True)
+    own_file = out_dir is None  # the clip's own render (a version is changed on its own page)
     out_dir = out_dir or clip_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -722,6 +723,14 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     if blueprint is not None:
         write_json(out_dir / "blueprint.json", blueprint.to_dict())
     record = artifact.record(out_path, out_dir, tl, words, start, end, opts, encoder, followed)
+    # the viral predictor watches the finished file: a score, the hook, the hold curve, reasons and fixes
+    # (predictor/; never stops a render)
+    from .. import predictor
+
+    prediction = None
+    if predictor.enabled(settings):
+        ctx.progress(0.98, "Predicting how it will do")
+        prediction = predictor.for_render(out_path, record, opts, clip, settings, ctx.cancelled, editable=own_file)
     ctx.progress(1.0, "Done")
     return {
         "output_path": str(out_path),
@@ -749,7 +758,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                                    "noise": round(float((look_stats or {}).get("noise") or 0), 2)},
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
                         "snapped_to_cut": snapped, "edit_hash": edit_hash(clip.get("edit") or {}),
-                        "artifact": record},
+                        "artifact": record, **({"prediction": prediction} if prediction else {})},
     }
 
 
