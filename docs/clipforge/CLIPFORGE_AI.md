@@ -1056,6 +1056,18 @@ its part of the plan. Two slips were left, and are now caught too:
   would do and wrote nothing the owner can use: “…”. Write it yourself now, in your answer."; the helper's words
   still show with its name.
 
+**After the third real-model check** (run 45782892862 on c9506ad, a slower machine): with the note removed, the
+Script writer's "@Script writer write a two-line hook" answer was empty twice (`empty, empty`), and the answer failed.
+The cause was how the conversation reads to the model: an assistant turn was written as its own answer,
+`{"say": "[Waiting for the owner's OK: …]"}`, so the model took the note for words to write. Now:
+
+- In the conversation as the model reads it (`history(as_json=True)`), a helper's name and the notes stand beside the
+  words: `{"by": "Hook writer", "say": "…", "do": []}`, `{"say": "", "do": [], "notes": ["[Waiting for the owner's
+  OK: …]"]}`. The model's own answers can hold neither (`reply_schema`).
+- A helper whose answer still has no words (and did nothing but look) is asked once more with its job alone, without
+  the conversation (`assistant.alone_again`, guard `alone`), both when the owner asks it by name and when ClipForge
+  AI hands it a job. The planner's helpers, which never read the conversation, wrote their part in every check.
+
 ## Thumbs on answers (2026-11-26)
 
 Every finished answer of ClipForge AI, and of a helper talked to with "@Name", has 👍 and 👎 under it

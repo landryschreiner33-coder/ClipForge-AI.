@@ -448,3 +448,32 @@ def test_when_a_helper_only_promises_even_when_asked_again_clipforge_ai_writes_i
     assert m["text"] == "Try “Ridge run at dawn”." and m["data"]["helpers"][0]["text"] == promise
     assert "Script writer only said what it would do" in fake.last_user(2) and "Write it yourself now" in \
         fake.last_user(2)
+
+
+def test_a_helper_that_writes_nothing_even_asked_again_is_asked_with_its_job_alone(data, monkeypatch):
+    """The real Basic model, as the Script writer after a delete card, answered only the card's note twice (check on
+    Nov 26 2026); the planner's same kind of job, without the conversation, it wrote."""
+    from clipfoundry.brain import agents, assistant, chat
+
+    writer = agents.add(WS, template="script_writer")
+    c = chat.open_chat(WS)
+    install(monkeypatch, say("Sure."))
+    settled(c["id"], chat.send(WS, c["id"], "hi")["ai"]["id"])
+    note = "[Waiting for the owner's OK: Delete the clips project “Old gear review”]"
+    fake = install(monkeypatch, say(note), say(note), say("“I almost didn't make it down.” / “Here's why.”"))
+    said = "@Script writer write a two-line hook about mountain biking"
+    m = settled(c["id"], chat.send(WS, c["id"], said)["ai"]["id"])
+    assert m["status"] == "done" and m["text"] == "“I almost didn't make it down.” / “Here's why.”"
+    assert m["data"]["guards"] == ["empty", "empty", "alone"]
+    assert fake.calls[1]["messages"][-1]["content"] == assistant.NUDGE_EMPTY
+    assert [x["content"] for x in fake.calls[2]["messages"]] == [said.removeprefix("@Script writer ")]  # alone
+    # a job ClipForge AI hands over: the same, with the job's own words
+    fake = install(monkeypatch, say(""), say(""), say("Title: “Ridge run at dawn”."))
+    out = agents.run(WS, writer["id"], "Write a title for my biking video", chat=c)
+    assert out["ok"] and out["text"] == "Title: “Ridge run at dawn”."
+    assert len(fake.calls[2]["messages"]) == 1 and fake.calls[2]["messages"][0]["content"].startswith(
+        assistant.JOB_LEAD)
+    # one that wrote, or read the conversation alone already, is never asked again
+    fake = install(monkeypatch, say(""), say(""))
+    out = agents.run(WS, writer["id"], "Write a title for my biking video")
+    assert not out["ok"] and len(fake.calls) == 2

@@ -22,6 +22,9 @@ promises is told to do the job.
 - **After the second real-model check:** `assistant._NOTE` matches the card notes `_pending_note` writes and is
   removed from every round's words (helpers too); `toolbox._ask_agent` tells ClipForge AI to write the job itself
   when the helper's answer is only a promise (`intents.promise`).
+- **After the third check:** `history(as_json=True)` writes `{"by", "say", "do", "notes"}` (name and notes never in
+  "say"); `assistant.alone_again(out, msgs)` decides when a helper is asked again with its job alone (`_turn` for
+  "@Name", `agents.run` for a handed-over job).
 - **Worth knowing:** `data.guards` now also records a slip that was not nudged ("act" after a listing was found);
   `first:<tool>` names a look done before the model. A test that wants the model itself to call find_projects for
   "what projects do I have?" sees it done first; the model's own same call reads the same result.

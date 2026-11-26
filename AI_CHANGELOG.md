@@ -27,6 +27,9 @@ for a small model", "After the first real-model check".
   for the owner's OK: …]") are removed from any answer (a helper answered with only that note), and a helper that
   still only promises after being asked again reaches ClipForge AI as "… only said what it would do … Write it
   yourself now".
+- **After the third check (run 45782892862 on c9506ad):** the Script writer's answer was then empty twice. In the
+  conversation the model reads, a helper's name and the card notes now stand beside "say" ("by", "notes"), never in
+  it; a helper that still writes nothing is asked once more with its job alone (guard `alone`).
 
 ## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code)
 

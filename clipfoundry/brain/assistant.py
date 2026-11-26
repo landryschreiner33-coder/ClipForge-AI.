@@ -243,7 +243,9 @@ def history(chat_id: str, budget_chars: int = 3000, *, as_json: bool = False, be
     are left out. Answers still being written and failed ones are left out. What became of an answer's buttons, its
     helpers' notes and the changes it could not offer (which the model was not asked about again) follow its words in
     brackets. `before`: only the messages written before that message. `as_json`: assistant turns written the way
-    the assistant answers ({"say": …}), so a model keeps answering in that shape."""
+    the assistant answers ({"say": …}), so a model keeps answering in that shape; there a helper's name ("by") and
+    the notes ("notes") stand beside "say", never in it, so a small model does not take them for words to write (the
+    real Basic model answered "[Waiting for the owner's OK: …]" as a helper, Nov 26 2026)."""
     rows = db.select("brain_chat_messages", "chat_id = ?", (chat_id,), "created_at ASC, rowid ASC")
     if before:
         ids = [r["id"] for r in rows]
@@ -267,27 +269,33 @@ def history(chat_id: str, budget_chars: int = 3000, *, as_json: bool = False, be
         if not text and not notes:
             continue
         said = "\n".join(x for x in [((f"[{agent}] " if agent else "") + text).strip(), *notes] if x)
-        turns.append({"role": "assistant", "content": said})
+        turns.append({"role": "assistant", "content": said, "say": text, "by": agent, "notes": notes})
 
-    def shown(t: dict, words: str) -> dict:
-        return {**t, "content": tools.dumps({"say": words, "do": []})} if as_json and t["role"] == "assistant" else \
-            {**t, "content": words}
+    def words(t: dict) -> str:  # what may be shortened: an assistant turn's own words, as JSON
+        return t["say"] if as_json and t["role"] == "assistant" else t["content"]
+
+    def shown(t: dict, part: str | None = None) -> dict:
+        said = words(t) if part is None else part
+        if not (as_json and t["role"] == "assistant"):
+            return {"role": t["role"], "content": said}
+        return {"role": "assistant", "content": tools.dumps({**({"by": t["by"]} if t["by"] else {}), "say": said,
+                                                             "do": [], **({"notes": t["notes"]} if t["notes"] else {})})}
 
     out, used = [], 0
     for t in reversed(turns):
-        whole = shown(t, t["content"])
+        whole = shown(t)
         size = len(whole["content"]) + 8
         if used + size <= budget_chars:
             out.append(whole)
             used += size
             continue
         if not out:  # the newest message alone is too long: keep its end
-            out.append(shown(t, "…" + t["content"][-max(1, budget_chars - 10 - (size - len(t["content"]))):]))
+            out.append(shown(t, "…" + words(t)[-max(1, budget_chars - 10 - (size - len(words(t)))):]))
         elif budget_chars - used - 8 >= HISTORY_PART:  # shortened to the room that is left, then nothing older
             room = budget_chars - used - 8
-            limit = room - (size - 8 - len(t["content"]))  # the room for its words (as JSON: less the quoting)
+            limit = room - (size - 8 - len(words(t)))  # the room for its words (as JSON: less the quoting and notes)
             for _ in range(4):
-                part = shown(t, _shorten(t["content"], max(1, limit)))
+                part = shown(t, _shorten(words(t), max(1, limit)))
                 over = len(part["content"]) - room
                 if over <= 0:
                     out.append(part)
@@ -824,6 +832,17 @@ def _unbracket(say: str, ws: str) -> str:
     return say[m.end():] if inner in names else say
 
 
+def alone_again(out: Outcome, msgs: list[dict]) -> bool:
+    """A helper's answer came back with no words and nothing done but looking, although it read the conversation:
+    it is asked once more with its job alone (a small model copies the conversation instead of writing: the real
+    Basic model, as the Script writer, answered only a card's note twice; the same job asked by the planner, without
+    the conversation, it wrote). Marks the answer's guards with "alone"."""
+    if out.text or out.pending or len(msgs) < 2 or not _looked_only(out):
+        return False
+    out.slips.append("alone")
+    return True
+
+
 def _looked_only(out: Outcome) -> bool:
     """Nothing was done in this answer yet but looking (no change, no make, no helper's job): words that only say
     what the model will do are no answer yet."""
@@ -1211,6 +1230,10 @@ def _turn(ws: str, chat: dict, text: str, message_id: str, agent: dict | None, b
         think(settings, system, msgs, tool_list, ctx, max_tokens=budgets(settings)["max_tokens"] + (
             400 if agent else 0), on_change=lambda o: _save(message_id, o, base=base), out=out, said=text,
             first=first, fallback=plain)
+        if agent and alone_again(out, msgs):  # a helper that wrote nothing, even asked once more: its job alone
+            think(settings, system, [{"role": "user", "content": text}], tool_list, ctx,
+                  max_tokens=budgets(settings)["max_tokens"] + 400, on_change=lambda o: _save(message_id, o, base=base),
+                  out=out, said=text)
         out.data.pop("helper_live", None)
         if (not agent and not out.data.get("links") and library.howto(text) and know.hits
                 and know.hits[0].entry.source == "guide" and know.hits[0].score >= 1.0):
