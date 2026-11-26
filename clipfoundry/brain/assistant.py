@@ -116,9 +116,11 @@ NUDGE_DO = ("You only said what you would do. Do it now, in this answer: write t
 NUDGES = {"echo": NUDGE_ECHO, "act": NUDGE_ACT, "short": NUDGE_SHORT, "empty": NUDGE_EMPTY}
 _BRACKET = re.compile(r"^\s*\[[^\]\n]{1,48}\]\s*")  # "[Script writer] …": a helper's mark, never ClipForge AI's
 # "[Waiting for the owner's OK: …]": the app's own note on a card (_pending_note), never part of an answer
+# (a name in its quotes may hold brackets: “Trip to Iceland [4K]”)
 _NOTE = re.compile(r"\s*\[(?:Waiting for the owner's OK|You did it on your own|You tried it on your own but it failed|"
                    r"The owner pressed OK and it was done|The owner pressed OK but it failed|The owner said no to|"
-                   r"Could not be offered):[^\]\n]*\]\s*")
+                   r"Could not be offered|(?:“[^”\n]*”|[^\[\]\n:“])+, so nothing was done):"
+                   r"(?:“[^”\n]*”|[^\]\n])*\]\s*")
 NEXT = ("Now reply to the owner using these results: give them what they asked for from the results (name the "
         "projects, say the facts). Do not repeat what you already said.")
 LAST = "Now reply to the owner. No more tools in this answer."
@@ -271,15 +273,26 @@ def history(chat_id: str, budget_chars: int = 3000, *, as_json: bool = False, be
         said = "\n".join(x for x in [((f"[{agent}] " if agent else "") + text).strip(), *notes] if x)
         turns.append({"role": "assistant", "content": said, "say": text, "by": agent, "notes": notes})
 
-    def words(t: dict) -> str:  # what may be shortened: an assistant turn's own words, as JSON
-        return t["say"] if as_json and t["role"] == "assistant" else t["content"]
+    def json_turn(t: dict) -> bool:
+        return as_json and t["role"] == "assistant"
 
-    def shown(t: dict, part: str | None = None) -> dict:
-        said = words(t) if part is None else part
-        if not (as_json and t["role"] == "assistant"):
-            return {"role": t["role"], "content": said}
-        return {"role": "assistant", "content": tools.dumps({**({"by": t["by"]} if t["by"] else {}), "say": said,
-                                                             "do": [], **({"notes": t["notes"]} if t["notes"] else {})})}
+    def words(t: dict) -> int:  # how much of the turn may be shortened: its words, and as JSON its notes too
+        return len(t["say"]) + sum(len(n) + 1 for n in t["notes"]) if json_turn(t) else len(t["content"])
+
+    def shown(t: dict, limit: int | None = None, end: bool = False) -> dict:
+        """`t` as the model reads it: whole, or cut to about `limit` characters of words (`end`: only their end)."""
+        def cut(text: str, n: int) -> str:
+            return "…" + text[-max(1, n):] if end else _shorten(text, max(1, n))
+
+        if not json_turn(t):
+            return {"role": t["role"], "content": t["content"] if limit is None else cut(t["content"], limit)}
+        say, notes = t["say"], list(t["notes"])
+        if limit is not None:  # the words and the notes each keep their share of the room
+            share = (limit * len(say)) // max(1, words(t)) if notes else limit
+            say = cut(say, share) if say else ""
+            notes = [cut("\n".join(notes), limit - share)] if notes else []
+        return {"role": "assistant", "content": tools.dumps({**({"by": t["by"]} if t["by"] else {}), "say": say,
+                                                             "do": [], **({"notes": notes} if notes else {})})}
 
     out, used = [], 0
     for t in reversed(turns):
@@ -290,12 +303,12 @@ def history(chat_id: str, budget_chars: int = 3000, *, as_json: bool = False, be
             used += size
             continue
         if not out:  # the newest message alone is too long: keep its end
-            out.append(shown(t, "…" + words(t)[-max(1, budget_chars - 10 - (size - len(words(t)))):]))
+            out.append(shown(t, budget_chars - 10 - (size - words(t)), end=True))
         elif budget_chars - used - 8 >= HISTORY_PART:  # shortened to the room that is left, then nothing older
             room = budget_chars - used - 8
-            limit = room - (size - 8 - len(words(t)))  # the room for its words (as JSON: less the quoting and notes)
+            limit = room - (size - 8 - words(t))  # the room for its words (as JSON: less the quoting)
             for _ in range(4):
-                part = shown(t, _shorten(words(t), max(1, limit)))
+                part = shown(t, limit)
                 over = len(part["content"]) - room
                 if over <= 0:
                     out.append(part)
@@ -834,7 +847,7 @@ def _unbracket(say: str, ws: str) -> str:
 
 def alone_again(out: Outcome, msgs: list[dict]) -> bool:
     """A helper's answer came back with no words and nothing done but looking, although it read the conversation:
-    it is asked once more with its job alone (a small model copies the conversation instead of writing: the real
+    it is asked once more (one round, no nudge after it: `think(nudge=False)`) with its job alone (a small model copies the conversation instead of writing: the real
     Basic model, as the Script writer, answered only a card's note twice; the same job asked by the planner, without
     the conversation, it wrote). Marks the answer's guards with "alone"."""
     if out.text or out.pending or len(msgs) < 2 or not _looked_only(out):
@@ -871,7 +884,7 @@ def _show(out: Outcome, said: str, wanted: set[str]) -> None:
 def think(settings: dict, system: str, messages: list[dict], tool_list: list[tools.Tool], ctx: Ctx, *,
           max_tokens: int = 800, max_steps: int = MAX_STEPS, on_change: Callable[[Outcome], None] | None = None,
           out: Outcome | None = None, said: str = "", first: list[dict] | None = None,
-          fallback: dict | None = None) -> Outcome:
+          fallback: dict | None = None, nudge: bool = True) -> Outcome:
     """The rounds of one answer: ask the model, use the tools it asked for, give it their results, until it answers
     without needing more (or `max_steps` rounds, the last one without tools). `on_change(outcome)` is called while
     the answer is written and after every tool, so it can be shown as it grows. Raises llm.ProviderError (Canceled
@@ -925,7 +938,7 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
     try:
         _rounds(settings, system, msgs, tool_list, ctx, out, max_tokens=max_tokens, max_steps=max_steps,
                 on_change=on_change, said=said, fallback=fallback, start=start, room=room, held=held, wanted=wanted,
-                streaming=streaming)
+                streaming=streaming, nudge=nudge)
     except BaseException:  # stopped, out of time or today's requests, or a model that failed: keep what came
         _show(out, said, wanted)
         keep_held()
@@ -940,11 +953,11 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
 def _rounds(settings: dict, system: str, msgs: list[dict], tool_list: list[tools.Tool], ctx: Ctx, out: Outcome, *,
             max_tokens: int, max_steps: int, on_change: Callable[[Outcome], None] | None, said: str,
             fallback: dict | None, start: int, room: int, held: list[str], wanted: set[str],
-            streaming: Callable[[str], None]) -> None:
+            streaming: Callable[[str], None], nudge: bool = True) -> None:
     """The model's rounds of `think`."""
     from ..pipeline import llm
 
-    nudged = False
+    nudged = not nudge  # `nudge` False: this answer was asked once more already (alone_again)
     for step in range(max_steps):
         if ctx.cancel and ctx.cancel():  # stopped while a tool worked: a model that answers all at once is not asked
             raise llm.Canceled("Stopped.")
@@ -1233,7 +1246,7 @@ def _turn(ws: str, chat: dict, text: str, message_id: str, agent: dict | None, b
         if agent and alone_again(out, msgs):  # a helper that wrote nothing, even asked once more: its job alone
             think(settings, system, [{"role": "user", "content": text}], tool_list, ctx,
                   max_tokens=budgets(settings)["max_tokens"] + 400, on_change=lambda o: _save(message_id, o, base=base),
-                  out=out, said=text)
+                  out=out, said=text, nudge=False)
         out.data.pop("helper_live", None)
         if (not agent and not out.data.get("links") and library.howto(text) and know.hits
                 and know.hits[0].entry.source == "guide" and know.hits[0].score >= 1.0):

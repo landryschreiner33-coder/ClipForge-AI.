@@ -1068,6 +1068,22 @@ The cause was how the conversation reads to the model: an assistant turn was wri
   the conversation (`assistant.alone_again`, guard `alone`), both when the owner asks it by name and when ClipForge
   AI hands it a job. The planner's helpers, which never read the conversation, wrote their part in every check.
 
+**After the fourth real-model check** (run 45785137953 on 9279e9d): every must-check passed, and the Script writer
+answered "@Script writer …" instead of failing, but with "Got it: I'm ready to write a two-line hook about mountain
+biking." A pleasantry before a colon ("Got it:", "Sure:", "Okay:") now starts a sentence like one before a full stop,
+so that is a promise; "Got it: your channel is about mountain biking." is still an answer.
+
+A small review of these last fixes (each finding shown with a probe) found, and now:
+
+- The conversation keeps an answer whose notes are long (helpers' work) when it does not fit whole: its words and its
+  notes are both shortened to their share of the room, never dropped.
+- A card note whose name holds brackets ("“Trip to Iceland [4K]”") is removed whole, and so is "[…, so nothing was
+  done: …]".
+- A helper that did the work with a tool (proposed a change, kept a memory) and said "Let me make that change." is
+  not reported as one that only promised; only a helper that did nothing but look is.
+- The round with the job alone is one round: no nudge after it (`think(nudge=False)`), so a silent helper costs at
+  most three requests.
+
 ## Thumbs on answers (2026-11-26)
 
 Every finished answer of ClipForge AI, and of a helper talked to with "@Name", has 👍 and 👎 under it

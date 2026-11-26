@@ -316,7 +316,7 @@ def run(ws: str, agent_id: str, task: str, *, context: str = "", chat: dict | No
                         out=out, said=job)
         if assistant.alone_again(out, msgs):  # it wrote nothing, even asked once more: the job without the chat
             assistant.think(settings, system, msgs[-1:], tool_list, ctx, max_tokens=RUN_TOKENS, max_steps=3,
-                            on_change=shown, out=out, said=job)
+                            on_change=shown, out=out, said=job, nudge=False)
     except llm.Canceled:
         raise
     except (llm.ProviderError, assistant.Stopped) as exc:

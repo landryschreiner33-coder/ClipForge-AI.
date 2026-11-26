@@ -53,7 +53,9 @@ def test_echo_promise_and_an_answer_that_stops_at_a_colon():
     assert intents.echo("ok", "OK!") and not intents.echo("Thanks!", "thanks a lot")
     assert not intents.echo("I'm well, thanks! How can I help with your videos?", "Hi! How are you today?")
     for s in ("Let me look.", "I'll check for the project “Old gear review”.", "One moment, I'll look that up",
-              "Let me ask the Script writer."):
+              "Let me ask the Script writer.",
+              # the real Basic model as the Script writer, in the fourth check (Nov 26)
+              "Got it: I'm ready to write a two-line hook about mountain biking.", "Got it, I'll write a title."):
         assert intents.promise(s), s
     for s in ("Let me know if you want more.", "Can I look at it?", "I can't find that project.",
               "You have 3 projects. " + "x" * 300, "I'll be honest: the hook is too slow.",
@@ -61,7 +63,9 @@ def test_echo_promise_and_an_answer_that_stops_at_a_colon():
               "Try “Ridge Rider”, “Downhill Dreams” or “Wheels Up”. Let me know if you want me to find more.",
               "Let's get you a title: “Ride the Ridge”.", "I'll be honest: the hook is weak, see if you can open on it",
               "Got it — from now on I will ask you before anything is posted.", "Let me look. You have 3 projects.",
-              "Let me check: you have “Hike day” and “Lake swim”."):
+              "Let me check: you have “Hike day” and “Lake swim”.",
+              "Got it: your channel is about mountain biking. I'll keep this in mind.", "Got it: “Ride the ridge”.",
+              "Sure: here is the hook: “I almost fell.”"):
         assert not intents.promise(s), s
     assert intents.stops_short("Here are your projects:") and not intents.stops_short("You have 2 projects.")
 
@@ -477,3 +481,68 @@ def test_a_helper_that_writes_nothing_even_asked_again_is_asked_with_its_job_alo
     fake = install(monkeypatch, say(""), say(""))
     out = agents.run(WS, writer["id"], "Write a title for my biking video")
     assert not out["ok"] and len(fake.calls) == 2
+
+
+# ------------------------------------------------------------------ the review of the last fixes (Nov 26)
+def test_a_cards_note_with_brackets_in_a_name_is_removed_whole(data, monkeypatch):
+    for note in ("[Waiting for the owner's OK: Delete the clips project “Trip to Iceland [4K]”]",
+                 "[The owner pressed OK and it was done: Renamed “Vlog [part 2]” to “Vlog 2”]",
+                 "[Could not delete Old talk, so nothing was done: That project is not there any more.]"):
+        install(monkeypatch, say(note + " You have 2 projects."))
+        assert _think([], "how many projects do I have?").text == "You have 2 projects.", note
+    install(monkeypatch, say("[0:42–1:10] The jump is your best moment."))
+    assert _think([], "where should my clip start?").text == "[0:42–1:10] The jump is your best moment."
+
+
+def test_a_silent_helper_is_asked_once_more_alone_and_not_nudged_after_it(data, monkeypatch):
+    from clipfoundry.brain import agents, chat
+
+    writer = agents.add(WS, template="script_writer")
+    c = chat.open_chat(WS)
+    install(monkeypatch, say("Sure."))
+    settled(c["id"], chat.send(WS, c["id"], "hi")["ai"]["id"])
+    fake = install(monkeypatch, say(""), say(""), say(""), say("never asked"))
+    out = agents.run(WS, writer["id"], "Write a title for my biking video", chat=c)
+    assert not out["ok"] and len(fake.calls) == 3
+    fake = install(monkeypatch, say(""), say(""), say(""), say("never asked"))
+    m = settled(c["id"], chat.send(WS, c["id"], "@Script writer write a title")["ai"]["id"])
+    assert m["status"] == "failed" and len(fake.calls) == 3 and m["data"]["guards"] == ["empty", "empty", "alone",
+                                                                                          "empty"]
+
+
+def test_a_helper_that_did_the_work_with_a_tool_is_not_told_off_for_its_words(data, monkeypatch):
+    from clipfoundry.brain import agents, toolbox, tools
+
+    writer = agents.add(WS, template="script_writer")
+    for steps, told in (([{"tool": "remember", "label": "Kept a memory", "ok": True}], False),
+                        ([{"tool": "recall", "label": "Looked in the memory", "ok": True}], True), ([], True)):
+        ran = {"agent": agents.card(writer), "text": "I will write it down.", "steps": steps, "data": {}, "ok": True}
+        monkeypatch.setattr(agents, "run", lambda *a, ran=ran, **k: ran)
+        res = toolbox._ask_agent(tools.Ctx(ws=WS), {"agent": "Script writer", "task": "Keep my channel's topic"})
+        assert ("only said what it would do" in res.text) is told, steps
+        assert told or res.text == "Script writer answered:\nI will write it down."
+
+
+def test_an_answer_with_long_notes_before_a_long_follow_up_is_kept_shortened(data):
+    import json
+
+    from clipfoundry import db
+    from clipfoundry.brain import assistant, chat
+
+    c = chat.open_chat(WS)
+
+    def add(role, text, **extra):
+        return db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": role, "text": text,
+                                                 "data": extra, "status": "done"})
+
+    add("owner", "plan my video")
+    helpers = [{"agent": {"name": n}, "text": f"{n} notes. " * 80, "ok": True} for n in ("Researcher", "Critic")]
+    add("ai", "Here is the plan: open on the summit, then the climb. " + "More. " * 300, helpers=helpers)
+    add("owner", "Rewrite my draft using your plan. " + "word " * 760)
+    for as_json in (False, True):
+        h = assistant.history(c["id"], 5000, as_json=as_json)
+        assert [t["role"] for t in h] == ["assistant", "user"], as_json
+        assert sum(len(t["content"]) + 8 for t in h) <= 5000
+    plan = json.loads(h[0]["content"])
+    assert plan["say"].startswith("Here is the plan: open on the summit") and " … " in plan["say"]
+    assert len(plan["notes"]) == 1 and plan["notes"][0].startswith("[Researcher wrote:")

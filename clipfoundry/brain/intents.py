@@ -66,7 +66,8 @@ def echo(said: str, owner: str) -> bool:
 # you want more."), and nothing more. "Let's get you a title: “Ride the Ridge”", "I'll be honest: the hook is weak",
 # "Got it: your channel is about biking. I'll save it." and "I can see you have 3 projects." are answers.
 _PROMISE = re.compile(
-    r"^(?:(?:ok(?:ay)?|sure|alright|all right|of course|certainly|great|no problem|absolutely)[,!.]?\s+)?"
+    r"^(?:(?:ok(?:ay)?|sure|alright|all right|of course|certainly|great|no problem|absolutely|got it|understood)"
+    r"[,!.]?\s+)?"
     r"(?:(?:one (?:moment|sec(?:ond)?)|give me a (?:moment|sec(?:ond)?)|hold on|just a (?:moment|sec(?:ond)?))"
     r"[,.!…]*\s*)?"
     r"(?:(?:first|now|then|next|so)(?:,\s*|\s+))?"
@@ -83,6 +84,10 @@ _PLEASANTRY = re.compile(r"^(?:ok(?:ay)?|sure(?: thing)?|alright|all right|of co
                          r"(?: question| idea)?|no problem|got it|happy to help|hi(?: there)?|hello(?: there)?|hey"
                          r"(?: there)?|let me know (?:if|when|what|how)\b.*)[\s!.,…]*$", re.I)
 _SENTENCE = re.compile(r"(?<=[.!…])\s+")
+# "Got it: I'm ready to write a two-line hook." (the real Basic model as the Script writer, Nov 26 2026): a pleasantry
+# before a colon starts the sentence like one before a full stop; "Got it: your channel is about biking." is an answer
+_LEAD = re.compile(r"^(?:ok(?:ay)?|sure(?: thing)?|alright|all right|of course|certainly|absolutely|great|no problem|"
+                   r"got it|understood|perfect)\s*:\s*", re.I)
 # after "let me look", a dash, a semicolon or a comma begins the answer itself ("Let me see, your best clip is …")
 _GOES_ON = re.compile(r"\s[-–—]\s|[–—;]|,\s*\S")
 
@@ -96,6 +101,7 @@ def promise(said: str) -> bool:
         return False
     promised = False
     for part in _SENTENCE.split(s):
+        part = _LEAD.sub("", part, count=1)
         if not part or _PLEASANTRY.match(part):
             continue
         m = _PROMISE.match(part)

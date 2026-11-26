@@ -30,6 +30,10 @@ for a small model", "After the first real-model check".
 - **After the third check (run 45782892862 on c9506ad):** the Script writer's answer was then empty twice. In the
   conversation the model reads, a helper's name and the card notes now stand beside "say" ("by", "notes"), never in
   it; a helper that still writes nothing is asked once more with its job alone (guard `alone`).
+- **After the fourth check (run 45785137953 on 9279e9d, every must-check passed):** "Got it: I'm ready to write …" is
+  a promise. A small review (4 findings, each with a probe) fixed: long helper notes no longer drop an answer from
+  the conversation, card notes with brackets in a name are removed whole, a helper that proposed a change or kept a
+  memory is not called a promise, the job-alone round is not nudged again.
 
 ## Guards so the built-in model gives real answers — 2026-11-26 (Claude Code)
 

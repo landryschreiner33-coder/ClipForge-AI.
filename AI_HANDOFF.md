@@ -25,6 +25,9 @@ promises is told to do the job.
 - **After the third check:** `history(as_json=True)` writes `{"by", "say", "do", "notes"}` (name and notes never in
   "say"); `assistant.alone_again(out, msgs)` decides when a helper is asked again with its job alone (`_turn` for
   "@Name", `agents.run` for a handed-over job).
+- **After the fourth check and its review:** `intents._LEAD` ("Got it:" before a promise); `history` shortens a JSON
+  turn's say and notes by share (`shown(t, limit, end)`); `_NOTE` reads quoted names whole; `toolbox._ask_agent`
+  calls a helper's answer a promise only when its steps were all look tools; `think(nudge=False)`.
 - **Worth knowing:** `data.guards` now also records a slip that was not nudged ("act" after a listing was found);
   `first:<tool>` names a look done before the model. A test that wants the model itself to call find_projects for
   "what projects do I have?" sees it done first; the model's own same call reads the same result.
