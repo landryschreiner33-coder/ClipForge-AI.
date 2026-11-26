@@ -34,6 +34,8 @@ const PRESETS: Record<string, { font: string; weight: number; size: number; uppe
 const CLIP_PLACE: Record<string, number> = { bottom: 0.36, middle: 0, top: 0.16 };
 const VIDEO_PLACE: Record<string, number> = { bottom: 0.08, middle: 0, top: 0.08 };
 const SAMPLE = "Keep moving. Every new clip starts closer to how you like it.".split(" ");
+/** The preview's background pictures: a sunset road, 9:16 for clips and 16:9 for videos. */
+const SCENE_PICTURE = { tall: "/brain/style-preview-tall.jpg", wide: "/brain/style-preview-wide.jpg" };
 const SECONDS = 6;
 
 const same = (a: Record<string, unknown>, b: Record<string, unknown>) => {
@@ -330,7 +332,11 @@ function CaptionPreview({ format, look, place }: { format: "9:16" | "16:9"; look
       <h2 id="style-preview-title">Preview</h2>
       <div ref={frame} className={`style-frame ${clip ? "tall" : "wide"}`} role="img"
         aria-label={`Caption preview: ${word(look)} captions, ${word(place).toLowerCase()}, ${format}`}>
-        <div className="style-scene" aria-hidden="true"><i className="sun" /><i className="hills" /><i className="road" /></div>
+        {/* a sunset road behind the sample words: a photo-like picture (the owner's, 2026-11-26) over the drawn one,
+            which still shows if the picture can't load */}
+        <div className="style-scene" aria-hidden="true"><i className="sun" /><i className="hills" /><i className="road" />
+          <img key={format} className="style-scene-picture" src={SCENE_PICTURE[clip ? "tall" : "wide"]} alt=""
+            decoding="async" onError={(e) => { e.currentTarget.hidden = true; }} /></div>
         <div className={`style-caption at-${place}`} aria-hidden="true" style={{
           ...where, fontFamily: `"${p.font}", "Poppins", sans-serif`, fontWeight: p.weight, fontSize: `${px}px`,
           // the renderer's outline sits outside the letters: a stroke twice as wide, painted under the fill
@@ -356,7 +362,7 @@ function CaptionPreview({ format, look, place }: { format: "9:16" | "16:9"; look
           aria-valuetext={`${t.toFixed(1)} of ${SECONDS} seconds`}
           onChange={(e) => { setPlaying(false); setT(Number(e.target.value)); }} />
       </div>
-      <p className="style-hint">Sample words over a drawn picture. {clip
+      <p className="style-hint">Sample words over a sample picture. {clip
         ? "Clips use this font, size, outline and colour, and light up each word as it is said."
         : "YouTube videos show white captions in this font."}</p>
     </section>

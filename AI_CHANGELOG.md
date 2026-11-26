@@ -36,6 +36,9 @@ builds it (PR #72, from `claude/project-thread-8ua98o` on the release line at 3b
 - **Releases without built-in sign-in** show a warning in the Mac build's summary (`write_oauth_apps.py --release`).
 - **Text Stories open from Make** (Landry: "make sure the text stories is in the make tab like the rest not on the side
   bar as its own"): Make → Make a text story and the Studio's tile; no side bar entry; its pages light up the Studio.
+- **Real example pictures for the animated-short looks** (Landry made them with ChatGPT from prompts ClipForge wrote):
+  `public/looks/<look>.jpg` at 9:16 replace the shapes drawn in code (still the fallback if a picture can't load), and
+  Brain → Styles plays its sample captions over a sunset-road picture (`public/brain/style-preview-*.jpg`).
 - **Review (4 reviewers, every finding checked again): 21 problems fixed.** ClipForge's own trims keep the plan's
   middle cuts (`blueprint._inside_trims`); owner hashtags with digits or other alphabets pass every check; a
   sentence's first word is not a subject; learned trims are measured from ClipForge's pick; title kinds use the same
