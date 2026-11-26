@@ -105,7 +105,7 @@ function SystemView({ st, refresh }: { st: AutopilotStatus; refresh: () => void 
                   <Pill tone={tone} icon={icon}>{(WORKER_BADGE[w.status] || [w.status])[0]}</Pill>
                   <b className="small" style={{ minWidth: 120 }}>{w.label}</b>
                   <span className="tiny faint grow break" title={w.last_error || w.message}>
-                    {w.stage ? `${w.stage} · ` : ""}{w.message}{w.stale ? ` (last heard ${timeAgo(w.heartbeat)})` : ""}
+                    {w.stage ? `${w.stage} · ` : ""}{w.message}{w.stale && w.heartbeat ? ` (last heard ${timeAgo(w.heartbeat)})` : ""}
                   </span>
                   {queued > 0 && <span className="tiny faint">{queued} queued</span>}
                 </div>
