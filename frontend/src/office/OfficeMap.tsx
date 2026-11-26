@@ -61,7 +61,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   const motion = choreography.current;
   const buttons = useRef(new Map<string, HTMLButtonElement>()), world = useRef<HTMLDivElement>(null);
   // the Taser (an easter egg): pick it up from its charger, and a click on a robot zaps it instead of opening it
-  const zapper = useTaser({ enabled: taser, sounds, robots: buttons, world, name: id => BY_ID[id]?.name || "The robot" });
+  const zapper = useTaser({ enabled: taser, sounds, reduce, robots: buttons, world,
+    name: id => BY_ID[id]?.name || "The robot" });
   const zaps = zapper.fx.current;
   const brainLink = useRef<HTMLAnchorElement>(null), transferNote = useRef<HTMLSpanElement>(null);
   const pulses = useRef(new Map<RoomId, number>()), core = useRef(0), dockUntil = useRef(0);
@@ -297,7 +298,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         {taser && <TaserDock taser={zapper} />}
         <TaserBursts taser={zapper} />
       </div>
-      {taser && <HeldTaser taser={zapper} width={Math.round(Math.max(60, Math.min(104, 76 * scale * zoom)))} />}
+      {taser && <HeldTaser taser={zapper} width={Math.round(Math.max(52, Math.min(90, 58 * scale * zoom)))} />}
       {renderer === "plain" && <p className="ship-missing small">The ship pictures could not load. The rooms and
         robots below still work, and every robot is listed under Activity.</p>}
     </div>

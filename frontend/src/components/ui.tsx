@@ -68,6 +68,8 @@ const PATHS = {
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4",
   graph: "M12 5.5a2 2 0 1 0 0-.01M5.5 18a2 2 0 1 0 0-.01M18.5 18a2 2 0 1 0 0-.01M11 7l-4.5 9M13 7l4.5 9",
   satellite: "M8 8l4 4M5 5l3 3-3 3-3-3zM16 16l3 3-3 3-3-3zM11 11l2 2M14 5a5 5 0 0 1 5 5M14 8a2 2 0 0 1 2 2",
+  // the owner's Missions logo (2026-11-26): an orbit with a star at its open end (the star is in SOLID below)
+  missions: "M15.76 4.87A10.11 6.06 -33.56 1 0 20.8 10.17",
   chat: "M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-8L6.5 20v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5zM8.5 10.75h.01M12 10.75h.01M15.5 10.75h.01",
   // older names, kept so existing parts keep working
   dashboard: "M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-6h4v6",
@@ -76,12 +78,17 @@ const PATHS = {
   calendar: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4M8 14h3v3H8z",
 };
 export type IconName = keyof typeof PATHS;
+/** Filled parts drawn over an icon's lines. */
+const SOLID: Partial<Record<IconName, string>> = {
+  missions: "M19.27 3.19Q20.18 5.29 22.28 6.19Q20.18 7.1 19.27 9.2Q18.37 7.1 16.27 6.19Q18.37 5.29 19.27 3.19Z",
+};
 
 export function Icon({ name, size, fill = false, className = "" }: { name: IconName; size?: number; fill?: boolean; className?: string }) {
   return (
     <svg className={`icon ${fill ? "fill" : ""} ${className}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false"
       style={size ? { width: size, height: size } : undefined}>
       <path d={PATHS[name]} />
+      {SOLID[name] && <path className="icon-solid" d={SOLID[name]} />}
     </svg>
   );
 }

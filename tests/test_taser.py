@@ -1,6 +1,7 @@
 """The robot office's Taser (Landry, 2026-11-26: "make it an actual item you can grab with animations and make sure
 when you taze them its animated and stuff and they should have multipal animations when you taze them the same thing
-shouldent happen all the time").
+shouldent happen all the time"; later the same day, with two pictures: "Use this as the tazer design and the other as
+the missions logo and improve the getting taxed animations").
 
 The reaction logic (frontend/src/office/taser.ts) runs under Node when Node can strip TypeScript types; the rest
 checks the source: the Taser is a thing you pick up from its charger, a click on a robot while holding it zaps
@@ -26,10 +27,42 @@ const t = await import(process.argv[2]);
 const out = {};
 const p = new t.ZapPicker();
 const seq = [];
-for (let i = 0; i < 900; i++) seq.push(p.next());
+const n = t.ZAP_KINDS.length;
+for (let i = 0; i < 100 * n; i++) seq.push(p.next());
 out.repeats = seq.filter((k, i) => i && k === seq[i - 1]).length;
 out.fullBags = 0;
-for (let r = 0; r < 100; r++) if (new Set(seq.slice(r * 9, r * 9 + 9)).size === t.ZAP_KINDS.length) out.fullBags++;
+for (let r = 0; r < 100; r++) if (new Set(seq.slice(r * n, r * n + n)).size === n) out.fullBags++;
+const words = [];
+for (let i = 0; i < 300; i++) words.push(p.sound(t.ZAP_KINDS[i % n]));
+out.wordRepeats = words.filter((w, i) => i && w === words[i - 1]).length;
+out.words = [...new Set(words)];
+out.fizzleWord = p.sound("fizzle");
+const bolt = t.boltPoints({ x: 3, y: 4 }, { x: 60, y: -20 }, 6, 8).split(" ").map(pt => pt.split(",").map(Number));
+out.bolt = { count: bolt.length, first: bolt[0], last: bolt[bolt.length - 1],
+  finite: bolt.every(pt => pt.length === 2 && pt.every(Number.isFinite)) };
+out.shock = {};
+for (const k of t.ZAP_KINDS) {
+  let rattle = 0, skeleton = 0, flash = 0;
+  for (let ms = 0; ms < t.SHOCK_MS; ms += 5) {
+    const q = t.zapPose(k, ms);
+    if (q.dx) rattle++;
+    if (q.xray) skeleton++;
+    if (q.tint) flash++;
+  }
+  out.shock[k] = { rattle, skeleton, flash, sparks: t.zapParticles(k, 40, 42, 7).length };
+}
+out.fizzleShock = t.zapPose("fizzle", 30).xray;
+out.particleKinds = {};
+for (const k of ["glitch", "reboot", "rocket"]) {
+  const seen = new Set();
+  for (let ms = t.SHOCK_MS; ms < t.ZAP_MS[k]; ms += 10) {
+    for (const part of t.zapParticles(k, ms, 42, 99)) seen.add(part.kind);
+  }
+  out.particleKinds[k] = [...seen];
+}
+out.glitchBands = 0;
+for (let ms = t.SHOCK_MS; ms < t.ZAP_MS.glitch; ms += 10) if (t.zapPose("glitch", ms).bands) out.glitchBands++;
+out.big = t.BIG_ZAPS;
 out.sameLine = 0;
 for (const k of [...t.ZAP_KINDS, "fizzle"]) {
   let prev = null;
@@ -42,7 +75,7 @@ for (const k of [...t.ZAP_KINDS, "fizzle"]) {
     const q = t.zapPose(k, ms);
     for (const v of [q.dx, q.dy, q.rot, q.sx, q.sy]) if (!Number.isFinite(v)) out.bad++;
     if (Math.abs(q.sx) < 0.15 || q.sy < 0.5) out.bad++;
-    if (q.dx || q.dy || q.rot || q.sx !== 1 || q.sy !== 1 || q.flip || q.tint || q.xray || q.frame) moved++;
+    if (q.dx || q.dy || q.rot || q.sx !== 1 || q.sy !== 1 || q.flip || q.tint || q.xray || q.glitch || q.frame) moved++;
     for (const part of t.zapParticles(k, ms, 42, 4242)) {
       parts++;
       for (const v of Object.values(part)) if (typeof v === "number" && !Number.isFinite(v)) out.bad++;
@@ -51,7 +84,8 @@ for (const k of [...t.ZAP_KINDS, "fizzle"]) {
   out.moving[k] = moved; out.particles[k] = parts;
 }
 const end = t.zapPose("topple", 999999);
-out.restAfterEnd = !end.dx && !end.dy && !end.rot && end.sx === 1 && end.sy === 1 && !end.tint && !end.frame;
+out.restAfterEnd = !end.dx && !end.dy && !end.rot && end.sx === 1 && end.sy === 1 && !end.tint && !end.frame
+  && !end.glitch && !end.bands;
 out.kinds = t.ZAP_KINDS;
 console.log(JSON.stringify(out));
 """
@@ -65,19 +99,26 @@ def _node_with_types():
     return node if probe.returncode == 0 else None
 
 
-def test_reactions_take_turns_and_every_one_animates(tmp_path):
+@pytest.fixture(scope="module")
+def reactions(tmp_path_factory):
     node = _node_with_types()
     if not node:
         pytest.skip("needs Node 22.6 or newer to run the Taser's TypeScript")
-    source = tmp_path / "taser.mts"
+    folder = tmp_path_factory.mktemp("taser")
+    source = folder / "taser.mts"
     source.write_text(TASER, encoding="utf-8")
-    script = tmp_path / "check.mjs"
+    script = folder / "check.mjs"
     script.write_text(CHECK, encoding="utf-8")
     run = subprocess.run([node, "--experimental-strip-types", "--no-warnings", str(script), source.as_uri()],
                          capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr
-    out = json.loads(run.stdout.strip().splitlines()[-1])
-    assert len(out["kinds"]) == 9
+    return json.loads(run.stdout.strip().splitlines()[-1])
+
+
+def test_reactions_take_turns_and_every_one_animates(reactions):
+    out = reactions
+    assert len(out["kinds"]) == 12
+    assert {"glitch", "reboot", "rocket"} <= set(out["kinds"])
     assert out["repeats"] == 0, "the same reaction twice in a row"
     assert out["fullBags"] == 100, "every reaction comes up once before any comes back"
     assert out["sameLine"] == 0, "a robot says the same line twice in a row"
@@ -87,6 +128,58 @@ def test_reactions_take_turns_and_every_one_animates(tmp_path):
     for kind in out["kinds"]:
         assert out["particles"][kind] > 0, f"{kind} has nothing flying around the robot"
     assert out["restAfterEnd"]
+
+
+def test_every_zap_opens_with_a_shock(reactions):
+    # the robot rattles, its skeleton and a flash take turns, and sparks fly, whatever the reaction after it
+    for kind, shock in reactions["shock"].items():
+        assert shock["rattle"] > 0 and shock["skeleton"] > 0 and shock["flash"] > 0, kind
+        assert shock["sparks"] > 0, kind
+    assert not reactions["fizzleShock"], "a fizzle is too weak for the shock"
+    # the new reactions bring their own pieces: glitch pixels, a reboot's loading bar, a rocket's flame
+    assert "pixel" in reactions["particleKinds"]["glitch"] and reactions["glitchBands"] > 0
+    assert "bar" in reactions["particleKinds"]["reboot"]
+    assert "flame" in reactions["particleKinds"]["rocket"]
+    assert set(reactions["big"]) <= set(reactions["kinds"]) and len(reactions["big"]) < len(reactions["kinds"])
+
+
+def test_the_sound_is_written_over_the_robot(reactions):
+    assert reactions["wordRepeats"] == 0, "the same sound word twice in a row"
+    assert len(reactions["words"]) >= 5 and all(w.endswith("!") for w in reactions["words"])
+    assert reactions["fizzleWord"] == "fzz…"
+    bolt = reactions["bolt"]
+    assert bolt["count"] == 7 and bolt["first"] == [3, 4] and bolt["last"] == [60, -20] and bolt["finite"]
+    assert "sfx = picker.current!.sound(kind)" in ITEM
+    assert '{b.sfx && <span className="taser-sfx">{b.sfx}</span>}' in ITEM
+    # lightning and the ship's jolt are motion: none under Reduced motion
+    assert "const bolts = weak || reduce ? [] : lightning(robot, at, x, y);" in ITEM
+    assert "if (!ship || reduce) return;" in ITEM
+    assert "if (BIG_ZAPS.includes(kind as ZapKind)) jolt();" in ITEM
+    assert "useTaser({ enabled: taser, sounds, reduce," in MAP
+    assert ".office-world.ship-jolt { animation: ship-jolt" in CSS
+
+
+def test_the_taser_is_the_owners_picture():
+    space = ROOT / "frontend" / "public" / "space"
+    for name in ("taser.png", "taser-sparks.png"):
+        data = (space / name).read_bytes()
+        assert data[:8] == b"\x89PNG\r\n\x1a\n", name
+        assert int.from_bytes(data[16:20], "big") == 400 and int.from_bytes(data[20:24], "big") == 350, name
+        assert f'src="/space/{name}"' in ITEM
+    # the built app carries them too
+    dist = ROOT / "frontend" / "dist" / "space"
+    for name in ("taser.png", "taser-sparks.png"):
+        assert (dist / name).read_bytes() == (space / name).read_bytes(), name
+    # the old drawn Taser is gone
+    assert "<polygon" not in ITEM and 'viewBox="-6 -2 32 18"' not in ITEM
+
+
+def test_missions_has_the_owners_logo():
+    ui = (ROOT / "frontend" / "src" / "components" / "ui.tsx").read_text(encoding="utf-8")
+    app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 'missions: "M15.76 4.87A10.11 6.06 -33.56 1 0 20.8 10.17"' in ui
+    assert '{SOLID[name] && <path className="icon-solid" d={SOLID[name]} />}' in ui
+    assert '<NavLink href="#/missions" icon="missions" label="Missions"' in app
 
 
 def test_the_taser_is_an_item_on_a_charger():
