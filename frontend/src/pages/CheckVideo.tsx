@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { at } from "../format";
 import { errorText } from "../api";
 import { PredictorBadge, PredictorPanel } from "../components/predictor";
-import { FileDrop, Picked, UploadRow, useUploadsByFile } from "../components/studioParts";
+import { FileDrop, Picked, useUploadsByFile } from "../components/studioParts";
 import { Banner, ConfirmDialog, Icon, PageHead, toast } from "../components/ui";
 import { predictor, PREDICTOR_NOTE, ViralCheck } from "../predictor";
 import "../components/predictor.css";
@@ -96,9 +96,9 @@ export default function CheckVideo({ id }: { id: string }) {
       {problem && <Banner tone="bad" title="That didn't work">{problem}</Banner>}
       <div className="vp-check-layout">
         <div className="stack-3">
-          {picked && !picked.asset ? <UploadRow row={picked} />
-            : <FileDrop key={dropKey} accept="video/*,.mkv,.m4v,.mov" label="Drop a video to check" button="Choose a video"
-              onAssets={(rows) => setPicked(rows[0] || null)} onUploaded={uploaded.add} />}
+          {/* FileDrop stays mounted while it uploads (it shows the upload itself; unmounting it would stop it) */}
+          <FileDrop key={dropKey} accept="video/*,.mkv,.m4v,.mov" label="Drop a video to check" button="Choose a video"
+            onAssets={(rows) => setPicked(rows[0] || null)} onUploaded={uploaded.add} />
           <h2 className="small">Checked videos</h2>
           {list === null ? <p className="small muted">Loading…</p> : list.length === 0 ? (
             <p className="small muted">Nothing checked yet. Clips you make are predicted on their own: see each clip's editor.</p>
@@ -161,7 +161,8 @@ export default function CheckVideo({ id }: { id: string }) {
             toast(done.notes.join(" "));
             window.location.hash = "#/create/check";
           })}>
-          <p className="muted">The prediction is deleted. The video file stays in your media.</p>
+          <p className="muted">The prediction and the video uploaded for it are deleted. A video that is your own file
+            or is used somewhere else is kept.</p>
         </ConfirmDialog>
       )}
     </div>

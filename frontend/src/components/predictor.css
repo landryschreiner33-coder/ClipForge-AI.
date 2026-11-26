@@ -32,7 +32,7 @@
 .vp-key-peak { background: var(--good); border-radius: 2px; width: 3px; }
 .vp-key-drop { background: var(--bad); }
 
-.vp-heat-grid { display: grid; gap: 2px; align-items: center; overflow: hidden; }
+.vp-heat-grid { display: grid; gap: 2px; align-items: center; overflow-x: auto; padding-bottom: 2px; }
 .vp-heat-label { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vp-cell { height: 14px; border-radius: 2px; cursor: pointer; }
 .vp-cell.vision { background: var(--info); }

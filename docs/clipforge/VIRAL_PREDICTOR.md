@@ -88,7 +88,7 @@ a silent first second 40 of sound. The hook notes say which of these it found.
 
 ### 4. The hold curve (model.hold): a modelled audience
 
-Part of the audience swipes away in the first 2 seconds: 60% stay with no hook at all, 85% with a perfect one. After
+Part of the audience swipes away in the first 2 seconds: 40% stay with no hook at all, 85% with a perfect one. After
 that, 1% a second leave anyway, up to 4.5% more where the clip gives the eye, the ear and the mind little, boredom
 builds after 3 seconds with nothing new (up to 3.5% more), dead air over a still picture costs 8% a second, and an
 unanswered question keeps people (leaving drops to 75% until the payoff). The curve has one point per second
@@ -109,9 +109,11 @@ For a clip ClipForge made, it re-runs the prediction on the clip with each chang
 start later (on the first real word or a stronger line in the first 8 s), end earlier (just after the payoff line),
 remove pauses, captions, the hook on screen, punch-ins on a long still stretch, louder sound, and (advice only) tease
 the strongest moment at the start. A fix must add at least 1 point of score, 2 points of average watched or 3 of hold
-rate, never lower the score, never cost more than 3 points of hook, never leave the clip shorter than 5 s (or the
-owner's shortest clip), and never cut a line in a way the clip checks flag (weak context, a misleading cut, a weak
-ending, a change of topic). **Add to my edit** puts a fix in the clip editor; the owner then saves and renders. For a
+rate, never lower the score, never cost more than 3 points of hook, never leave the clip shorter than 5 s or the
+owner's Shortest clip (a video already shorter than that keeps at least 60% of itself), and never cut a line in a way
+the clip checks flag (weak context, a misleading cut, a weak ending, a change of topic). A trim is judged with the
+lines around the cut, so ending on a question whose answer comes next, or starting after the line that says who is
+talked about, is refused; a question is never taken as the "payoff line" to end on. **Add to my edit** puts a fix in the clip editor; the owner then saves and renders. For a
 video ClipForge did not make, the fixes are advice.
 
 ### 7. Learning from the owner's results (learn.py), bounded
@@ -123,15 +125,18 @@ When posts have results, the learner (autopilot/learner.py) hands them to the pr
   it. Shown on Publishing → Results.
 - **Calibration** of average watched, from 15 posts: a line fitted to the real numbers (slope kept between 0.3 and 2),
   pulled toward no change while there are few posts (n / (n + 20)).
-- **Weights**, from 30 posts: each part of the score may move at most 40% from its designed value, and at most 10% per
-  learning round.
+- **Weights**, from 30 posts: each part of the score may move at most 40% from its designed value, at most 10% per
+  learning round, and only once 10 posts it has not learned from have come in (the same results never move it
+  twice).
 
-Nothing is learned while the Brain is paused, and what was learned is dropped when the model version changes.
+Nothing is learned while the Brain is paused, and nothing learned is used then (Publishing → Results says so);
+what was learned is dropped when the model version changes.
 
 ### 8. Where it is used
 
 - **After every render** (`pipeline/render.py`): the prediction is stored in the clip's render info with the file's
-  checksum; a changed file is predicted again. It never fails a render.
+  checksum; a changed file is predicted again. It never fails a render. A live clip renders from a window of the
+  stream, so its render info keeps `source_offset` and the fixes' trims are in the stream's time.
 - **Clip picking** (`pipeline/deep.py`, step 5c): each candidate moment's hook and hold move its Clip Score by at
   most 5 points ("Predictor" in the score's reasons).
 - **Posting plan** (`autopilot/scheduler.py`): when a clip has a prediction, its expected retention is the average of
@@ -139,8 +144,11 @@ Nothing is learned while the Brain is paused, and what was learned is dropped wh
 - **Post records** (`publish/jobs.py`): the prediction at posting time is kept with the post, so results can be
   compared with it later.
 - **Screens:** the clip editor's Viral predictor card (score ring, hook, hold, peak, hold curve, heatmap, reasons,
-  fixes), Prepare post, the score on clip cards, **Make → Check a video**, the accuracy table on Publishing → Results,
-  and the on/off switch in the AI settings (`viral_predictor`, on by default).
+  fixes; it shows the file playing, the Original or a version), Prepare post (the posted file; its fixes are advice
+  when an alternative version is posted), the score on clip cards, **Make → Check a video** (deleting a check deletes
+  the copy uploaded for it unless something else uses it), the accuracy table on Publishing → Results, and the on/off
+  switch in the AI settings (`viral_predictor`, on by default). The heatmap shows one cell a second, or a few seconds
+  a cell for videos over two minutes.
 - **ClipForge AI** knows it from the app guide section "The predictor".
 
 ## Honest limits

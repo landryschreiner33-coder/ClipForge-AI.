@@ -136,6 +136,82 @@ def test_an_option_already_on_is_not_offered_again():
     assert not any(f["id"] == "louder" for f in on)
 
 
+def _pic_sig(words, seconds, level=-20.0):
+    """A clip with a steady picture (a face, captions) and steady sound, for the fixes."""
+    from clipfoundry.predictor.signals import Signals, bins_for, speech_share
+
+    n = bins_for(seconds)
+    sig = Signals(duration=seconds, n=n, speech=speech_share(words, n), words=words,
+                  motion=np.full(n, 0.01), cuts=np.zeros(n), luma=np.full(n, 0.5),
+                  face=np.full(n, 0.2), text=np.full(n, 1.0), level=np.full(n, level), onsets=np.zeros(n))
+    sig.meta = {"speech_source": "transcript"}
+    return sig
+
+
+def _after(words, gap):
+    return [{**w, "start": w["start"] + gap, "end": w["end"] + gap} for w in words]
+
+
+def test_no_trim_cuts_off_the_answer_to_a_question():
+    from clipfoundry.predictor import content, fixes, model
+
+    asked = words_from("Why do most people never save money? They spend first and save what is left, which is "
+                       "usually nothing. So the real question is, what do you do instead?", step=0.35)
+    answer = _after(words_from("You pay yourself first, the same day the money lands, and you live on the rest.",
+                               step=0.35), asked[-1]["end"] + 0.4)
+    words = asked + answer
+    sig = _pic_sig(words, words[-1]["end"] + 0.4)
+    pred = model.predict(sig, content.analyze(sig, {}))
+    out = fixes.suggest(sig, pred, {}, None, edit={}, to_source=lambda t: 100 + t)
+    assert not [f for f in out if f["id"] == "end_earlier"], out  # "So the real question is...?" is no payoff
+    # the clip checks see the line after the cut: ending on the question is a misleading cut
+    q_end = asked[-1]["end"] + 0.2
+    assert any(f["id"] == "misleading_cut" and f["severity"] == "block"
+               for f in content.trim_flags(sig, 0.0, q_end, {}))
+    assert fixes._breaks_here(sig, 0.0, q_end, {}, pred.get("_content"))  # noqa: SLF001
+
+
+def test_no_fix_leaves_a_clip_shorter_than_the_shortest_clip():
+    from clipfoundry.predictor import content, fixes, model
+
+    a = words_from("Why save money?", step=0.3)
+    b = _after(words_from("Pay yourself first.", step=0.3), a[-1]["end"] + 3.0)
+    words = a + b
+    sig = _pic_sig(words, round(words[-1]["end"] + 0.3, 2))
+    sig.level = np.array([-70.0 if a[-1]["end"] + 0.2 < (k + 0.5) * 0.5 < b[0]["start"] - 0.2 else -20.0
+                          for k in range(sig.n)])
+    cut, removed = fixes.without_pauses(sig)
+    assert removed >= 1.0 and cut.duration < fixes.MIN_LENGTH  # removing the pause would leave about 3 s
+    pred = model.predict(sig, content.analyze(sig, {}))
+    out = fixes.suggest(sig, pred, {}, None, edit={"silence": "off"}, to_source=lambda t: 100 + t)
+    assert "remove_pauses" not in [f["id"] for f in out]
+    # the owner's Shortest clip: a 21 s clip is never trimmed below 20 s
+    lead = words_from(LEAD_IN, step=0.3)
+    talk = _after(words_from(TALK, step=0.3)[:40], lead[-1]["end"] + 0.3)
+    words = lead + talk
+    sig = _pic_sig(words, round(words[-1]["end"] + 0.4, 2))
+    pred = model.predict(sig, content.analyze(sig, {}))
+    offered = set()
+    for floor in (0, 12, 15, 30):
+        # a clip already shorter than the Shortest clip keeps at least 60% of itself
+        keep = max(fixes.MIN_LENGTH, floor if floor <= sig.duration else 0.6 * sig.duration)
+        for f in fixes.suggest(sig, pred, {"min_duration": floor}, None, edit={}, to_source=lambda t: 100 + t):
+            offered.add((floor, f["id"]))
+            if f["id"] == "start_later":
+                assert sig.duration - (f["edit"]["start"] - 100) >= keep - 1e-6, (floor, f)
+            if f["id"] == "end_earlier":
+                assert f["edit"]["end"] - 100 >= keep - 1e-6, (floor, f)
+    assert (0, "start_later") in offered
+
+
+def test_a_live_clip_maps_its_fixes_to_the_recording_not_the_window():
+    from clipfoundry import predictor
+
+    edl = [{"out_start": 0.0, "out_end": 30.0, "src_start": 60.0, "src_end": 90.0, "speed": 1.0}]
+    assert predictor.to_source(edl)(3.0) == 63.0  # the window file's own time
+    assert predictor.to_source(edl, 1800.0)(3.0) == 1863.0  # the stream's: the window starts 1800 s in
+
+
 def test_output_times_map_back_to_the_recording_across_removed_pauses():
     from clipfoundry import predictor
 
@@ -219,6 +295,30 @@ def test_learning_keeps_its_results_and_pausing_the_brain_ignores_them(data):
     assert learn.view()["platforms"]["tiktok"]["posts"] == learn.MIN_WEIGHTS + 2
     db.save_settings({"brain_paused": True})
     assert predictor.learned() is None
+    paused = learn.view()  # the accuracy panel says so instead of claiming what is learned is in use
+    assert paused["paused"] is True and paused["learned"] is None
+    db.save_settings({"brain_paused": False})
+    shown = learn.view()
+    assert shown["paused"] is False and shown["learned"]["weights"] and "weights_from" not in shown["learned"]
+
+
+def test_the_same_results_never_move_the_weights_twice(data):
+    from clipfoundry import predictor
+    from clipfoundry.predictor import learn
+
+    rows = _rows(learn.MIN_WEIGHTS + 2)
+    learn.learn(rows)
+    first = dict(predictor.learned()["weights"])
+    for _ in range(5):  # the Learning Worker runs every 6 hours: no new posts, no change
+        learn.learn(rows)
+    assert predictor.learned()["weights"] == first
+    more = rows + [{**r, "publication_id": r["publication_id"] + "-new"} for r in rows[:learn.NEW_POSTS - 1]]
+    learn.learn(more)  # fewer than NEW_POSTS new posts: still no change
+    assert predictor.learned()["weights"] == first
+    more = rows + [{**r, "publication_id": r["publication_id"] + "-new"} for r in rows[:learn.NEW_POSTS]]
+    learn.learn(more)
+    moved = predictor.learned()["weights"]
+    assert moved != first and all(abs(moved[k] / first[k] - 1) <= learn.STEP + 1e-6 for k in first)
 
 
 # ------------------------------------------------------------------ the real file
@@ -253,6 +353,14 @@ def test_every_render_keeps_its_prediction_for_that_file(data):
     assert predictor.stored(row)["score"] == pred["score"]
     other = {**row, "render_info": {**info, "artifact": {**info["artifact"], "sha256": "different"}}}
     assert predictor.stored(other) is None
+    # a live clip renders from a window of the stream: its fixes' trims are in the stream's time
+    live = render.render_clip(_project(src, data / "proj"), clip, words, {**config.DEFAULT_SETTINGS, **FAST},
+                              JobContext(), source_offset=1800.0)
+    assert live["render_info"]["source_offset"] == 1800.0
+    for f in live["render_info"]["prediction"]["fixes"]:
+        for key in ("start", "end"):
+            if key in (f["edit"] or {}):
+                assert f["edit"][key] >= 1800.0, f
     # switched off: renders carry no prediction
     off = render.render_clip(_project(src, data / "proj"), clip, words,
                              {**config.DEFAULT_SETTINGS, **FAST, "viral_predictor": False}, JobContext())
@@ -304,12 +412,27 @@ def _asset(tmp: Path, n: int, seconds: float = 8.0, workspace: str = "local") ->
                                                              "width": 540, "height": 960}})
 
 
+def _stored_asset(n: int, seconds: float = 8.0, workspace: str = "local") -> dict:
+    """An upload's copy in ClipForge's own data folder (what Check a video gets from a dropped file)."""
+    from clipfoundry import db
+    from clipfoundry.studio import uploads
+
+    aid = f"as-{workspace}-{n}"
+    folder = uploads.assets_dir(workspace) / aid
+    folder.mkdir(parents=True, exist_ok=True)
+    path = make_video(folder / f"check{n}.mp4", seconds=seconds, size="540x960")
+    return db.insert("assets", {"id": aid, "workspace_id": workspace, "kind": "video",
+                                "filename": f"draft{n}.mp4", "sha256": f"sha-{n}", "size": path.stat().st_size,
+                                "path": str(path), "probe": {"duration": seconds, "has_audio": True,
+                                                             "width": 540, "height": 960}})
+
+
 @needs_ffmpeg
-def test_check_a_video_runs_as_a_job_and_keeps_the_file_on_delete(checks_env):
+def test_check_a_video_runs_as_a_job_and_deletes_its_upload_with_it(checks_env):
     from clipfoundry import db
     from clipfoundry.predictor import checks
 
-    asset = _asset(checks_env, 1)
+    asset = _stored_asset(1)
     row = checks.create("local", asset["id"], "")
     done = checks.view(checks.get(row["id"], "local"))
     assert done["status"] == "ready", done
@@ -321,8 +444,18 @@ def test_check_a_video_runs_as_a_job_and_keeps_the_file_on_delete(checks_env):
         checks.get(row["id"], "someone-else")
     again = checks.again(row["id"], "local")
     assert again["status"] == "ready"
-    assert checks.delete(row["id"], "local")["notes"] == ["The video file stays in your media."]
+    # the same video checked twice: deleting one check keeps the file the other still uses
+    second = checks.create("local", asset["id"], "")
+    assert checks.delete(row["id"], "local")["notes"][0].startswith("The check was deleted. Its video was kept")
     assert db.fetch("assets", asset["id"]) and Path(asset["path"]).is_file()
+    # the last check takes its uploaded copy with it
+    assert checks.delete(second["id"], "local")["notes"] == ["The check and its video were deleted."]
+    assert db.fetch("assets", asset["id"]) is None and not Path(asset["path"]).exists()
+    # a file of the owner's (outside ClipForge's data folder) is never deleted
+    own = _asset(checks_env, 2)
+    third = checks.create("local", own["id"], "")
+    assert "Its video was kept" in checks.delete(third["id"], "local")["notes"][0]
+    assert db.fetch("assets", own["id"]) and Path(own["path"]).is_file()
 
 
 def test_a_long_video_or_a_picture_is_refused(checks_env):
@@ -387,6 +520,22 @@ def test_the_routes(checks_env, monkeypatch):
         card = api.get("/api/clips/c1", headers=H).json()
         assert card["prediction"]["score"] == after["score"]
         assert api.post("/api/clips/missing/prediction", json={}, headers=H).status_code == 404
+
+        # an alternative version is the one posted: Prepare post (no version_id) gets its prediction, the editor
+        # showing the Original asks with an empty version_id and gets the clip's own file
+        import time as _time
+
+        vfile = checks_env / "v1.mp4"
+        vfile.write_bytes(Path(out["output_path"]).read_bytes())
+        vinfo = {"artifact": {"sha256": "sha-v1"}, "prediction": {**after, "score": 99, "file_sha256": "sha-v1"}}
+        db.insert("clip_versions", {"id": "v1", "clip_id": "c1", "kind": "alt", "status": "ready",
+                                    "output_path": str(vfile), "render_info": vinfo, "created_at": _time.time(),
+                                    "updated_at": _time.time()})
+        db.update_clip("c1", active_version="v1")
+        assert api.get("/api/clips/c1/prediction", headers=H).json()["prediction"]["score"] == 99
+        own = api.get("/api/clips/c1/prediction?version_id=", headers=H).json()["prediction"]
+        assert own["score"] == after["score"] and own["version_id"] == ""
+        assert api.get("/api/clips/c1/prediction?version_id=v1", headers=H).json()["prediction"]["version_id"] == "v1"
 
 
 def test_clipforge_ai_knows_where_the_predictor_is():

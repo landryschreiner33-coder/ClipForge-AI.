@@ -77,26 +77,40 @@ function HoldCurve({ p, onSeek }: { p: Prediction; onSeek?: (t: number) => void 
   );
 }
 
-/** Five channels, one cell per second; a stronger cell means the viewer gets more from that channel then. */
+/** At most this many cells a row: a longer video's seconds are grouped (each cell is a few seconds). */
+const HEAT_CELLS = 120;
+
+/** Five channels, one cell per second (or per few seconds for a long video); a stronger cell means the viewer gets
+ * more from that channel then. */
 function Heatmap({ p, onSeek }: { p: Prediction; onSeek?: (t: number) => void }) {
   const secs = p.channels.vision.length;
+  const step = Math.max(1, Math.ceil(secs / HEAT_CELLS));
+  const cells = Math.ceil(secs / step);
+  const rows = useMemo(() => CHANNEL_LABELS.map(([k]) => {
+    const v = p.channels[k];
+    return Array.from({ length: cells }, (_, i) => {
+      const part = v.slice(i * step, (i + 1) * step);
+      return part.reduce((a, b) => a + b, 0) / Math.max(1, part.length);
+    });
+  }), [p, step, cells]);
   const summary = useMemo(() => CHANNEL_LABELS.map(([k, label]) => {
     const v = p.channels[k];
     const mean = v.reduce((a, b) => a + b, 0) / Math.max(1, v.length);
     const best = v.indexOf(Math.max(...v));
     return `${label}: ${Math.round(mean * 100)}% on average, strongest at ${clock(best)}`;
   }).join(". "), [p]);
+  const when = (i: number) => step === 1 ? clock(i) : `${clock(i * step)}–${clock(Math.min(secs, (i + 1) * step))}`;
   return (
     <figure className="vp-heat">
       <div className="vp-heat-grid" role="img" aria-label={`Heatmap. ${summary}.`}
-        style={{ gridTemplateColumns: `6.5em repeat(${secs}, minmax(3px, 1fr))` }}>
-        {CHANNEL_LABELS.map(([k, label, help]) => (
+        style={{ gridTemplateColumns: `6.5em repeat(${cells}, minmax(3px, 1fr))` }}>
+        {CHANNEL_LABELS.map(([k, label, help], row) => (
           <div key={k} className="vp-heat-row" style={{ display: "contents" }}>
             <span className="vp-heat-label tiny" title={help}>{label}</span>
-            {p.channels[k].map((v, i) => (
+            {rows[row].map((v, i) => (
               <span key={i} className={`vp-cell ${k}`} style={{ opacity: 0.12 + 0.88 * Math.max(0, Math.min(1, v)) }}
-                title={`${label} at ${clock(i)}: ${Math.round(v * 100)}%`}
-                onClick={onSeek ? () => onSeek(i) : undefined} />
+                title={`${label} at ${when(i)}: ${Math.round(v * 100)}%`}
+                onClick={onSeek ? () => onSeek(i * step) : undefined} />
             ))}
           </div>
         ))}
@@ -104,7 +118,8 @@ function Heatmap({ p, onSeek }: { p: Prediction; onSeek?: (t: number) => void })
       <figcaption className="tiny faint">
         {!p.measured.picture && "The picture is measured once the clip is rendered. "}
         {!p.measured.words && "No words were heard. "}
-        Stronger means more for the viewer in that second{onSeek ? "; click a second to jump there" : ""}.
+        Stronger means more for the viewer {step === 1 ? "in that second" : `in those ${step} seconds`}
+        {onSeek ? `; click ${step === 1 ? "a second" : "a cell"} to jump there` : ""}.
       </figcaption>
     </figure>
   );
@@ -202,9 +217,13 @@ export function PredictorPanel({ p, onSeek, onApply, applyLabel, busy, appliedId
 
 /** The clip editor's and Prepare post's card: the prediction of the file shown (the clip or one version), with
  * Predict for a clip rendered before the predictor existed. */
-export function ClipPredictorCard({ clipId, versionId = "", stamp, busy, onSeek, onApply, applyLabel, appliedIds, open = true }: {
+export function ClipPredictorCard({ clipId, versionId = "", stamp, busy, onSeek, onApply, applyLabel, appliedIds, open = true,
+  editorHref }: {
+  /** versionId: the file shown ("" is the clip itself, never "whichever version is posted"). */
   clipId: string; versionId?: string; stamp: string; busy?: boolean; onSeek?: (t: number) => void;
   onApply?: (f: PredictorFix) => void; applyLabel?: string; appliedIds?: string[]; open?: boolean;
+  /** Prepare post: where the fixes can be made, with a note that says how. */
+  editorHref?: string;
 }) {
   const [state, setState] = useState<ClipPrediction | null>(null);
   const [problem, setProblem] = useState("");
@@ -212,7 +231,7 @@ export function ClipPredictorCard({ clipId, versionId = "", stamp, busy, onSeek,
   useEffect(() => {
     let alive = true;
     setProblem("");
-    predictor.ofClip(clipId, versionId || undefined).then((s) => alive && setState(s))
+    predictor.ofClip(clipId, versionId).then((s) => alive && setState(s))
       .catch((e) => alive && setProblem(errorText(e)));
     return () => {
       alive = false;
@@ -236,7 +255,20 @@ export function ClipPredictorCard({ clipId, versionId = "", stamp, busy, onSeek,
       {p && <span className="faint small"> · {p.score} {p.band}</span>}</span>}>
       <div className="stack-2">
         {busy ? <p className="small muted">The new video is predicted when the render finishes.</p>
-          : p ? <PredictorPanel p={p} onSeek={onSeek} onApply={onApply} applyLabel={applyLabel} appliedIds={appliedIds} />
+          : p ? (
+            <>
+              <PredictorPanel p={p} onSeek={onSeek} onApply={onApply} applyLabel={applyLabel} appliedIds={appliedIds} />
+              {editorHref && p.fixes.length > 0 && (
+                <p className="tiny faint">
+                  {p.fixes.some((f) => f.kind === "edit")
+                    ? <>Want to use a fix? <a className="textlink" href={editorHref}>Open the editor</a>, add it with one
+                      press, then render.</>
+                    : <>These fixes are advice for this version: make the change in <a className="textlink"
+                      href={editorHref}>the editor</a>, then render.</>}
+                </p>
+              )}
+            </>
+          )
             : state && !state.enabled ? (
               <p className="small muted">The viral predictor is off. Turn it on in <a className="textlink" href="#/settings/ai">Settings → ClipForge AI</a>.</p>
             ) : state && !state.rendered ? <p className="small muted">Render the clip to predict how it will do.</p>
@@ -297,9 +329,12 @@ export function PredictorAccuracyPanel() {
       ))}
       <p className="tiny faint">
         Rank match: 1 means the predicted order was the real order of views, 0 means no relation.
-        {acc.learned?.hold ? ` Average watched is calibrated on ${acc.learned.hold.n} of your posts.` : ` Average watched is calibrated after ${acc.min_calibration} posts report it.`}
-        {acc.learned?.weights ? ` The score's parts are weighted by what worked for you (${acc.learned.n} posts, each moved at most 10% per update).`
-          : ` The score's parts start re-weighting after ${acc.min_weights} posts.`}
+        {acc.paused ? " Learning is paused with the Brain: predictions use the designed values until you turn it back on."
+          : <>
+            {acc.learned?.hold ? ` Average watched is calibrated on ${acc.learned.hold.n} of your posts.` : ` Average watched is calibrated after ${acc.min_calibration} posts report it.`}
+            {acc.learned?.weights ? ` The score's parts are weighted by what worked for you (${acc.learned.n} posts, each moved at most 10% per update, and only after 10 new posts).`
+              : ` The score's parts start re-weighting after ${acc.min_weights} posts.`}
+          </>}
       </p>
     </section>
   );

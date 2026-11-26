@@ -16,7 +16,11 @@ video. It learns from the owner's real results, within limits. Design and source
   matches; bump `MODEL_VERSION` when the model changes (it also drops learned weights). Fixes are re-predicted on the
   clip and dropped if they lower the score or cost more than 3 points of hook. The predictor's CSS uses `vp-*` classes
   only (global `.drop` and `.grid` collided). The app guide section uses phrase-only words (`=viral score`) so "tips
-  for viral hooks" still finds skills and the hooks playbook. The "Make the AI really watch and listen" thread (PR #88)
+  for viral hooks" still finds skills and the hooks playbook. `GET /api/clips/{id}/prediction` without `version_id`
+  means the posted file; `version_id=` (empty) means the clip's own file (the editor always sends it). A review round
+  fixed: trims judged with the lines around the cut (`content.trim_flags`), the Shortest-clip floor for every fix,
+  live renders' `source_offset`, weights that move only on 10 new posts, and Check a video's drop zone staying
+  mounted while it uploads. The "Make the AI really watch and listen" thread (PR #88)
   also adds a bounded term to `deep.clip_score`; the predictor does not read `p.senses` yet, so a later change could
   feed its watched/heard features into the channels (keep the bounds and avoid counting a moment twice).
 ## Text-message stories, up to ten minutes — 2026-11-26 (Claude Code, cloud session)

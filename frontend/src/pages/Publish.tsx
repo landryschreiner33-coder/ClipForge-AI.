@@ -253,11 +253,7 @@ export default function PublishPage({ id }: { id: string }) {
           {ready && (
             <div className="panel tight">
               <ClipPredictorCard clipId={clip.id} versionId={version?.id || ""} open={false}
-                stamp={`${clip.version}|${version?.id ?? ""}`} />
-              <p className="tiny faint">
-                Want to use a fix? <a className="textlink" href={`#/clip/${clip.id}`}>Open the editor</a>, add it with one
-                press, then render.
-              </p>
+                stamp={`${clip.version}|${version?.id ?? ""}`} editorHref={`#/clip/${clip.id}`} />
             </div>
           )}
         </div>

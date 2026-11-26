@@ -100,7 +100,14 @@ def delete(check_id: str, workspace_id: str) -> dict:
     if job and job["status"] in ("queued", "running"):
         cancel_job(job["id"])
     db.execute("DELETE FROM viral_checks WHERE id = ?", (check_id,))
-    return {"deleted": check_id, "notes": ["The video file stays in your media."]}
+    # the copy uploaded for this check goes with it, unless something else uses it (a project, another check...) or
+    # it is the owner's own file (project_delete.drop_unnamed's last look)
+    from ..studio import project_delete
+
+    gone = project_delete.drop_unnamed(workspace_id, [row["asset_id"]])
+    return {"deleted": check_id, "notes": ["The check and its video were deleted." if gone else
+                                           "The check was deleted. Its video was kept: it is your own file or "
+                                           "something else uses it."]}
 
 
 def _words(asset: dict, settings: dict, lease: Lease) -> tuple[list[dict] | None, str]:

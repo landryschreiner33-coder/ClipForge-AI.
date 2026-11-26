@@ -11,7 +11,8 @@ results are in (the Learning Worker reads them 48 hours after a post was shown),
   from MIN_CAL posts and pulled toward "no change" while there are few (n / (n + SHRINK_K)).
 - Weights: from MIN_WEIGHTS posts, how well each part of the score (what it says, hook, how much is watched, memory,
   look) ordered your results. A weight may move at most MAX_SHIFT (40%) from its designed value, and at most STEP
-  (10%) per update, so one lucky post never becomes a rule.
+  (10%) per update, and it moves again only once NEW_POSTS posts it has not learned from came in (the same results
+  never move it twice), so one lucky post never becomes a rule.
 
 Learning reads only the posts the Learning Worker itself may learn from (your current audience, enough views, and
 YouTube only with the approval above). Pausing the Brain pauses this too: the designed values are used.
@@ -28,6 +29,7 @@ from .. import learning
 from . import STATE_ACCURACY, STATE_LEARNED, model
 
 MIN_RANK = 10
+NEW_POSTS = 10  # posts not yet learned from that the weights need before they move again
 MIN_CAL = 15
 MIN_WEIGHTS = 30
 MAX_SHIFT = 0.40
@@ -143,7 +145,16 @@ def learn(rs: list[dict]) -> dict:
     if prev.get("model") != model.MODEL_VERSION:
         prev = {}
     cal = calibrate(rs)
-    w = weights(rs, (prev.get("weights") or None))
+    # the weights move only on new evidence: a learning run over the same posts keeps them where they are
+    ids = sorted({str(r["publication_id"]) for r in rs if _pred(r) and r.get("views") is not None})
+    seen = set(prev.get("weights_from") or [])
+    fresh = sum(1 for i in ids if i not in seen)
+    if prev.get("weights") and fresh < NEW_POSTS:
+        w = {"weights": prev["weights"], "evidence": prev.get("evidence") or {}, "n": prev.get("n") or 0}
+        weights_from = sorted(seen)
+    else:
+        w = weights(rs, (prev.get("weights") or None))
+        weights_from = ids if w else []
     learned = {"model": model.MODEL_VERSION, "at": round(time.time(), 1)}
     if cal:
         learned["hold"] = cal
@@ -151,6 +162,7 @@ def learn(rs: list[dict]) -> dict:
         learned["weights"] = w["weights"]
         learned["evidence"] = w["evidence"]
         learned["n"] = w["n"]
+        learned["weights_from"] = weights_from
     acc["calibration"] = cal
     acc["weights"] = (w or {}).get("weights")
     acc["evidence"] = (w or {}).get("evidence")
@@ -169,11 +181,17 @@ def learn(rs: list[dict]) -> dict:
 
 
 def view() -> dict:
-    """The accuracy panel's data (Brain → Performance)."""
+    """The accuracy panel's data (Publishing → Results). While the Brain is paused nothing learned is used, and the
+    panel says so (`paused`, `learned` None)."""
+    from .. import db
     from ..autopilot import state
 
     acc = state.get(STATE_ACCURACY) or {"posts": 0, "platforms": {}, "min_posts": MIN_RANK}
     lrn = state.get(STATE_LEARNED) or {}
+    paused = bool(db.get_settings().get("brain_paused"))
+    usable = lrn.get("model") == model.MODEL_VERSION and not paused
+    if usable:
+        lrn = {k: v for k, v in lrn.items() if k != "weights_from"}
     return {**acc, "min_posts": MIN_RANK, "min_calibration": MIN_CAL, "min_weights": MIN_WEIGHTS,
-            "designed_weights": model.WEIGHTS, "learned": lrn if lrn.get("model") == model.MODEL_VERSION else None,
+            "designed_weights": model.WEIGHTS, "learned": lrn if usable else None, "paused": paused,
             "note": model.ESTIMATE_NOTE}

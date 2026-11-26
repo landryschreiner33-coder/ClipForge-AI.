@@ -169,6 +169,12 @@ def _breaks(con: dict | None, before: dict | None) -> str:
     return ""
 
 
+def _breaks_here(sig: Signals, a: float, b: float, settings: dict, before: dict | None) -> str:
+    """The same as _breaks for keeping [a, b) of the clip, judged with the lines around the cut (the line after the
+    end, the lines before the start), which a trimmed clip's own words cannot show."""
+    return _breaks({"flags": content_mod.trim_flags(sig, a, b, settings)}, before)
+
+
 def _line_at(sig: Signals, t: float) -> str:
     from ..pipeline.text_utils import build_sentences
 
@@ -193,7 +199,9 @@ def suggest(sig: Signals, pred: dict, settings: dict | None = None, learned: dic
     trial = Trial(pred, settings, learned)
     before = pred.get("_content")
     out: list[dict] = []
-    shortest = max(MIN_LENGTH, min(float(settings.get("min_duration") or 0) * 0.75, sig.duration * 0.6))
+    # never shorter than the owner's Shortest clip (a video already shorter than that keeps 60% of itself)
+    floor = float(settings.get("min_duration") or 0)
+    shortest = max(MIN_LENGTH, floor if floor <= sig.duration else sig.duration * 0.6)
     editable = edit is not None
 
     def offer(fid: str, label: str, why: str, p: dict, change: dict | None, at: float | None = None) -> None:
@@ -231,8 +239,7 @@ def suggest(sig: Signals, pred: dict, settings: dict | None = None, learned: dic
             continue
         cut = trimmed(sig, t, sig.duration)
         p, con = trial.run(cut, True)
-        broke = _breaks(con, before)
-        if broke:
+        if _breaks(con, before) or _breaks_here(sig, t, sig.duration, settings, before):
             continue
         g = trial.gain(p)
         if _helps(g) and (best is None or g["score"] > best[2]["score"]):
@@ -252,7 +259,9 @@ def suggest(sig: Signals, pred: dict, settings: dict | None = None, learned: dic
         reacting = any(b > last for _, b in sig.reactions)
         if tail > 1.2 and not reacting:
             ends.append((min(sig.duration, last + 0.45), "after the last word"))
-        payoffs = [s for s in lines if model.count_phrases(s["text"].lower(), model.PAYOFF_PHRASES)]
+        # a payoff line, never a question or a setup ("so the real question is...?") that the next line answers
+        payoffs = [s for s in lines if model.count_phrases(s["text"].lower(), model.PAYOFF_PHRASES)
+                   and not s["text"].rstrip().endswith("?")]
         if payoffs and lines.index(payoffs[-1]) <= len(lines) - 2:
             nxt = lines[lines.index(payoffs[-1]) + 1]
             ends.append((min(sig.duration, float(payoffs[-1]["end"]) + 0.35, float(nxt["start"]) - 0.05),
@@ -263,7 +272,7 @@ def suggest(sig: Signals, pred: dict, settings: dict | None = None, learned: dic
             continue
         cut = trimmed(sig, 0.0, t)
         p, con = trial.run(cut, True)
-        if _breaks(con, before):
+        if _breaks(con, before) or _breaks_here(sig, 0.0, t, settings, before):
             continue
         g = trial.gain(p)
         if _helps(g) and (best is None or g["score"] > best[2]["score"]):
@@ -276,7 +285,7 @@ def suggest(sig: Signals, pred: dict, settings: dict | None = None, learned: dic
 
     # 3. remove pauses
     cut, removed = without_pauses(sig)
-    if removed >= 1.0:
+    if removed >= 1.0 and cut.duration >= shortest:
         p, _ = trial.run(cut, True)
         mode = (edit or {}).get("silence") or settings.get("silence") or "off"
         nxt = {"off": "light", "light": "aggressive"}.get(mode)

@@ -451,6 +451,7 @@ export default function ClipEditor({ id }: { id: string }) {
     setPostDraft(clip.post || {});
     setPostKey((n) => n + 1);
     setCustomHook("");
+    setFixesAdded([]); // the fixes added to the draft went with it
   };
   saveRef.current = save;
   discardRef.current = discard;

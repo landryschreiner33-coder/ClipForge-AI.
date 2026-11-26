@@ -38,14 +38,18 @@ export type PlatformAccuracy = {
 export type PredictorAccuracy = {
   posts: number; platforms: Record<string, PlatformAccuracy>; min_posts: number; min_calibration: number;
   min_weights: number; designed_weights: Record<string, number>; at?: number; note: string;
+  /** The Brain is paused: nothing learned is used (learned is null). */
+  paused?: boolean;
   calibration?: { slope: number; intercept: number; n: number; shrink: number } | null;
   weights?: Record<string, number> | null;
   learned: { weights?: Record<string, number>; hold?: { n: number }; n?: number } | null;
 };
 
 export const predictor = {
+  /** versionId: "" is the clip's own file, a version's id that version; left out, whichever file is posted. */
   ofClip: (clipId: string, versionId?: string) =>
-    req<ClipPrediction>("GET", `/api/clips/${clipId}/prediction${versionId ? `?version_id=${encodeURIComponent(versionId)}` : ""}`),
+    req<ClipPrediction>("GET", `/api/clips/${clipId}/prediction${versionId !== undefined
+      ? `?version_id=${encodeURIComponent(versionId)}` : ""}`),
   predictClip: (clipId: string, versionId = "") =>
     req<{ prediction: Prediction }>("POST", `/api/clips/${clipId}/prediction`, { version_id: versionId }),
   accuracy: () => req<PredictorAccuracy>("GET", "/api/predictor/accuracy"),

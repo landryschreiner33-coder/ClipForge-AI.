@@ -47,8 +47,9 @@ def learned(settings: dict | None = None) -> dict | None:
     return data if isinstance(data, dict) and data.get("model") == model.MODEL_VERSION else None
 
 
-def to_source(segments: list[dict] | None) -> Callable[[float], float] | None:
-    """Maps a time in a rendered clip to the time in its recording, from the render's edit decision list."""
+def to_source(segments: list[dict] | None, offset: float = 0.0) -> Callable[[float], float] | None:
+    """Maps a time in a rendered clip to the time in its recording, from the render's edit decision list. `offset`:
+    where the rendered file's source starts in the recording (a live clip renders from a window of the stream)."""
     segs = sorted((s for s in segments or [] if s.get("out_end", 0) > s.get("out_start", 0)),
                   key=lambda s: float(s["out_start"]))
     if not segs:
@@ -57,8 +58,8 @@ def to_source(segments: list[dict] | None) -> Callable[[float], float] | None:
     def f(t: float) -> float:
         for s in segs:
             if float(s["out_start"]) - 1e-6 <= t <= float(s["out_end"]) + 1e-6:
-                return float(s["src_start"]) + (t - float(s["out_start"])) * float(s.get("speed") or 1.0)
-        return float(segs[-1]["src_end"]) if t > float(segs[-1]["out_end"]) else float(segs[0]["src_start"])
+                return offset + float(s["src_start"]) + (t - float(s["out_start"])) * float(s.get("speed") or 1.0)
+        return offset + (float(segs[-1]["src_end"]) if t > float(segs[-1]["out_end"]) else float(segs[0]["src_start"]))
 
     return f
 
@@ -114,8 +115,9 @@ def _edit_for(clip: dict, opts: dict) -> dict:
 
 
 def for_render(out_path: str | Path, art: dict, opts: dict, clip: dict, settings: dict, cancelled=None,
-               editable: bool = True) -> dict | None:
-    """The prediction of a clip just rendered (render.render_clip): never stops a render (None when it fails)."""
+               editable: bool = True, source_offset: float = 0.0) -> dict | None:
+    """The prediction of a clip just rendered (render.render_clip): never stops a render (None when it fails).
+    `source_offset`: where the render's source starts in the clip's recording (render_info["source_offset"])."""
     from ..pipeline.common import Cancelled
 
     if not enabled(settings):
@@ -124,8 +126,8 @@ def for_render(out_path: str | Path, art: dict, opts: dict, clip: dict, settings
         words = (_read(art.get("transcript")) or {}).get("words")
         edl = (_read(art.get("edl")) or {}).get("segments")
         pred = run(out_path, words if isinstance(words, list) else None, settings,
-                   edit=_edit_for(clip, opts) if editable else None, to_src=to_source(edl) if editable else None,
-                   cancelled=cancelled)
+                   edit=_edit_for(clip, opts) if editable else None,
+                   to_src=to_source(edl, source_offset) if editable else None, cancelled=cancelled)
         pred["file_sha256"] = art.get("sha256", "")
         return pred
     except Cancelled:
@@ -191,7 +193,8 @@ def predict_clip(clip_id: str, version_id: str = "", cancelled=None) -> dict:
     opts = render.effective_options(settings, project.get("options") or {}, edit)
     editable = version is None and bool(art)
     pred = run(path, words, settings, edit=_edit_for(clip, opts) if editable else None,
-               to_src=to_source(edl) if editable else None, cancelled=cancelled)
+               to_src=to_source(edl, float(info.get("source_offset") or 0.0)) if editable else None,
+               cancelled=cancelled)
     pred["file_sha256"] = (art or {}).get("sha256", "")
     # keep it only when the clip still has the file that was measured (a render may have finished meanwhile)
     fresh = db.get_clip(clip_id) or {}
