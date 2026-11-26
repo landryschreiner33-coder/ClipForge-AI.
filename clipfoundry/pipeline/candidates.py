@@ -379,6 +379,8 @@ SENSE_LEAD = 0.75           # a clip around an action keeps this share of its le
 
 
 SNAP_CUT = 3.0              # a time window's edge moves to a shot cut this close
+TIME_MIN_SHOW = 60.0        # a time window is kept only when this much happens in it (senses.show, 0-100): a lone
+                            # sound over a dark, still stretch (end credits) is not a clip
 
 
 def around(a: dict, length: float, duration: float) -> tuple[float, float]:
@@ -434,7 +436,10 @@ def from_senses(sentences: list[dict], feats: list[dict], loud: Loudness, opts: 
     def keep(w: dict, a: dict) -> None:
         note = {"kind": a["kind"], "why": a["why"], "at": round(float(a["at"]), 2)}
         bonus = SENSE_BONUS * max(0.0, min(1.0, float(a["strength"])))
-        twin = max(found + added, key=lambda c: _overlap(w, c), default=None)
+        # a time window is judged on what happens, a sentence window on its words: both stay, and the selection
+        # keeps the better one (never both, they overlap)
+        timed = w["s0"] < 0
+        twin = max((c for c in found + added if (c["s0"] < 0) == timed), key=lambda c: _overlap(w, c), default=None)
         if twin is not None and _overlap(w, twin) > 0.6:
             if "sense" not in twin:
                 twin["sense"] = note
@@ -446,6 +451,13 @@ def from_senses(sentences: list[dict], feats: list[dict], loud: Loudness, opts: 
 
     for a in anchors:
         at, until = float(a["at"]), float(a.get("until") or a["at"])
+        if not a.get("end_after"):
+            # an action, a bang or a seen moment nobody talks over (under half of the stretch around it is talk):
+            # a stretch of time holds it best, whatever lines are said near it
+            added_time = _time_window(a, words or [], senses, opts, duration, base)
+            if added_time is not None:
+                keep(added_time, a)
+                continue
         if a.get("end_after"):
             # the line the reaction answers: the last sentence that starts before the reaction does
             j = max((k for k, s in enumerate(sentences) if s["start"] < at - 0.2), default=-1)
@@ -487,7 +499,10 @@ def _time_window(a: dict, words: list[dict], senses, opts: dict, duration: float
     talk = sum(max(0.0, min(end, w["end"]) - max(start, w["start"])) for w in words) / max(0.1, end - start)
     if talk >= 0.5 or not start <= float(a["at"]) <= end:
         return None   # mostly talk: the sentence windows cover it
-    e = (senses.show(senses.features(start, end), base) or 40.0) / 100.0
+    show = senses.show(senses.features(start, end), base)
+    if show is None or show < TIME_MIN_SHOW:
+        return None   # too little happens in it to stand on what happens
+    e = show / 100.0
     text = " ".join(w["w"] for w in words if start <= w["start"] < end)
     return {"start": start, "end": end, "dur": round(end - start, 3), "s0": -1, "s1": -1, "text": text,
             "stage1": 0.3 + 0.3 * e,

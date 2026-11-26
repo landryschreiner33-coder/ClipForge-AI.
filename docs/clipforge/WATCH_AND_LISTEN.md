@@ -75,11 +75,16 @@ asks about the parts not yet described. Without the built-in model the picture i
    other window; one that repeats a candidate already found marks it instead (+0.10 stage-1 at full strength).
    Where no line is near the moment (a fight, a chase, a goal nobody talks over), the clip is a stretch of time
    around it instead (`candidates._time_window`: the target length, its edges moved to a shot cut within 3 seconds
-   and never through a word, kept only when under half of it is talk), scored by how much happens in it. Before,
-   such a moment could not become a clip at all unless the whole video had no speech. A video without speech is cut
+   and never through a word, kept only when under half of it is talk and at least 60/100 happens in it, so a lone
+   sound over still end credits is not a clip), scored by how much happens in it. An action, a bang or a seen
+   moment with only a shout or two around it gets this stretch even when lines are near; it stands next to the
+   sentence windows there, and the selection keeps the better one. Before, such a moment could not become a clip
+   at all unless the whole video had no speech. A video without speech is cut
    into the windows where most happens instead of the loudest ones.
 2. **The rankings.** The fast and semantic stages add `8 × interest` (0-1: reactions, exciting sounds, action, the
-   model's action); three deep-stage places are kept for moments built around what was seen and heard.
+   model's action); at least three of the deep stage's places go to moments built around what was seen and heard
+   (a talk clip gives its place only while fewer than three are there, so a film full of action never pushes out
+   its best lines).
 3. **The Clip Score** gets one more bounded, explained part (`senses.adjust`), shown in "How the Clip Score came
    about":
    - heard, at most ±5: +2.5 when the clip ends on a reaction, +0.8 per reaction (at most 2), +0.6 per exciting

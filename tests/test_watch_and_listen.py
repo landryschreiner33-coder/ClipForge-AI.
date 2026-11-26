@@ -322,6 +322,27 @@ def test_finalists_get_their_points_in_the_deep_stage(monkeypatch):
     assert laughs and any(any("heard laughter" in w for w in r["explanation"]) for r in laughs)
 
 
+def test_moments_seen_and_heard_never_push_out_the_best_talk_clips():
+    """Three deep-stage places are kept for moments built around what was seen and heard, but only up to three: when
+    such moments already rank there (a film full of action), no talk clip gives its place to one more."""
+    words = talk(70)
+    sentences = build_sentences(words)
+    end = sentences[-1]["end"] + 5
+    s = Senses(heard_with(end), watched_with(end))
+    loud = Loudness({"hop": 0.1, "db": [-20.0] * int(10 * end)})
+    o = {**opts(), "ai_provider": "heuristic", "deep_analysis": True, "min_score": 0}
+    cands = cand_mod.find_candidates(words, sentences, loud, o, pool_size=30, max_overlap=0.5)
+    assert len(cands) > deep.DEEP_KEEP + deep.SENSE_RESERVED
+    for k, c in enumerate(cands):
+        c["cid"] = k
+        if k % 2:   # every other one, so that some rank in the deep stage's places and some below them
+            c["sense"] = {"kind": "action", "why": "the picture comes alive", "at": c["start"] + 1.0}
+    _, _, notes = deep.evaluate_select(sentences, words, loud, o, JobContext(), "Show", cands, senses=s)
+    gave = [c for c in notes["candidates"] if any("gave its place to a moment ClipForge AI saw or heard" in r
+                                                  for r in c["reasons"])]
+    assert not gave, gave
+
+
 # ------------------------------------------------------------------ answers about a clip
 def test_chat_answers_what_is_seen_and_heard(tmp_path):
     from clipfoundry.brain import toolbox
@@ -393,6 +414,39 @@ def test_a_moment_nobody_talks_over_becomes_a_clip_of_its_own():
     # a clip that is talked through keeps its words' score
     busy_talk = s.judge_clip(sentences[0]["start"], sentences[-1]["end"], words, 60.0, s.base_action())
     assert busy_talk["talk"] > 0.5 and busy_talk["show_adjust"] == 0.0 and "show_why" not in busy_talk
+
+
+def test_quiet_action_near_a_few_lines_gets_a_time_window_too():
+    """A battle with a shout now and then: lines are near the moment, but under half of the stretch is talk, so a
+    stretch of time around it is offered as well (judged on what happens), next to the sentence windows (judged on
+    their words). The selection keeps the better of the two."""
+    words = []
+    for k, t0 in enumerate((100.0, 125.0, 150.0, 172.0)):            # four short shouts, 25 s apart
+        words += [{"w": f"come{k}", "start": t0, "end": t0 + 0.4}, {"w": "on!", "start": t0 + 0.5, "end": t0 + 0.9}]
+    sentences = build_sentences(words)
+    end = 220.0
+    s = Senses(heard_with(end, boom=[(160, 161.5, 0.9)], crash=[(166, 167, 0.8)]),
+               watched_with(end, busy=(150, 175), cuts=[148.0, 177.0]))
+    loud = Loudness({"hop": 0.1, "db": [-20.0] * int(10 * end)})
+    o = opts()
+    feats = cand_mod.sentence_features(sentences, words)
+    found = [cand_mod.window(sentences, feats, 2, 3, loud, o, cand_mod.common_words(sentences))]   # 150-173 s
+    added = cand_mod.from_senses(sentences, feats, loud, o, s, found, words, end)
+    timed = [c for c in added if c["s0"] == -1]
+    assert timed and any(c["start"] <= 160 <= c["end"] for c in timed), added
+    assert all(c["signals"]["talk"] < 0.5 and c["criteria"]["engagement"] >= cand_mod.TIME_MIN_SHOW / 100
+               for c in timed)
+
+
+def test_a_lone_sound_over_a_still_stretch_is_not_a_clip():
+    """End credits: nothing moves, nobody is on screen, and the sound model hears one gasp in the music. Too little
+    happens there to stand on what happens, so no time window is made."""
+    end = 300.0
+    s = Senses(heard_with(end, gasp=[(280, 281, 0.3)]), watched_with(end, faces=False))
+    a = {"at": 280.5, "until": 281.0, "kind": "gasp", "why": "ClipForge AI heard a gasp", "strength": 0.3,
+         "end_after": True}
+    assert s.show(s.features(250.0, 285.0), s.base_action()) < cand_mod.TIME_MIN_SHOW
+    assert cand_mod._time_window(a, talk(4), s, opts(), end, s.base_action()) is None
 
 
 def test_the_time_window_never_cuts_through_a_word():

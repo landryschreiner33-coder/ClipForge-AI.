@@ -200,7 +200,10 @@ def picks_pass(film: Path, transcript: Path, report: dict, level: str, modes: li
                          "sense": r.get("sense"), "seen": sensed.get("seen"), "heard": sensed.get("heard")})
         report["picks"][mode] = {"seconds": round(time.monotonic() - t0, 1), "clips": rows,
                                  "pool": len(cands), "senses": p.info.get("senses"), "stages":
-                                     (p.info.get("quality") or {}).get("stages")}
+                                     (p.info.get("quality") or {}).get("stages"),
+                                 # every candidate: how far it got and why it stopped
+                                 "candidates": [{k: c.get(k) for k in ("start", "end", "stage", "score", "reasons")}
+                                                for c in p.info.get("candidates") or []]}
         print(f"\n== {mode}: {len(rows)} clips in {report['picks'][mode]['seconds']} s", flush=True)
         for c in rows:
             print(f"{c['rank']}. {c['start']:.1f}-{c['end']:.1f} s, score {c['score']}: {c['words'][:120]}")

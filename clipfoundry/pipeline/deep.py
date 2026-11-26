@@ -336,8 +336,10 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         deep_cands = [c for c in deep_cands if c not in drop] + missing
         for c in drop:
             track[c["cid"]]["reasons"].append("Semantic stage: gave its place to a moment ClipForge AI named")
-    # ... and for the moments built around what ClipForge AI saw and heard (a laugh, a cheer, an explosion)
-    sensed = [c for _, c in ranked if c.get("sense") and c not in deep_cands][:SENSE_RESERVED]
+    # ... and for the moments built around what ClipForge AI saw and heard (a laugh, a cheer, an explosion): at
+    # least SENSE_RESERVED of them reach the deep stage, never by pushing out more than it takes to get there
+    present = sum(1 for c in deep_cands if c.get("sense"))
+    sensed = [c for _, c in ranked if c.get("sense") and c not in deep_cands][:max(0, SENSE_RESERVED - present)]
     if sensed:
         keep = [c for c in deep_cands if not c.get("scout") and not c.get("sense")]
         drop = keep[len(keep) - len(sensed):] if len(keep) >= len(sensed) else []
