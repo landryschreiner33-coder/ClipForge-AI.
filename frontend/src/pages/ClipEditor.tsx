@@ -39,16 +39,31 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
   layout: ["tracking", "crop_x", "layout", "split_game", "cam_box", "pip_corner", "zoom", "auto_zoom"],
   colour: ["auto_color", "look", "look_strength", "clean_picture"],
-  audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed"],
+  audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed", "sound_effects"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
+
+/** What the last render's editing moves did (pipeline/moves.py), in words. */
+function movesNote(m: unknown): string {
+  if (!m || typeof m !== "object") return "";
+  const v = m as { on_cuts?: number; eased?: number; pushes?: number; effects?: string[] };
+  const parts: string[] = [];
+  const n = (k: number | undefined, one: string, many: string) => (k ? `${k} ${k === 1 ? one : many}` : "");
+  for (const p of [n(v.on_cuts, "punch-in on a cut", "punch-ins on cuts"),
+    n(v.eased, "framing change", "framing changes"), n(v.pushes, "push-in on a key word", "push-ins on key words")]) {
+    if (p) parts.push(p);
+  }
+  const fx = v.effects || [];
+  if (fx.length) parts.push(`${fx.length} sound effect${fx.length === 1 ? "" : "s"}`);
+  return parts.join(", ");
+}
 // What the renderer uses when neither the clip, the video's options nor Settings say otherwise.
 const FALLBACK: Partial<Record<Key, unknown>> = {
   tracking: "auto", crop_x: 0.5, layout: "fill", split_game: "whole", zoom: 1, auto_zoom: true,
   captions_enabled: true, caption_style: "bold", caption_position: "bottom", caption_size: 1, caption_emphasis: false,
   highlight_words: true, highlight_color: "", hook_overlay: true, hook_seconds: 3,
   gain_db: 0, normalize_audio: true, clean_sound: "auto", silence: "light", remove_fillers: true, speed: 1,
-  auto_color: true, look: "natural", look_strength: 100, clean_picture: true,
+  auto_color: true, look: "natural", look_strength: 100, clean_picture: true, sound_effects: true,
 };
 const TITLE_MAX = 100;
 const CAPTION_MAX = 2200;
@@ -717,7 +732,7 @@ export default function ClipEditor({ id }: { id: string }) {
           <input id={`${uid}-zoom`} type="range" min={1} max={2} step={0.05} value={num("zoom")}
             aria-valuetext={`${num("zoom").toFixed(2)} times`} onChange={(e) => set({ zoom: +e.target.value })} />
         </div>
-        <Check label="Subtle push-in on sentences with an emphasized word" on={bool("auto_zoom")}
+        <Check label="Punch-ins on cuts and a push-in on key words" on={bool("auto_zoom")}
           onChange={(v) => set({ auto_zoom: v })} />
         {ri.mode && (
           <p className="hint">
@@ -790,6 +805,9 @@ export default function ClipEditor({ id }: { id: string }) {
         </div>
         <Check label="Cut “um” and “uh” with the pause around them" on={bool("remove_fillers")}
           onChange={(v) => set({ remove_fillers: v })} />
+        <Check label="Sound effects: a soft whoosh with each push-in, a pop on coloured key words"
+          on={bool("sound_effects")} onChange={(v) => set({ sound_effects: v })} />
+        {movesNote(ri.moves) && <p className="hint">Last render: {movesNote(ri.moves)}</p>}
         <div className="field">
           <label htmlFor={`${uid}-speed`}>
             Pacing <span className="faint tnum">{num("speed").toFixed(2)}× (voice pitch unchanged)</span>
