@@ -1075,6 +1075,13 @@ so that is a promise; "Got it: your channel is about mountain biking." is still 
 45787376562 on 38fb7d1, every must-check passed) it added "I'll make sure it's sharp and engaging.": words about how
 it will be ("I'll make sure it…", "I'll keep it…") count like a pleasantry next to a promise, never as one alone.
 
+**After the sixth check** (run 45788754134 on d533b23, every must-check passed; PR #79 merged): the Script writer
+answered "Got it: I'll write a two-line hook about mountain biking. I'll keep the tone strong and engaging, with a
+clear hook in the first line…". A helper's answer must hold the work itself, so for a helper (`promise(…,
+helper=True)`: its rounds and what `_ask_agent` reports) any sentence that starts with "I'll …" or "Let me …" beside a
+promise only says more of what it will do, as long as no quotes or new lines hold the work. ClipForge AI's own
+words are read as before.
+
 A small review of these last fixes (each finding shown with a probe) found, and now:
 
 - The conversation keeps an answer whose notes are long (helpers' work) when it does not fit whole: its words and its

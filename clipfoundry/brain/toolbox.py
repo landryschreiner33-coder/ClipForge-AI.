@@ -597,7 +597,7 @@ def _ask_agent(ctx: Ctx, args: dict) -> Result:
         f"{agent['name']} could not do it: {out['text']}"
     looked_only = all((t := tools_get(s.get("tool", ""))) is not None and t.risk == "look"
                       for s in out.get("steps") or [])  # a change it proposed or a memory it kept is work done
-    if out["ok"] and looked_only and intents.promise(out["text"]):  # even asked once more (the real Basic model)
+    if out["ok"] and looked_only and intents.promise(out["text"], helper=True):  # even asked once more (the real Basic model)
         text = (f"{agent['name']} only said what it would do and wrote nothing the owner can use: "
                 f"“{out['text']}”. Write it yourself now, in your answer.")
     return Result(clip(text, 2400), f"Asked {agent['name']}", data, ok=out["ok"])

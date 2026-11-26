@@ -550,3 +550,22 @@ def test_an_answer_with_long_notes_before_a_long_follow_up_is_kept_shortened(dat
     plan = json.loads(h[0]["content"])
     assert plan["say"].startswith("Here is the plan: open on the summit") and " … " in plan["say"]
     assert len(plan["notes"]) == 1 and plan["notes"][0].startswith("[Researcher wrote:")
+
+
+def test_a_helpers_promise_with_more_of_what_it_will_do_is_still_a_promise(data, monkeypatch):
+    """The real Basic model as the Script writer, in the last check (run 45788754134): "Got it: I'll write a two-line
+    hook about mountain biking. I'll keep the tone strong and engaging, with a clear hook in the first line…"."""
+    from clipfoundry.brain import agents, assistant, intents
+
+    said = ("Got it: I'll write a two-line hook about mountain biking. I'll keep the tone strong and engaging, with a "
+            "clear hook in the first line.")
+    assert intents.promise(said, helper=True) and not intents.promise(said)  # ClipForge AI's own words: unchanged
+    for s in ("I'll go with the ridge one, it's the strongest.", "I'll write it like this: the trail bites back.",
+              "Got it: I'll write a hook. “I almost didn't make it down.”", "I'll keep the tone strong.",
+              "Let me write a hook.\nThe trail bites back.\nAnd so do I."):
+        assert not intents.promise(s, helper=True), s
+    agents.add(WS, template="script_writer")
+    fake = install(monkeypatch, say(said), say("“I almost didn't make it down.” / “Here's why.”"))
+    m, _c = _ask("@Script writer write a two-line hook about mountain biking")
+    assert m["text"] == "“I almost didn't make it down.” / “Here's why.”" and m["data"]["guards"] == ["act"]
+    assert fake.last_user(1) == assistant.NUDGE_DO

@@ -794,7 +794,7 @@ def model_failed(exc: BaseException) -> str:
     return f"My model could not answer: {tools.clip(exc, 300)}"
 
 
-def _slip(say: str, said: str) -> str:
+def _slip(say: str, said: str, helper: bool = False) -> str:
     """What is wrong with a round that used no tool, when nothing but looking was done yet in this answer
     (intents.py): "echo" (it only repeats the owner), "act" (it only says what it will do), "short" (it stops where a
     list should begin),
@@ -810,7 +810,7 @@ def _slip(say: str, said: str) -> str:
         return "echo"
     if intents.stops_short(say):
         return "short"
-    if intents.promise(say):
+    if intents.promise(say, helper):
         return "act"
     return ""
 
@@ -983,7 +983,7 @@ def _rounds(settings: dict, system: str, msgs: list[dict], tool_list: list[tools
         calls = [] if final else reply["do"]
         guessed = False
         idle = not (calls or out.pending or out.says) and _looked_only(out)  # nothing done yet, or only looking
-        slip = _slip(reply["say"], said) if idle else ""
+        slip = _slip(reply["say"], said, bool(ctx.agent)) if idle else ""
         if fallback and not calls and not out.steps and not out.pending and not out.says:
             # the one change a plainly phrased request has, and the model did nothing with it (or only claimed it):
             # done as if the model had asked for it, as a card that waits for the OK
