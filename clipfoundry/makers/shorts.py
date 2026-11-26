@@ -557,6 +557,25 @@ def _fine_pictures(scene: dict, short: dict) -> tuple[str, ...]:
     return (engine_key,) if engine_status("image")["ready"] and not failed else (engine_key, card_key)
 
 
+def main_character_picture(project_id: str, scene: dict, short: dict, workspace_id: str) -> dict | None:
+    """For a short without characters (makers/cast.py) whose main character ClipForge AI described: the first other
+    scene's picture the picture maker drew, to draw this one with so the character looks the same in every scene
+    ({**asset, "n": its scene number}). None when the picture maker keeps a look by the words only, or there is no
+    such picture yet. Not part of the picture's key: a picture made before is kept as it is."""
+    if cast.members(short) or not (short.get("character") or "").strip() or not engine_status("image").get("references"):
+        return None
+    for n, row in enumerate(ordered(scene_rows(project_id), None), 1):
+        if row["id"] == scene["id"] or row["picture_source"] == "upload":
+            continue
+        # only a picture made for the short as it is now (its look and character): never one an earlier look drew
+        if (_info(row).get("picture") or {}).get("source") == "engine" \
+                and row["picture_key"] == picture_keys(row, short)[0]:
+            found = _asset_ok(row["picture_asset_id"], workspace_id, "image")
+            if found:
+                return {**found, "n": n}
+    return None
+
+
 def _move(scene: dict) -> str:
     from . import motion
 
@@ -1015,6 +1034,9 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
             with tempfile.TemporaryDirectory(dir=short_dir(pid)) as tmpdir:
                 found = cast.in_scene(short, scene)
                 refs = [Path(a["path"]) for a in cast.reference_assets(short, scene, ws)]
+                kept = None if refs else main_character_picture(pid, scene, short, ws)
+                if kept:
+                    refs = [Path(kept["path"])]
                 got = pictures.make(scene["narration"], scene["picture_prompt"], look, Path(tmpdir),
                                     character=character_words(short, scene), seed=int(scene["seed"]), index=seq,
                                     cancel=lease.canceled, references=refs,
@@ -1037,7 +1059,8 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
             made_key = engine_key if got["source"] == "engine" else card_key
             pic_info = {"source": got["source"], "engine": got.get("engine") or "", "why": got.get("why") or "",
                         "failed": engine_key if got["source"] != "engine" and got.get("tried") else "",
-                        "references": int(got.get("references") or 0), "asked_references": len(refs)}
+                        "references": int(got.get("references") or 0), "asked_references": len(refs),
+                        "kept_from": int(kept["n"]) if kept and got.get("references") else 0}
             entry = {"asset_id": stored["id"], "prompt": scene["picture_prompt"], "seed": int(scene["seed"]),
                      "key": made_key, "at": time.time(), **{k: pic_info[k] for k in ("source", "engine", "why")}}
 
@@ -2165,7 +2188,8 @@ def _scene_view(s: dict, n: int, plan: dict | None, short: dict | None = None) -
             "duration": round(int(s["duration_ms"] or 0) / 1000, 2),
             "picture": {"source": source, "engine": pic.get("engine") or "", "why": pic.get("why") or "",
                         "references": int(pic.get("references") or 0),
-                        "asked_references": int(pic.get("asked_references") or 0)},
+                        "asked_references": int(pic.get("asked_references") or 0),
+                        "kept_from": int(pic.get("kept_from") or 0)},
             "cast": [m["id"] for m in cast.in_scene(short, s)], "cast_chosen": isinstance(info.get("cast"), list),
             "overrides": {k: v for k, v in overrides.items() if v}, "hold_ms": hold_ms(s),
             "drift": ({"flags": list(drift.get("flags") or []), "how": drift.get("how") or "",

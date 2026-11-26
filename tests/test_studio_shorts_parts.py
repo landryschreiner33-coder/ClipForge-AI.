@@ -296,7 +296,8 @@ def media(monkeypatch, tmp_path):
 def test_a_still_picture_moves_with_the_voice_for_exactly_its_frames(media):
     from clipfoundry.makers import motion
 
-    assert [motion.pick_move(i) for i in range(5)] == ["zoom_in", "pan_right", "zoom_out", "pan_left", "zoom_in"]
+    assert [motion.pick_move(i) for i in range(7)] == ["zoom_in", "pan_right", "push_left", "zoom_out", "pan_left",
+                                                        "push_right", "zoom_in"]
     picture, voice = _stripe(media / "p.png"), _wav(media / "v.wav", 0.6)
     size = (108, 192)
     seen = []
@@ -547,3 +548,24 @@ def test_clipforge_ai_pictures_a_pasted_script_one_idea_per_scene(model):
                              workspace_id=WS)
     assert writer.picture_ideas([], title="", look=looks.get("storybook"), settings=db.get_settings(),
                                 workspace_id=WS)["pictures"] == []
+
+
+def test_camera_moves_ease_in_and_out_and_a_push_drifts_without_showing_an_edge():
+    from clipfoundry.makers import motion
+
+    steps = [motion.ease(i / 20) for i in range(21)]
+    assert steps[0] == 0.0 and steps[-1] == 1.0 and steps[10] == pytest.approx(0.5)
+    assert all(b > a for a, b in zip(steps, steps[1:]))          # always moving: never a dead stop
+    assert steps[1] < 0.05 and steps[19] > 0.95                   # slower at the start and the end than mid-way
+    assert steps[11] - steps[10] > steps[1] - steps[0]
+    size, w, h, cover = (108, 192), 300, 400, max(108 / 300, 192 / 400)
+    for move, sign in (("push_left", 1), ("push_right", -1)):
+        s0, x0, y0 = motion._transform(move, 0.0, w, h, size, cover, 0.2)
+        s1, x1, y1 = motion._transform(move, 1.0, w, h, size, cover, 0.2)
+        assert s1 == pytest.approx(s0 * 1.2)                      # it closes in
+        centred = (108 - w * s1) / 2
+        assert sign * (x1 - centred) > 1                          # and drifts to its side
+        for s, x, y in ((s0, x0, y0), (s1, x1, y1)):              # the picture always covers the frame
+            assert x <= 1e-6 and x + w * s >= 108 - 1e-6 and y <= 1e-6 and y + h * s >= 192 - 1e-6
+    assert set(motion.ORDER) <= set(motion.MOVES)
+    assert all(a != b for a, b in zip(motion.ORDER, motion.ORDER[1:] + motion.ORDER[:1]))

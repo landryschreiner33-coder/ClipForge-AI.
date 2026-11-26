@@ -1,7 +1,7 @@
 """A scene's moving clip for an animated short (docs/clipforge/ANIMATED_SHORTS.md).
 
-`still_clip` moves a still picture with a slow camera (a push-in, a pull-out or a pan, the "Ken Burns" move viral
-shorts use so the picture is never still) and lays the scene's voice under it. The picture always covers the frame;
+`still_clip` moves a still picture with a slow camera (a push-in, a pull-out, a pan or a push that drifts sideways,
+the "Ken Burns" move viral shorts use so the picture is never still; each move eases in and out) and lays the scene's voice under it. The picture always covers the frame;
 the move is drawn frame by frame with OpenCV at sub-pixel precision, so it glides without the one-pixel jitter of
 FFmpeg's zoompan, and the frames are piped straight into FFmpeg.
 
@@ -27,9 +27,12 @@ from ..pipeline.common import Cancelled
 
 log = logging.getLogger(__name__)
 
-MOVES = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "still")
-ORDER = ("zoom_in", "pan_right", "zoom_out", "pan_left")    # scene after scene, so every cut changes direction
+MOVES = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "push_left", "push_right", "still")
+# scene after scene, so every cut changes direction, and six scenes go by before a move comes back
+ORDER = ("zoom_in", "pan_right", "push_left", "zoom_out", "pan_left", "push_right")
 PAN_TRAVEL = 1.5           # a pan travels at most this many times `strength` of the frame, however wide the picture
+EASE = 0.6                 # how much of a move eases in and out (0: the same speed throughout, 1: starts and stops dead)
+DRIFT = 0.9                # a push drifts this share of the way to the picture's edge as it closes in
 MAX_SLOWDOWN = 1.5         # the engine's video is slowed down at most this much to cover the voice
 CRF = "16"                 # scene clips are made again in the final render, so they keep the detail
 AUDIO_RATE = "48000"
@@ -99,6 +102,13 @@ def _read_picture(picture: Path, size: tuple[int, int] | None = None, strength: 
     return img
 
 
+def ease(p: float) -> float:
+    """Progress through a move as the camera travels it: a gentle start and a gentle stop (as a camera operator
+    moves), never a dead stop, so a cut always lands on a picture that is still moving."""
+    p = min(1.0, max(0.0, float(p)))
+    return (1 - EASE) * p + EASE * p * p * (3 - 2 * p)
+
+
 def _prepare(img, size: tuple[int, int], strength: float):
     """The picture at about the size the move needs (a much larger picture is scaled down smoothly first, so the
     frames never shimmer), and the scale that just covers the frame."""
@@ -120,7 +130,7 @@ def _transform(move: str, p: float, w: int, h: int, size: tuple[int, int], cover
                strength: float) -> tuple[float, float, float]:
     """(scale, x, y) of the picture at progress `p` (0-1) through the scene."""
     w_out, h_out = size
-    if move == "zoom_in":
+    if move in ("zoom_in", "push_left", "push_right"):
         s = cover * (1 + strength * p)
     elif move == "zoom_out":
         s = cover * (1 + strength * (1 - p))
@@ -129,6 +139,10 @@ def _transform(move: str, p: float, w: int, h: int, size: tuple[int, int], cover
     else:
         s = cover * (1 + strength)
     x0, y0 = (w_out - w * s) / 2, (h_out - h * s) / 2   # centred
+    if move in ("push_left", "push_right"):
+        # closing in while drifting sideways: the drift never goes past the picture's edge
+        shift = (w * s - w_out) / 2 * DRIFT * p
+        return s, (x0 + shift if move == "push_left" else x0 - shift), y0
     if move in ("pan_left", "pan_right"):
         travel = min(w * s - w_out, w_out * strength * PAN_TRAVEL)
         shift = travel * (p - 0.5) if move == "pan_right" else travel * (0.5 - p)
@@ -198,7 +212,7 @@ def still_clip(picture: Path, audio: Path, out: Path, *, duration_s: float, move
                     if move == "still" and still is not None:
                         frame = still
                     else:
-                        s, x, y = _transform(move, p, w, h, (w_out, h_out), cover, strength)
+                        s, x, y = _transform(move, ease(p), w, h, (w_out, h_out), cover, strength)
                         m = np.array([[s, 0.0, x], [0.0, s, y]], dtype=np.float64)
                         frame = cv2.warpAffine(img, m, (w_out, h_out), flags=cv2.INTER_LINEAR,
                                                borderMode=cv2.BORDER_REFLECT)

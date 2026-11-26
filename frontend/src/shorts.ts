@@ -73,14 +73,17 @@ export type ShortScene = {
   /** "" until the picture is made; its thumbnail is /api/assets/{id}/thumbnail. */
   picture_asset_id: string;
   clip_asset_id: string;
-  /** "auto" or one of zoom_in zoom_out pan_left pan_right pan_up pan_down still. */
+  /** "auto" or one of zoom_in zoom_out pan_left pan_right pan_up pan_down push_left push_right still. */
   move: string;
   status: SceneStatus; message: string; error: string;
   /** Seconds. */
   duration: number;
   picture: { source: "engine" | "card" | "upload" | ""; engine: string; why: string;
     /** Reference pictures the maker drew with, and how many it was given (a words-only model uses none). */
-    references?: number; asked_references?: number };
+    references?: number; asked_references?: number;
+    /** A short without characters: the scene whose picture this one was drawn with, so the main character looks the
+     * same (0: none). */
+    kept_from?: number };
   /** The cast members in this shot (all of the short's unless the owner picked: cast_chosen). */
   cast?: string[]; cast_chosen?: boolean;
   /** Changes for this shot only, by member id. */
