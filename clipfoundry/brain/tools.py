@@ -172,6 +172,8 @@ def _coerce(value: object, spec: dict) -> object:
     kind = spec.get("type", "string")
     if kind == "string" and isinstance(value, (int, float)) and not isinstance(value, bool):
         return str(value)
+    if kind == "string" and isinstance(value, bool) and spec.get("on_off"):  # a setting's value: true is "on"
+        return "on" if value else "off"
     if kind == "integer" and isinstance(value, str) and value.strip().lstrip("-").isdigit():
         return int(value.strip())
     if kind == "integer" and isinstance(value, float) and value.is_integer():
@@ -181,8 +183,9 @@ def _coerce(value: object, spec: dict) -> object:
             return float(value)
         except ValueError:
             return value
-    if kind == "boolean" and isinstance(value, str) and value.lower() in ("true", "false", "yes", "no"):
-        return value.lower() in ("true", "yes")
+    if kind == "boolean" and isinstance(value, str) and value.strip().lower() in ("true", "false", "yes", "no", "on",
+                                                                                 "off"):
+        return value.strip().lower() in ("true", "yes", "on")
     if kind == "array" and isinstance(value, str):
         return [value]
     return value

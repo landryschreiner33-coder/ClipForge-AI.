@@ -135,7 +135,9 @@ def test_the_owners_own_clip_text_and_a_trim_go_through_the_clip_editor(clip):  
     fresh = db.get_clip(clip["id"])
     assert fresh["edit"]["loop_ending"] is False and fresh["edit"]["sound_effects"] is False
     assert card["label"].endswith("loop ending off, sound effects off")  # already queued: rendered from it
-    card, done = press("edit_clip", {"project": "running podcast", "clip": "1", "loop_ending": True})
+    card, done = press("edit_clip", {"project": "running podcast", "clip": "1", "loop_ending": "on",
+                                     "sound_effects": "on"})  # words from a small model
+    assert db.get_clip(clip["id"])["edit"]["sound_effects"] is True
     assert db.get_clip(clip["id"])["edit"]["loop_ending"] is True and "runs straight back into its start" in card["label"]
 
 

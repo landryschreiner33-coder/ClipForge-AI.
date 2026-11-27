@@ -10,10 +10,14 @@ endings and sound effects, in words". Not released.
   switches; the clip is rendered again.
 - **Settings:** "Loop endings (seamless loops)" and "Sound effects (whooshes and pops)" join the settings ClipForge
   AI sees and may change.
-- **Finding a setting by its words** skips small words and reads plurals as their word ("make it loop" is Loop
-  endings).
-- **On/off settings** take only a clear on or off (an off word wins; anything else asks), show "on"/"off", and save:
-  before, the OK step refused every on/off setting ("value should be string").
+- **Finding a setting by its words** skips small words, reads -s plurals as their word and breaks ties on exact
+  words and the key's name ("make it loop" is Loop endings, "clips" is Clips per video); a word naming another thing
+  keeps a setting out ("loop the music", "visual effects", "pause autopilot" ask); publishing, spending and the model
+  always ask.
+- **On/off settings** take only a clear on or off (a negation such as "won't loop" is off; "don't turn it off" asks),
+  show "on"/"off", and save: before, the OK step refused every on/off setting ("value should be string"). A model's
+  JSON true/false is read as on/off, and true/false arguments take "on"/"off".
+- **Review:** 3 reviewers with probes, 9 problems, all fixed with tests.
 - **Cues and guide:** loop/seamless/whoosh/sfx/effects bring the commands to a small model; the guide's "Changing one
   clip" names Loop ending and Sound effects.
 - **Tests:** `tests/test_assistant_commands.py`, `tests/test_assistant_acts_alone.py`.

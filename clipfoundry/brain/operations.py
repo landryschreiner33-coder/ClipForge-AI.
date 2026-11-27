@@ -1661,25 +1661,61 @@ _SETTING_FILLER = frozenset(("a", "an", "the", "it", "its", "is", "as", "at", "a
                              "s"))
 
 
-def _setting_words(text: str) -> set[str]:
-    return {_stem(w) for w in _said_words(text) if w not in _SETTING_FILLER}
+# Words that name a setting besides its label: singulars the plural rule misses, and short names.
+_SETTING_EXTRA = {"loop_ending": "loop looping seamless", "sound_effects": "whoosh sfx effect"}
+# Words that say another thing is meant: a full video's music Loop is not Loop endings, visual effects are not
+# Sound effects. The setting is then not chosen by its other words.
+_SETTING_NOT = {"loop_ending": frozenset(("music", "song", "songs", "soundtrack", "audio", "trim", "trimmed", "cut")),
+                "sound_effects": frozenset(("visual", "visuals", "transition", "transitions", "picture", "video",
+                                            "colour", "color")),
+                "silence": frozenset(("autopilot", "posting", "posts", "post", "upload", "uploads", "mission",
+                                      "missions", "stream", "live"))}
+# Words for the owner's own pages (automatic publishing and its pause, spending, the AI model): a request with one
+# of them is never matched to an editing setting by its other words ("pause publishing" is not Pauses cut).
+_OWNER_ONLY = frozenset(("publish", "publishing", "published", "paused", "spending", "spend", "model"))
+
+
+def _setting_score(said: str, key: str, label: str) -> tuple[int, int, int]:
+    """(words that match the label once plurals are read as their word, words that match it exactly, words of the
+    setting's own name): the first decides, the others only break a tie ("clips" is Clips per video, not Shortest
+    clip; "clean sound" is Sound cleanup, not Sound effects)."""
+    raw = {w for w in _said_words(said) if w not in _SETTING_FILLER}
+    if raw & _SETTING_NOT.get(key, frozenset()):
+        return 0, 0, 0
+    named = {w for w in _said_words(label + " " + _SETTING_EXTRA.get(key, "")) if w not in _SETTING_FILLER}
+    return (len({_stem(w) for w in raw} & {_stem(w) for w in named}), len(raw & named),
+            len(raw & set(key.split("_"))))
 
 
 def _which_setting(text: str) -> str:
     key = str(text or "").strip()
     if key in SETTING_NAMES:
         return key
-    words = _setting_words(key)
-    scored = sorted(((len(words & _setting_words(label)), k) for k, label in SETTING_NAMES.items()), reverse=True)
-    if not scored or scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
+    scored = sorted(((_setting_score(key, k, label), k) for k, label in SETTING_NAMES.items()), reverse=True)
+    if (set(_said_words(key)) & _OWNER_ONLY or not scored or scored[0][0][0] == 0
+            or (len(scored) > 1 and scored[1][0] == scored[0][0])):
         raise ToolError("Say which setting: " + ", ".join(SETTING_NAMES.values()) + ". Accounts, spending limits, "
                         "the AI model and automatic publishing are changed by the owner on their own pages.")
     return scored[0][1]
 
 
-_ON_WORDS = frozenset(("on", "true", "yes", "1", "enable", "enabled", "start", "use", "keep", "loop", "looping"))
-_OFF_WORDS = frozenset(("off", "false", "no", "0", "disable", "disabled", "stop", "never", "don't", "dont", "not",
-                        "without"))
+# What an on/off setting's value says. A word that negates ("no", "don't loop", "won't loop", "isn't on") is off; an
+# off word with a negation or an on word ("don't turn it off", "on, not off") is unclear, so it asks.
+_NEGATORS = frozenset(("no", "not", "never", "don't", "dont", "without"))
+_OFF_WORDS = frozenset(("off", "false", "0", "disable", "disabled", "stop"))
+_ON_WORDS = frozenset(("on", "true", "yes", "1", "enable", "enabled", "start", "use", "loop", "looping"))
+
+
+def _on_off(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    text = "" if value is None else str(value).strip()
+    said = set(_said_words(text)) | ({text} if text in ("0", "1") else set())
+    negated = bool(said & _NEGATORS) or any(w.endswith("n't") for w in said)
+    off, on = bool(said & _OFF_WORDS), bool(said & _ON_WORDS)
+    if off:
+        return None if negated or on else False
+    return False if negated else True if on else None
 
 
 def _shown(v) -> str:
@@ -1691,15 +1727,10 @@ def _setting_preview(ctx: Ctx, args: dict) -> dict:
 
     key = _which_setting(args.get("setting", ""))
     value = args.get("value")
-    if isinstance(config.DEFAULT_SETTINGS.get(key), bool) and not isinstance(value, bool):
-        # Only a clear on or off: any other word would quietly turn the setting off. "Don't loop" is off.
-        text = "" if value is None else str(value).strip()
-        said = set(_said_words(text)) | ({text} if text in ("0", "1") else set())
-        if said & _OFF_WORDS:
-            value = False
-        elif said & _ON_WORDS:
-            value = True
-        else:
+    if isinstance(config.DEFAULT_SETTINGS.get(key), bool):
+        # Only a clear on or off: the settings saver reads any other word as off.
+        value = _on_off(value)
+        if value is None:
             raise ToolError(f"Say on or off for {SETTING_NAMES[key]}.")
     try:
         clean = config.validate_settings({key: value})
@@ -1918,7 +1949,8 @@ register(Tool("pause_mission", "pause (paused true) or resume (paused false) one
 register(Tool("change_setting", "change one setting: an editing choice (clips per video, clip lengths, captions, "
               "framing, pauses, sound, loop endings, sound effects) or a posting rule (minutes between posts, earliest and latest posting hour, "
               "posts a day, time zone); setting: its name, value: the new value as text (5, on, off, bold)",
-              {"type": "object", "properties": {"setting": TEXT, "value": {"type": "string", "maxLength": 40}},
+              {"type": "object", "properties": {"setting": TEXT, "value": {"type": "string", "maxLength": 40,
+                                                                           "on_off": True}},
                "required": ["setting", "value"]}, _setting, "change", "Change {setting} to {value}",
               preview=_setting_preview, **ALONE))
 
@@ -1947,7 +1979,8 @@ register(Tool("edit_clip", "edit a clip like the clip editor and render it again
               "high_energy or minimal; caption_size: 60 to 160 (%); speed: 0.8 to 1.25; volume_db: -12 to 12; "
               "pauses: off, light or aggressive; fillers: true cuts “um”; loop_ending: true makes it a seamless "
               "loop (it stops just after the last word and runs straight back into its start), false a plain "
-              "ending; sound_effects: whooshes and pops on or off; keep: false takes it out of the picks",
+              "ending; sound_effects: true adds whooshes and pops, false leaves them out; keep: false takes it out "
+              "of the picks",
               {"type": "object", "properties": {
                   **CLIP, "cut_start": {"type": "number", "minimum": -60, "maximum": 600},
                   "cut_end": {"type": "number", "minimum": -60, "maximum": 600}, "captions": {"type": "boolean"},

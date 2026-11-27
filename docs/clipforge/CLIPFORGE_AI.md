@@ -1251,18 +1251,33 @@ ClipForge AI can now set it, and the sound effects that follow the edit, both wa
   start)" or "loop ending off", and "sound effects on/off"; then the clip is rendered again.
 - **The setting for new projects** (`change_setting`): "Loop endings (seamless loops)" and "Sound effects (whooshes
   and pops)" are in the settings list (`toolbox._SETTINGS_WORDS`), so the settings look shows them too.
-- **Which setting:** small words no longer count when a setting is found by its words, and a plural counts as its
-  word: "make it loop" is Loop endings, not the "it" in "Highlight each word as it is spoken". "Sound" alone still
-  asks which one (Sound cleanup or Sound effects).
-- **On or off only:** an on/off setting takes only a clear on or off ("off", "no", "don't loop", "stop" are off;
-  "on", "yes", "loop", "use" are on; an off word wins). Any other word is "Say on or off for …", because the
-  settings saver reads every other word as off. The card and the answer say "on"/"off", not True/False.
+- **Which setting** (`_which_setting`): small words no longer count, and a setting is chosen by (words that match
+  its label once an -s plural is read as its word, words that match exactly, words of its own key name); the first
+  decides and the others only break a tie. So "make it loop" is Loop endings (not the "it" in "Highlight each word as
+  it is spoken"), "clips" and "number of clips" are Clips per video (not Shortest clip), and "clean sound" is Sound
+  cleanup. "whoosh", "sfx", "looping" and "seamless" are extra words for the two new settings. "Sound" alone still
+  asks which one.
+- **Another thing meant:** a word that names something else keeps a setting from being chosen by its other words:
+  music, song, soundtrack, audio, trim or cut for Loop endings (a full video's music Loop is not this), visual,
+  transition, picture, video or colour for Sound effects, and autopilot, posts, uploads, missions or live for Pauses
+  cut ("pause autopilot"). Publish, publishing, paused, spending and model mean the owner's own pages: it always asks.
+- **On or off only** (`_on_off`): a word that negates is off ("no", "don't loop", "won't loop", "isn't on"); an off
+  word ("off", "false", "disable", "stop") is off unless a negation or an on word is with it ("don't turn it off",
+  "on, not off"), which asks; "on", "yes", "true", "loop", "use" are on. Anything else is "Say on or off for …",
+  because the settings saver reads every other word as off. The card and the answer say "on"/"off", not
+  True/False. Known: "no, keep it on" reads as off.
 - **A fix:** an on/off setting could not be changed at all before: the card handed its value on as true/false, and
-  the OK step wanted text ("value should be string"). It hands on "on"/"off" now, which the settings saver reads.
+  the OK step wanted text ("value should be string"). It hands on "on"/"off" now, which the settings saver reads. A
+  model's JSON true/false for the value is read as "on"/"off" too (`tools._coerce`, the value's `on_off` mark), and a
+  true/false argument (such as edit_clip's) also takes "on"/"off".
 - The words "loop", "seamless", "whoosh", "sfx" and "effects" bring the commands to a small model (`CUES`), and the
   app guide's "Changing one clip" names Loop ending and Sound effects.
 
-Tests: `tests/test_assistant_commands.py` (the settings in words, every setting found by its own name),
+Review: three reviewers with probes found 9 problems (negations such as "won't", "pause publishing" picking Pauses
+cut, "clips" asking after the plural rule, "loop the music", JSON true/false refused, the edit_clip wording); all
+fixed with tests. Each new rule was broken on purpose once to see a test fail.
+
+Tests: `tests/test_assistant_commands.py` (the settings in words, every setting found by its own name, on/off words),
 `tests/test_assistant_acts_alone.py` (the clip edit, the words that bring the commands).
 
 ## API

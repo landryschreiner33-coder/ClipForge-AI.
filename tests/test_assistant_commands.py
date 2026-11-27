@@ -345,10 +345,43 @@ def test_loop_endings_and_sound_effects_are_settings_clipforge_ai_can_change(dat
 
 def test_every_setting_is_found_by_its_own_name():
     from clipfoundry.brain import operations
+    from clipfoundry.brain.tools import ToolError
 
     for key, label in operations.SETTING_NAMES.items():
         assert operations._which_setting(label) == key, label
     for said, key in (("clips per video", "clip_count"), ("um and uh", "remove_fillers"), ("punch-ins", "auto_zoom"),
                       ("highlight each word", "highlight_words"), ("tiktok posts a day", "autopilot_tiktok_daily_limit"),
-                      ("posting time zone", "autopilot_timezone"), ("sound cleanup", "clean_sound")):
+                      ("posting time zone", "autopilot_timezone"), ("sound cleanup", "clean_sound"),
+                      # a plural or a small word never makes a tie the exact words settle
+                      ("clips", "clip_count"), ("how many clips", "clip_count"), ("number of clips", "clip_count"),
+                      ("zoom on cuts", "auto_zoom"), ("word by word", "highlight_words"),
+                      ("show hook on screen", "hook_overlay"), ("clean sound", "clean_sound"),
+                      ("autopilot tiktok", "autopilot_tiktok_daily_limit"), ("pause", "silence"),
+                      ("whoosh", "sound_effects"), ("sfx", "sound_effects"), ("looping", "loop_ending")):
         assert operations._which_setting(said) == key, said
+    # another thing, or the owner's own pages: it asks, never changes a setting that only shares a word
+    for said in ("sound", "pause publishing", "pause autopilot", "loop the music", "music loop", "visual effects",
+                 "trim endings", "ai model"):
+        with pytest.raises(ToolError, match="Say which setting"):
+            operations._which_setting(said)
+
+
+@pytest.mark.parametrize("value, means", [
+    ("on", True), ("off", False), ("yes", True), ("no", False), ("true", True), ("0", False), ("turn it off", False),
+    (True, True), (False, False), ("loop", True), ("don't loop", False), ("won't loop", False),
+    ("shouldn't loop", False), ("isn't on", False), ("didn't want it on", False), ("stop", False),
+    ("don't turn it off", None), ("not off", None), ("on, not off", None), ("don't stop", None),
+    ("keep it as is", None), ("seamless", None), ("", None), (None, None)])
+def test_an_on_off_setting_reads_only_a_clear_on_or_off(value, means):
+    from clipfoundry.brain import operations
+
+    assert operations._on_off(value) is means
+
+
+def test_a_setting_sent_as_true_or_false_still_changes(data):
+    from clipfoundry import db
+
+    card, done = press("change_setting", {"setting": "loop endings", "value": False})  # JSON false from a model
+    assert card["label"].endswith("from on to off") and db.get_settings()["loop_ending"] is False
+    card, done = press("change_setting", {"setting": "clips per video", "value": 6})
+    assert db.get_settings()["clip_count"] == 6 and done.text == "Clips per video is now 6."
