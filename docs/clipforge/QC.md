@@ -7,7 +7,7 @@ without making the video again. It comes in three parts:
 | Part | What | State |
 | --- | --- | --- |
 | 5a | The sound: how loud the finished file plays and how high its peaks go, fixed once when it missed | built 2026-11-27 |
-| 5b | The picture: flat cartoons and graphics kept clean by automatic colour, colours kept inside the legal range | planned |
+| 5b | The picture: flat cartoons and graphics left as drawn by automatic colour; every colour change tried on the recording's own pixels first and eased where it would lose detail | built 2026-11-27 |
 | 5c | The final quality check before publishing reads the same measurements | planned |
 
 ## 5a: the sound
@@ -86,3 +86,81 @@ lower). A file whose sound could not be measured says so; a silent one shows not
 Tests: `tests/test_loudness.py` (reading FFmpeg's summary, the gain, the notes, the bounded fix, the limiter through
 AAC at 128 and 256 kbps, a clip render's report, a hot peak made again with the same picture, a full video's missed
 level made again); `tests/test_audio_start_regression.py` (a broken measurement still stops the render).
+
+## 5b: the picture
+
+The code is in `clipfoundry/pipeline/grade.py` (the colour step, see [COLOUR.md](COLOUR.md)). Both renderers use it:
+the clip renderer through `grade.for_footage`, the full-video engine through `engine.grades` (after matching the
+recordings to each other, so the check sees the grade that is really used).
+
+### What the owner sees
+
+Nothing new to set. The colour notes the editors already show (Clip editor → Colour, Full-video editor → Colour: what
+the last render changed) say what this step did:
+
+- "Flat colours (a cartoon or graphics): left as drawn"
+- "Colour correction eased: it would have lost detail in the brightest parts" (or "… left out: …" when no gentler
+  version was safe; the other reasons are the darkest parts, washed out strong colours and bands in smooth gradients)
+- "The Teal and orange look eased to 60%: at 100% it would have lost detail in the brightest parts"
+
+### What happens
+
+- **Flat cartoons and graphics** (the animated shorts, slides, title cards) are left as drawn. A picture counts as
+  flat when its 8 commonest colours (at 32 levels a channel) cover 85% of it, or 95% of it lies within 12 luma codes.
+  Before, a cartoon's dark navy background read as an underexposed picture: the whites were lifted up to +20% and
+  the mid-tones brightened, which raised every drawn colour by up to 27 codes and pushed the orange characters to
+  full scale. A look the owner chose still applies.
+- **Dim whites are judged by the brightest channel**, not by brightness: a saturated orange or red is dim in
+  brightness but already at full scale in one channel, and lifting it would clip it (and the soft gamut clip then
+  washed it toward grey). Deepening washed-out blacks keeps the brightest channel where it was, too.
+- **The predicted check.** When a recording is measured, 4 of its frames are also read at 320 pixels wide with every
+  pixel a real one (nearest-neighbour, not averaged), and up to 16,384 of those pixels are kept with its statistics
+  (`check_px`, 8-bit, about 64 KB as text in the measurement's cache). Before the colour table is made, the grade is
+  applied to them (`check_grade`):
+  - **lost detail in the brightest parts:** the share of pixels newly at full scale that were visibly below it
+    (under 97%), leaving out a flat area made all one level (the pixels within 3 codes of the commonest level: a
+    cartoon's white sky or a slide's background has no detail to lose);
+  - **lost detail in the darkest parts:** the same for pixels newly at black (luma 17 or less that were over 20);
+  - **washed out strong colours** (the correction only): colourful pixels (saturation over 0.25 of their brightest
+    channel) losing more than a fifth of it, against the white-balanced picture (taking a cast away is meant to change
+    colours); a colour made darker or brighter keeps its saturation and does not count;
+  - **bands in smooth gradients:** the steepest part of the brightness curve over the levels the picture uses (over
+    1.8, neighbouring 8-bit levels land two or more apart).
+
+  Limits: 0.5% of the pixels for the brightest parts, 1% for the darkest, 3% of the colourful pixels, a slope of 1.8.
+  A correction over a limit is eased one step at a time on the setting that causes it (the lift toward white, the
+  S-curve, the black level, vibrance, the mid-tones; otherwise everything half way), at most 4 steps, then left out.
+  A look is judged only on what it adds to the corrected picture and only for detail and bands, never for being a
+  look: it is eased to 60%, then 30% of the owner's strength, never further. `guard` in `grade.py`.
+- Recordings measured before this (no `check_px`) are measured again: `grade.VERSION` is 2, and it is part of the
+  measurement's cache key and of the full-video engine's piece key.
+
+### What it does not do
+
+- It never stops a render and never changes a look's choice in the plan or the clip's settings: only that render's
+  table is eased, and the note says so.
+- It does not measure the finished file's picture (5c does: the final quality check before publishing).
+- "Colours kept inside the legal range" needed no new step: the table's output is clipped to 0-1 and every picture
+  leaves as BT.709 limited range (16-235); 5c measures it on the finished file.
+
+### Measured (the same test pictures before and now, automatic colour only)
+
+Change in brightness of the 99th-percentile pixel (`p99 |dY|`, 8-bit luma codes), the share of pixels newly at full
+scale (under 97% before), and the share of colourful pixels washed out:
+
+| Picture | Before | Now |
+| --- | --- | --- |
+| Cartoon, dark navy background, characters cover a quarter | gamma 0.95: 4.4 codes | left as drawn: 0 |
+| Cartoon, small characters (two backgrounds) | gain 1.2 and an S-curve: 26.8 codes, 0.6% clipped, 1.6% washed out | left as drawn: 0 |
+| The talk-show cartoon (demo) | whites lifted 1.2x, mid-tones brightened | left as drawn |
+| Dim photo, dim cinematic still, eerie still | 11.3-19.0 codes (a real correction) | the same |
+| Well-exposed photo, the look pictures | 0.0-10.2 codes | the same, within 0.6 codes |
+
+Looks, at 100% on the 14 test pictures: Teal and orange eased to 60% on 2 bright illustrations (storybook 2.2% of
+the pixels lost highlight detail; comic 0.8%), Warm eased to 60% on 3 (flat 3.3%, paper 1.1%, comic 0.7%); every
+other look and picture untouched.
+
+Tests: `tests/test_picture_check.py` (flat cartoons at three sizes and backgrounds left as drawn while dim natural
+footage is still brightened, the brightest channel, the pixel sample kept and read back, a correction eased and left
+out with its notes, darker colours not counted as washed out, a look eased only where it loses detail and never
+below 30%, a cartoon recording through FFmpeg unchanged, the engine checking after matching).

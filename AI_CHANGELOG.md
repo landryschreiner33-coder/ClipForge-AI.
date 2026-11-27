@@ -1,5 +1,29 @@
 # AI changelog
 
+## Editing quality, batch 5b: the picture checked before every render — 2026-11-27 (Claude Code)
+
+Batch 5b of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 5a (PR #99). Details:
+[docs/clipforge/QC.md](docs/clipforge/QC.md#5b-the-picture). Not released.
+
+- **Flat cartoons and graphics** are left as drawn by automatic colour (`grade.measure`: `top8`, `span95`,
+  `graphic`; `correction` returns early with "Flat colours (a cartoon or graphics): left as drawn"). Before, a
+  cartoon's dark background read as underexposure: whites lifted 1.2x and mid-tones brightened, drawn colours moved
+  up to 27 codes and orange characters reached full scale.
+- **Dim whites by the brightest channel** (`p995_max`): a saturated colour already at full scale in one channel is
+  not lifted past it; deepening blacks keeps it there too. The half-stop cap now re-writes the mid-tones note from
+  the net change (it could say "darkened" for a picture that got brighter).
+- **The predicted check** (`check_sample`, `check_grade`, `guard`): 4 frames at 320 wide, nearest-neighbour, up to
+  16,384 pixels kept with the statistics (`check_px`). Before a table is made the grade is tried on them: detail lost
+  at full scale or black (flat areas made all one level left out), strong colours washed out (saturation as a share
+  of the brightest channel, against the white-balanced picture; correction only), and the brightness curve's
+  steepest part (banding). A correction is eased step by step on the setting that causes it (4 steps, then left
+  out); a look to 60%, then 30% of its strength. Notes in plain words. The engine checks after matching
+  (`engine.grades`, `for_footage(..., guarded=False)`).
+- `grade.VERSION` 2 (measurement cache key and the engine's piece key): every recording is measured again once.
+- **Privacy page:** the colour measurements row covers the pixel sample.
+
 ## Editing quality, batch 5a: the sound checked after every render — 2026-11-27 (Claude Code)
 
 Batch 5a of Landry's "majorly improve the editing" (plan in

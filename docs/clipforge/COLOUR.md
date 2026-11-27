@@ -36,9 +36,12 @@ recognisable at 100 % and protects skin tones; the strength mixes it with the co
      coloured), only when the brightest pixels agree, 70 % of the cast (35 % when they only roughly agree, 60 % of
      that for a cast over 10 degrees), nothing under 1 degree or over 16 degrees (a sunset, a stage, neon), gains
      0.85-1.18, half for a game or screen recording (almost no skin tones);
-   - levels only when clearly off: foggy blacks, dim whites, very dark or bright mid-tones (half way), at most half a
-     stop; a gentle S-curve on flat (log-like) footage; levels change brightness only, so colours keep their
-     saturation; washed-out colour gets vibrance with skin tones protected.
+   - levels only when clearly off: foggy blacks, dim whites (judged by the brightest channel, so a saturated colour
+     already at full scale is not lifted past it), very dark or bright mid-tones (half way), at most half a stop; a
+     gentle S-curve on flat (log-like) footage; levels change brightness, not colourfulness; washed-out colour gets
+     vibrance with skin tones protected;
+   - flat cartoons and graphics (8 colours cover 85% of the picture, or 95% of it within 12 luma codes) are left as
+     drawn (added 2026-11-27).
    A well-exposed, colourful picture is left almost alone (a test checks the lighthouse picture changes under 5
    codes on average).
 4. **Matching** (full videos): recordings with people in them are nudged toward the one that plays longest (mid-tone
@@ -47,6 +50,10 @@ recognisable at 100 % and protects skin tones; the strength mixes it with the co
 6. **Grain:** the noise is measured on the flattest parts of three full-size frames (Immerkær). Under 1.5 codes
    nothing is done; moderate grain gets `atadenoise`, heavy grain `fftdnoiz` (both LGPL, in every FFmpeg build). The
    amount is scaled to the size the picture is decoded at (a 360p preview of 1080p footage has a third of the grain).
+7. **The predicted check** (added 2026-11-27, batch 5b): before the table is made, the grade is tried on up to
+   16,384 of the recording's own pixels; a correction that would lose detail in the brightest or darkest parts, wash
+   out strong colours or band a gradient is eased step by step (or left out), and a look only to 60%, then 30% of the
+   chosen strength. The notes say what was eased and why. Details and numbers: [QC.md](QC.md#5b-the-picture).
 
 A cancelled measurement is never kept, and a probe that failed (a busy disk) is tried again next time.
 

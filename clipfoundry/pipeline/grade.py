@@ -23,13 +23,20 @@ Order inside the table (each step is a pure function of the pixel's colour, so i
 3. Levels, only when clearly off: foggy blacks (darkest 0.5% above 10%) are deepened half way, dim whites (brightest
    0.5% under 80%) lifted toward 92%, and very dark or bright mid-tones moved half way toward normal (gamma 0.8-1.25,
    at most half a stop of exposure change in all); a gentle S-curve only on flat footage such as log. Levels change
-   brightness only, so colours keep their saturation. A well-exposed picture is left as it is.
+   brightness, not colourfulness, except where a channel would go past full scale: the soft gamut clip then pulls
+   that colour toward grey, so the whites are lifted only as far as the brightest channel allows. A well-exposed
+   picture is left as it is, and so are flat graphics (a cartoon, slides: a few flat colours cover most of it).
 4. Vibrance on flat footage only (low-saturation colours gain most), at 30% inside skin tones.
 5. Matching (full videos): a recording's average colour cast and brightness are nudged toward the main recording's,
    mid-tones only, capped.
 6. A look (warm, film, teal and orange...), clearly recognisable at 100% and mixed in by its strength, with skin
    tones protected.
 7. A soft gamut clip: colours outside the displayable range move toward grey instead of clipping channel by channel.
+
+Before a table is used, the grade is tried on a sample of the recording's own pixels (check_grade): when it would
+lose detail in the brightest or darkest parts (a flat area made all one level loses none), wash out strong colours
+or band a smooth gradient, the step that causes it is eased (guard) and the render notes say so. A chosen look is
+eased only for losing detail or banding, never for being a look, and never below 30% of the owner's choice.
 
 The analysis is per recording or per clip, never per frame, so nothing flickers or "breathes".
 
@@ -38,6 +45,7 @@ full-resolution frames) and cleaned with ``atadenoise`` (moderate) or ``fftdnoiz
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import math
@@ -55,10 +63,13 @@ from .. import config
 from .common import Cancelled
 from .ffmpeg_utils import NO_WINDOW, ffmpeg_bin, ffprobe_bin, run_process
 
-VERSION = 1
+VERSION = 2                  # 2: max-channel white lift, flat graphics, the predicted check's pixel sample
 LUT_SIZE = 33
 SAMPLE_WIDTH = 256           # analysis frames are this wide
 SAMPLES = 10                 # frames looked at per recording or clip
+CHECK_FRAMES = 4             # frames read again, unaveraged, for the predicted check
+CHECK_WIDTH = 320            # ... at this width, every pixel a real pixel (nearest-neighbour scaling)
+CHECK_PIXELS = 16384         # ... of which this many are kept with the statistics (8-bit, about 64 KB as text)
 NOISE_SAMPLES = 3            # full-resolution crops for the noise estimate
 NOISE_CROP = (640, 360)
 
@@ -124,6 +135,17 @@ MATCH_CHROMA_MAX = 0.02      # at most this much change in Cb/Cr (normalised) wh
 MATCH_GAMMA = (0.9, 1.1)
 MATCH_PIXELS = 1500          # pixels kept with a recording's statistics for matching
 MATCH_SKIN = 0.02            # recordings with at least this share of skin-coloured pixels are matched to each other
+
+GRAPHIC_TOP8 = 0.85         # the 8 commonest colours (32 levels a channel) cover this share: flat graphics...
+GRAPHIC_SPAN = 12.0          # ...or 95% of the picture lies within this many luma codes (a flat colour field)
+
+# The predicted check (check_grade): (warn, ease) limits on the grade applied to the recording's own pixels
+CHECK_CLIP = (0.002, 0.005)  # share of pixels newly at full scale whose detail is lost (flat areas left out)
+CHECK_CRUSH = (0.005, 0.01)  # share newly at black (Y <= 17 of 16-235, was over 20), the same way
+CHECK_SAT = (0.01, 0.03)     # share of colourful pixels losing over 20% of their colourfulness (correction only)
+CHECK_SLOPE = (1.5, 1.8)     # steepest part of the brightness curve over the levels the picture uses (banding)
+CHECK_TRIES = 4
+MERGE_CODES = 3              # 8-bit codes: a flat area's own noise, not detail
 
 # Noise (8-bit luma code values)
 NOISE_NONE, NOISE_HEAVY, NOISE_MAX = 1.5, 3.5, 10.0
@@ -518,13 +540,14 @@ def lut_file(g: Grade) -> Path:
 
 # ---------------------------------------------------------------- measuring a recording
 def _frame_cmd(path: str, t: float, colour: dict, w: int, h: int, *, crop: tuple[int, int] | None = None,
-               gray: bool = False) -> list[str]:
+               gray: bool = False, neighbor: bool = False) -> list[str]:
     m, rng = input_matrix(colour), input_range(colour)  # the source's height decides untagged HD, not the sample's
     if crop:
         vf = f"crop={crop[0]}:{crop[1]}:(iw-{crop[0]})/2:(ih-{crop[1]})/2,format=gray"
         fmt = "gray"
     else:
-        vf = f"scale={w}:{h}:flags=area:in_color_matrix={m}:in_range={rng},format=rgb48le"
+        flags = "neighbor" if neighbor else "area"
+        vf = f"scale={w}:{h}:flags={flags}:in_color_matrix={m}:in_range={rng},format=rgb48le"
         fmt = "rgb48le"
     if gray and not crop:
         fmt = "gray"
@@ -603,6 +626,33 @@ def sample(path: str, times: list[float], colour: dict, cancelled: Callable[[], 
     return frames, crops
 
 
+def check_sample(path: str, times: list[float], colour: dict, cancelled: Callable[[], bool] | None = None
+                 ) -> np.ndarray | None:
+    """Pixels of a few of the sampled frames as SDR BT.709 R'G'B' floats (N x 3), every one a real pixel of the
+    picture (nearest-neighbour scaling: a small highlight or a thin bright line is not averaged away), for the
+    predicted check. None when nothing could be read."""
+    w0, h0 = int(colour.get("width") or 0), int(colour.get("height") or 0)
+    if not w0 or not h0 or not times:
+        return None
+    w = CHECK_WIDTH
+    h = max(2, int(round(CHECK_WIDTH * h0 / w0 / 2)) * 2)
+    picked = times[::max(1, len(times) // CHECK_FRAMES)][:CHECK_FRAMES]
+
+    def one(t):
+        got = _decode(_frame_cmd(path, t, colour, w, h, neighbor=True), w * h * 6, cancelled)
+        if got is None:  # a rotated phone video
+            got = _decode(_frame_cmd(path, t, colour, h, w, neighbor=True), w * h * 6, cancelled)
+        return got
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        got = [g for g in pool.map(one, picked) if g is not None]
+    if not got:
+        return None
+    px = np.concatenate([np.frombuffer(g, "<u2").reshape(-1, 3) for g in got]).astype(np.float64) / 65535.0
+    kind = hdr_kind(colour)
+    return to_sdr(px, kind, float(colour.get("max_cll") or 0)) if kind else px
+
+
 def noise_sigma(gray: np.ndarray) -> float:
     """Immerkaer's fast noise estimate (8-bit code values), on the flattest 10% of 64-pixel tiles so texture does not
     count as noise."""
@@ -621,8 +671,19 @@ def noise_sigma(gray: np.ndarray) -> float:
     return float(math.sqrt(math.pi / 2) * flat.mean() / 6)
 
 
-def measure(frames: list[np.ndarray], crops: list[np.ndarray] | None = None) -> dict | None:
-    """Statistics of a recording (or clip) from its sampled frames; None when nothing could be read."""
+def _span(y: np.ndarray, share: float) -> float:
+    """The narrowest range of values that holds `share` of `y`."""
+    v = np.sort(y)
+    k = max(1, int(math.ceil(share * len(v))) - 1)
+    if k >= len(v):
+        return float(v[-1] - v[0])
+    return float(np.min(v[k:] - v[:len(v) - k]))
+
+
+def measure(frames: list[np.ndarray], crops: list[np.ndarray] | None = None,
+            check: np.ndarray | None = None) -> dict | None:
+    """Statistics of a recording (or clip) from its sampled frames (and the unaveraged pixels of check_sample for
+    the predicted check); None when nothing could be read."""
     if not frames:
         return None
     px = np.concatenate([f.reshape(-1, 3) for f in frames])
@@ -639,7 +700,16 @@ def measure(frames: list[np.ndarray], crops: list[np.ndarray] | None = None) -> 
           "p005": float(np.percentile(y, 0.5)), "p05": float(np.percentile(y, 5)),
           "p50": float(np.percentile(y, 50)), "p95": float(np.percentile(y, 95)),
           "p995": float(np.percentile(y, 99.5)), "chroma": float(np.hypot(cb, cr).mean()),
-          "cb": float(cb.mean()), "cr": float(cr.mean())}
+          "cb": float(cb.mean()), "cr": float(cr.mean()),
+          # the brightest channel's 99.5th percentile: how far the whites can be lifted before a colour clips
+          "p995_max": float(np.percentile(px.max(axis=1), 99.5))}
+    # flat graphics (a cartoon, slides, a title card): a few flat colours cover most of the picture, or nearly all
+    # of it is one brightness. Camera footage has noise and light falling off, so its colours spread.
+    q = np.clip((np.clip(px, 0.0, 1.0) * 32).astype(np.int64), 0, 31)
+    counts = np.bincount(q[:, 0] * 1024 + q[:, 1] * 32 + q[:, 2], minlength=32768)
+    st["top8"] = float(np.sort(counts)[-8:].sum() / max(1, len(px)))
+    st["span95"] = _span(y, 0.95) * 219
+    st["graphic"] = bool(st["top8"] >= GRAPHIC_TOP8 or st["span95"] <= GRAPHIC_SPAN)
     if ok.sum() >= 64:
         sel = lin[ok]
         sog = np.mean(sel ** 6, axis=0) ** (1 / 6)
@@ -659,6 +729,11 @@ def measure(frames: list[np.ndarray], crops: list[np.ndarray] | None = None) -> 
     # other later (after their own correction) without decoding them again
     step = max(1, len(px) // MATCH_PIXELS)
     st["px"] = np.round(px[::step][:MATCH_PIXELS], 4).tolist()
+    if check is not None and len(check):
+        # an evenly spread sample of real pixels (8-bit), for the predicted check
+        step = max(1, len(check) // CHECK_PIXELS)
+        kept = np.clip(np.round(check[::step][:CHECK_PIXELS] * 255), 0, 255).astype(np.uint8)
+        st["check_px"] = base64.b64encode(kept.tobytes()).decode("ascii")
     return st
 
 
@@ -673,6 +748,11 @@ def correction(st: dict | None, *, screen: bool = False) -> Grade:
     picture may be a game or a screen recording, whose colours are deliberate: white balance is halved."""
     g = Grade()
     if not st:
+        return g
+    if st.get("graphic"):
+        # a cartoon, slides or a title card: its flat colours are drawn that way (the levels' rules would read a
+        # dark background as underexposure and lift every colour drawn on it)
+        g.notes.append("Flat colours (a cartoon or graphics): left as drawn")
         return g
     # white balance, from the greyest pixels' colour, only when the brightest pixels agree on it
     cast, agree = st.get("cast"), st.get("cast_agree")
@@ -695,15 +775,22 @@ def correction(st: dict | None, *, screen: bool = False) -> Grade:
                            f"({int(round(strength * 100))}% of the measured cast)")
     # levels, only when clearly off: lifted (foggy) blacks, dim whites, very dark or very bright mid-tones
     lo, mid, hi = st["p005"], st["p50"], st["p995"]
+    # dim whites are judged by the brightest channel, not brightness: a saturated orange or red is dim in
+    # brightness but already at full scale in one channel, and lifting it would clip it (the soft gamut clip would
+    # then wash it toward grey)
+    hi_max = float(st.get("p995_max", hi))
     if lo > BLACK_FROM:
         g.black = min(BLACK_MAX, (lo - BLACK_TO) * 0.5)
         g.notes.append("Blacks deepened (they were washed out)")
     top = hi - g.black
-    if hi < WHITE_FROM and top > 0.2:
-        g.gain = min(WHITE_GAIN_MAX, WHITE_TO / top)
+    top_max = hi_max - g.black
+    if hi_max < WHITE_FROM and top_max > 0.2:
+        g.gain = min(WHITE_GAIN_MAX, WHITE_TO / top_max)
         g.notes.append("Brightest parts lifted toward white")
     elif g.black > 0 and top > 0:
         g.gain = min(WHITE_GAIN_MAX, max(1.0, hi / top))  # the whites stay where they were
+        if top_max > 0:
+            g.gain = min(g.gain, max(1.0, hi_max / top_max))  # ...and the brightest channel too
     new_mid = max(1e-4, (mid - g.black) * g.gain)
     if new_mid < MID_RANGE[0] or new_mid > MID_RANGE[1]:
         target = MID_TARGET[0] if new_mid < MID_RANGE[0] else MID_TARGET[1]
@@ -717,6 +804,12 @@ def correction(st: dict | None, *, screen: bool = False) -> Grade:
     if abs(stops) > MAX_STOPS:
         want = (mid ** 2.4 * 2 ** math.copysign(MAX_STOPS, stops)) ** (1 / 2.4)
         g.gamma = float(min(GAMMA_RANGE[1], max(GAMMA_RANGE[0], math.log(want) / math.log(min(0.999, new_mid)))))
+    # the half-stop cap may have undone or turned the mid-tone change: the note says what is left of it
+    g.notes = [n for n in g.notes if not n.startswith("Mid-tones ")]
+    if abs(g.gamma - 1) < 0.01:
+        g.gamma = 1.0
+    elif new_mid < MID_RANGE[0] or new_mid > MID_RANGE[1]:  # the net change at the mid-tones, gain included
+        g.notes.append("Mid-tones " + ("brightened" if min(1.0, new_mid) ** g.gamma > mid else "darkened"))
     if st["p95"] - st["p05"] < FLAT_SPREAD:
         g.s_curve = 0.15
         g.notes.append("A little contrast added (the picture was flat)")
@@ -758,6 +851,173 @@ def match(g: Grade, mine: dict, ref: dict) -> Grade:
     return g
 
 
+# ---------------------------------------------------------------- the predicted check
+_REASONS = {"clip": "lost detail in the brightest parts", "crush": "lost detail in the darkest parts",
+            "sat": "washed out strong colours", "slope": "shown bands in smooth gradients"}
+_STEP_NOTES = {"wb": "White balance:", "black": "Blacks deepened", "gain": "Brightest parts lifted",
+               "gamma": "Mid-tones ", "s_curve": "A little contrast", "vibrance": "Colour brought back",
+               "match": "Matched to the main"}
+
+
+def check_pixels(st: dict | None) -> np.ndarray | None:
+    """The unaveraged pixel sample kept with a recording's statistics (SDR R'G'B' 0-1, N x 3), or None."""
+    raw = (st or {}).get("check_px")
+    if not raw:
+        return None
+    try:
+        data = np.frombuffer(base64.b64decode(raw), np.uint8)
+    except (ValueError, TypeError):
+        return None
+    if not len(data) or len(data) % 3:
+        return None
+    return data.reshape(-1, 3).astype(np.float64) / 255.0
+
+
+def _plain(g: Grade, **change) -> Grade:
+    """`g` for pixels already in SDR (the check's sample is), without notes, with `change` applied."""
+    return Grade(**{**g.__dict__, "hdr": None, "max_cll": 0.0, "notes": [], **change})
+
+
+def _ramp_slope(g: Grade, ref: Grade | None, lo: float, hi: float) -> float:
+    """The steepest part of `g`'s brightness curve on greys between `lo` and `hi` (of `ref`'s output when given):
+    over 1.8, neighbouring 8-bit levels land two or more apart and a smooth gradient shows bands."""
+    v = np.linspace(0.0, 1.0, 512)
+    grey = np.repeat(v[:, None], 3, axis=1)
+    base = apply(grey, ref) @ W709 if ref is not None else v
+    out = apply(grey, g) @ W709
+    use = (base >= lo) & (base <= hi)
+    if use.sum() < 3:
+        return 0.0
+    db, do = np.diff(base), np.diff(out)
+    ok = use[1:] & use[:-1] & (db > 1e-6)
+    return float(np.max(do[ok] / db[ok])) if ok.any() else 0.0
+
+
+def _merged(hit: np.ndarray, level: np.ndarray) -> float:
+    """The share of pixels whose detail is lost where `hit` pixels all end up at one level (full scale, or
+    black). A flat area (one colour, give or take MERGE_CODES of noise: a cartoon's white sky, a black
+    background) loses nothing when it is made all one level; the pixels around its commonest level are left out."""
+    if not hit.any():
+        return 0.0
+    v = level[hit]
+    mode = float(np.argmax(np.bincount(np.clip(np.round(v), 0, 255).astype(int))))
+    return float((np.abs(v - mode) > MERGE_CODES).sum() / len(hit))
+
+
+def check_grade(px: np.ndarray, g: Grade, *, part: str = "correction") -> dict:
+    """What grade `g` would do to the recording's own pixels `px` (SDR): the share of pixels newly clipped at full
+    scale (`clip`) or crushed to black (`crush`), of colourful pixels washed out by more than a fifth (`sat`,
+    correction only: a look may mean to), and the steepest part of the brightness curve (`slope`). `part`:
+    "correction" judges the correction against the picture as it is; "look" judges the full grade against the
+    corrected picture, so a look is judged only on what it adds."""
+    corr = _plain(g, look="natural", strength=1.0)
+    if part == "look":
+        ref_g, out_g = corr, _plain(g)
+    else:
+        ref_g, out_g = None, corr
+    ref = apply(px, ref_g) if ref_g is not None else px
+    out = apply(px, out_g)
+    y_ref, y_out = 16 + 219 * (ref @ W709), 16 + 219 * (out @ W709)
+    top = ref.max(axis=1)
+    found = {"clip": _merged((out.max(axis=1) >= 0.998) & (top < 0.97), 255 * top),
+             "crush": _merged((y_out <= 17) & (y_ref > 20), y_ref), "sat": 0.0}
+    if part == "correction":
+        # against the white-balanced picture: taking a cast away is meant to change colours
+        wb_only = apply(px, Grade(wb=g.wb)) if any(abs(v - 1) > 1e-6 for v in g.wb) else px
+        # colourfulness as a share of the brightest channel, so making a colour darker or brighter is no change
+        top0, top1 = wb_only.max(axis=1), out.max(axis=1)
+        s0 = (top0 - wb_only.min(axis=1)) / np.maximum(top0, 1e-6)
+        s1 = (top1 - out.min(axis=1)) / np.maximum(top1, 1e-6)
+        colourful = (s0 > 0.25) & (top0 > 0.1)
+        if colourful.sum() >= 200:
+            found["sat"] = float((colourful & (s1 < 0.8 * s0)).sum() / colourful.sum())
+    y = px @ W709
+    lo, hi = max(0.06, float(np.percentile(y, 1))), float(np.percentile(y, 99))
+    if part == "look":
+        found["slope"] = _ramp_slope(_plain(g), corr, lo, hi)
+        found["slope"] = found["slope"] if found["slope"] > _ramp_slope(corr, None, lo, hi) + 0.1 else 0.0
+    else:
+        found["slope"] = _ramp_slope(corr, None, lo, hi)
+    return found
+
+
+def _worst(found: dict, part: str) -> str | None:
+    limits = {"clip": CHECK_CLIP, "crush": CHECK_CRUSH, "slope": CHECK_SLOPE}
+    if part == "correction":
+        limits["sat"] = CHECK_SAT
+    over = [k for k in ("clip", "crush", "sat", "slope") if k in limits and found.get(k, 0) > limits[k][1]]
+    return over[0] if over else None
+
+
+def _ease(g: Grade, why: str) -> None:
+    """One step back on the correction setting that causes `why`, else every setting half way to none."""
+    if why == "clip" and g.gain > 1.001:
+        g.gain = 1.0 if g.gain < 1.05 else 1 + (g.gain - 1) / 2
+    elif why in ("clip", "crush", "slope") and g.s_curve > 0:
+        g.s_curve = 0.0
+    elif why == "crush" and g.black > 0:
+        g.black = 0.0 if g.black < 0.01 else g.black / 2
+    elif why == "sat" and g.vibrance > 0:
+        g.vibrance = 0.0
+    elif why == "sat" and g.gain > 1.001:
+        g.gain = 1.0 if g.gain < 1.05 else 1 + (g.gain - 1) / 2
+    elif why in ("clip", "slope") and abs(g.gamma - 1) > 0.01:
+        g.gamma = 1.0 if abs(g.gamma - 1) < 0.05 else 1 + (g.gamma - 1) / 2
+    else:
+        g.wb = tuple(1 + (v - 1) / 2 for v in g.wb)
+        g.black, g.gain, g.gamma = g.black / 2, 1 + (g.gain - 1) / 2, 1 + (g.gamma - 1) / 2
+        g.s_curve, g.vibrance = g.s_curve / 2, g.vibrance / 2
+        g.match_gamma, g.match_cb, g.match_cr = 1 + (g.match_gamma - 1) / 2, g.match_cb / 2, g.match_cr / 2
+
+
+def _drop_notes(g: Grade) -> None:
+    """Notes of correction steps that are no longer there."""
+    gone = {"wb": all(abs(v - 1) < 1e-4 for v in g.wb), "black": g.black < 1e-4, "gain": abs(g.gain - 1) < 1e-4,
+            "gamma": abs(g.gamma - 1) < 1e-4, "s_curve": g.s_curve < 1e-4, "vibrance": g.vibrance < 1e-4,
+            "match": abs(g.match_gamma - 1) < 1e-4 and abs(g.match_cb) < 1e-5 and abs(g.match_cr) < 1e-5}
+    g.notes = [n for n in g.notes if not any(gone[k] and n.startswith(head) for k, head in _STEP_NOTES.items())]
+
+
+def guard(g: Grade, st: dict | None) -> Grade:
+    """Grade `g` tried on the recording's own pixels first (check_grade): a correction that would clip, crush,
+    wash out strong colours or band a gradient is eased one step at a time on the setting that causes it (at most
+    CHECK_TRIES steps, then left out); a look that would clip, crush or band is eased to 60%, then 30% of its
+    strength (never further: it is the owner's choice). The notes say what was eased and why. Without the pixel
+    sample (statistics measured before it existed) the grade is returned unchanged."""
+    px = check_pixels(st)
+    if px is None or not g.active():
+        return g
+    g = Grade(**{**g.__dict__, "notes": list(g.notes)})
+    if g.corrects():
+        why = _worst(check_grade(px, g), "correction")
+        first = why
+        for _ in range(CHECK_TRIES):
+            if why is None:
+                break
+            _ease(g, why)
+            why = _worst(check_grade(px, g), "correction")
+        if why is not None:  # still harmful after every step: no correction at all
+            g.wb, g.black, g.gain, g.gamma, g.s_curve, g.vibrance = (1.0, 1.0, 1.0), 0.0, 1.0, 1.0, 0.0, 0.0
+            g.match_gamma, g.match_cb, g.match_cr = 1.0, 0.0, 0.0
+        if first is not None:
+            _drop_notes(g)
+            g.notes.append(("Colour correction eased" if g.corrects() else "Colour correction left out")
+                           + f": it would have {_REASONS[first]}")
+    if g.look in LOOKS and g.look != "natural" and g.strength > 1e-3:
+        chosen = g.strength
+        why = _worst(check_grade(px, g, part="look"), "look")
+        first = why
+        for share in (0.6, 0.3):
+            if why is None:
+                break
+            g.strength = chosen * share
+            why = _worst(check_grade(px, g, part="look"), "look")
+        if first is not None:
+            g.notes.append(f"The {LOOKS[g.look]} look eased to {int(round(g.strength * 100))}%: at "
+                           f"{int(round(chosen * 100))}% it would have {_REASONS[first]}")
+    return g
+
+
 def denoise_filter(sigma: float | None) -> str:
     """The denoise step for a measured noise level (8-bit codes), or '' when the picture is clean enough."""
     if sigma is None or sigma < NOISE_NONE:
@@ -791,11 +1051,12 @@ def choices(opts: dict) -> tuple[bool, str, float]:
 
 
 def for_footage(path: str, ranges: list[tuple[float, float]], opts: dict, *, cache: Path | None = None,
-                screen: bool | None = None, cancelled: Callable[[], bool] | None = None
+                screen: bool | None = None, cancelled: Callable[[], bool] | None = None, guarded: bool = True
                 ) -> tuple[Grade, dict | None]:
     """The grade of one piece of footage (`ranges` in seconds of the file) for options `opts`, and the measured
     statistics. The measurement is cached in `cache` (a JSON file) when given. `screen`: whether the picture may be
-    a game or a screen recording; None decides from the picture (almost no skin tones)."""
+    a game or a screen recording; None decides from the picture (almost no skin tones). `guarded`: the grade is
+    tried on the footage's own pixels first (guard); the full-video engine does that itself after matching."""
     colour = source_colour(path)
     auto, look, strength = choices(opts)
     stats = None
@@ -813,9 +1074,10 @@ def for_footage(path: str, ranges: list[tuple[float, float]], opts: dict, *, cac
             stats = saved.get("stats")
         else:
             frames, crops = sample(path, times, colour, cancelled)
+            check = check_sample(path, times, colour, cancelled) if frames else None
             if cancelled is not None and cancelled():
                 raise Cancelled()  # what was read so far is not this footage's measurement
-            stats = measure(frames, crops)
+            stats = measure(frames, crops, check)
             if cache is not None and stats is not None:
                 try:
                     cache.parent.mkdir(parents=True, exist_ok=True)
@@ -830,6 +1092,8 @@ def for_footage(path: str, ranges: list[tuple[float, float]], opts: dict, *, cac
     if g.hdr:
         g.notes.insert(0, f"HDR phone video ({'HLG' if g.hdr == 'hlg' else 'PQ'}) converted to normal video")
     g.look, g.strength = look, strength
+    if guarded:
+        g = guard(g, stats)
     return g, stats
 
 

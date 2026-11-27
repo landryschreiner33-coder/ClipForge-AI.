@@ -420,7 +420,7 @@ def grades(plan: dict, assets: dict[str, dict], cache: Path, cancelled=None) -> 
     for aid, spans in ranges.items():
         _check(cancelled)
         g, stats = grade.for_footage(assets[aid]["path"], spans, opts, cache=cache / f"grade-{aid}.json",
-                                     cancelled=cancelled)
+                                     cancelled=cancelled, guarded=False)
         out[aid] = {"grade": g, "stats": stats, "denoise": grade.denoise_for(stats, opts),
                     "seconds": shown.get(aid, 0.0)}
     people = {aid: r for aid, r in out.items() if (r["stats"] or {}).get("skin", 0) >= grade.MATCH_SKIN}
@@ -432,6 +432,8 @@ def grades(plan: dict, assets: dict[str, dict], cache: Path, cancelled=None) -> 
             mine = grade.corrected_stats(r["stats"], r["grade"]) if aid != ref else None
             if target and mine:
                 grade.match(r["grade"], mine, target)
+    for r in out.values():  # each grade tried on its recording's own pixels, matching included
+        r["grade"] = grade.guard(r["grade"], r["stats"])
     return out
 
 
