@@ -36,7 +36,7 @@ const GROUPS: { id: Group; label: string; what: string }[] = [
   { id: "post", label: "Post text", what: "the post text" },
 ];
 const KEYS: Record<Exclude<Group, "post">, Key[]> = {
-  trim: ["start", "end"],
+  trim: ["start", "end", "loop_ending"],
   captions: ["captions_enabled", "caption_style", "caption_position", "caption_size", "caption_emphasis",
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
   layout: ["tracking", "crop_x", "layout", "split_game", "cam_box", "pip_corner", "zoom", "auto_zoom"],
@@ -44,6 +44,17 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
   audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed", "sound_effects"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
+
+/** Where the last render's end ran back into its start (pipeline/loops.py), in words. */
+function loopNote(l: unknown): string {
+  if (!l || typeof l !== "object") return "";
+  const v = l as { seam_s?: number; head_s?: number; tail_s?: number; switch?: boolean };
+  if (typeof v.seam_s !== "number") return "";
+  const cut = (v.head_s || 0) + (v.tail_s || 0);
+  return `the end runs back into the start ${v.seam_s.toFixed(2)} s after the last word` +
+    (v.switch ? ", with a change of shot size like the other cuts" : "") +
+    (cut >= 0.05 ? ` (${cut.toFixed(1)} s of quiet left out at the ends)` : "");
+}
 
 /** What the last render's editing moves did (pipeline/moves.py), in words. */
 function movesNote(m: unknown): string {
@@ -65,7 +76,7 @@ const FALLBACK: Partial<Record<Key, unknown>> = {
   captions_enabled: true, caption_style: "bold", caption_position: "bottom", caption_size: 1, caption_emphasis: false,
   highlight_words: true, highlight_color: "", hook_overlay: true, hook_seconds: 3,
   gain_db: 0, normalize_audio: true, clean_sound: "auto", silence: "light", remove_fillers: true, speed: 1,
-  auto_color: true, look: "natural", look_strength: 100, clean_picture: true, sound_effects: true,
+  auto_color: true, look: "natural", look_strength: 100, clean_picture: true, sound_effects: true, loop_ending: true,
 };
 const TITLE_MAX = 100;
 const CAPTION_MAX = 2200;
@@ -585,8 +596,11 @@ export default function ClipEditor({ id }: { id: string }) {
         )}
         <p className="hint">
           ClipForge suggested {fmtPrecise(clip.start)} to {fmtPrecise(clip.end)}. Silence cleanup, filler cuts and
-          pacing (in Audio) can make the video shorter than this.
+          pacing (in Audio) and the loop ending below can make the video shorter than this.
         </p>
+        <Check label="Loop ending: stop just after the last word, so the clip runs straight back into its start"
+          on={bool("loop_ending")} onChange={(v) => set({ loop_ending: v })} />
+        {loopNote(ri.loop) && <p className="hint">Last render: {loopNote(ri.loop)}.</p>}
         <SuggestedTrims clipId={clip.id} version={clip.version} onUse={useTrim} />
       </>
     ),

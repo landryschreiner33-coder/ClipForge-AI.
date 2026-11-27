@@ -43,8 +43,10 @@ def test_gapped_first_track_stays_in_sync_and_passes_final_checks_before_fake_up
                                framing=blueprint.Framing(mode="center"),
                                audio=blueprint.Audio(normalize=False, gain_db=12))
     assert not blueprint.errors(blueprint.validate(plan, 5, words))
+    # the plan's own timeline, sample for sample: no loop seam (loops.py, tested in test_loops.py) moves its start
     result = render.render_clip(project, clip, words,
-                                {**db.get_settings(), "encoder": "x264", "x264_preset": "ultrafast"},
+                                {**db.get_settings(), "encoder": "x264", "x264_preset": "ultrafast",
+                                 "loop_ending": False},
                                 JobContext(), blueprint=plan)
     output = Path(result["output_path"])
     samples = _samples(output)

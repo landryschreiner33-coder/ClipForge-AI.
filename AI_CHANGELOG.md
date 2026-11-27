@@ -1,5 +1,32 @@
 # AI changelog
 
+## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)
+
+Batch 4c of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 4b (PR #90). Details:
+[docs/clipforge/SHORTS_EDITING.md](docs/clipforge/SHORTS_EDITING.md), "Loop endings". Not released.
+
+- **A tight seam** (`pipeline/loops.py`, used by `render.render_clip`): what is played starts 0.10 s before the first
+  word and stops 0.15 s after the last sound (a laugh or shout right after the last word counts), on the frame grid,
+  so the replay runs straight into the start with a sentence-length pause (0.2-0.3 s). More than 0.8 s of quiet
+  before the first word or 1.2 s after the last is left alone; a clip never gets shorter than a second. The clip's
+  start and end stay; the kept parts are tightened like silence cleanup, so captions, punch-ins and effects follow.
+- **The shot size switches on the seam** (`moves.changes(loop=True)`, `moves._odd`): every framing change switches
+  the size, so the number of changes is made odd (one more eased change where there is room, else one fewer), and the
+  loop seam is a punch-in cut like every other jump cut.
+- **Setting and editor:** `loop_ending` (Settings → Clips → Extras, on), a clip edit (Clip editor → Trim, with what
+  the last render did), in Full Cloud's job settings and the artifact's recorded settings. `render_info.loop` =
+  `{head_s, tail_s, seam_s, switch}`.
+- **Review** (2 reviewers with probes, 8 problems, all fixed with tests): the first version started even-count clips
+  punched in, which never made the seam switch (the count is now made odd); words the seam left out kept captions
+  (now dropped); the seam followed the caption words, so a word taken out of the captions was cut off (it follows
+  the transcript now); an end could land a frame or two into the next scene (it goes on the cut); a sped-up clip could
+  end under a second; the Audio tab counted the seam as removed pauses; a push easing out at the end read as a switch;
+  live clips read reactions from the wrong part of the stream (`render.heard(offset=...)`, also used by silence
+  cleanup).
+- **Tests:** `tests/test_loops.py` (12 fast, 1 real render).
+
 ## ClipForge AI's app guide follows the editor: speed, freeze frames, cameras — 2026-11-27 (Claude Code)
 
 Two new `brain/appguide.py` sections, in the screen's words: a full video's speed, slow motion, freeze frames and

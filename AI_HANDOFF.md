@@ -1,5 +1,23 @@
 # AI handoff
 
+## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code, cloud session)
+
+**Plain-English summary:** short clips stop just after their last word and start just before their first, so when
+TikTok, Shorts or Reels play them again the end runs straight back into the start, and the shot size changes on
+that seam like on every other cut.
+
+- **Where things are:** `pipeline/loops.py` (`HEAD_KEEP`, `TAIL_KEEP`, `MAX_HEAD`, `MAX_TAIL`, `seam`, `within`),
+  called in `render.render_clip` right after `keep_segments` with the transcript words and
+  `reframe.precise_cuts`; `moves.changes(loop=...)` / `_odd` (the parity of framing changes);
+  `render.heard(offset=...)` for live windows.
+- **Rules to keep:** the clip's start and end are never changed by the loop seam (only the kept parts), a long quiet
+  end is a moment of its own, reactions after the last word stay, effects stay out of the first 0.3 s and last
+  second. The setting is `loop_ending` (default on); turning it off renders exactly as before.
+- **For the AI thread:** `loop_ending` is a new Settings key and clip edit; ClipForge AI's settings summary
+  (`brain/toolbox._SETTINGS_WORDS`) and its tools do not know it yet.
+- **Not done:** choosing an end whose last line flows into the first line (that is the clip picker's choice of
+  words, in brain/); stabilising shaky footage is the next batch (4d).
+
 ## Landry's ship and a cleaner black hole warp — 2026-11-27 (Claude Code, cloud session)
 
 **Plain-English summary:** the little ship in front of the Studio's black hole is now Landry's own pixel-art ship,

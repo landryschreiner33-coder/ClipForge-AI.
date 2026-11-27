@@ -1,5 +1,21 @@
 # Implementation status
 
+## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 4b (PR #90). Short clips stop 0.15 s after their last sound and
+start 0.10 s before their first, and the shot size switches on the loop seam
+([docs/clipforge/SHORTS_EDITING.md](clipforge/SHORTS_EDITING.md), "Loop endings"). Not released. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-27 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-27 | `pytest tests/test_loops.py` | 9 passed (8 fast, 1 real render) |
+| 2026-11-27 | review: 2 reviewers with their own probes | 8 problems (seam never switched shot size, captions for words left out, seam from caption words, a frame of the next scene, under a second at speed, seam counted as removed pauses, push residue read as a switch, live reactions read from the wrong place); all fixed with tests |
+| 2026-11-27 | `pytest tests/test_loops.py tests/test_moves.py` after the fixes | 29 passed (13 + 16) |
+
+Not verified: real talking-head clips played on a phone in a loop (the cloud has only synthetic video).
+
 ## Landry's ship in front of the black hole, and a cleaner warp — 2026-11-27 (Claude Code)
 
 From `claude/project-thread-xeb0pd`. The Studio's orbiting black hole is seen from 70 hole radii instead of 30 (no

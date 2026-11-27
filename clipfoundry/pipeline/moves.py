@@ -32,6 +32,7 @@ PUNCH_LOW_RES = 0.06    # sources under 1080 lines: they are already enlarged to
 MIN_SHOT = 0.6          # a cut this close to the last change (or the end) keeps the framing: no flicker
 MAX_HOLD = 5.0          # the framing changes at least this often (research: something changes every 2-5 s)
 HOLD_AIM = 3.5          # where in a long stretch the change goes, if a pause is there
+LOOP_AIM = 1.5          # a loop ending's extra change goes about this long before the end (loops.py)
 EASE = 0.4              # seconds an eased change takes
 PUSH_SHARE = 0.5        # the emphasis push, as a share of the punch
 PUSH_LEAD = 0.3         # the push starts this long before the word and lands on it
@@ -77,9 +78,10 @@ def _smooth(x: np.ndarray) -> np.ndarray:
 
 
 def changes(words: list[dict], cuts: list[tuple[float, float]], duration: float,
-            max_hold: float = MAX_HOLD) -> list[tuple[float, bool]]:
+            max_hold: float = MAX_HOLD, loop: bool = False) -> list[tuple[float, bool]]:
     """(time, on a cut) for every framing change: the jump cuts (not too close together) and eased changes in
-    long stretches without one."""
+    long stretches without one. With `loop` (a loop ending, loops.py) the number of changes is made odd, so the
+    clip ends on the other shot size than it starts with and the loop back to the start switches it too."""
     hard, last = [], 0.0
     for t, _skipped in cuts:
         if t - last >= MIN_SHOT and duration - t >= MIN_SHOT:
@@ -98,7 +100,25 @@ def changes(words: list[dict], cuts: list[tuple[float, float]], duration: float,
             t = min(near, key=lambda p: abs(p - (cur + HOLD_AIM))) if near else min(hi, cur + max_hold - 1.0)
             soft.append(t)
             cur = t
-    return sorted([(t, True) for t in hard] + [(t, False) for t in soft])
+    events = sorted([(t, True) for t in hard] + [(t, False) for t in soft])
+    return _odd(events, pauses, duration) if loop and len(events) % 2 == 0 else events
+
+
+def _odd(events: list[tuple[float, bool]], pauses: list[float], duration: float) -> list[tuple[float, bool]]:
+    """Every change switches the size, so an even number of them ends on the size the clip started with. One more
+    eased change, in the last stretch if it has room (at a pause about `LOOP_AIM` before the end) or else in the
+    longest one that has (held at least 2.5 s before it and 1 s after it), or, when none has, one eased change
+    fewer. A clip whose changes are all jump cuts close together stays as it is (a jump cut always switches)."""
+    bounds = [0.0, *(t for t, _ in events), duration]
+    room = [(lo, hi) for lo, hi in ((a + 2.5, b - 1.0) for a, b in zip(bounds, bounds[1:])) if hi >= lo]
+    if room:
+        lo, hi = room[-1] if room[-1][1] == duration - 1.0 else max(room, key=lambda r: r[1] - r[0])
+        aim = duration - LOOP_AIM if hi == duration - 1.0 else (lo + hi) / 2
+        near = [p for p in pauses if lo <= p <= hi]
+        at = min(near, key=lambda p: abs(p - aim)) if near else min(hi, max(lo, aim))
+        return sorted(events + [(at, False)])
+    eased = [e for e in events if not e[1]]
+    return [e for e in events if e != eased[-1]] if eased else events
 
 
 def pushes(words: list[dict], emphasis: set[int] | None, duration: float) -> list[float]:
@@ -113,15 +133,16 @@ def pushes(words: list[dict], emphasis: set[int] | None, duration: float) -> lis
 
 
 def punch_curve(words: list[dict], cuts: list[tuple[float, float]], n: int, fps: float, strength: float,
-                emphasis: set[int] | None = None) -> np.ndarray:
+                emphasis: set[int] | None = None, loop: bool = False) -> np.ndarray:
     """The zoom for each output frame (1.0 = the framing's own size): switched on jump cuts, eased elsewhere, with
-    a push on rationed stressed words."""
+    a push on rationed stressed words. With `loop` (a loop ending) the last framing differs from the first, so the
+    loop back to the start changes the shot size too (`changes`)."""
     z = np.ones(n)
     if strength <= 0 or n < 2:
         return z
     duration = n / fps
     t = np.arange(n) / fps
-    events = changes(words, cuts, duration)
+    events = changes(words, cuts, duration, loop=loop)
     level, value = np.ones(n), 1.0
     for at, on_cut in events:
         new = 1.0 + strength if value == 1.0 else 1.0
