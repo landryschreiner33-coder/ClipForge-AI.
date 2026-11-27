@@ -154,6 +154,61 @@ def find(ws: str, query: str, current: str = "", kind: str = "") -> dict:
     return best[0]
 
 
+SOUND_WORDS = {"pass": "passed", "warn": "has a warning", "skipped": "skipped", "unmeasured": "could not measure it"}
+
+
+def _num(v) -> float | None:
+    try:
+        return None if v is None or isinstance(v, bool) else float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def render_notes(info: dict, video: bool = False) -> list[str]:
+    """What the last render did and found, from its notes (render_info for a clip, a full video artifact's info):
+    the sound check after the render, steadied footage, a loop ending's seam and what the colour check changed or
+    eased. Only what the notes hold; nothing is guessed."""
+    info = info if isinstance(info, dict) else {}
+    out: list[str] = []
+    sound = ((info.get("qc") or {}) if isinstance(info.get("qc"), dict) else {}).get("sound")
+    if isinstance(sound, dict) and sound.get("status"):
+        parts = [f"Sound check after the render {SOUND_WORDS.get(sound['status'], sound['status'])}"]
+        lufs, tp, fixed = _num(sound.get("lufs")), _num(sound.get("tp")), _num(sound.get("fixed_db"))
+        if lufs is not None:
+            parts.append(f"{lufs:.1f} LUFS" + (f", true peak {tp:.1f} dBTP" if tp is not None else ""))
+        if fixed:
+            parts.append(f"corrected by {fixed:+.1f} dB")
+        note = one_line(sound.get("note") or "", 160).rstrip(". ")
+        out.append(", ".join(parts) + (f": {note}" if note else "") + ".")
+
+    def steadied(r: dict) -> tuple[float, float]:
+        return _num(r.get("seconds")) or 0.0, _num(r.get("zoom")) or 1.0
+
+    steady = info.get("steady") if isinstance(info.get("steady"), dict) else {}
+    if video:  # by clip: {clip_id: {seconds, zoom, ...}}
+        done = [steadied(r) for r in steady.values() if isinstance(r, dict) and steadied(r)[0] > 0]
+        if done:
+            out.append(f"Shaky footage steadied in {len(done)} part(s), {sum(s for s, _ in done):.1f} s in all, at "
+                       f"most {round((max(z for _, z in done) - 1) * 100)}% closer to hide the edges.")
+    elif steady:
+        sec, zoom = steadied(steady)
+        if sec > 0:
+            out.append(f"Shaky footage steadied for {sec:.1f} s" + (f", {round((zoom - 1) * 100)}% closer to hide "
+                                                                   "the edges" if zoom > 1.005 else "") + ".")
+    loop = info.get("loop") if isinstance(info.get("loop"), dict) else {}
+    if _num(loop.get("seam_s")) is not None:
+        out.append(f"Loop ending: it runs straight back into its start, with a {_num(loop['seam_s']):.2f} s pause at "
+                   "the seam.")
+    colour = info.get("colour") if isinstance(info.get("colour"), dict) else {}
+    looks = list(colour.values()) if video else [colour]
+    notes = list(dict.fromkeys(one_line(n, 120) for c in looks if isinstance(c, dict)
+                               for n in (c.get("notes") or []) if str(n).strip()))
+    if notes:
+        out.append("Colour check: " + "; ".join(n.rstrip(". ") for n in notes[:4])
+                   + ("; and more" if len(notes) > 4 else "") + ".")
+    return out
+
+
 def describe_project(ws: str, p: dict, budget: int = 1400) -> str:
     """What a model needs to talk about one project: its state and, for a clips project, its best clips; for a
     video, its versions, files, brief and script."""
@@ -199,6 +254,10 @@ def describe_project(ws: str, p: dict, budget: int = 1400) -> str:
                                  f"{one_line(r['summary'] or said, 200)}")
             except Exception:  # noqa: BLE001 - a video that cannot be read is still described by its row
                 lines.append(f"Version {rev}.")
+            made = db.select("studio_artifacts", "project_id = ?", (p["id"],), "revision DESC", limit=1)
+            notes = render_notes(made[0].get("info") or {}, video=True) if made else []
+            if notes:
+                lines.append(f"Its last render (version {made[0]['revision']}, {made[0]['kind']}): " + " ".join(notes))
     return clip("\n".join(lines), budget)
 
 
@@ -336,6 +395,9 @@ def _clip(ctx: Ctx, args: dict) -> Result:
         lines.append("What is heard: " + one_line(", ".join(map(str, sensed["heard"])), 200))
     if sensed.get("picture"):
         lines.append("The picture: " + one_line(sensed["picture"], 120))
+    notes = render_notes(c.get("render_info") or {})
+    if notes:
+        lines.append("The last render: " + " ".join(notes))
     said = one_line(c.get("caption_text") or "", 10 ** 6)
     head = "\n".join(lines)
     room = max(200, MAX_CLIP_TEXT - len(head) - 40)

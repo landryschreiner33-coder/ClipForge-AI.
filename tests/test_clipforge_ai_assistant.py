@@ -2167,3 +2167,24 @@ def test_the_chat_api_shows_the_model_and_agents_and_takes_the_owners_press(data
         r = client.post("/api/brain/chats", json={}, headers=h)
         assert r.json()["ai"]["ready"] is False and "builtin" in r.json()["ai"]
     assert len(fake.calls) == 1
+
+
+def test_a_full_videos_last_render_is_told_from_its_notes(env):
+    from clipfoundry import db
+    from clipfoundry.brain import toolbox
+
+    p = _project(env)
+    v = toolbox.find(WS, p["id"])
+    assert "Its last render" not in toolbox.describe_project(WS, v)  # nothing rendered yet: nothing said
+    db.insert("studio_artifacts", {"project_id": p["id"], "revision": 1, "kind": "preview", "path": "x.mp4",
+                                   "sha256": "0" * 64, "info": {
+        "qc": {"version": 1, "sound": {"status": "warn", "note": "Louder than planned.", "lufs": -12.0}},
+        "steady": {"c1": {"seconds": 2.0, "zoom": 1.04}, "c2": {"seconds": 0, "zoom": 1.0},
+                   "c3": {"seconds": 1.5, "zoom": 1.08}},
+        "colour": {"a1": {"notes": ["Matched to the main recording's colour and brightness"]},
+                   "a2": {"notes": ["Matched to the main recording's colour and brightness", "Mid-tones brightened"]}}}})
+    told = toolbox.describe_project(WS, v, budget=4000)
+    assert ("Its last render (version 1, preview): Sound check after the render has a warning, -12.0 LUFS: Louder "
+            "than planned. Shaky footage steadied in 2 part(s), 3.5 s in all, at most 8% closer to hide the edges. "
+            "Colour check: Matched to the main recording's colour and brightness; Mid-tones brightened.") in told
+    assert toolbox.render_notes({"qc": "x", "steady": [], "loop": None, "colour": {"notes": None}}) == []
