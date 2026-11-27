@@ -12,6 +12,7 @@ a moment, and one camera or picture small in a corner
 | 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
 | 2026-11-26 | Review (3 reviewers with probes) | 12 problems confirmed, all fixed with tests (AI_CHANGELOG.md, "Review") |
 | 2026-11-26 | `pytest -m "slow or not slow"` on d0fb474 (final code merged with the release line at cc71e90) | 3,742 passed, 3 skipped (1 h 08 min) |
+| 2026-11-27 | `pytest -m "not slow"` and `pytest -m slow` side by side on c6f10c8 (merged with the release line at d37fbcf: PRs #89, #92) | 3,765 passed, 3 skipped; 1 timing check (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, 2.5 s wait under the doubled load) failed once and passed alone |
 | 2026-11-26 | GitHub check on PR #90 (macos-15, ubuntu) | passed on 43b8bb0 and d0fb474 |
 | 2026-11-26 | `pytest tests/test_multicam.py` (fast and slow) | 55 passed (52 fast, 3 real renders) |
 | 2026-11-26 | `pytest tests/test_multicam.py tests/test_studio_edit_requests.py tests/test_studio_editor.py tests/test_studio_smart_edit.py tests/test_retime.py tests/test_craft.py -m "not slow"` | 300 passed, 1 skipped |
