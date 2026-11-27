@@ -33,8 +33,8 @@ games, food, drinks and reading are decorative. Nothing in the office drawing st
 
 | Place | Address | What is there |
 | --- | --- | --- |
-| Office | `#/` | The office map, the details panel (overview, a robot, or a room), the activity feed and the bottom bar (Start, Pause, Resume, Stop all, Pause publishing). A list view, room camera and Follow system / Full / Reduced animations are above the map. |
-| Team | `#/office/team` | All 25 robots and the Brain Core, read-only, with their job, room and manager. |
+| Office | in the Studio at `#/`, full size at `#/office` | The office map, the details panel (overview, a robot, or a room), the activity feed and the bottom bar (Start, Pause, Resume, Stop all, Pause publishing). A list view, room camera and Follow system / Full / Reduced animations are above the map. |
+| Team | `#/office/team` | All 25 robots and the Brain Core with their job, room and manager; rename any of them. |
 | Missions | `#/missions` (+ `/activity`, `/sources`, `/system`, `/jobs`, `/learning`) | The former Autopilot page: Needs you, what it works on, your videos, coming up, Activity, Permissions & sources, and the technical tabs. |
 | Clips | `#/clips`, `#/clips/feedback` | The former Library (your videos and their clips) and Test feedback (tester answers and numbers you copy from YouTube Studio or TikTok). |
 | Queue | `#/queue/review` (+ `/scheduled`, `/published`, `/history`, `/problems`, `/results`) | The former Posts page: every planned and uploaded post, who it is for and what really happened. |
@@ -52,63 +52,71 @@ One Director, eight managers and sixteen workers (25 robots), plus the Brain Cor
 backend registry is `clipfoundry/office/roles.py`; the visual identities are `frontend/src/office/cast.ts` (see
 [design/robots/README.md](../design/robots/README.md)). `tests/test_office.py` fails if the two lists differ.
 
-| Room | Manager | Workers (the job kinds and stages they stand for) |
+The rooms follow the real workflow (studio upgrade handoff, section 4). Role ids never changed; titles, rooms and
+managers moved when automatic discovery was retired, and old room ids (`boss`, `discover`, `analyze`, `studio`,
+`caption`, `workspace`, `schedule`, `dock`, `system`) still open the room that replaced them.
+
+| Room | Manager | Workers (the work kinds and stages they stand for) |
 | --- | --- | --- |
-| Boss Hub | COMMAND, Director | Records the decision at four checkpoints: source, clip, quality check, upload. |
-| Discover | TRACKER (`trend_scan`) | RADAR (searches, feeds, live checks), ARCHIVE (pasted links, live recording, transcription) |
-| Analyze | VECTOR | PULSE (trend scoring), GAVEL (`rights_check`), BOOST (`analyze_source` scoring) |
-| Clip Studio | FRAME | SPARK (moments), STORY (clip plans), SPLICE (rendering, re-renders) |
-| Caption | SCRIPT | GLYPH (captions), QUILL (`package_clip`: titles, descriptions, hashtags) |
-| Schedule | CLOCK (`schedule_tick`) | none: the scheduler is CLOCK's own job, and no worker is invented to fill a chair |
-| Upload Dock | HARBOR | LOCK (audience check before upload), DOCK (`publish`) |
-| System | SWITCH | CHECK (`quality_check`, the Final Quality Gate), PATCH (maintenance, self-test) |
-| Brain Room | CURATOR | METRIC (result readings), SYNAPSE (`learn`: compares results) |
+| Control room | COMMAND, Director | Records the decision at four checkpoints: video, clip, quality check, upload. |
+| Intake | TRACKER (`trend_scan`, only if discovery is turned back on) | RADAR (your uploads and links: `link_import`, `video_media`, a Make clips project's download and probe; live recording), GAVEL (`rights_check`) |
+| Media research | CLOCK | PULSE (Find media: `media_suggest`, `media_import`) |
+| Story & analysis | VECTOR | ARCHIVE (transcription), SPARK (moments and stories), BOOST (scoring; example videos: `reference_analysis`) |
+| Editing | FRAME | STORY (rough cut `video_build`, editor requests, clip plans), SPLICE (previews, clip and version renders) |
+| Sound & captions | SCRIPT | GLYPH (captions) |
+| Brain | CURATOR | METRIC (result readings), SYNAPSE (`learn`: compares results) |
+| Quality & export | SWITCH | CHECK (`quality_check`, final `video_render`), PATCH (maintenance, self-test) |
+| Publishing | HARBOR (`schedule_tick`) | QUILL (`package_clip`: titles, descriptions, hashtags), LOCK (audience check), DOCK (`publish`) |
+
+Your own work counts as much as Autopilot's (`office/work.py`): Make clips projects at their pipeline stage, clip and
+version renders, the studio's durable jobs and editor requests waiting for the AI service. A robot is **queued** when
+work is assigned but not started, **working** while it runs (progress only when measured), **waiting** or
+**retrying** when it started and now waits, **error** for 30 minutes after a failure, and **idle** otherwise. An
+editor request that asked you a question, or proposed changes for you to check, puts the Story Editor in **waiting**
+with "Waiting for you" (while it was made for the edit as it is now); the Studio lists it under Needs you. It is
+**paused** only when you paused or stopped Autopilot and it has none of your own work; Autopilot that was never
+started does not make the office look paused.
+
+A robot's details show its name, role, manager, state, current task with the project or video it is for, and a
+**Log**: Autopilot's steps from the event feed plus your own work that ended in the last day
+(`GET /api/office/robots/{id}/log`, read per workspace from the recorded rows). Rename it there or on the Team page;
+Reset all names on the Team page asks first.
 
 `roles.role_for(kind, stage)` maps every job (and the stage it reports) to exactly one role.
 
-### Refined pixel studio
+### The space ship (2026-11-19)
 
-The map now uses **PixiJS 8.22.0**, bundled with the frontend. `StudioScene.ts` draws the office's floors, furniture,
-desk screens and Brain Core; `StudioArt.ts` authors the 25 robots from their existing identities. Stepped metal
-silhouettes, shaded bodies, different faces and role-specific equipment distinguish the cast. This is drawn pixel
-art, with crisp edges and anchored feet; it is not an external image service or a separate AI running each robot.
+The owner's space studio replaced the earlier PixiJS office. PixiJS and GSAP are no longer bundled, and neither is the
+fallback renderer. The map is now a cutaway ship with three engines, the lounge, the bridge, the CORE chamber, the main
+corridor and the production rooms below. It is drawn with Canvas 2D by `StudioScene.ts`.
 
-**GSAP 3.15.0** supplies easing curves for the authored lounge gestures: controller/button presses, moving a game
-piece, lifting and tipping a mug, taking a bite, turning a page and resting. The art uses pure `parseEase` functions
-driven by the office's own visual clock, without independent animation timelines. These tools are bundled with the
-frontend; they do not require a plugin connection, paid account or live graphics service.
-GSAP uses its standard no-charge license; the bundled copyright/license notice and links to its terms are in
-[third-party-graphics.txt](../frontend/public/third-party-graphics.txt).
+**The art.** The pictures live in `frontend/public/space/`, and the floor plan in `frontend/src/space/ship-world.json`.
+The 25 robots come from the owner's three crew sheets, each with its own work gesture (`crew.ts`).
 
-`LoungeDecor.ts` authors distinct arcade, café, board-game and sofa areas. Pixi's `BlurFilter` softens decorative
-light pools; the static floor, furniture backs and lighting are cached once, while robot outlines stay crisp.
-Windows crop the locally bundled `office-art/skyline.png`, an original skyline generated once with native image
-generation. Missing optional skyline art leaves procedural glass and the Pixi office available. Ambient arcade
-screens, café steam and game pieces are decorative, separate from actual department work lights and health readings.
+**Real work.** A robot turns to its console and its screen wakes only for a real job state from the feed. Handoffs are
+the feed's real handoffs.
 
-`OfficeMap.tsx` and `OfficeMotion.ts` supply the renderer with the poses, positions, document handoffs and reactions
-derived from the backend feed. Department screen lighting follows actual working roles, and rack indicators follow
-the health readings. Rendering does not start jobs or invent measurements. The HTML layer retains one selectable
-button per robot and per room, the state icons, details and controls; all 25 roles remain present when idle or paused.
+**Decoration.** Engine flames, CORE's idle rings, blinking, looking around and lounge breaks show no work.
 
-Team cards, robot details and the developer gallery use the same authored robot art through `Portrait.tsx`.
-`StudioPortraits.ts` owns one shared offscreen renderer and a bounded cache of rendered frames, copied into ordinary
-Canvas portraits. Opening the roster does not create a separate graphics context for each robot. CORE retains its
-original portrait drawing.
+**Labels.** Room names are always shown, and each robot's state badge sits above its head.
 
-The Pixi scene loads when the map opens. If its module or graphics initialization fails, the map restores the
-original Canvas artwork through `LivingFallback.ts` and shows *Original artwork · new graphics unavailable in this
-browser*. This path retains the furnished floor plan, lounge places, seated desks and document transfers, with
-simpler Canvas game, food, drink and reading gestures driven by the same controller phases. Robot selection,
-details, state indicators and controls remain available. Portraits also retain their original Canvas
-artwork when the refined renderer cannot load. Neither renderer needs an account, plugin connection or additional setup.
+**The Studio panel.** Beside the ship (under it on a narrow window), two tabs. **Working on** opens first: a screen
+with what is being made now and a light that says what it is doing, What's going on (the crew's last three real
+steps), the queue, how many things need you, Talk to ClipForge AI, and Next to publish at the bottom with a little
+screen of the clip. **Make** holds the four big choices. Everything on it comes from the same feeds as the rest of
+the Studio; it only reads.
 
-Follow system uses the operating system's reduced-motion preference; **Full overrides it explicitly**. Reduced
-freezes movement and animated drawing while current state information still updates. Hidden tabs and a stale feed
-also stop motion. Earlier refined-art evidence remains in
-[design/robot-office/retro/README.md](../design/robot-office/retro/README.md); the seated-work and Brain captures are in
-[design/robot-office/living/](../design/robot-office/living/). The later recreational lounge evidence belongs in
-[design/robot-office/lounge/](../design/robot-office/lounge/), with controlled animation captures labeled separately.
+**The HTML layer.** It keeps one button for each robot and each room, plus the details panel and the controls.
+
+**Motion.** All 25 roles stay present when idle or paused. Follow system uses the operating system's reduced-motion
+preference, and **Full overrides it explicitly**. Reduced freezes movement while current state still updates. Hidden
+tabs, a stale or paused feed and a map scrolled off screen stop drawing.
+
+**Customize studio.** It keeps **office animation** (Full, Calm or Low power, saved per browser) and the **compact**
+ship view. The Studio's Reduce motion switch and Settings → Appearance → Motion set the same choice.
+
+Art sources, tools and what was checked: [design/space-studio/README.md](../design/space-studio/README.md). Earlier
+office evidence remains in [design/robot-office/](../design/robot-office/) as history.
 
 ### Reports and decisions
 
@@ -167,7 +175,9 @@ The animation never delays the durable job or creates a report/approval.
   A real failed/blocked task gathers its team for attention; a bare health error keeps only its own robot at work.
 * A manager is `working` while its department has running work and `reviewing` after a real report. COMMAND reviews
   after a decision. A failed job shows `error` on its robot for 30 minutes unless newer work of that robot started.
-  Managers supervising their teams stand at a clear room position, face their workers and check a clipboard.
+  Managers supervising their teams stand at a clear room position, face their workers and check a clipboard. On the
+  ship that position is the manager's own desk: the desks keep the state badges apart, and in windows about 1330
+  wide and up a badge there stays clear of the name of the room above.
   Their own jobs and actual reviews take priority and use their desks. Supervision never creates a report or progress.
 * When Autopilot is paused or stopped, robots that are not running a job show `paused`. A stopped office may still
   show explicitly decorative recreation; its icons and details continue to say paused, never working.
@@ -411,7 +421,11 @@ The default **Graph view** offers an Obsidian-style map of your saved knowledge.
 supported preferences connect to their collections and actual shared topic tags. Recorded clip decisions link to
 the preference revision used; recorded results show their platform/cohort/source and measured or missing values.
 Selecting a note or evidence opens its stored record and provenance in the side panel. Collection/tag connections
-organize saved data; the glowing positions are decorative rather than hidden AI thoughts.
+organize saved data; the glowing positions are decorative rather than hidden AI thoughts. The owner asked for the
+lines and balls to look like lightning (2026-11-19): each real link is a jagged bolt and each dot a glowing ball that
+strikes again about twelve times a second (`pages/brainLightning.ts`). It is decoration too, and holds still under
+Reduced motion, Low power, a hidden or off-screen page or a lost connection; rings and the words "just used" mark
+what a project used in the last 15 minutes.
 
 Use **Add note** for a simple idea or document, or **Teach preference** for explicit caption/pacing choices.
 Saving an enabled lesson activates recognized guidance automatically for new clips. Settings remain the fallback

@@ -1,0 +1,25 @@
+/* Make a YouTube video: the script panel, the script drop and the "Add from this computer" browser.
+   Kept in its own file so a redesign of styles.css can restyle these class names without a merge. */
+.script-drop { display: grid; gap: var(--s3); }
+.script-drop .drop { min-height: 140px; padding: var(--s4); }
+.script-drop textarea { width: 100%; min-height: 120px; font: inherit; resize: vertical; }
+.script-panel { display: grid; gap: var(--s3); }
+.script-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 420px; overflow: auto; }
+.script-line { display: grid; grid-template-columns: 2.4em minmax(0, 1fr); gap: var(--s2); padding: 4px 6px; border-left: 3px solid var(--border); border-radius: 4px; }
+.script-line.heading { border-left-color: transparent; font-weight: 700; margin-top: var(--s2); }
+.script-line.direction { border-left-color: transparent; color: var(--text-2); font-style: italic; }
+.script-line.matched { border-left-color: var(--good); }
+.script-line.weak { border-left-color: var(--warn); }
+.script-line.missing { border-left-color: var(--bad); }
+.script-line.on { background: var(--primary-tint); }
+.script-line .n { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.script-line .link-btn { text-align: left; }
+.script-takes { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: 2px; }
+.local-browser { display: grid; gap: var(--s2); }
+.local-crumbs { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.local-list { list-style: none; margin: 0; padding: 0; display: grid; max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-panel); }
+.local-list li { display: flex; align-items: center; gap: var(--s2); min-height: 34px; padding: 2px var(--s3); border-bottom: 1px solid var(--border); }
+.local-list li:last-child { border-bottom: 0; }
+.local-list li label { display: flex; align-items: center; gap: var(--s2); flex: 1; min-width: 0; cursor: pointer; }
+.local-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.local-pick { justify-self: center; }

@@ -22,6 +22,7 @@ import time
 import httpx
 
 from .. import db
+from .. import taste
 from ..office import feed
 from ..pipeline import fingerprint
 from ..publish import audience
@@ -33,6 +34,7 @@ from . import autopublish, gate, queue, quota, rights, state, verify
 from .host import MAINTENANCE_STEPS, Job, handler
 from .providers import iso_time
 from .scheduler import _audit, _label, active_version_path, approval_problem, block_platform, blocked_until, tz
+from .targets import account_name, begun_on, item_account, same_account, usable
 
 RECONNECT_WAIT = 30 * 60
 
@@ -57,15 +59,24 @@ def _next_local_midnight(settings: dict) -> float:
 
 
 def already_published(item: dict) -> str:
-    """Why this post would be a repeat ("" if it is not)."""
+    """Why this post would be a repeat ("" if it is not). A post without a chosen account is checked against the
+    whole platform, as before accounts could be chosen. A post to a chosen account is checked against that account
+    only: posting a clip to one channel is no reason to cancel its post to another chosen channel."""
+    chosen = item.get("connection_id") or ""
     for p in db.list_publications(item["clip_id"], item["platform"]):
-        if p["status"] in ("done", "action_needed") and p.get("scheduled_id") != item["id"]:
+        if p["status"] in ("done", "action_needed") and p.get("scheduled_id") != item["id"] and \
+                same_account(p, chosen):
             return "This clip was already published on this platform."
     mine = db.fetch("clip_fingerprints", item["clip_id"], "clip_id")
     if mine:
+        posted = {p["clip_id"] for p in db.select("publications", "platform = ? AND clip_id != ? AND status IN "
+                                                  "('done', 'action_needed')", (item["platform"], item["clip_id"]))
+                  if same_account(p, chosen)}
         for o in db.select("clip_fingerprints", "clip_id != ? AND clip_id IN (SELECT clip_id FROM publications WHERE "
                                                 "platform = ? AND status IN ('done', 'action_needed'))",
                            (item["clip_id"], item["platform"])):
+            if o["clip_id"] not in posted:
+                continue
             if fingerprint.text_similarity(mine.get("text_sig") or [], o.get("text_sig") or []) >= 0.6 or \
                     fingerprint.same_video(mine.get("phash") or [], o.get("phash") or []):
                 return "A clip with the same moment was already published on this platform."
@@ -135,6 +146,7 @@ def _record_found_youtube(pub: dict, found: dict, message: str) -> bool:
                                 "locked_private": pub.get("requested_privacy") == "public" and privacy == "private"},
                           delivery=audience.delivery_after_upload("youtube", pub.get("audience") or {}, privacy,
                                                                   "api"))
+    taste.published(pub["clip_id"])
     return True
 
 
@@ -159,6 +171,80 @@ def outcome_unknown(item: dict, pub: dict, exc: PublishError) -> dict:
                  ref_type="scheduled", ref_id=item["id"])
     return {"message": "Needs your check: the upload may have finished"}
 
+
+# ------------------------------------------------------------------ Cancel upload (one post, not the whole job queue)
+UPLOAD_CANCELED = "Upload canceled by you. Nothing was posted. Retry uploads it again."
+TIKTOK_TOO_LATE = ("Too late to cancel: TikTok already has the whole video and is processing it. It can't be stopped "
+                   "from ClipForge; delete it in the TikTok app if you do not want it.")
+
+
+def cancel_requested(pub: dict | None) -> bool:
+    return bool(((pub or {}).get("info") or {}).get("cancel_requested_at"))
+
+
+def cancel_pressed(item: dict, since: float) -> bool:
+    """Cancel upload was pressed on this post during the job run that started at `since` (it may have been pressed
+    before the run made its upload record, so the post's own history is read too)."""
+    return any(e.get("event") == "upload_cancel_requested" and float(e.get("at") or 0) >= since
+               for e in (_item(item["id"]) or item).get("audit") or [])
+
+
+def cancel_upload(item_id: str) -> dict:
+    """Cancel upload on a post that is uploading now. Different from canceling the job (which only postpones the
+    post) and from Stop all: the post ends as canceled and nothing is posted, unless the platform already has the
+    whole video, which is then shown as it is. The request is kept in the upload record, so a restart or a waiting
+    job never undoes it, and a stop never authorizes a second upload (rule 6)."""
+    item = _item(item_id)
+    if not item:
+        raise LookupError("This post no longer exists")
+    if item["status"] != "publishing":
+        raise ValueError("Only a post that is uploading now has an upload to cancel")
+    pub = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
+    if pub and pub["platform"] == "tiktok" and pub["status"] == "processing":
+        raise ValueError(TIKTOK_TOO_LATE)
+    if pub:
+        db.update_publication(pub["id"], info={**(pub.get("info") or {}), "cancel_requested_at": time.time()})
+        pub = db.get_publication(pub["id"]) or pub
+    db.update("scheduled_publications", item_id, status_note="Canceling: it stops after the part being sent",
+              audit=_audit(item, "upload_cancel_requested", "Cancel upload: by you"))
+    job = db.fetch("worker_jobs", f"publish:{item_id}", "idem_key")
+    if job and job["status"] == "running":  # it stops at its next part; the handler then settles it (publish())
+        queue.cancel(job["id"], "Cancel upload: by you")
+        return {"status": "stopping", "message": "Stopping after the part being sent."}
+    if job and job["status"] in ("queued", "waiting", "retrying"):
+        queue.cancel(job["id"], "Cancel upload: by you")
+    return settle_cancel(_item(item_id) or item, pub)
+
+
+def settle_cancel(item: dict, pub: dict | None) -> dict:
+    """End a canceled upload by what the platform really has. YouTube: a session that never got its last part makes
+    no video; after the last part its session is asked, and anything unclear is held for your check (reconciling),
+    never called canceled. TikTok: chunks that stopped are never posted; a finished upload is read back."""
+    if pub and pub["status"] in ("done", "action_needed"):
+        return finish(item, pub)
+    if pub and pub["platform"] == "youtube" and (pub.get("info") or {}).get("final_chunk_at"):
+        outcome = publish_jobs._youtube_cancel_outcome(pub)  # noqa: SLF001
+        if outcome is None:
+            outcome_unknown(item, pub, youtube._outcome_unknown())
+            return {"status": "reconciling", "message": "Needs your check: the upload may have finished"}
+        db.update_publication(pub["id"], **outcome)
+        if outcome["status"] == "done":
+            taste.published(pub["clip_id"])
+            result = finish(item, db.get_publication(pub["id"]) or pub)
+            return {**result, "status": "published", "message": publish_jobs.TOO_LATE_YOUTUBE}
+    if pub and pub["platform"] == "tiktok" and pub["status"] == "processing" and pub.get("remote_id"):
+        if recover(pub) == "done":
+            return {**finish(item, db.get_publication(pub["id"]) or pub), "status": "published"}
+        return {"status": "publishing", "message": TIKTOK_TOO_LATE}
+    current = _item(item["id"]) or item
+    if pub and current.get("publication_id") not in ("", pub["id"]):
+        return {"status": current["status"], "message": "A newer upload of this post is under way"}
+    if pub and pub["status"] != "cancelled":
+        db.update_publication(pub["id"], status="cancelled", message="Upload canceled by you. Nothing was posted.",
+                              delivery={**(pub.get("delivery") or {}), "transfer": "cancelled"})
+    _set(current, "canceled", UPLOAD_CANCELED, "upload_canceled", publication_id="", planned_at=None)
+    state.resolve(f"publish:{item['id']}")
+    return {"status": "canceled", "message": UPLOAD_CANCELED}
 
 def recover(pub: dict) -> str:
     """What happened to an upload that was interrupted: 'done', 'resume' (upload again/continue) or 'wait'."""
@@ -198,6 +284,20 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
     from ..publish.jobs import feature_snapshot
 
     version_row = db.get_version(version) if version else None
+    bound = {}
+    if item.get("connection_id"):
+        # The account this post was approved for; publish/jobs.connection_for refuses any other at upload time.
+        opts["approved_account"] = (item.get("approval") or {}).get("account") or item_account(item)
+        opts["approved_connection"] = item["connection_id"]
+        bound = {"connection_id": item["connection_id"]}
+    elif pub and pub.get("connection_id") and not begun_on(item) and \
+            pub["connection_id"] != db.default_connection_id(item["platform"]):
+        # Another account became the default before this upload sent anything. The post is approved for the
+        # account it goes to now, so its upload starts fresh there instead of on the account the record names.
+        db.update_publication(pub["id"], status="cancelled",
+                              message="Another account became the default before the upload started")
+        db.update("scheduled_publications", item["id"], publication_id="")
+        pub = None
     if pub:
         if not publish_jobs.transfer_started(pub) and not publish_jobs.unknown_outcome(pub):
             # A platform wait may leave a local row before any session or bytes exist. The owner can edit and
@@ -213,7 +313,7 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
                                 title=item["title"], description=item["description"], tags=item.get("tags") or [],
                                 requested_privacy=item["privacy"], video_path=video, version_id=version,
                                 options=opts, features=feature_snapshot(clip, version_row), scheduled_id=item["id"],
-                                audience=item.get("audience") or {}, delivery={"transfer": "not_started"})
+                                audience=item.get("audience") or {}, delivery={"transfer": "not_started"}, **bound)
     db.update("scheduled_publications", item["id"], publication_id=pub["id"])
     return pub
 
@@ -261,7 +361,12 @@ def _handle_error(job: Job, item: dict, exc: PublishError, settings: dict) -> No
         raise queue.Fail(str(exc), exc.fix)
     if code in ("reconnect", "not_connected", "setup", "access_token_invalid", "auth_removed", "scope",
                 "scope_not_authorized", "insufficientPermissions"):
-        _action_needed(item, f"connect:{platform}", f"Reconnect {platform.title()} to publish", str(exc), exc.fix)
+        if item.get("connection_id"):  # only this post's own account needs Reconnect; others keep posting
+            name = account_name(db.get_connection(item["connection_id"])) or "this account"
+            _action_needed(item, f"connect:{item['connection_id']}", f"Reconnect {name} to publish", str(exc),
+                           exc.fix)
+        else:
+            _action_needed(item, f"connect:{platform}", f"Reconnect {platform.title()} to publish", str(exc), exc.fix)
         raise queue.Fail(str(exc), exc.fix)
     if code in ("unaudited", "unaudited_client_can_only_post_to_private_accounts", "privacy_level_option_mismatch",
                 "duration", "spam_risk_user_banned_from_posting", "user_banned_from_posting"):
@@ -284,12 +389,15 @@ def publish(job: Job) -> dict:
     if item["status"] in ("published", "canceled", "replaced"):
         return {"message": f"Nothing to do: the post is {item['status']}"}
     existing = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
+    if item["status"] in ("publishing", "reconciling") and cancel_requested(existing):
+        # Cancel upload was pressed (perhaps before a restart): settle it, never continue the transfer
+        return settle_cancel(item, existing)
     started = publish_jobs.transfer_started(existing)
     uncertain = bool(existing and publish_jobs.unknown_outcome(existing))
     if uncertain and item["platform"] == "youtube":
         original_account = (item.get("approval") or {}).get("account") or (
             existing.get("options") or {}).get("approved_account")
-        if original_account and original_account != autopublish.account_id("youtube"):
+        if original_account and original_account != item_account(item):
             note = "Reconnect the original YouTube account to check the uncertain upload; no new upload is started."
             _set(item, "reconciling", note, "outcome_account", last_error=note,
                  fix="Reconnect the channel this post was approved for, then Refresh status.")
@@ -304,6 +412,11 @@ def publish(job: Job) -> dict:
     if settings.get("autopilot_publishing_paused") and not started:  # an upload under way finishes
         db.update("scheduled_publications", item["id"], status_note="Publishing is paused: it waits for Resume")
         raise queue.Wait("publishing_paused", 300, "Publishing is paused")
+    from . import submissions
+
+    if not started and submissions.paused_for(item):  # this one mission is paused (Missions → Pause uploads)
+        db.update("scheduled_publications", item["id"], status_note="Its mission is paused: it waits for Resume")
+        raise queue.Wait("mission_paused", 300, "Its mission is paused")
     clip = db.get_clip(item["clip_id"])
     if not clip or clip["status"] != "ready":
         _set(item, "failed", "The clip is missing or not rendered.", "failed")
@@ -388,12 +501,24 @@ def publish(job: Job) -> dict:
     until, why = blocked_until(item["platform"])
     if until:
         raise queue.Wait("platform_limit", until - time.time() + 60, f"{item['platform']}: {why}")
-    acc = db.get_account(item["platform"]) or {}
-    if not acc.get("has_tokens"):
-        _action_needed(item, f"connect:{item['platform']}", f"Connect {item['platform'].title()} to publish",
-                       f"{item['platform'].title()} is not connected.", "Settings → Publishing → Connect.")
-        raise queue.Wait("not_connected", RECONNECT_WAIT, f"{item['platform'].title()} is not connected")
-    state.resolve(f"connect:{item['platform']}")
+    if item.get("connection_id"):
+        # This post's own account. Another account needing Reconnect never holds it, and it holds no other post.
+        label = "YouTube" if item["platform"] == "youtube" else "TikTok"
+        acc = db.get_connection(item["connection_id"])
+        key = f"connect:{item['connection_id']}"
+        if not usable(acc):
+            name = account_name(acc) or f"The chosen {label} account"
+            _action_needed(item, key, f"Reconnect {name} to publish", f"{label} account “{name}” is not connected.",
+                           "Accounts → Reconnect. Posts to your other accounts continue.")
+            raise queue.Wait("not_connected", RECONNECT_WAIT, f"{label} account “{name}” is not connected")
+        state.resolve(key)
+    else:
+        acc = db.get_account(item["platform"]) or {}
+        if not acc.get("has_tokens"):
+            _action_needed(item, f"connect:{item['platform']}", f"Connect {item['platform'].title()} to publish",
+                           f"{item['platform'].title()} is not connected.", "Settings → Publishing → Connect.")
+            raise queue.Wait("not_connected", RECONNECT_WAIT, f"{item['platform'].title()} is not connected")
+        state.resolve(f"connect:{item['platform']}")
     video, version = active_version_path(clip)
     if not started:  # an upload already under way is resumed, never re-judged halfway
         try:
@@ -437,6 +562,12 @@ def publish(job: Job) -> dict:
             runner(pub, job.cancelled)
     except (queue.Canceled, UploadCancelled):
         current = db.get_publication(pub["id"]) or pub
+        if cancel_requested(current) or cancel_pressed(item, float(job.row.get("started_at") or 0)):
+            # Cancel upload on this post (not Stop all, not a job cancel, which only postpone it)
+            result = settle_cancel(_item(item["id"]) or item, current)
+            if result.get("status") == "published":
+                return result
+            raise queue.Canceled()
         if current["platform"] == "youtube" and (current.get("info") or {}).get("final_chunk_at"):
             outcome_unknown(item, current, youtube._outcome_unknown())
             raise queue.Canceled()
@@ -460,7 +591,8 @@ def publish(job: Job) -> dict:
             current = {**current, "info": {**(current.get("info") or {}),
                                           "outcome_error": {"code": exc.code, "detail": str(exc), "fix": exc.fix}}}
             if exc.code in ("reconnect", "not_connected", "setup", "scope", "insufficientPermissions"):
-                state.action("connect:youtube", "publish", "Reconnect YouTube to check this upload", str(exc),
+                key = f"connect:{item['connection_id']}" if item.get("connection_id") else "connect:youtube"
+                state.action(key, "publish", "Reconnect YouTube to check this upload", str(exc),
                              exc.fix, ref_type="scheduled", ref_id=item["id"])
             unknown = youtube._outcome_unknown()
             held = PublishError(f"{exc} {unknown}", f"{exc.fix} {unknown.fix}".strip(), youtube.OUTCOME_UNKNOWN)

@@ -85,7 +85,7 @@ def test_existing_launcher_lock_preserves_saved_data(desktop, monkeypatch, tmp_p
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             assert desktop.main() == 2
         assert saved.read_text() == 'existing Brain and clips'
-        assert 'Another ClipFoundry' in capsys.readouterr().out
+        assert 'Another ClipForge' in capsys.readouterr().out
     finally:
         os.umask(previous_umask)
 

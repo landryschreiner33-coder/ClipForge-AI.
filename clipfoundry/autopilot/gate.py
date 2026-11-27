@@ -135,7 +135,7 @@ def check_metadata(clip: dict, sha: str, settings: dict) -> dict:
         if stale:
             problems.append("written for an earlier render of this clip")
         problems += packaging.validate(meta, text, prior, [attribution], required_attribution=attribution,
-                                       platform=platform)
+                                       platform=platform, known=packaging.known_words(clip, settings))
         out[platform] = {"status": "failed" if problems else "passed", "problems": problems, "stale": stale,
                          "metadata_id": meta["id"],
                          "hash": artifact.sha256_json({k: meta.get(k) for k in ("title", "description", "caption",

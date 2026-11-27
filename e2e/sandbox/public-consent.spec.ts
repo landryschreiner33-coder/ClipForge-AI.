@@ -115,7 +115,7 @@ async ({ page, request }) => {
     return route.continue();
   });
   await page.goto("/#/setup/mode");
-  await page.getByRole("radio", { name: /Let Autopilot do it/ }).check();
+  await page.getByRole("radio", { name: /Process the videos I add automatically/ }).check();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   const row = page.locator(".audience-row");
   await expect(row).toHaveCount(1);

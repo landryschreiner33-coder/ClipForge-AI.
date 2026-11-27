@@ -1,11 +1,10 @@
 /** Visual choreography only. Durable jobs are never delayed or changed by a walk or a document transfer. */
 import { BY_ID, CAST, Dir } from "./cast";
-import { OfficeEvent, RoleRow, Snapshot } from "./api";
-import { BreakActivity, Pt, REST_SEAT, roomOf, route, STATION, SUPERVISE } from "./world";
+import { OfficeEvent, RoleRow, RoleState, Snapshot } from "./api";
+import { BreakActivity, handoffSpots, Pt, REST_SEAT, roomOf, route, STATION, SUPERVISE } from "./world";
 import { LoungeLife } from "./LoungeLife";
 import { departmentAttendance, OfficeDuty } from "./DepartmentDuty";
-import type { Pose } from "./sprites";
-import type { RobotPosture } from "./StudioArt";
+import type { Pose, RobotPosture } from "./crew";
 
 export interface WorkCard {
   job_id: string; kind: string; ref_type: string; ref_id: string; state: string; summary: string;
@@ -24,9 +23,11 @@ interface HandoffRoute {
   event: OfficeEvent; path: string[]; step: number; jobs: string[]; until: number;
 }
 interface Owner { role: string; job: string; kind: string; ref: string; at: number; cursor: number }
-const SPEED = 130;
-const POSE: Record<string, Pose> = {
-  idle: "idle", working: "work", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
+// world units a second: about a robot's height every third of a second on the ship
+const SPEED = 150;
+// every robot state needs a pose: a missing one left the fallback map unable to draw (a "queued" robot)
+const POSE: Record<RoleState, Pose> = {
+  idle: "idle", working: "work", queued: "wait", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
   paused: "paused", unavailable: "unavailable",
 };
 const CROSS_JOB: Record<string, string[]> = {
@@ -56,6 +57,10 @@ export class OfficeMotion {
   private refOwners = new Map<string, Owner>();
   private cutoff: number;
   private lounge = new LoungeLife();
+  /** Robots stunned by the Taser (office/taser.ts) and until when: they stand still while their reaction plays. */
+  private stunned = new Map<string, number>();
+  /** The frame clock of the latest tick (ms), for the stuns. */
+  private clock = 0;
   private stopped = false;
 
   constructor(snap: Snapshot) {
@@ -103,6 +108,22 @@ export class OfficeMotion {
     this.reconcile(snap, true);
   }
 
+  /** The robots zapped right now, each with the time its reaction ends (ms on the frame clock). A zapped robot stops
+   * where it is while its reaction plays, so its lightning and words stay over it and a toppled robot does not slide
+   * along the floor; then it walks on. The list replaces the last one, so a zap taken away (the Taser switched off)
+   * frees its robot at once. Its job is untouched: the Taser is play, and only where the robot is drawn waits. */
+  stun(zapped: Iterable<[string, number]>) {
+    this.stunned.clear();
+    for (const [id, until] of zapped) if (this.actors.has(id)) this.stunned.set(id, until);
+  }
+
+  /** Whether a zapped robot stands still now. Never one carrying or receiving a handoff: real work goes first (the
+   * reaction still plays over it while it walks), and never past its reaction, even while the feed is frozen. */
+  private held(a: MotionActor) {
+    const until = this.stunned.get(a.id);
+    return until !== undefined && until > this.clock && a.transfer === null;
+  }
+
   react(id: string, pose: Pose, now: number) {
     const a = this.actors.get(id);
     if (a && !this.blocked(id)) a.reaction = { pose, until: now + 2200 };
@@ -145,15 +166,18 @@ export class OfficeMotion {
     this.trim(this.jobOwners); this.trim(this.refOwners);
   }
 
-  tick(dt: number, now: number, reduced: boolean, frozen: boolean) {
+  /** decorative = lounge break activities (Customize studio → Office animation: Calm turns them off) */
+  tick(dt: number, now: number, reduced: boolean, frozen: boolean, decorative = true) {
+    this.clock = now;
     if (frozen) return;
-    if (!reduced) this.lounge.tick(dt, this.actors.values());
+    if (!reduced && decorative) this.lounge.tick(dt, this.actors.values());
+    else if (!decorative) this.lounge.reset();
     for (const a of this.actors.values()) {
       if (a.reaction && a.reaction.until < now) a.reaction = null;
       // Individually paused/unavailable workers may finish returning to a reserved resting place,
       // but only eligible workers rotate through decorative activities once they arrive.
       if (a.transfer === null) this.go(a, this.destination(a.id), reduced || this.atWork(a.id));
-      this.walk(a, dt, reduced);
+      if (reduced || !this.held(a)) this.walk(a, dt, reduced);
       this.faceBreak(a);
     }
     for (const tr of [...this.transfers.values()]) {
@@ -182,7 +206,8 @@ export class OfficeMotion {
   pose(a: MotionActor): Pose {
     const state = this.rows.get(a.id)?.state || "unavailable";
     const transfer = a.transfer === null ? null : this.transfers.get(a.transfer);
-    if (a.path.length) return a.card ? "carry" : "walk";
+    // a robot stunned on its way stands (its legs don't keep stepping on the spot)
+    if (a.path.length) return this.held(a) ? "idle" : a.card ? "carry" : "walk";
     if (this.blocked(a.id)) return POSE[state];
     if (transfer) {
       if (transfer.phase === "approach") return a.id === transfer.from ? "carry" : "wait";
@@ -301,9 +326,7 @@ export class OfficeMotion {
     if (roomOf(receiver)?.id !== room.id) {
       receiver.x = station.x; receiver.y = station.y; receiver.path = [];
     }
-    const side = station.x - room.x > room.w / 2 ? -1 : 1;
-    const meet = { x: station.x, y: station.y + 9 };
-    const offer = { x: station.x + side * 34, y: station.y + 9 };
+    const { meet, offer } = handoffSpots(to);
     this.go(sender, offer, false); this.go(receiver, meet, false);
     sender.card = card; receiver.card = null;
     sender.transfer = event.id; receiver.transfer = event.id;
@@ -338,7 +361,8 @@ export class OfficeMotion {
   }
   private canBreak(id: string) {
     const state = this.rows.get(id)?.state;
-    return state === "idle" || state === "waiting" || state === "retrying" || (state === "paused" && this.stopped);
+    return state === "idle" || state === "queued" || state === "waiting" || state === "retrying"
+      || (state === "paused" && this.stopped);
   }
   private destination(id: string): Pt {
     return this.targets[id]?.lounge ? this.lounge.target(id) : this.targets[id].at;

@@ -44,8 +44,8 @@ def similarity(a: dict, b: dict, sentences: list[dict], emb: np.ndarray | None =
     transcript = cosine(tf_vector(ta), tf_vector(tb))
     sem = 0.0
     if emb is not None and len(emb) and a.get("s0", -1) >= 0 and b.get("s0", -1) >= 0:
-        sem = max(0.0, semantic.cos(semantic.window_vector(emb, a["s0"], a["s1"]),
-                                    semantic.window_vector(emb, b["s0"], b["s1"])))
+        sem = max(0.0, semantic.cos_cal(emb, semantic.window_vector(emb, a["s0"], a["s1"]),
+                                        semantic.window_vector(emb, b["s0"], b["s1"])))
     ka, kb = set(content_tokens(ta)), set(content_tokens(tb))
     topic = len(ka & kb) / len(ka | kb) if ka and kb else 0.0
     fa, la = _first_last(a, sentences)
@@ -85,8 +85,11 @@ def select(results: list[dict], count: int, min_score: float, sentences: list[di
         if not reasons:
             sims = [(c, similarity(r, c, sentences, emb)) for c in chosen]
             close = max(sims, key=lambda x: x[1]["combined"], default=None)
-            if close and close[1]["overlap"] > OVERLAP:
-                reasons.append(f"Overlaps a better clip (“{close[0].get('title', '')[:60]}”)")
+            # every chosen clip is checked for overlap: a clip with no words in common (a stretch of time built
+            # around a moment) can overlap one that is not the most alike
+            over = max(sims, key=lambda x: x[1]["overlap"], default=None)
+            if over and over[1]["overlap"] > OVERLAP:
+                reasons.append(f"Overlaps a better clip (“{over[0].get('title', '')[:60]}”)")
             elif close and close[1]["combined"] >= SIMILAR:
                 reasons.append(f"Too similar to a better clip (“{close[0].get('title', '')[:60]}”, "
                                f"{close[1]['combined']:.0%} alike)")

@@ -49,16 +49,52 @@ def macho(path: Path):
         return stream.read(4) in MACHO
 
 
+# The app keeps its folder name, ClipFoundry.app, so an update replaces the installed app in place: the Dock pin,
+# Launchpad slot, saved window frame, WebKit storage and Keychain item all stay. Finder, the Dock, Launchpad and
+# Spotlight show the localized name ClipForge instead. macOS uses a localized name only when the plain
+# CFBundleDisplayName matches the folder name (a guard against apps pretending to be other apps), so the plain one
+# stays "ClipFoundry" and en.lproj/InfoPlist.strings says "ClipForge".
+FOLDER_NAME = 'ClipFoundry'
+SHOWN_NAME = 'ClipForge'
+
+
+def info_plist(revision: str, version: str = '') -> dict:
+    return {'CFBundleExecutable': 'ClipFoundry', 'CFBundleIdentifier': 'com.clipfoundry.studio',
+            'CFBundleName': SHOWN_NAME, 'CFBundleDisplayName': FOLDER_NAME, 'LSHasLocalizedDisplayName': True,
+            'CFBundleDevelopmentRegion': 'en', 'CFBundlePackageType': 'APPL',
+            'CFBundleIconFile': 'ClipFoundry', 'CFBundleShortVersionString': version or '1.0.0',
+            'CFBundleVersion': os.environ.get('GITHUB_RUN_NUMBER', '1'), 'LSMinimumSystemVersion': '15.0',
+            'NSHighResolutionCapable': True, 'NSSupportsAutomaticGraphicsSwitching': True,
+            'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True},
+            'NSHumanReadableCopyright': 'ClipForge · Runs locally on your Mac', 'ClipFoundrySourceCommit': revision}
+
+
+def write_localization(contents: Path) -> Path:
+    """en.lproj/InfoPlist.strings with the name people see. A binary plist is a valid .strings file and avoids any
+    question of text encoding."""
+    folder = contents / 'Resources/en.lproj'
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / 'InfoPlist.strings'
+    path.write_bytes(plistlib.dumps({'CFBundleDisplayName': SHOWN_NAME, 'CFBundleName': SHOWN_NAME},
+                                    fmt=plistlib.FMT_BINARY))
+    return path
+
+
+def release_version() -> str:
+    """The release shown in About ClipForge, e.g. 2026.11.25 (CLIPFORGE_VERSION, set by the release workflow)."""
+    version = os.environ.get('CLIPFORGE_VERSION', '').strip()
+    return version if re.fullmatch(r'\d{4}\.\d{1,2}\.\d{1,2}(\.\d{1,2})?', version) else ''
+
+
 def make_icon(contents: Path, work: Path):
+    """The Mac icon from the committed iconset (scripts/make_icons.py makes it from the approved gold robot, on
+    Apple's icon grid), so every build packages exactly the reviewed pictures."""
     iconset = work / 'ClipFoundry.iconset'
-    iconset.mkdir(exist_ok=True)
-    source = ROOT / 'design/tiktok/app-icon-dark.png'
-    for size in (16, 32, 128, 256, 512):
-        for scale in (1, 2):
-            name = f'icon_{size}x{size}' + ('@2x' if scale == 2 else '') + '.png'
-            run('sips', '-z', size * scale, size * scale, source, '--out', iconset / name, stdout=subprocess.DEVNULL)
+    if iconset.exists():
+        shutil.rmtree(iconset)
+    shutil.copytree(ROOT / 'macos/desktop/AppIcon.iconset', iconset)
     run('iconutil', '-c', 'icns', iconset, '-o', contents / 'Resources/ClipFoundry.icns')
-    shutil.copy2(source, contents / 'Resources/app-icon.png')
+    shutil.copy2(ROOT / 'frontend/public/app-icon.png', contents / 'Resources/app-icon.png')
 
 
 def resolve_library(dependency: str, original: Path, executable: Path) -> Path:
@@ -207,21 +243,15 @@ def build(work: Path, *, compile_only: bool = False):
     if output('git', 'status', '--porcelain', cwd=ROOT):
         raise RuntimeError('Commit the complete source tree before building a distributable app')
     work.mkdir(parents=True, exist_ok=True)
-    app = work / 'ClipFoundry.app'
+    app = work / f'{FOLDER_NAME}.app'
     if app.exists():
         raise RuntimeError('Use a fresh build folder; existing apps are never overwritten')
     contents = app / 'Contents'
     for directory in ('MacOS', 'Resources', 'Frameworks'):
         (contents / directory).mkdir(parents=True, exist_ok=True)
     revision = output('git', 'rev-parse', 'HEAD', cwd=ROOT)
-    info = {'CFBundleExecutable': 'ClipFoundry', 'CFBundleIdentifier': 'com.clipfoundry.studio',
-            'CFBundleName': 'ClipFoundry', 'CFBundleDisplayName': 'ClipFoundry', 'CFBundlePackageType': 'APPL',
-            'CFBundleIconFile': 'ClipFoundry', 'CFBundleShortVersionString': '1.0.0',
-            'CFBundleVersion': os.environ.get('GITHUB_RUN_NUMBER', '1'), 'LSMinimumSystemVersion': '15.0',
-            'NSHighResolutionCapable': True, 'NSSupportsAutomaticGraphicsSwitching': True,
-            'NSAppTransportSecurity': {'NSAllowsLocalNetworking': True},
-            'NSHumanReadableCopyright': 'ClipFoundry · Runs locally on your Mac', 'ClipFoundrySourceCommit': revision}
-    (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
+    (contents / 'Info.plist').write_bytes(plistlib.dumps(info_plist(revision, release_version())))
+    write_localization(contents)
     run('swiftc', '-O', '-target', 'arm64-apple-macosx15.0', '-framework', 'AppKit', '-framework', 'WebKit',
         ROOT / 'macos/desktop/ClipFoundry.swift', '-o', contents / 'MacOS/ClipFoundry')
     make_icon(contents, work)
@@ -245,6 +275,9 @@ def build(work: Path, *, compile_only: bool = False):
     tracked = subprocess.check_output(['git', 'archive', 'HEAD', 'clipfoundry', 'frontend/dist', 'macos/diagnose.py', 'macos/native_smoke.py', 'macos/desktop_media_smoke.py', 'macos/desktop/av1-smoke.ivf', 'docs/legal'], cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(tracked)) as tar:
         tar.extractall(app_source, filter='data')
+    built_in_sign_in = ROOT / 'clipfoundry/oauth_apps.json'  # written from the repository's secrets, never committed
+    if built_in_sign_in.is_file():
+        shutil.copy2(built_in_sign_in, app_source / 'clipfoundry/oauth_apps.json')
     shutil.copy2(ROOT / 'macos/desktop_runtime.py', contents / 'Resources/desktop_runtime.py')
     third_party = contents / 'Resources/ThirdParty'
     third_party.mkdir(exist_ok=True)

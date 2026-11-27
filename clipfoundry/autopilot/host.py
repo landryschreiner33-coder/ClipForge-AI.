@@ -141,6 +141,7 @@ class WorkerHost:
         self._wake = {n: threading.Event() for n in self.names}
         self._threads: list[threading.Thread] = []
         self._running: dict[str, Job] = {}
+        self._lane = threading.local()  # the job this worker thread is running (several lanes share a state row)
         self._lock = threading.Lock()
         self.host_lock = locks.named("worker-host")
         self.started = False
@@ -163,9 +164,11 @@ class WorkerHost:
             gate.recover_regenerations()
             for name in self.names:
                 self.set_state(name, "idle", message="Ready")
-                t = threading.Thread(target=self._loop, args=(name,), daemon=True, name=f"cf-worker-{name}")
-                self._threads.append(t)
-                t.start()
+                for lane in range(max(1, queue.WORKER_LANES.get(name, 1))):
+                    t = threading.Thread(target=self._loop, args=(name,), daemon=True,
+                                         name=f"cf-worker-{name}" + (f"-{lane + 1}" if lane else ""))
+                    self._threads.append(t)
+                    t.start()
             t = threading.Thread(target=self._supervise, daemon=True, name="cf-worker-supervisor")
             self._threads.append(t)
             t.start()
@@ -246,6 +249,14 @@ class WorkerHost:
     # -------------------------------------------------------------- state for the UI
     def set_state(self, name: str, status: str, job: Job | None = None, stage: str | None = None,
                   message: str | None = None, error: str | None = None) -> None:
+        if status != "working" and queue.WORKER_LANES.get(name, 1) > 1 and not self._stop.is_set():
+            # One state row per worker: a lane that goes idle or waits must not hide another lane's running job.
+            mine = {getattr(self._lane, "job_id", ""), job.id if job else ""}
+            with self._lock:
+                other = next((j for j in self._running.values() if j.worker == name and j.id not in mine), None)
+            if other is not None:
+                status, job, stage = "working", other, other.row["kind"]  # a failure still records last_error
+                message = other.row.get("message") or "Working"
         fields = {"name": name, "status": status, "host": self.owner, "pid": os.getpid(), "heartbeat": time.time(),
                   "job_id": job.id if job else "", "ref_type": (job.row.get("ref_type") if job else "") or "",
                   "ref_id": (job.row.get("ref_id") if job else "") or ""}
@@ -305,7 +316,40 @@ class WorkerHost:
         return queue.claim(name, self._token(name), min_priority=min_priority if min_priority > 0 else None,
                            manual_priority=MANUAL_PRIORITY)
 
+    def _cancel_won(self, name: str, row: dict, token: str, job: Job) -> bool:
+        """Cancel, Stop all jobs or the time limit arrived while this turn ran: the request wins over the turn's own
+        wait, retry or crash (Stop all keeps its hold marker, so Resume can continue the job)."""
+        latest = queue.get(job.id) or {}
+        if latest.get("status") == "running" and latest.get("lease_owner") == token and latest.get("cancel_requested"):
+            job.timed_out = latest["cancel_requested"] == 2
+            self._canceled(name, row, token, job)
+            return True
+        return False
+
+    def _canceled(self, name: str, row: dict, token: str, job: Job) -> None:
+        latest = queue.get(job.id) or {}
+        if latest.get("lease_owner") == token:
+            # The latest request decides: the time limit can be reached just before Stop all jobs (the heartbeat
+            # then passes on only the stop), and your own Cancel after the time limit makes it a cancel.
+            job.timed_out = latest.get("cancel_requested") == 2
+        if job.timed_out:
+            queue.fail(row, token, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
+                       "It will run again on the next cycle; check the log if this repeats.")
+            self.set_state(name, "failed", None, message="Timed out", error="time limit reached")
+        elif self._stop.is_set() and not state.paused() and not (queue.get(job.id) or {}).get("cancel_requested"):
+            # Closing the app is an interruption, not the user's decision to cancel this item. A waiting job
+            # resumes without consuming another attempt when the next host starts.
+            queue.wait(row, token, "restart", 1, "App closed; continuing when it starts again")
+            self.set_state(name, "idle", None, message="Saved for restart")
+        else:
+            queue.mark_canceled(row, token, "Canceled")
+            self.set_state(name, "idle", None, message="Canceled")
+
     def _idle(self, name: str, message: str) -> None:
+        if queue.WORKER_LANES.get(name, 1) > 1:
+            with self._lock:
+                if any(j.worker == name for j in self._running.values()):
+                    return  # another lane of this worker is working; its state row stays "working"
         row = db.fetch("worker_state", name, "name") or {}
         now = time.time()
         # "Completed"/"Failed" stay visible for a while after the job ends, then the worker shows as idle
@@ -319,9 +363,17 @@ class WorkerHost:
     def _run(self, name: str, row: dict) -> None:
         token = row["lease_owner"]
         job = Job(row, token, self)
-        try:
-            with self._lock:
+        with self._lock:
+            # Another lane of this process may still be finishing an earlier turn of this job, after its lease was
+            # recovered and the job claimed again. One job never runs twice at once: this claim waits briefly.
+            twice = job.id in self._running
+            if not twice:
                 self._running[job.id] = job
+        if twice:
+            queue.wait(row, token, "busy", 2, "Still finishing its previous turn")
+            return
+        self._lane.job_id = job.id
+        try:
             self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
             fn = HANDLERS.get(row["kind"])
             if fn is None:
@@ -331,25 +383,17 @@ class WorkerHost:
             queue.complete(row, token, result, str(result.get("message") or "Done"))
             self.set_state(name, "completed", job, message=str(result.get("message") or f"{row['kind']} done"))
         except queue.Wait as w:
-            queue.wait(row, token, w.reason, w.seconds, w.message)
-            self.set_state(name, "waiting", job, message=w.message)
-        except queue.Canceled:
-            if job.timed_out:
-                queue.fail(row, token, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
-                           "It will run again on the next cycle; check the log if this repeats.")
-                self.set_state(name, "failed", None, message="Timed out", error="time limit reached")
-            elif self._stop.is_set() and not state.paused() and not (queue.get(job.id) or {}).get("cancel_requested"):
-                # Closing the app is an interruption, not the user's decision to cancel this item. A waiting job
-                # resumes without consuming another attempt when the next host starts.
-                queue.wait(row, token, "restart", 1, "App closed; continuing when it starts again")
-                self.set_state(name, "idle", None, message="Saved for restart")
+            if queue.wait(row, token, w.reason, w.seconds, w.message):
+                self.set_state(name, "waiting", job, message=w.message)
             else:
-                queue.mark_canceled(row, token, "Canceled")
-                self.set_state(name, "idle", None, message="Canceled")
+                self._cancel_won(name, row, token, job)
+        except queue.Canceled:
+            self._canceled(name, row, token, job)
         except queue.Retry as exc:
             status = queue.retry_or_fail(row, token, str(exc), exc.fix, exc.delay)
-            self.set_state(name, "failed" if status == "failed" else "waiting", None, message=str(exc),
-                           error=str(exc))
+            if status or not self._cancel_won(name, row, token, job):
+                self.set_state(name, "failed" if status == "failed" else "waiting", None, message=str(exc),
+                               error=str(exc))
         except queue.Fail as exc:
             queue.fail(row, token, str(exc), exc.fix)
             self.set_state(name, "failed", None, message=str(exc), error=str(exc))
@@ -358,10 +402,13 @@ class WorkerHost:
             log.error("job %s (%s) crashed: %s\n%s", row["id"], row["kind"], detail, traceback.format_exc())
             job.log("crash", detail, "error", trace=traceback.format_exc()[-4000:])
             status = queue.retry_or_fail(row, token, detail)
-            self.set_state(name, "failed" if status == "failed" else "waiting", None, message=detail, error=detail)
+            if status or not self._cancel_won(name, row, token, job):
+                self.set_state(name, "failed" if status == "failed" else "waiting", None, message=detail,
+                               error=detail)
         finally:
             with self._lock:
                 self._running.pop(job.id, None)
+            self._lane.job_id = ""
             outcome = queue.get(job.id) or {}
             if outcome.get("status") in ("failed", "canceled") and row["kind"] in ("hunt_source", "analyze_source"):
                 from . import scout
@@ -393,6 +440,11 @@ class WorkerHost:
                     gate.recover_regenerations()
                     if scout.reconcile_sources(now):
                         scout.refill({"id": f"recovery:{int(now // 30)}"})
+                    if not state.paused():
+                        from . import live
+
+                        # A live turn still running when Resume was pressed ends held afterwards; continue it.
+                        live.resume_held()
                     last_recover = now
                 settings = db.get_settings()
                 if self.periodic and not state.paused():

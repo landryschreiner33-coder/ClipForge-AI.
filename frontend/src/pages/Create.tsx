@@ -7,15 +7,14 @@ import "./library.css";
 const ACCEPT = [".mp4", ".mov", ".mkv", ".webm", ".m4v"];
 const LENGTHS = [
   { value: "short", label: "15–30 s", min: 15, max: 30, target: 22 },
-  { value: "standard", label: "15–60 s", min: 15, max: 60, target: 30 },
-  { value: "long", label: "30–90 s", min: 30, max: 90, target: 50 },
+  { value: "standard", label: "25–90 s", min: 25, max: 90, target: 45 },
+  { value: "long", label: "45–120 s", min: 45, max: 120, target: 75 },
 ];
 const COUNTS = [3, 5, 10];
 
 function fmtSize(b: number) {
   return b > 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${(b / 1e6).toFixed(1)} MB`;
 }
-const isLink = (s: string) => /^https?:\/\/\S+$/i.test(s.trim());
 
 /** One labeled row of the options: the label and its hint on the left, the control on the right. */
 function Setting({ label, hint, id, children }: { label: string; hint?: string; id?: string; children: ReactNode }) {
@@ -31,14 +30,14 @@ function Setting({ label, hint, id, children }: { label: string; hint?: string; 
 }
 
 /**
- * Add video: a file from this computer (or a link), copied into ClipForge with real upload progress. The options
+ * Add a video with its own transcript: a file from this computer, copied into ClipForge with real upload progress.
+ * Links go through Make clips → Video link, which keeps the chosen mode, style and destinations. The options
  * start from the saved defaults and only apply to this video; Settings stay as they are.
  */
 export default function Create() {
   const [file, setFile] = useState<File | null>(null);
   const [transcript, setTranscript] = useState<File | null>(null);
   const [drag, setDrag] = useState(false);
-  const [url, setUrl] = useState("");
   const [defaults, setDefaults] = useState<Settings | null>(null);
   const [count, setCount] = useState(5);
   const [length, setLength] = useState("standard");
@@ -53,6 +52,7 @@ export default function Create() {
   const [problem, setProblem] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const tInput = useRef<HTMLInputElement>(null);
+  const transfer = useRef<AbortController | null>(null);  // the file being sent, for Cancel upload
   const ids = useId();
 
   useEffect(() => {
@@ -104,38 +104,40 @@ export default function Create() {
     const L = lengths.find((l) => l.value === length) || LENGTHS[1];
     return {
       clip_count: count, min_duration: L.min, max_duration: L.max, target_duration: L.target,
-      caption_style: style, tracking, layout, silence, auto_zoom: zoom, hook_overlay: hookOverlay,
+      caption_style: style, tracking, silence, auto_zoom: zoom, hook_overlay: hookOverlay,
+      // Only a layout the owner picked here belongs to this video: the Settings one leaves Settings → Split view
+      // free to give a clip with a face cam its split view. A Framing picked here asks for one picture placed that
+      // way, which a split view would ignore, so the layout goes with it.
+      ...(defaults && layout === defaults.layout && tracking === (defaults.tracking ?? "auto") ? {} : { layout }),
     };
   };
 
-  const fromLink = !file && isLink(url);
-  const ready = !!file || fromLink;
+  const ready = !!file;
   const submit = async () => {
     if (!ready) return;
     setBusy(true);
     setProblem("");
     try {
-      let project;
-      if (file) {
-        setProgress(0);
-        project = await uploadVideo(file, options(), transcript, setProgress);
-        toast("Video copied. ClipForge is making clips.");
-      } else {
-        project = await api.importUrl(url.trim(), options());
-        toast("ClipForge is getting the video from the link.");
-      }
+      setProgress(0);
+      const ctl = new AbortController();
+      transfer.current = ctl;
+      const project = await uploadVideo(file!, options(), transcript, setProgress, ctl.signal);
+      toast("Video copied. ClipForge is making clips.");
       navigate(`project/${project.id}`);
     } catch (e) {
-      setProblem(errorText(e));
+      if (transfer.current?.signal.aborted) toast("Upload canceled. Nothing was added.");
+      else setProblem(errorText(e));
       setProgress(null);
       setBusy(false);
+    } finally {
+      transfer.current = null;
     }
   };
 
   const pct = progress === null ? 0 : Math.round(progress * 100);
   return (
     <div className="page narrow">
-      <PageHead crumbs={[{ label: "Projects", href: "#/projects" }, { label: "Add video" }]} title="Add video"
+      <PageHead crumbs={[{ label: "Projects", href: "#/projects" }, { label: "Video with transcript" }]} title="Add a video with its transcript"
         sub={"Choose a long video on this computer. ClipForge copies it into its data folder, finds the best "
           + "moments and makes captioned vertical clips."} />
 
@@ -157,6 +159,8 @@ export default function Create() {
                 <span className="small">
                   {pct < 100 ? `Copying into ClipForge: ${pct}%` : "Copied. ClipForge is finishing up…"}
                 </span>
+                {pct < 100 && <button type="button" className="btn btn-small btn-danger"
+                  onClick={() => transfer.current?.abort()}>Cancel upload</button>}
               </>
             )}
           </div>
@@ -184,31 +188,8 @@ export default function Create() {
         </div>
       )}
 
-      <details className="more">
-        <summary><Icon name="chev" className="chev" />Import from a link instead</summary>
-        <div className="more-body">
-          <div className="field">
-            <label htmlFor={`${ids}-url`}>Video link</label>
-            <input id={`${ids}-url`} type="url" placeholder="https://…" value={url} disabled={busy}
-              aria-invalid={url.trim() !== "" && !isLink(url) ? true : undefined} aria-describedby={`${ids}-url-hint`}
-              onChange={(e) => setUrl(e.target.value)} />
-          </div>
-          {url.trim() !== "" && !isLink(url) && (
-            <p className="error-text">
-              <Icon name="alert" className="sm" />Use a link that starts with http:// or https://
-            </p>
-          )}
-          {file && isLink(url) && (
-            <p className="small">
-              <Icon name="info" className="sm" /> A video file is chosen above, so this link isn't used.
-            </p>
-          )}
-          <p className="hint" id={`${ids}-url-hint`}>
-            For publicly reachable videos you have the rights to use (it uses yt-dlp). ClipForge doesn't get around
-            DRM, paywalls, logins or other access controls, and some sites don't allow downloads at all.
-          </p>
-        </div>
-      </details>
+      <p className="small muted">Have a link instead of a file? <a className="textlink" href="#/create/link">Use Make clips → Video link</a>:
+        it keeps your clip type, style and destinations while it downloads.</p>
 
       <details className="more">
         <summary>
@@ -283,13 +264,11 @@ export default function Create() {
         <span className="small muted next-line">
           {file ? "Next: ClipForge copies the video, transcribes it on this computer and shows the clips on the "
             + "video's page."
-            : fromLink ? "Next: ClipForge downloads the video from the link and shows its progress on the "
-              + "video's page."
-              : "Choose a video, or open “Import from a link instead”."}
+            : "Choose a video and, if you have one, its transcript file."}
         </span>
         <button type="button" className="btn btn-primary" disabled={!ready || busy} onClick={submit}>
           {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="scissors" />}
-          {busy ? (file ? "Copying…" : "Starting…") : "Make clips"}
+          {busy ? "Copying…" : "Make clips"}
         </button>
       </div>
     </div>

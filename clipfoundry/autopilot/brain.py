@@ -542,6 +542,7 @@ def _points(outcomes: dict[str, dict], now: float) -> list[dict]:
         source = _source_of(clip)
         recency = 0.5 ** (max(0.0, now - float(o["at"])) / 86400 / RECENCY_DAYS)
         pts.append({"clip_id": clip_id, "source": source, "duration": float(clip["duration"]), "value": o["value"],
+                    "raw": o["value"],   # before the cap: brain/lessons.py takes its error from it
                     "weight": recency / math.sqrt(by_source[source]), "strategy": _strategy_of(clip)})
     if len(pts) >= 5:  # cap outliers at the 10th and 90th percentiles
         vals = sorted(p["value"] for p in pts)

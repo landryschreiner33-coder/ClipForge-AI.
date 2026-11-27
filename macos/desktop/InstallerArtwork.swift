@@ -11,9 +11,9 @@ func text(_ value: String, x: CGFloat, y: CGFloat, size: CGFloat, color: NSColor
 }
 text("YOUR LOCAL VIDEO STUDIO", x: 90, y: 760, size: 21, color: NSColor(calibratedRed: 0.71, green: 0.62, blue: 0.95, alpha: 1), weight: .semibold)
 text("Make room for your next great clip.", x: 90, y: 680, size: 43, color: .white, weight: .bold)
-text("Drag ClipFoundry into Applications.", x: 90, y: 617, size: 27, color: .lightGray)
+text("Drag ClipForge into Applications.", x: 90, y: 617, size: 27, color: .lightGray)
 text("→", x: 650, y: 345, size: 74, color: NSColor(calibratedRed: 0.71, green: 0.62, blue: 0.95, alpha: 1))
-text("Then open ClipFoundry from Applications or your Dock.", x: 90, y: 123, size: 23, color: .lightGray)
+text("Then open ClipForge from Applications or your Dock.", x: 90, y: 123, size: 23, color: .lightGray)
 text("Brain · Clipping · Captions · Publishing", x: 90, y: 73, size: 20, color: .gray)
 image.unlockFocus()
 let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!

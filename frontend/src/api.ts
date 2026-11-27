@@ -1,4 +1,4 @@
-export type Status = "created" | "uploading" | "queued" | "processing" | "ready" | "error" | "cancelled";
+export type Status = "created" | "uploading" | "importing" | "queued" | "processing" | "ready" | "error" | "cancelled";
 
 export interface Project {
   id: string;
@@ -22,6 +22,22 @@ export interface Project {
   best_score?: number | null;
   has_thumbnail: boolean;
   clips?: Clip[];
+  /** Made on the owner's worker (Settings → Processing → Full Cloud): what was sent, the stages, the log. */
+  cloud?: import("./processing").ProjectCloud | null;
+}
+
+/** Suggested trims for a clip (pipeline/trims.py): each with the edit it makes and why. */
+export interface TrimSuggestion {
+  id: string;
+  label: string;
+  edit: { start?: number; end?: number; silence?: string };
+  seconds: number; // how much shorter the clip gets (negative: longer)
+  why: string;
+}
+export interface TrimSuggestions {
+  suggestions: TrimSuggestion[];
+  kept_pauses: { at: number; seconds: number; why: string }[];
+  length: number;
 }
 
 export interface Word {
@@ -30,11 +46,25 @@ export interface Word {
   w: string;
 }
 
+export interface AutoTrim {
+  id: string;
+  label: string;
+  why: string;
+  side: "start" | "end";
+  was: number;
+  to: number;
+}
+
 export interface ClipEdit {
   start?: number;
   end?: number;
+  /** values this clip started with because ClipForge learned them from your edits (Brain → Learned) */
+  learned_keys?: string[];
+  /** trims ClipForge made on a new clip (pipeline/process.auto_trim), each can be put back */
+  auto_trims?: AutoTrim[];
   tracking?: string;
   layout?: string;
+  split_game?: string;
   crop_x?: number;
   zoom?: number;
   caption_style?: string;
@@ -51,9 +81,40 @@ export interface ClipEdit {
   auto_zoom?: boolean;
   gain_db?: number;
   normalize_audio?: boolean;
+  /** off | auto | gentle | strong: background noise, hum, breaths, levels and voice polish */
+  clean_sound?: string;
+  /** White balance, brightness and contrast measured once and corrected (pipeline/grade.py). */
+  auto_color?: boolean;
+  /** natural | bright | warm | cool | film | teal_orange | moody | vintage | mono (looks.ts) */
+  look?: string;
+  /** 0-100 % of the look. */
+  look_strength?: number;
+  /** Clean up visible grain (low light) only. */
+  clean_picture?: boolean;
+  /** A soft whoosh with each push-in and a pop with each coloured key word (pipeline/moves.py). */
+  sound_effects?: boolean;
   speed?: number;
   remove_fillers?: boolean;
   caption_emphasis?: boolean;
+  /** The face cam's box drawn for this clip: [x0, y0, x1, y1] in shares of the picture. */
+  cam_box?: number[] | null;
+  /** Picture-in-picture: the top corner the face cam's box sits in. */
+  pip_corner?: "left" | "right";
+}
+
+/** How sure a rendered clip's face cam is (pipeline/facecam.py cam_check). */
+export interface CamCheck {
+  state: "found" | "unsure" | "none" | "manual" | "camera";
+  text: string;
+}
+
+/** Where a video's face cam is: the one found in it or locked by you, and a separate camera recording. */
+export interface FaceCamState {
+  found: { box: number[]; kind: string; locked: boolean } | null;
+  camera: {
+    name: string; width: number; height: number; duration: number; offset: number;
+    synced: "sound" | "you" | "none"; match: number | null; box?: number[] | null;
+  } | null;
 }
 
 export interface ClipFlag {
@@ -72,7 +133,49 @@ export interface ClipAnalysis {
   flags: ClipFlag[];
   viral_potential: number;
   note: string;
+  /** Why it ranks where it does, one line per area (virality.reasons): good true/false, null when not measured. */
+  reasons?: { area: string; good: boolean | null; text: string }[];
+  /** From the deeper analysis (pipeline/deep.py) when it ran: the Clip Score, how it came about, and what ClipForge AI
+   * added: its ranking of the finalists (scout.py), what it saw (eyes.py), the voice (ears.py), your taste (taste.py). */
+  clip_score?: number;
+  explanation?: string[];
+  judge?: { rank: number; of: number; verdict: "green" | "yellow" | "red" | ""; note: string; adjust: number; provider: string };
+  scout?: { kind: string; why: string; part: number };
+  /** A moment built around what ClipForge AI saw or heard (candidates.from_senses). */
+  sense?: { kind: string; at: number; why: string };
+  /** What ClipForge AI saw and heard in the clip (pipeline/senses.py), times inside the clip. */
+  senses?: { seen?: string[]; heard?: string[]; sounds?: string[]; picture?: string };
+  taste?: { p: number; adjust: number; why: string[] };
+  /** What the owner's Brain (rules, imported lessons, skills, results) added to or took from this clip's score. */
+  brain?: { points?: number; why: string[]; used: BrainSource[]; avoid?: { label: string; by: BrainSource } | null };
+  /** Clip lengths the owner told the Brain, when they set this clip's run: [shortest, longest, ideal] seconds. */
+  brain_length?: { by: BrainSource; before: number[]; after: number[] };
+  /** The kinds of moment this clip shows ("reaction", "story"): what its results are compared by. */
+  moment?: string[];
+  deep?: {
+    seen?: { kind: string; people: number; text_on_screen: string; description: string; problem: string; appeal: number;
+      thumbnail_t: number; adjust: number; provider: string };
+    prosody?: { pitch_variation: number; pitch_semitones_std: number; emphasis_per_30s: number; laughter_like: number;
+      monotone: boolean; score: number; emphasis_times?: number[] };
+    [k: string]: any;
+  };
 }
+
+/** The meaning model (clipfoundry/embedder.py): a small sentence-meaning network, downloaded once, on this computer. */
+export type MeaningModel = { model: string; name: string; license: string; download_bytes: number; ready: boolean; enabled: boolean;
+  usable: boolean; problem: string; folder: string;
+  task: { state?: "running" | "done" | "error"; status?: string; completed?: number; total?: number; error?: string } };
+
+/** Watching and listening (clipfoundry/pipeline/senses.py): the sound model, the frame-by-frame watch, the model's look. */
+export type SensesStatus = {
+  listen: { on: boolean; usable: boolean; problem: string; name: string; license: string; bytes: number; classes: number };
+  watch: { on: boolean; fps: number[] };
+  describe: { on: boolean; builtin: boolean; eyes: boolean; budget_s: number };
+};
+
+/** What ClipForge AI learned from your choices about clips (clipfoundry/taste.py). */
+export type Taste = { events: number; by_kind: Record<string, number>; kept: number; left_out: number; ready: boolean;
+  needed: { events: number; kept: number; left_out: number }; preferences: string[]; trained_at: number | null; weight: number };
 
 export interface QualityReport {
   evaluated: number;
@@ -101,6 +204,14 @@ export interface PostPackage {
   generated_at: number;
   edited: boolean;
   checks: Record<string, string[]>;
+  /** The title options by kind and each destination's pick with its reason (postpack.title_guide). */
+  guide?: {
+    options: { kind: "search" | "curiosity" | "moment"; label: string; text: string }[];
+    youtube: { recommended: number; why: string; note?: string } | null;
+    tiktok: { recommended: number; why: string; field: string } | null;
+  };
+  /** What each platform would refuse or ignore in this text (postpack.field_problems). */
+  limits?: { youtube: string[]; tiktok: string[] };
 }
 
 /** An alternative rendering of a clip ("" id = the original). */
@@ -121,6 +232,9 @@ export interface ClipVersion {
   version: number;
   stale: boolean;
 }
+
+/** A memory or a skill line the Brain went by when it picked a clip. */
+export interface BrainSource { id: string; from: "memory" | "skill"; level: string; text: string; name?: string }
 
 export interface Clip {
   id: string;
@@ -151,9 +265,34 @@ export interface Clip {
   has_video: boolean;
   has_thumbnail: boolean;
   version: number;
+  /** How sure the last render's face cam is; null when its layout uses none. */
+  cam_check?: CamCheck | null;
+  /** The viral predictor's numbers for what would be posted (predictor.ts); null before it is predicted. */
+  prediction?: { score: number; band: string; hook: number | null; avg_view: number | null; rate: number | null;
+    fixes: number } | null;
 }
 
 export type Settings = Record<string, any>;
+
+/** The clip's original and cleaned-up sound, matched in loudness (after is null when the sound is left as it is). */
+export type SoundCheck = { mode: string; applied: string | null; summary: string; before: string; after: string | null };
+
+/** A ready-made model choice for ClipForge AI (Settings → ClipForge AI). */
+export type AiPreset = { id: string; name: string; provider: "builtin" | "ollama" | "openai_compatible" | "anthropic"; url: string;
+  model: string; needs_key: boolean; local: boolean; cost: string; about: string; key_url: string };
+export type AiTask = { kind?: "download" | "import"; model?: string; state?: "running" | "done" | "failed"; status?: string;
+  completed?: number; total?: number; error?: string };
+export type AiSetup = { presets: AiPreset[]; ollama_models: { name: string; size_gb: number; about: string }[];
+  ollama_download: string; ollama: { running: boolean; version: string; models: { name: string; size_gb: number }[]; problem: string };
+  task: AiTask; provider: string; label: string; recommended: string; builtin: BuiltinAi };
+/** The built-in model (llama.cpp and a free model ClipForge downloads and runs on this computer). */
+export type BuiltinLevel = { id: "basic" | "standard" | "pro"; name: string; model: string; license: string; about: string;
+  memory_gb: number; installed: boolean; download_bytes: number; recommended: boolean; fits: boolean };
+export type BuiltinTask = { level?: string; state?: "running" | "done" | "failed" | "canceled"; status?: string;
+  completed?: number; total?: number; error?: string };
+export type BuiltinAi = { supported: boolean; engine: { version: string; installed: boolean; license: string };
+  computer: { memory_mb: number; vram_mb: number; mac: boolean }; levels: BuiltinLevel[]; recommended: string;
+  level: string; task: BuiltinTask; server: { running: boolean; level: string; since: number; idle_minutes: number } };
 
 export interface Health {
   version: string;
@@ -180,10 +319,13 @@ export interface Health {
 export class ApiError extends Error {
   fix: string;
   code: string;
-  constructor(message: string, fix = "", code = "") {
+  /** The whole error answer (for example a schedule conflict's suggested free time). */
+  data: Record<string, unknown>;
+  constructor(message: string, fix = "", code = "", data: Record<string, unknown> = {}) {
     super(message);
     this.fix = fix;
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -200,27 +342,52 @@ export async function req<T>(method: string, url: string, body?: unknown): Promi
     let detail = res.statusText;
     let fix = "";
     let code = "";
+    let data: Record<string, unknown> = {};
     try {
       const j = await res.json();
       detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
       fix = j.fix || "";
       code = j.code || "";
+      data = j && typeof j === "object" ? j : {};
     } catch {
       /* ignore */
     }
-    throw new ApiError(detail || `Request failed (${res.status})`, fix, code);
+    throw new ApiError(detail || `Request failed (${res.status})`, fix, code, data);
   }
   return res.json() as Promise<T>;
 }
 
-/** Message plus fix, for toasts. */
+/** Send raw bytes (a file) to ClipForge; returns the response for the caller to read (it handles errors). */
+export function sendBytes(url: string, bytes: ArrayBuffer | Uint8Array): Promise<Response> {
+  return fetch(url, { method: "POST", headers: { "Content-Type": "application/octet-stream", ...APP_HEADER },
+    body: bytes as BodyInit });
+}
+
+/** The error a response carries, as an ApiError. */
+export async function responseError(res: Response): Promise<ApiError> {
+  try {
+    const j = await res.json();
+    return new ApiError(typeof j.detail === "string" ? j.detail : `Request failed (${res.status})`, j.fix || "", j.code || "");
+  } catch {
+    return new ApiError(`Request failed (${res.status})`, "", "");
+  }
+}
+
+/** What a person reads when a request never reached ClipForge (the browser itself only says "Failed to fetch"). */
+export const NOT_ANSWERING = "ClipForge is not answering right now. Try again in a moment.";
+
+/** Message plus fix, for toasts. A request that could not reach ClipForge at all says so in plain words. */
 export const errorText = (e: unknown) =>
-  e instanceof ApiError && e.fix ? `${e.message} ${e.fix}` : (e as Error).message;
+  e instanceof ApiError ? (e.fix ? `${e.message} ${e.fix}` : e.message)
+    : e instanceof TypeError && /fetch|network|load failed/i.test(e.message) ? NOT_ANSWERING
+      : (e as Error)?.message || String(e);
 
 export type Platform = "youtube" | "tiktok";
 
 export interface PlatformAccount {
   configured: boolean;
+  /** How Connect signs in: ClipForge's own registration ("built_in"), your own developer app ("own"), or neither. */
+  app?: "built_in" | "own" | "";
   connected: boolean;
   needs_reconnect: boolean;
   name: string;
@@ -285,6 +452,8 @@ export interface Publication {
   id: string;
   clip_id: string;
   platform: Platform;
+  /** The account it went to; empty on an old upload, which went to the platform's default account. */
+  connection_id?: string;
   mode: "direct" | "inbox";
   status: "queued" | "uploading" | "processing" | "done" | "action_needed" | "failed" | "cancelled";
   progress: number;
@@ -309,6 +478,24 @@ export interface Publication {
   stats?: PerfSnapshot | null;
 }
 
+/** Results compared by channel, niche, format or clip length (autopilot/compare.py). */
+export type CompareBy = "channel" | "niche" | "format" | "length";
+export type CompareVerdict = "higher" | "lower" | "inconclusive" | "too_few" | "only_one";
+export interface CompareGroup {
+  group: string; posts: number; others: number; median_views: number | null; median_pct: number | null;
+  pct_reported: boolean; verdict: CompareVerdict; ratio: number | null; p: number | null; text: string; test: string;
+}
+export interface ComparePeriod { posts: number; median_views: number | null }
+export interface ComparePlace {
+  platform: "youtube" | "tiktok"; cohort: string; audience: string; posts: number; available: boolean; note: string;
+  groups: CompareGroup[];
+  periods: { days: number; recent: ComparePeriod; before: ComparePeriod; verdict: string; text: string } | null;
+}
+export interface CompareResult {
+  by: CompareBy; label: string; dimensions: Record<CompareBy, string>; places: ComparePlace[]; counted: number;
+  min_posts: number; note: string;
+}
+
 export const api = {
   accounts: () => req<Accounts>("GET", "/api/publish/accounts"),
   connect: (platform: Platform) => req<{ auth_url: string }>("POST", `/api/publish/${platform}/connect`),
@@ -317,12 +504,16 @@ export const api = {
     req<Publication>("POST", `/api/clips/${clipId}/publish/${platform}`, body),
   publications: (clipId: string) => req<Publication[]>("GET", `/api/clips/${clipId}/publications`),
   cancelPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/cancel`),
-  tiktokCreator: () => req<TikTokCreator>("GET", "/api/publish/tiktok/creator"),
+  /** The account's posting options, read fresh from TikTok (the default account when no connection is named). */
+  tiktokCreator: (connectionId?: string) => req<TikTokCreator>("GET", `/api/publish/tiktok/creator${connectionId
+    ? `?${new URLSearchParams({ connection_id: connectionId })}` : ""}`),
   refreshStats: (pubId: string) => req<Publication>("POST", `/api/publications/${pubId}/stats`),
   linkTikTok: (pubId: string, url: string) => req<Publication>("POST", `/api/publications/${pubId}/link`, { url }),
   /** You shared the private YouTube video with your invited viewers (your word: YouTube does not report it). */
   audienceConfirmed: (pubId: string) => req<Publication>("POST", `/api/publications/${pubId}/audience-confirmed`),
   performance: () => req<PerformanceOverview>("GET", "/api/performance"),
+  compareResults: (by: CompareBy) =>
+    req<CompareResult>("GET", `/api/performance/compare?by=${encodeURIComponent(by)}`),
   refreshAllStats: () => req<{ refreshed: number; failed: { platform: string; error: string; fix: string }[] }>("POST", "/api/performance/refresh"),
   refreshPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/refresh`),
   health: () => req<Health>("GET", "/api/health"),
@@ -330,6 +521,21 @@ export const api = {
   settings: () => req<Settings>("GET", "/api/settings"),
   saveSettings: (s: Settings) => req<Settings>("PUT", "/api/settings", s),
   checkAi: () => req<{ ok: boolean; detail: string; models?: string[] }>("POST", "/api/ai/check"),
+  aiSetup: () => req<AiSetup>("GET", "/api/ai/setup"),
+  ollamaPull: (model: string) => req<AiTask>("POST", "/api/ai/ollama/pull", { model }),
+  meaningModel: () => req<MeaningModel>("GET", "/api/ai/meaning"),
+  senses: () => req<SensesStatus>("GET", "/api/ai/senses"),
+  meaningInstall: () => req<MeaningModel>("POST", "/api/ai/meaning/install"),
+  meaningCancel: () => req<MeaningModel>("POST", "/api/ai/meaning/cancel"),
+  meaningRemove: () => req<MeaningModel>("POST", "/api/ai/meaning/remove"),
+  taste: () => req<Taste>("GET", "/api/taste"),
+  tasteForget: () => req<Taste>("DELETE", "/api/taste"),
+  builtinAi: () => req<BuiltinAi>("GET", "/api/ai/builtin"),
+  builtinInstall: (level: string) => req<BuiltinTask>("POST", "/api/ai/builtin/install", { level }),
+  builtinCancel: () => req<BuiltinTask>("POST", "/api/ai/builtin/cancel"),
+  builtinUse: (level: string) => req<BuiltinAi>("POST", "/api/ai/builtin/use", { level }),
+  builtinRemove: (level: string) => req<BuiltinAi>("POST", "/api/ai/builtin/remove", { level }),
+  ollamaImport: (path: string, name: string) => req<AiTask>("POST", "/api/ai/ollama/import", { path, name }),
   projects: () => req<Project[]>("GET", "/api/projects"),
   project: (id: string) => req<Project>("GET", `/api/projects/${id}`),
   renameProject: (id: string, name: string) => req<Project>("PATCH", `/api/projects/${id}`, { name }),
@@ -350,11 +556,19 @@ export const api = {
   setActiveVersion: (clipId: string, versionId: string) =>
     req<{ active: string; versions: ClipVersion[] }>("POST", `/api/clips/${clipId}/active-version`, { version_id: versionId }),
   regeneratePost: (id: string, useAi = true) => req<Clip>("POST", `/api/clips/${id}/post-package`, { use_ai: useAi }),
+  soundCheck: (id: string, mode: string) => req<SoundCheck>("POST", `/api/clips/${id}/sound-check`, { mode }),
   clipWords: (id: string) =>
     req<{ start: number; end: number; original_start: number; original_end: number; duration: number; words: Word[]; caption_words: Word[] | null }>(
       "GET",
       `/api/clips/${id}/words`,
     ),
+  clipTrims: (id: string) => req<TrimSuggestions>("GET", `/api/clips/${id}/trims`),
+  facecam: (projectId: string) => req<FaceCamState>("GET", `/api/projects/${projectId}/facecam`),
+  lockFacecam: (projectId: string, box: number[] | null) =>
+    req<FaceCamState>("PUT", `/api/projects/${projectId}/facecam`, { box }),
+  patchCamera: (projectId: string, body: { offset?: number; box?: number[]; whole?: boolean }) =>
+    req<FaceCamState>("PATCH", `/api/projects/${projectId}/camera`, body),
+  deleteCamera: (projectId: string) => req<FaceCamState>("DELETE", `/api/projects/${projectId}/camera`),
 };
 
 export const clipVideoUrl = (c: Clip) => `/api/clips/${c.id}/video?v=${c.version}`;
@@ -373,6 +587,7 @@ export function uploadVideo(
   options: Record<string, unknown>,
   transcript: File | null,
   onProgress: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<Project> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
@@ -393,6 +608,41 @@ export function uploadVideo(
       }
     };
     xhr.onerror = () => reject(new Error("Upload failed: server not reachable"));
+    xhr.onabort = () => reject(new Error("Upload canceled. Nothing was added; your file is still on this computer."));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    if (signal?.aborted) return reject(new Error("Upload canceled. Nothing was added."));
+    xhr.send(form);
+  });
+}
+
+/** An upload stopped with Cancel upload (not a failure: nothing was added). */
+export class UploadCanceled extends Error {}
+
+/** A separate camera recording for a video; it is lined up by sound unless `offset` (seconds) is given. */
+export function uploadCamera(projectId: string, file: File, offset: string,
+  onProgress: (fraction: number) => void, signal?: AbortSignal): Promise<FaceCamState> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("offset", offset);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/projects/${projectId}/camera`);
+    xhr.setRequestHeader("X-ClipFoundry", "1");
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(data.detail || "Adding the camera recording failed"));
+      } catch {
+        reject(new Error("Adding the camera recording failed"));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Adding the camera recording failed: server not reachable"));
+    // Cancel upload: the request stops before the server has the whole file, so nothing is added
+    xhr.onabort = () => reject(new UploadCanceled("Upload canceled. Nothing was added; your file is still on this computer."));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    if (signal?.aborted) return reject(new UploadCanceled("Upload canceled. Nothing was added."));
     xhr.send(form);
   });
 }

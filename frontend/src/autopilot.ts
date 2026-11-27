@@ -107,7 +107,7 @@ export interface WorkerRow {
   job_id: string;
   ref_type: string;
   ref_id: string;
-  heartbeat: number;
+  heartbeat?: number;   // missing for a worker that has never started
   last_error: string;
   stale: boolean;
   queue: Record<string, number>;
@@ -224,6 +224,12 @@ export interface AutopilotLink {
   can_cancel: boolean;
   can_retry: boolean;
   can_prioritize: boolean;
+  /** A live recording that "Stop recording" can end (the minutes so far are kept and finished). */
+  can_finish?: boolean;
+  finishing?: boolean;
+  /** A live stream whose clipping "Stop clipping" can end: recording stops and no more clips are made. */
+  can_stop_clipping?: boolean;
+  clipping_stopped?: boolean;
 }
 
 /** Something that really needs you, in plain words (the simple Autopilot page). */
@@ -415,10 +421,22 @@ export interface AutopilotStatus {
   home: HomeView;
 }
 
+/** The exact account a planned post goes to (or went to), as the server resolves it (autopilot/routes.py). */
+export interface PostAccount {
+  connection_id: string;
+  name: string;
+  account_id: string;
+  /** The post records its own account; false for an old post, which goes to the platform's default account. */
+  bound: boolean;
+}
+
 export interface ScheduledItemRow {
   id: string;
   clip_id: string;
   platform: "youtube" | "tiktok";
+  /** The account it goes to; empty on an old post, which goes to the platform's default account. */
+  connection_id?: string;
+  account?: PostAccount;
   title: string;
   description: string;
   tags: string[];
@@ -497,7 +515,7 @@ export interface ScheduledItem extends ScheduledItemRow {
   clip_scores: Record<string, any> | null;
   metadata_options: MetadataOption[];
   quality: QualitySummary | null;
-  publication: { id: string; status: string; url: string; privacy: string; requested_privacy: string; message: string; error: string; fix: string; info: Record<string, any> } | null;
+  publication: { id: string; status: string; url: string; privacy: string; requested_privacy: string; message: string; error: string; fix: string; info: Record<string, any>; progress?: number } | null;
   warnings?: string[];
 }
 
@@ -525,7 +543,7 @@ const A = "/api/autopilot";
 export const ap = {
   links: () => req<AutopilotLink[]>("GET", `${A}/links`),
   addLink: (url: string) => req<{ item: AutopilotLink; already_added: boolean }>("POST", `${A}/links`, { url }),
-  linkAction: (id: string, action: "cancel" | "retry" | "prioritize" | "remove") =>
+  linkAction: (id: string, action: "cancel" | "retry" | "prioritize" | "remove" | "finish" | "stop_clipping") =>
     req<AutopilotLink>("POST", `${A}/links/${id}/${action}`),
   status: () => req<AutopilotStatus>("GET", `${A}/status`),
   enable: (enabled: boolean) => req<AutopilotStatus>("POST", `${A}/enable`, { enabled }),
@@ -560,7 +578,16 @@ export const ap = {
   approve: (id: string, body: Record<string, unknown>) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/approve`, { ...body, confirm: true }),
   edit: (id: string, body: Record<string, unknown>) => req<ScheduledItem>("PATCH", `${A}/scheduled/${id}`, body),
   reschedule: (id: string, planned_at: number) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/reschedule`, { planned_at }),
+  /** Move a post to a clock time in the Autopilot time zone (Settings); the server converts it, daylight saving too. */
+  rescheduleLocal: (id: string, local: string) =>
+    req<ScheduledItem>("POST", `${A}/scheduled/${id}/reschedule`, { local }),
+  /** Pause or resume one mission's uploads (its clips are still made). */
+  pauseMission: (submissionId: string, paused: boolean) =>
+    req<{ paused: boolean }>("POST", `${A}/submissions/${submissionId}/pause`, { paused }),
   cancel: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/cancel`),
+  /** Cancel upload on a post that is uploading now (not the job queue's cancel, which only postpones it). */
+  cancelUpload: (id: string) =>
+    req<ScheduledItem & { cancel: { status: string; message: string } }>("POST", `${A}/scheduled/${id}/cancel-upload`),
   retry: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/retry`),
   publishNow: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/publish-now`),
   link: (id: string, url: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/link`, { url }),

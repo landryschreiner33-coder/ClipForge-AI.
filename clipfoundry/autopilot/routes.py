@@ -9,7 +9,8 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel, Field, StrictBool, StrictInt
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
@@ -21,16 +22,26 @@ READ = [Depends(local_only)]
 WRITE = [Depends(app_request)]
 
 
+class SubmissionChannel(BaseModel):
+    id: StrictStr                  # the connection (Accounts row) ticked for this video
+    account_id: StrictStr          # its channel ID as shown when the owner confirmed
+
+
 class SubmissionIn(BaseModel):
     url: str = ""
     auto_upload: StrictBool
-    account_id: str = ""
+    account_id: str = ""           # the first chosen channel (older pages: the default channel)
+    connections: list[SubmissionChannel] | None = None  # every chosen YouTube channel, in the owner's order
     privacy: str = ""
     made_for_kids: StrictBool | None = None
     audience_version: StrictInt = 0
     reuse_basis: str = ""
     reuse_statement: str = ""
     agreed: StrictBool = False
+    live: StrictBool = False  # added in Live streams (what the link really is is checked afterwards)
+    split: str = ""           # with several channels: "turns" gives each clip to one of them ("" = each gets all)
+    live_pick: str = ""       # Live streams only: how picky this stream is ("" follows Settings)
+    live_framing: str = ""    # Live streams only: split view for this stream's clips ("" follows Settings)
 
 
 @router.get("/submissions/setup", dependencies=READ)
@@ -52,9 +63,95 @@ def submit_link(body: SubmissionIn) -> dict:
     from . import submissions
 
     try:
-        return submissions.add_link(body.url, body.model_dump())
+        return submissions.add_link(body.url, body.model_dump(exclude={"live"}), live=body.live)
     except (ValueError, httpx.HTTPError) as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+class PauseBody(BaseModel):
+    paused: StrictBool
+
+
+@router.post("/submissions/{submission_id}/pause", dependencies=WRITE)
+def pause_submission(submission_id: str, body: PauseBody) -> dict:
+    """Pause or resume one mission's uploads (Missions); Pause Autopilot and Stop all still cover everything."""
+    from . import submissions
+
+    try:
+        submissions.set_paused(submission_id, body.paused)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"paused": body.paused}
+
+
+@router.get("/submissions/live", dependencies=READ)
+def live_streams() -> list[dict]:
+    from . import submissions
+
+    return submissions.live_items()
+
+
+def _live_dir(project_id: str) -> Path:
+    """The folder of a live stream's recording, as live.Session keeps it (its minutes are in live/). While the
+    stream is recorded the project has no source file yet, so the video's own face cam route can't find it."""
+    project = db.get_project(project_id)
+    pdir = config.projects_dir() / project["id"] if project and project.get("origin") == "live" else None
+    if not pdir or not (pdir / "live").is_dir():
+        raise HTTPException(404, "That is not a live stream's recording.")
+    return pdir
+
+
+@router.get("/submissions/live/{project_id}/frame", dependencies=READ)
+def live_frame(project_id: str):
+    """A picture from the newest whole recorded minute, to draw the face cam's box on while the stream is live."""
+    from fastapi.responses import FileResponse
+
+    from ..pipeline.ffmpeg_utils import ffmpeg_bin, run_process
+
+    pdir = _live_dir(project_id)
+    minutes = sorted((pdir / "live").glob("r*_*.mkv"), key=lambda path: path.name)
+    if not minutes:
+        raise HTTPException(404, "Nothing is recorded yet. Try again in a minute.")
+    newest = minutes[-2] if len(minutes) > 1 else minutes[-1]   # the last one is still being written
+    out = pdir / "live" / "facecam-frame.jpg"
+    out.unlink(missing_ok=True)   # never an older picture: FFmpeg can finish without writing one
+    for seek in ("2", "0"):       # a minute cut short (the recording started again) may be under 2 seconds
+        done = run_process([ffmpeg_bin(), "-y", "-v", "error", "-ss", seek, "-i", str(newest), "-frames:v", "1",
+                            "-q:v", "3", str(out)], timeout=30)
+        if done.returncode == 0 and out.is_file() and out.stat().st_size > 0:
+            break
+    else:
+        raise HTTPException(409, "No picture could be read from the newest minute yet. Try again in a minute.")
+    return FileResponse(out, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+class LiveCamBody(BaseModel):
+    box: list[float] | None = None
+
+
+def _live_cam(pdir: Path) -> dict:
+    from ..pipeline import facecam
+
+    found = facecam.found(pdir) or {}
+    return {"box": found.get("box"), "locked": bool(found.get("locked"))}
+
+
+@router.get("/submissions/live/{project_id}/facecam", dependencies=READ)
+def live_facecam(project_id: str) -> dict:
+    return _live_cam(_live_dir(project_id))
+
+
+@router.put("/submissions/live/{project_id}/facecam", dependencies=WRITE)
+def lock_live_facecam(project_id: str, body: LiveCamBody) -> dict:
+    """The face cam's box for every clip of this stream from now on ({"box": null}: find it again by itself)."""
+    from ..pipeline import facecam
+
+    pdir = _live_dir(project_id)
+    try:
+        facecam.set_lock(pdir, facecam.clean_box(body.box))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return _live_cam(pdir)
 
 
 @router.post("/submissions/file", dependencies=WRITE)
@@ -563,8 +660,12 @@ def stop_all() -> dict:
 
 @router.post("/resume", dependencies=WRITE)
 def resume() -> dict:
+    from . import live
+
     state.put("emergency_stop", False)
-    state.event("resumed", "Jobs allowed again after Stop all jobs")
+    resumed = live.resume_held()  # live streams held by Stop all jobs continue with their saved minutes
+    state.event("resumed", "Jobs allowed again after Stop all jobs" + (f"; {resumed} live stream(s) continue"
+                                                                        if resumed else ""))
     return {"paused": False}
 
 
@@ -715,13 +816,10 @@ def _public_item(item: dict, settings: dict) -> dict:
     publishing_job = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
     if publishing_job and publishing_job["status"] == "retrying":
         delivery_state = "retrying"
-    # The exact account this post goes to (or went to): its own binding, never just whichever account is the default.
-    cid = item.get("connection_id") or (pub or {}).get("connection_id") or db.default_connection_id(item["platform"])
-    acc = db.get_connection(cid) if cid else None
-    account = {"connection_id": cid, "name": (acc or {}).get("nickname") or (acc or {}).get("display_name") or "",
-               "account_id": (acc or {}).get("external_id") or "", "bound": bool(item.get("connection_id") or
-                                                                            (pub or {}).get("connection_id"))}
-    return {**item, "account": account, "local_time": _local_time(item.get("planned_at"), settings),
+    # The exact account this post goes to (or went to), by the one rule every check uses (autopilot/targets.py).
+    from .targets import account_view
+
+    return {**item, "account": account_view(item), "local_time": _local_time(item.get("planned_at"), settings),
             "reuse_review": rights.review_info(item, settings),
             "publishing_job": ({k: publishing_job.get(k) for k in
                                 ("status", "attempts", "max_attempts", "run_after", "message", "error", "fix",
@@ -751,7 +849,8 @@ def _public_item(item: dict, settings: dict) -> dict:
             "metadata_options": db.select("metadata_candidates", "clip_id = ? AND platform = ?",
                                           (item["clip_id"], item["platform"]), "score DESC"),
             "publication": ({k: pub.get(k) for k in ("id", "status", "url", "privacy", "requested_privacy",
-                                                     "message", "error", "fix", "info", "remote_id", "delivery")}
+                                                     "message", "error", "fix", "info", "remote_id", "delivery",
+                                                     "progress")}
                             if pub else None)}
 
 
@@ -883,28 +982,40 @@ def _fields(item: dict, body: ApproveBody) -> dict:
 @router.post("/scheduled/{item_id}/approve", dependencies=WRITE)
 def approve_item(item_id: str, body: ApproveBody) -> dict:
     """Your explicit approval of this post, exactly as shown (required by YouTube and TikTok)."""
+    return approve_as(item_id, body, "you")
+
+
+def approve_as(item_id: str, body: ApproveBody, who: str) -> dict:
+    """approve_item, with who approved it in the post's history: "you", or "ClipForge AI" when the owner lets it act
+    on its own (brain/operations.py approve_post: YouTube only; TikTok needs the owner's own OK on every post)."""
     from ..publish import tiktok
     from ..publish.common import PublishError
     from . import bulk_review, packaging, scheduler
 
     if not body.confirm:
         raise PublishError("Approving needs your explicit confirmation.", "Review the post and press Approve.")
+    from .targets import item_account
+
     item = _item_or_404(item_id)
-    if body.expected_account_id and body.expected_account_id != autopublish.account_id(item["platform"]):
+    # The account this post goes to now, by the same rule its page shows (targets.account_view). A page names it
+    # only while that account is connected; with none connected nothing is compared, as before.
+    if body.expected_account_id and body.expected_account_id != item_account(item):
         raise HTTPException(409, "Another account is connected now. Review the destination and approve again")
     fields = _fields(item, body)
     creator = None
     if item["platform"] == "tiktok" and (fields["options"].get("mode") or "direct") == "direct":
-        creator = tiktok.creator_info(tiktok.Token(db.get_settings()))  # read fresh before every approval
+        # read fresh before every approval, for the account this post goes to
+        creator = tiktok.creator_info(tiktok.Token(db.get_settings(), item.get("connection_id") or None))
     try:
         basis = bulk_review.resolve_reuse_basis(body.reuse_kind or "custom", body.reuse_basis)
         out = scheduler.approve(item_id, fields, creator, reuse_confirmed=body.reuse_confirmed,
-                                reuse_basis=basis)
+                                reuse_basis=basis, who=who)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     clip = db.get_clip(item["clip_id"])
     heard = " ".join(packaging.clip_sentences(clip)[0]) if clip else ""  # what is said in the file to be published
-    warnings = packaging.validate({"title": out["title"], "caption": out["description"]}, heard)
+    warnings = packaging.validate({"title": out["title"], "caption": out["description"]}, heard,
+                                  known=packaging.known_words(clip) if clip else frozenset())
     return {**_public_item(out, db.get_settings()), "warnings": warnings}
 
 
@@ -936,22 +1047,36 @@ def edit_item(item_id: str, body: EditBody) -> dict:
     clip = db.get_clip(item["clip_id"]) or {}
     return {**_public_item(out, db.get_settings()),
             "warnings": packaging.validate({"title": out["title"], "caption": out["description"]},
-                                           clip.get("caption_text") or "")}
+                                           clip.get("caption_text") or "",
+                                           known=packaging.known_words(clip) if clip else frozenset())}
 
 
 class RescheduleBody(BaseModel):
-    planned_at: float
+    planned_at: float | None = None
+    local: str = Field("", max_length=40)  # a clock time in the Autopilot time zone (Settings), e.g. 2026-11-26T18:30
 
 
 @router.post("/scheduled/{item_id}/reschedule", dependencies=WRITE)
-def reschedule_item(item_id: str, body: RescheduleBody) -> dict:
+def reschedule_item(item_id: str, body: RescheduleBody):
+    """Move a post. Every way of moving one (this page, Publish Center's list, Missions and ClipForge AI) comes here
+    or to scheduler.reschedule, so the same gap, time zone and approval rules apply everywhere."""
     from . import scheduler
 
     _item_or_404(item_id)
-    if body.planned_at < time.time() + 60:
+    settings = db.get_settings()
+    try:
+        planned_at = scheduler.from_wall_time(body.local, settings) if body.local else body.planned_at
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if planned_at is None or planned_at < time.time() + 60:
         raise HTTPException(400, "Choose a time in the future")
     try:
-        return _public_item(scheduler.reschedule(item_id, body.planned_at), db.get_settings())
+        return _public_item(scheduler.reschedule(item_id, planned_at), settings)
+    except scheduler.Conflict as exc:
+        free = exc.suggestion
+        return JSONResponse({"detail": str(exc), "code": "conflict", "suggestion": free,
+                             "suggestion_local": scheduler._local(free, settings).strftime("%Y-%m-%dT%H:%M")
+                             if free else ""}, status_code=409)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 
@@ -967,6 +1092,20 @@ def cancel_item(item_id: str) -> dict:
         raise HTTPException(409, str(exc)) from exc
 
 
+@router.post("/scheduled/{item_id}/cancel-upload", dependencies=WRITE)
+def cancel_upload(item_id: str) -> dict:
+    """Cancel upload on a post that is uploading now: it ends as canceled (nothing posted), or shows that the
+    platform already had the whole video."""
+    from . import publisher
+
+    _item_or_404(item_id)
+    try:
+        result = publisher.cancel_upload(item_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {**_public_item(_item_or_404(item_id), db.get_settings()), "cancel": result}
+
+
 @router.post("/scheduled/{item_id}/retry", dependencies=WRITE)
 def retry_item(item_id: str) -> dict:
     """Try a failed or blocked post again (with a new time). It needs a valid approval to go out."""
@@ -975,6 +1114,9 @@ def retry_item(item_id: str) -> dict:
     item = _item_or_404(item_id)
     if item["status"] not in ("failed", "blocked", "action_needed", "canceled"):
         raise HTTPException(409, "Only failed, blocked or canceled posts can be retried")
+    job = db.fetch("worker_jobs", f"publish:{item_id}", "idem_key")
+    if job and job["status"] == "running":  # a canceled upload still stopping: one upload at a time, never two
+        raise HTTPException(409, "Still stopping the canceled upload. Try again in a moment.")
     valid = approval_valid({**item, "status": "approved", "publication_id": ""}) and not (
         rights.review_before_publish() and (item.get("approval") or {}).get("by") == "automatic")
     db.update("scheduled_publications", item_id, status="approved" if valid else "awaiting_approval",
@@ -1041,7 +1183,8 @@ def _manual_publication(item: dict) -> str:
                                 requested_privacy=(item.get("audience") or {}).get("visibility") or "",
                                 video_path=video, version_id=version, options=item.get("options") or {},
                                 scheduled_id=item["id"], audience=item.get("audience") or {},
-                                delivery=item.get("delivery") or {})
+                                delivery=item.get("delivery") or {},
+                                connection_id=item.get("connection_id") or "")  # "": the default account
     db.update("scheduled_publications", item["id"], publication_id=pub["id"])
     return pub["id"]
 

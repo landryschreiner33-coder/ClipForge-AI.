@@ -377,6 +377,20 @@ def framing_checks(render_info: dict) -> list[dict]:
         return [check("framing", "Framing", HEURISTIC, SKIP, "No framing record for this render.")]
     if float(crop) >= 0.999 or render_info.get("layout") == "fit":
         return [check("framing", "Framing", HEURISTIC, PASS, "The whole picture is kept (no crop).")]
+    if mode == "split":
+        cam = (render_info.get("framing_evidence") or {}).get("cam") or {}
+        found = {"border": "its rectangle was found", "manual": "where you drew it",
+                 "camera": "from your camera recording"}.get(cam.get("kind"), "framed around the face")
+        if render_info.get("layout") == "pip":
+            return [check("framing", "Framing", HEURISTIC, PASS, f"Picture-in-picture: the gameplay fills the frame "
+                                                                 f"and the face cam ({found}) sits in a box at the "
+                                                                 "top (estimate).")]
+        if render_info.get("layout") == "game":
+            return [check("framing", "Framing", HEURISTIC, PASS, f"Gameplay only: the gameplay fills the frame and "
+                                                                 f"the face cam ({found}) is left out (estimate).")]
+        below = "the whole picture" if render_info.get("split_game") == "whole" else "the rest of the picture"
+        return [check("framing", "Framing", HEURISTIC, PASS,
+                      f"Split view: the face cam on top ({found}) and {below} below (estimate).")]
     if mode in ("face", "speaker"):
         n = int(render_info.get("faces") or 0)
         return [check("framing", "Framing", HEURISTIC, PASS, f"Follows {n} face{'s' if n != 1 else ''} (estimate).")]

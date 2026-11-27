@@ -1,0 +1,58 @@
+name: Watch and listen check
+# ClipForge AI watches and listens (docs/clipforge/WATCH_AND_LISTEN.md), checked on real machines with a real film:
+# the sound model and the frame-by-frame watch on a Mac and on Linux, the built-in model describing the film on Linux,
+# and the clips picked with watching and listening off and on. The results are printed in the log and the summary.
+on:
+  push:
+    branches: ['claude/project-thread-eh542v']
+    paths: ['clipfoundry/pipeline/listen.py', 'clipfoundry/pipeline/watch.py', 'clipfoundry/pipeline/senses.py',
+            'clipfoundry/pipeline/eyes.py', 'clipfoundry/pipeline/process.py', 'clipfoundry/pipeline/candidates.py',
+            'clipfoundry/pipeline/deep.py', 'clipfoundry/pipeline/scout.py', 'clipfoundry/assets/models/yamnet*',
+            'scripts/watch_listen_check.py', '.github/workflows/watch-listen-check.yml']
+  workflow_dispatch:
+    inputs:
+      level:
+        description: 'The built-in model that describes the film on Linux (basic: Qwen3-VL 2B; standard: Gemma 4 E4B)'
+        type: choice
+        options: [basic, standard]
+        default: basic
+permissions:
+  contents: read
+concurrency:
+  group: watch-listen-check-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    if: github.event.repository.private == false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15            # Apple silicon: what Landry runs; sound model, watching, picks (no model)
+            level: ''
+          - os: ubuntu-latest       # the built-in model describes the film and picks with it
+            level: model
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tools
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; else sudo apt-get update && sudo apt-get install -y ffmpeg; fi
+          python -m pip install -r requirements.txt
+      - name: Check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WATCH_BUDGET_S: '900'
+        run: >
+          python scripts/watch_listen_check.py --out "$RUNNER_TEMP/watch-listen-check.json"
+          ${{ matrix.level && format('--level {0}', inputs.level || 'basic') || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: watch-listen-check-${{ matrix.os }}
+          path: ${{ runner.temp }}/watch-listen-check.json
+          retention-days: 14

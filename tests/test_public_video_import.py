@@ -233,6 +233,53 @@ def test_recorded_hls_webpage_imports_real_media_through_guard(public_site):
     assert all(r.url.host == "8.8.8.8" for r in calls)
 
 
+def test_separate_picture_and_sound_are_joined_with_the_apps_own_ffmpeg(public_site, monkeypatch):
+    """YouTube serves picture and sound as separate files that yt-dlp joins with ffmpeg. The Mac app keeps ffmpeg
+    inside the app (CLIPFOUNDRY_FFMPEG), off the PATH a Finder-opened app gets: yt-dlp must still find it."""
+    import os
+    import shutil
+    import subprocess
+    from synthetic_media import make_video
+
+    from clipfoundry import db, jobs
+    from clipfoundry.pipeline.common import JobContext
+    from clipfoundry.pipeline.ffmpeg_utils import probe
+
+    if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+        pytest.skip("ffmpeg and ffprobe are needed")
+    routes, calls, tmp_path = public_site
+    original = make_video(tmp_path / "original.mp4", seconds=2)
+    for name, keep in (("picture.mp4", "-an"), ("sound.m4a", "-vn")):
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(original), keep, "-c", "copy",
+                        str(tmp_path / name)], check=True, capture_output=True)
+    manifest = (
+        '<?xml version="1.0"?><MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" '
+        'mediaPresentationDuration="PT2S" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011"><Period>'
+        '<AdaptationSet mimeType="video/mp4"><Representation id="picture" codecs="avc1.64001e" width="640" '
+        'height="360" bandwidth="500000"><BaseURL>https://public.example/picture.mp4</BaseURL></Representation>'
+        '</AdaptationSet><AdaptationSet mimeType="audio/mp4" lang="en"><Representation id="sound" '
+        'codecs="mp4a.40.2" bandwidth="96000" audioSamplingRate="48000"><BaseURL>https://public.example/sound.m4a'
+        '</BaseURL></Representation></AdaptationSet></Period></MPD>')
+    video_page(routes, "/streams.mpd")
+    routes["/streams.mpd"] = (200, {"Content-Type": "application/dash+xml"}, manifest.encode())
+    routes["/picture.mp4"] = (200, {"Content-Type": "video/mp4"}, (tmp_path / "picture.mp4").read_bytes())
+    routes["/sound.m4a"] = (200, {"Content-Type": "audio/mp4"}, (tmp_path / "sound.m4a").read_bytes())
+    helpers = tmp_path / "Helpers"
+    helpers.mkdir()
+    for name in ("ffmpeg", "ffprobe"):
+        os.symlink(shutil.which(name), helpers / name)
+    monkeypatch.setenv("CLIPFOUNDRY_FFMPEG", str(helpers))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))  # nothing on the PATH, like the Mac app
+    pdir = tmp_path / "project"
+    pdir.mkdir()
+    project = db.create_project("Separate streams", source_path=str(pdir / "source.mp4"))
+    jobs.download_url(project["id"], "https://public.example/watch", JobContext(), max_bytes=10_000_000)
+    joined = probe(db.get_project(project["id"])["source_path"])
+    assert 1.9 <= joined["duration"] <= 2.2 and joined["has_audio"] and joined["width"] == 640
+    assert {"/picture.mp4", "/sound.m4a"} <= {r.url.path for r in calls}
+    assert all(r.url.host == "8.8.8.8" for r in calls)
+
+
 def test_a_rule_recorded_after_clipping_reaches_the_clipped_video(public_site):
     """A public video clipped before anything covered it keeps its clips. A license recorded later makes it eligible
     for scheduling and its stored rights say so; a block recorded later takes that back. Its processing status

@@ -1,5 +1,512 @@
 # Implementation status
 
+## Landry's ship in front of the black hole, and a cleaner warp — 2026-11-27 (Claude Code)
+
+From `claude/project-thread-xeb0pd`. The Studio's orbiting black hole is seen from 70 hole radii instead of 30 (no
+brown bowl over the bottom of the shadow), lower and steadier tilt, the bent arc over the top no longer cut off, no
+haze rectangle or star scratches; Landry's pixel ship flies in front of it. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-27 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-27 | `pytest -m "not slow"` on the files that read frontend sources and design/ | 249 passed, 33 skipped |
+| 2026-11-27 | The orbit view in Chromium (SwiftShader, fake clock): full step-by-step light paths vs the new jump to 25 radii | same picture (only stars and tiny disk texture differ); 310-326 ms a frame vs 335-346 before |
+| 2026-11-27 | Reduce motion on, 20 s | 0 hole pixels changed; the ship is drawn once its picture loads |
+| 2026-11-27 | Review (2 reviewers) | 4 findings, all fixed: number overflow on phones' half-precision GPUs, haze centred on the box, half-size ship enlarged, one failed picture hiding both |
+| 2026-11-27 | `npm run test:sandbox` | 89 passed, 3 failed: beginner-flow and zero-touch-loop (fail the same way on the release line, see PR #92) and video-setup "words not sent…" (fails in this checkout with the release line's own build too; passes with this branch's build in a clean copy of the release line d37fbcf) |
+| 2026-11-27 | Before/after video, frame by frame | /mnt/project-files/space-studio/flyer/ship-warp.mp4 |
+| 2026-11-27 | After merging the release line 8fe9a76 (PR #90): `npx tsc --noEmit -p frontend`, `npm run build`, `pytest -m "not slow"` on the 10 test files that read frontend/ or design/space-studio, `department-office.spec.ts` in the sandbox | passed; 152 passed; 6 passed |
+
+Not verified: a real GPU (Mac, Windows, phone); the cloud has only the SwiftShader software renderer.
+
+## Editing quality, batch 4b: several cameras and pictures in a corner — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 4a (PR #85). Full videos can use several cameras of one
+recording: lined up by their sound, switching to whoever speaks or to another angle at pauses, by hand per clip or at
+a moment, and one camera or picture small in a corner
+([docs/clipforge/MULTICAM.md](clipforge/MULTICAM.md)). Not released. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | Review (3 reviewers with probes) | 12 problems confirmed, all fixed with tests (AI_CHANGELOG.md, "Review") |
+| 2026-11-26 | `pytest -m "slow or not slow"` on d0fb474 (final code merged with the release line at cc71e90) | 3,742 passed, 3 skipped (1 h 08 min) |
+| 2026-11-27 | `pytest -m "not slow"` and `pytest -m slow` side by side on c6f10c8 (merged with the release line at d37fbcf: PRs #89, #92) | 3,765 passed, 3 skipped; 1 timing check (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, 2.5 s wait under the doubled load) failed once and passed alone |
+| 2026-11-26 | GitHub check on PR #90 (macos-15, ubuntu) | passed on 43b8bb0 and d0fb474 |
+| 2026-11-26 | `pytest tests/test_multicam.py` (fast and slow) | 55 passed (52 fast, 3 real renders) |
+| 2026-11-26 | `pytest tests/test_multicam.py tests/test_studio_edit_requests.py tests/test_studio_editor.py tests/test_studio_smart_edit.py tests/test_retime.py tests/test_craft.py -m "not slow"` | 300 passed, 1 skipped |
+
+Not verified: real podcast footage with one microphone per person (the speaker test uses made-up levels), real
+cameras' clock drift, the Cameras panel in a browser beyond the demo.
+## Smoother motion without GSAP — 2026-11-26/27 (Claude Code)
+
+From `claude/project-thread-wkj3fp`, PR #92. GSAP was checked and not added; six jumpy spots were smoothed with the
+browser's own animations, and the finished video's caption pop now covers every word of a new page. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `pytest -m "not slow"` on 89e4f25 | 3,596 passed, 41 skipped (32 min) |
+| 2026-11-26 | Each change in Chromium against the sandbox (Reduced motion too); frame-by-frame video of all six | as intended; /mnt/project-files/smooth-polish/smooth-polish.mp4 |
+| 2026-11-27 | Review (3 reviewers, a verifier per finding) | 5 confirmed + 4 smaller, all fixed and re-probed |
+| 2026-11-27 | `npx tsc --noEmit -p frontend` and `npm run build` on the merge with the release line (c0b8d70) | passed |
+| 2026-11-27 | `pytest -m "not slow"` on the files that read frontend sources, captions, editing, core, predictor | 374 passed, 33 skipped |
+| 2026-11-27 | `npm run test:sandbox` (port 8871, espeak-ng installed) on c0b8d70 | 90 passed, 2 failed: beginner-flow (no Topics box on setup) and zero-touch-loop (broken source never "failed"); both fail the same way on the release line f8b02d1 without this change |
+| 2026-11-27 | `pytest -m slow` on c0b8d70 | 49 passed, 1 skipped (26 min) |
+
+Not verified: WKWebView on a real Mac; the animated short's scene list in a browser (same code as the file list).
+
+## Editing quality, batch 4a: speed, ramps, freeze frames, camera moves — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 3, PR #85. Full videos get per-clip speed, eased speed ramps,
+freeze frames and slow zooms and pans, with the voice kept at its pitch
+([docs/clipforge/RANGE_EDITING.md](clipforge/RANGE_EDITING.md)). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | Review (real renders, a verifier per finding) | 15 problems confirmed, all fixed with tests (RANGE_EDITING.md, "Review") |
+| 2026-11-26 | Second review of the fixes (2 reviewers with probes) | 8 more, all fixed with tests |
+| 2026-11-26 | `pytest -m "slow or not slow"` on 9afedf9 (final code merged with the release line at 149dbeb) | 3,620 passed, 3 skipped (1 h 06 min) |
+| 2026-11-26 | GitHub check on PR #85 (macos-15, ubuntu) | passed on 7e04647 and 9a7b59b |
+| 2026-11-26 | `pytest tests/test_retime.py` (fast and slow) | 23 passed (16 fast, 7 real renders) |
+| 2026-11-26 | `pytest tests/test_retime.py tests/test_studio_edit_requests.py tests/test_studio_editor.py tests/test_craft.py tests/test_studio_smart_edit.py tests/test_sound_joins.py -m "not slow"` | passed |
+
+Not verified: real phone footage with variable frame rate, real speech at 0.25× and 4×, the editor's attached-sound
+field in a browser (type-checked and built).
+
+## Text-message stories (the TikTok kind), up to ten minutes — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-gjc836` (PR #86). Text Stories gains the kind "Text-message story": a phone chat card over
+the background, a bubble at a time, each message read aloud in its sender's voice; pasted or written by ClipForge AI;
+chats and narrated stories up to ten minutes. Not released (Landry: "don't release anything yet only merge what's
+done"). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | `pytest -m "not slow"` (before the review fixes) | 3,531 passed, 2 skipped |
+| 2026-11-26 | Independent review (3 reviewers, a verifier per finding) | 17 confirmed findings, all fixed; 13 tests added, each failing before its fix |
+| 2026-11-26 | `pytest` on the 18 test files that use the changed code (after the fixes) | 365 passed |
+| 2026-11-26 | Second review of the fixes (3 reviewers, a verifier per finding) | 5 confirmed, all fixed; 2 more tests and 2 extended, each failing before its fix |
+| 2026-11-26 | `pytest tests/test_chat_stories.py tests/test_text_stories.py -m "not slow"` (final code) | 63 passed |
+| 2026-11-26 | `pytest -m slow` | 40 passed, 1 skipped before the run hit its 30-minute limit; the 3 left (`test_zero_touch_loop.py`) and the chat export test on the final code: 4 passed |
+| 2026-11-26 | The story page in Chromium (throwaway app): typing with pauses, leaving the page without leaving a field | a new line and a space before a pause are kept; the name at the top and the unread number are saved |
+| 2026-11-26 | GitHub shorts-check on PR #86 (ubuntu, windows, macos-15), before the review fixes | passed |
+
+Not verified: a real model writing a ten-minute chat, Mac and Windows voices and emoji fonts (the cloud has eSpeak and
+Noto Color Emoji), Windows' Pillow without raqm beyond the forced-layout test.
+
+## Editing quality, batch 3: full videos — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 2. Full videos get split edits (J and L cuts) where no word
+changes hands, 40 ms equal-power crossfades between recordings, room tone under titles, photos and silent videos,
+and ClipForge's music beds back-timed to end on the last frame
+([docs/clipforge/LONG_EDITING.md](clipforge/LONG_EDITING.md)). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | `pytest tests/test_sound_joins.py` | 12 passed (9 fast, 3 real renders); each render test fails with its feature turned off |
+| 2026-11-26 | Independent review (2 reviewers) | 9 findings, all handled (see the changelog); 2 confirmed by a verifier before the usage limit stopped the rest |
+| 2026-11-26 | Second review (3 reviewers, a verifier per finding) | 5 more findings (3 confirmed by verifiers, 2 checked by hand), all fixed |
+| 2026-11-26 | `pytest -m "not slow"` (before the second review) | 3,514 passed, 2 skipped (one edit-request test followed the new hard-cut default) |
+| 2026-11-26 | `pytest -m slow` (before the second review) | 40 passed, 1 skipped |
+| 2026-11-26 | `pytest` (fast and slow, final code) | 3,554 passed, 3 skipped, 1 failed: the shorts routing test called `_craft_render` with an empty job, fixed; then `test_studio_shorts_captions.py`, `test_craft.py`, `test_studio_filmcraft.py` and the release line's `test_assistant_guards.py`: 77 passed, 1 skipped |
+| 2026-11-26 | GitHub filmcraft-check on PR #83 (macos-15, ubuntu) | passed |
+
+Not verified: real recordings with real room noise (the cloud has no sample footage), FilmCraft itself (its routing is
+tested with a stand-in), the Mac.
+
+## Editing quality, batch 2: short clips — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 1. Short clips punch in on jump cuts, change framing at least
+every 5 s, push in on key words, get quiet whooshes and pops made from the edit, and turn caption pages with the
+cuts ([docs/clipforge/SHORTS_EDITING.md](clipforge/SHORTS_EDITING.md)). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` (after the rebase onto batch 1) | passed |
+| 2026-11-26 | Independent review (with batch 1) | 10 shorts findings confirmed and fixed: the zoom switch on the first frame of the new shot at any speed, no eased push across a cut, caption pages with the cut despite the 40 ms lead, effects following the speech level and clip volume, no pops for Minimal captions, one `sound_effects` field, the effects track deleted after the encode |
+| 2026-11-26 | `pytest tests/test_moves.py` | 14 fast and 1 real render passed |
+| 2026-11-26 | `pytest -m "not slow"` on the batch 2 tree | 3,447 passed, 2 skipped |
+| 2026-11-26 | `pytest -m slow` | 37 passed, 1 skipped, 1 failed: a caption test still expected the old 90-pixel side margins (now 150, clear of the apps' buttons); updated, passed |
+| 2026-11-26 | Before/after video made by the real clip renderer (`/mnt/project-files/editing-upgrade/shorts-before-after.mp4`) | looked at frame by frame |
+
+Not verified: how it feels on real talking-head footage (the cloud has no sample media), and on a Mac.
+
+## Editing quality, batch 1: colour — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on the release line at 9cd25e9. Landry asked to "do deep research on how to edit
+videos and what goes into it and majorly improve the editing". The research summary and the five-batch plan are in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](clipforge/EDITING_CRAFT_RESEARCH.md); this batch is colour
+([docs/clipforge/COLOUR.md](clipforge/COLOUR.md)): phone HDR converted, white balance and levels corrected once per
+recording, recordings matched, nine looks with a strength, measured grain cleaned, in clips and full videos, with
+the choices in Settings, the clip editor, the video editor and plain-word edit requests. Full Cloud jobs carry the
+colour choices. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | `pytest tests/test_grade.py` (15 new) and the studio suites (193) | passed |
+| 2026-11-26 | Independent review (six areas) | 17 colour findings confirmed and fixed (1 more was not real); 11 tests added for them (full-range 8-bit and 10-bit video and JPEG photos through both renderers, "fit", previews and proxies; cancelling; HDR10 peaks; probe failures; grain scale; FilmCraft routing; colour words in other requests) |
+| 2026-11-26 | `pytest` on the colour, studio (video, render, editor, edit requests, guidance), FilmCraft and clip-editing files after the fixes | all passed (195; 1 FilmCraft routing test updated for the new rule) |
+| 2026-11-26 | `pytest -m "not slow"` on the merged tree (before the review fixes; the files they touch were re-run after, row above) | 3,421 passed, 2 skipped (1 outdated guidance test updated for the colour fields) |
+| 2026-11-26 | `pytest -m slow` (incl. 2 new in `tests/test_grade_render.py`: a full render with a blue-cast and an HLG recording, the clip renderer's chain) | 38 passed, 1 skipped (after the review fixes) |
+| 2026-11-26 | Before/after video made by the real engine (`/mnt/project-files/editing-upgrade/colour-before-after.mp4`) | looked at frame by frame |
+
+Not verified: real phone HDR footage (iPhone, Android, Dolby Vision) and real low-light grain (the cloud has no
+sample media); the colour step on Landry's Mac (the Mac desktop check now asserts the bundled FFmpeg has `lut3d`,
+`atadenoise` and `fftdnoiz` and that a render reports its colour step).
+
+## Final release, batch 5: what was still missing from Landry's 18-point list — 2026-11-26 (Claude Code)
+
+Shipped from `claude/project-thread-8ua98o` (PR #72) on the release line at 3baaa34. A check of the batch 4 head
+against Landry's updated list of Nov 26 found what had not shipped; this batch builds it, keeping the current look.
+ClipForge AI now acts on its own (Landry, Nov 26: "no i want it to be able to do it on its own you dont have to say
+ok"); deletes, TikTok posts and replacing a project's clips still wait for the owner's OK. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` (after every frontend change) | passed |
+| 2026-11-26 | 62 new tests: `test_assistant_acts_alone` (17), `test_titles_hashtags`, `test_clipforge_name` (5), `test_live_facecam` (6), `test_text_story_footage`, `test_upload_cancels`, `test_one_sign_in`, `test_blueprint`, `test_studio_shorts_parts` / `_cast` / `_voice`, `test_full_cloud` | passed |
+| 2026-11-26 | Live face cam with real FFmpeg minutes (a minute still being written, a one-second minute after a restart, an unreadable minute) using only the test's temporary folder | passed: the picture is always the newest whole minute's own, never an older one (409 instead) |
+| 2026-11-26 | Voice pitch variants (deeper, brighter) with the real local voice engine | same length within 0.04 s; word times kept |
+| 2026-11-26 | Review of the batch (4 read-only reviewers by area, every finding checked again) | 21 problems confirmed and fixed in 202063c, each with a test; 1 refuted |
+| 2026-11-26 | The review fixes' tests (17 new, 2 changed) run on the code before the fixes (7864c51) in a separate worktree | all 19 failed; on 202063c all pass |
+| 2026-11-26 | GitHub "Native Mac desktop app" run 45744125325 on 9653278 | Mac build, bundled tools, Keychain and WebView passed; slow suite passed; fast suite 3,369 passed, 1 failed (`test_upload_cancels` read the studio import in a fixed order; fixed in 7864c51) |
+| 2026-11-26 | GitHub "Animated shorts check" on 202063c (Linux, Mac, Windows) | passed |
+| 2026-11-26 | `pytest -m slow` on this cloud machine on 202063c | 36 passed, 1 skipped |
+| 2026-11-26 | GitHub "Native Mac desktop app" run 45748846037 on 202063c | Mac build, bundled tools, Keychain and WebView passed; slow suite passed; fast suite 3,386 passed, 2 skipped, 1 failed: `test_macos_support` still expected one Keychain item, and the review fix saves a new key under both names on purpose; the test now checks both names hold the same key (`test_macos_support` + `test_clipforge_name`: 12 passed) |
+| 2026-11-26 | The app on a seeded demo folder: Settings → ClipForge AI, Defaults, Customize colours; a live stream's Draw the face cam (two real recorded minutes of a test picture with a drawn cam); the clip editor's trims; Text Stories' Find free footage | 8 screenshots in `/mnt/project-files/final-release/batch5/`; they showed two wording problems, fixed in PR #73 (two tests that fail before the fix; 145 tests that read the page code passed) |
+
+Not verified: ClipForge AI's new commands with a real model (tests use a scripted model), a real live stream's face
+cam, FLUX.2 klein drawing the main character from the first scene's picture (the graph is checked, the model is not
+in the cloud), the Keychain copy and the Finder/Dock name refresh on Landry's Mac (the GitHub Mac build compiles and
+runs the Keychain test), Full Cloud pictures on a rented cloud computer, free footage from a real media source.
+Not built: tone styles for animated shorts' voices, live hashtag trend data, the 12-pair pilot, Full Cloud for
+Missions and Autopilot, a worker Dockerfile, the "eyes" check on live finalists. Needs Landry: built-in Google and
+TikTok sign-in secrets, a Windows branch, a real stream test, an Apple Developer ID.
+
+## Final release, batch 4: space look, Text Stories, characters, Full Cloud — 2026-11-25 (Claude Code)
+
+Built on `claude/project-thread-hqwolr`, shipped from `claude/project-thread-8ua98o` on top of batch 3 (PR #70).
+Landry's final-release prompt, sections 1, 6, 7 and 8: the ship and camera orbiting the black hole, your own accent
+colour and the office Taser; Text Stories; characters and places for animated shorts with an example picture for every
+look; and Full Cloud processing on the owner's own ClipForge worker. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md),
+[FULL_CLOUD.md](clipforge/FULL_CLOUD.md), [deploy/WORKER.md](../deploy/WORKER.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_theme_contrast` (accent colour readable on every palette), `test_studio_prefs` | passed |
+| 2026-11-25 | pytest `test_text_stories` (13): script, AI write and revise, voice styles and tone, pronunciations kept out of the captions, favourite voices, uploaded / picked / colour backgrounds, preview, export, Stop | passed (real local voice, FFmpeg render) |
+| 2026-11-25 | pytest `test_studio_shorts_cast` (7), `test_look_examples` (4), `test_local_engines` (80, reference pictures in the picture graph) | passed |
+| 2026-11-25 | pytest `test_full_cloud` (9): a real worker started as a second process with its own data folder and key; worker-only answers, the same footage made here and on the worker gives the same clips (start, end, title) whose files are here and play, an edit renders again here, a job picked up again without a second upload, Stop deletes the job there, the private test job, the monthly limit, a job over the limit never reaches the worker, the Processing routes, style choices sent without their names | passed |
+| 2026-11-25 | Exports: a Text Story with an uploaded background, one with a background ClipForge picked from the library, one with its own moving colour | 1080×1920 MP4s with voice, title card and highlighted captions, in `/mnt/project-files/final-release/batch4/` |
+| 2026-11-25 | Screenshots and videos (black hole orbit video, Studio orbit, own colour, Taser, Text Stories editor / preview / phone, characters panel, references, change proposal, drift warning, scene timing, look examples on a computer and a phone, Settings → Processing, a Full Cloud project running and done, the test job on a phone) | in `/mnt/project-files/final-release/batch4/` |
+| 2026-11-25 | Mac FilmCraft check (PR #69): the moving sky took about 2.6 s of every 12 s of the page's thread on Projects and 8.9 s on the Studio in headless Chromium without a graphics card, and FilmCraft's editor loads on that thread | `covered.ts` holds the sky and black holes still while the editor is open (from batch 2, `a684076`) |
+| 2026-11-25 | Restore on a new cloud machine: the batch 4 patch (`restore/b4` on `claude/project-thread-hqwolr`) joined, decoded and applied on top of batch 3; `npx tsc --noEmit -p frontend` and `npm run build` | sha256 matched, applied cleanly; passed |
+| 2026-11-25 | Review findings 7 to 25 (`restore/REMAINING.md`): 20 new tests in `test_text_stories` (15) and `test_studio_shorts_cast` (5), run on the code before the fixes and after | before the fixes: 19 failed, 1 passed; after: all passed |
+| 2026-11-25 | Full Cloud folder guard: `test_tidying_a_worker_job_never_deletes_a_folder_outside_the_projects_folder` (uses only the test's own temporary folder) | passed |
+| 2026-11-25 | The app on a seeded demo folder: Delete in the characters library (confirm, then gone from the list); Keep this voice for this story, then another style and a reload | Captain Ortiz gone, Mia and The lighthouse kept; the voice stayed British man while the style changed speed to 0.90× and tone to −2; `character-library-delete-confirm.png`, `character-library-deleted.png`, `text-story-keep-voice.png` in `/mnt/project-files/final-release/batch4/` |
+| 2026-11-25 | A second review of the fixes (two read-only reviewers: Text Stories; shorts, characters, Full Cloud) | 7 problems confirmed in the fixes, all fixed; 8 new tests (`test_text_stories` 3, `test_studio_shorts_cast` 4, `test_full_cloud` 1): before the fixes all 8 failed, after them all pass |
+| 2026-11-25 | A last look at those fixes (the same two areas) | 3 smaller problems, all fixed: a library Delete at the moment a short takes the character, a cut the owner set in the editor, an older Stop against a newer job; 3 new tests fail before and pass after |
+| 2026-11-25 | `pytest -m "not slow"` on this cloud machine before the second review | 3,303 passed, 2 skipped, 1 failed: `test_the_reschedule_route_takes_a_clock_time_and_answers_a_conflict_with_a_suggestion` planned from 6 AM today and failed after 11:10 Chicago time; it now plans from tomorrow |
+| 2026-11-25 | `pytest -m "not slow"` on `b139683` (after the second review and the last look) | 3,315 passed, 2 skipped (31 min) |
+| 2026-11-25 | GitHub "Native Mac desktop app" run 45671098686 on `b139683` | slow suite passed; the Mac build was cancelled after 15 minutes without a Mac machine |
+| 2026-11-25 | GitHub FilmCraft check run 45670662326 on `b139683` | Linux passed; Mac failed: the editor page check timed out waiting for `.craft-editor`. Cause: the batch 4 patch had removed `covered.ts` and the check's busy-page handling (a684076, 72c4ab6); a forward `git apply --check` of every batch 2 and 3 commit found no other lost change. Restored, with the orbiting hole holding still too; `tsc`, build, `test_craft`, `test_studio_filmcraft`, `test_theme_contrast`: 60 passed |
+| 2026-11-25 | Fact-check of the plain-language release report against the code (3 readers by area, each finding checked again) | 21 sentences corrected in the report (3 more findings refuted); 1 real problem in the code: a TikTok upload stopped after its last part ended as "Nothing was published" or went back for a second upload |
+| 2026-11-25 | TikTok fix: `test_a_cancel_that_comes_while_the_last_part_is_sent_never_says_nothing_was_published`, `test_a_stop_after_tiktok_has_the_whole_video_never_plans_a_second_upload`; then the TikTok, YouTube, planned, unattended and public publishing files | both failed before the fix (cancelled; approved again) and pass after; 133 passed |
+
+Not verified: Full Cloud on a rented server (the tests and screenshots use a real worker on the same machine), real
+speech transcription on the worker (no voice in the cloud: the test job sent its words as a transcript), a character's
+reference pictures on a real FLUX.2 klein (the graph is built and checked, the model is not in the cloud), the drift
+warning's colours on real pictures (stored by hand for the screenshot), a ClipForge AI change proposal from a real
+model (the screenshot's answer was placed as the model would answer), Text Story writing from a real model, the
+orbit's frame rate on Landry's Mac.
+
+## Final release, batch 3: AI commands, saved chats, crew, learning — 2026-11-25 (Claude Code)
+
+Built on `claude/project-thread-hqwolr` on top of batch 2; merged as pull request #70 (`f1c0618`). Landry's
+final-release prompt, sections 4 and 5: ClipForge AI commands with the app's own tools and OK cards, queued work
+followed in the chat, the crew's final check and report, saved chats, and Brain → Learned (what your edits taught,
+checked before use, versions and rollback). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md),
+[CLIPFORGE_AI.md](clipforge/CLIPFORGE_AI.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_assistant_commands` (12), `test_saved_chats` (3), `test_learned` (7) | passed |
+| 2026-11-25 | pytest `test_clipforge_ai_chat`, `test_postpack`, `test_post_style`, `test_title_kinds`, `test_trims`, `test_clip_selection_rules`, `test_rank_reasons`, `test_smarter_ai`, `test_story_clips`, `test_facecam_layouts`, `test_integration` | 274 passed, 1 skipped |
+| 2026-11-25 | `pytest -m "not slow"` and `pytest -m slow` (whole suites, this cloud machine) | fast: 3,215 passed, 2 skipped, 1 failed (`test_resuming_clip_creation_keeps_completed_file_and_id`: the learned edits read options the resumed clip did not have; fixed in `3a67930`, the test passes); slow: 31 passed, 1 skipped |
+| 2026-11-25 | The app on test footage (three runs of the ranked-stream video): 5 clip editor saves (start about 1.2 s earlier, captions in the middle) | both habits written down and used after the check (start: off by 1.20 s before, 0.16 s with it; captions: 0% matched before, 100% with it); a new run's clips started 1.27 s and 1.35 s earlier (on a word) with captions in the middle |
+| 2026-11-25 | Talk to AI: a Frame card (zoom 1.2×) pressed OK in the app | the clip editor's change was saved, the clip rendered again, the chat showed Completed with Open |
+| 2026-11-25 | Screenshots (saved chats with an OK card, the work chip, Brain → Learned on a computer and a phone, the clip editor's thumbs and learned start) | in `/mnt/project-files/final-release/batch3/` |
+
+Not verified: a real AI model choosing the commands (the cloud has none: the card in the screenshots was placed as
+the model would place it, then pressed in the app), learning on Landry's own edits, YouTube and TikTok.
+
+## Final release, batch 2: clip quality, stream layouts, titles, Compare — 2026-11-25 (Claude Code)
+
+Branch `claude/project-thread-hqwolr` from the release line at `cf51120` (batch 1), pull request #69. Landry's
+final-release prompt, batch 2: better clip picking with reasons, suggested trims, live stream reactions, stream
+layouts with the face cam, three kinds of titles, Posts → Results → Compare, and a before/after benchmark. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md), rules and hypotheses:
+[CLIP_QUALITY_RESEARCH.md](clipforge/CLIP_QUALITY_RESEARCH.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_clip_selection_rules`, `test_compare_results`, `test_facecam_layouts`, `test_rank_reasons`, `test_title_kinds`, `test_trims`, `test_split_view`, `test_split_between_channels` (new and changed) | passed |
+| 2026-11-25 | `scripts/clip_quality_benchmark.py` on three synthetic videos (podcast, game stream, tutorial), `cf51120` against this branch | before 9 clips, after 7; ad read, goodbye and chat-reading clips rejected; the clutch clip keeps its shout; report in `docs/clipforge/benchmarks/clip-quality-2026-11-25.md` |
+| 2026-11-25 | `pytest -m "not slow"` (whole fast suite, this cloud machine) | 3183 passed, 2 skipped, 2 failed: a recap line counted as a goodbye (fixed in `9b3a9e8`; the outro tests pass) and `test_a_story_told_on_stream_is_clipped_with_its_build_up_and_its_ending`, which passed alone, under 8 hash seeds, after each quarter and each half of the files before it |
+| 2026-11-25 | GitHub "Native Mac desktop app" run 45605044316 on `d009163` | Mac build and bundled-app checks passed; `pytest -m slow` passed |
+| 2026-11-25 | GitHub run 45609252829 on `9b3a9e8` (the outro fix): Mac build, `pytest -m "not slow"` and `pytest -m slow` on Ubuntu | Mac build and slow passed; fast had 2 failures, both root-caused and fixed below |
+| 2026-11-25 | Root cause 1, `test_a_story_told_on_stream_is_clipped_with_its_build_up_and_its_ending`: the meaning vectors (`semantic._lexical`) kept the top k directions of a word matrix whose strongest directions were tied; which of two equally strong directions a maths library returns differs between computers, so the clips picked differed (rotating the tied directions reproduced the GitHub result in 5 of 8 tries) | fixed: a tied group is kept whole or not at all (`semantic.whole_groups`), the matrix is worked in 64-bit; new test `test_what_sentences_mean_does_not_depend_on_which_of_two_equal_directions_the_math_library_picks` fails on the old code; 8 of 8 rotations now pass |
+| 2026-11-25 | Root cause 2, `test_cancel_after_the_last_part_when_youtube_forgot_the_session_keeps_the_hold`: Cancel read the post's info, added its note and wrote the whole info back, so an upload that wrote `outcome_unknown` at the same moment lost it | fixed: Cancel merges its one field in a single SQL update (`db.merge_publication_info`); new test `test_cancel_keeps_what_the_upload_wrote_at_the_same_moment` |
+| 2026-11-25 | `pytest -m "not slow"` again (three parts at once on this machine) | 3,195 passed, 2 skipped, 1 failed: `test_the_engine_stops_when_idle`. Root cause 3: stopping the built-in AI let go of its process before it had ended, so `running()` said stopped while the model was still in memory (and `make_room` then skipped waiting for it before transcription). Fixed in `builtin_ai.Server.stop`; new test `test_the_engine_counts_as_running_until_its_process_has_ended` fails on the old code; `test_builtin_ai.py` 25 passed |
+| 2026-11-25 | Screenshots (editor Layout tab, drawn face cam box, suggested trims, title kinds, why a clip ranks, Compare) and a rendered test clip | in `/mnt/project-files/final-release/batch2/` |
+
+Not verified: real streams with a live chat (ClipForge has no chat connection; a recording has no chat), YouTube and
+TikTok from this cloud machine, real footage (the benchmark videos are synthetic speech).
+
+## Final release, batch 1: name and icon, Cancel upload, one sign-in, Missions — 2026-11-25 (Claude Code)
+
+Branch `claude/project-thread-hqwolr` from the release line at `54f953b`, pull request #68. Landry's final-release
+prompt, batch 1:
+ClipForge name and the gold command robot icon, Cancel upload (imports, cloud computer transfers, Publish Center,
+scheduled posts), one sign-in for YouTube and TikTok, and Missions in the main menu with per-mission pause and times in
+the Autopilot time zone. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-25 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-25 | pytest `test_icons`, `test_studio_uploads`, `test_remote_engines` (cancel), `test_youtube`, `test_unattended_publishing`, `test_one_sign_in` | passed (run while each part was built) |
+| 2026-11-25 | pytest `test_autopilot_scheduler`, `test_autopilot_publish`, `test_missions_page`, `test_review_submitted_routes`, `test_review_submitted_mode`, `test_post_to_channels`, `test_split_between_channels` | 110 passed |
+| 2026-11-25 | `pytest -m "not slow"` (whole fast suite, this cloud machine) | 3145 passed, 2 skipped, 1 failed: `test_an_nvenc_encode_waits_while_the_gpu_is_transcribing` (a 2.5 s timing wait on a loaded machine; passed 3 of 3 runs alone) |
+| 2026-11-25 | GitHub "Native Mac desktop app" run 45589634804 on `70694bf`: Mac build + bundled tools, `pytest -m "not slow"` and `pytest -m slow` on Ubuntu | all three jobs passed |
+| 2026-11-25 | Screenshots of Missions, Cancel upload, Change the time (conflict and nearest free time), Accounts, from a seeded demo data folder | in `/mnt/project-files/final-release/batch1/` |
+
+## Moving sky, turning black hole and smooth page changes — 2026-11-20 (Claude Code)
+
+Branch `claude/project-thread-t2bntx` from the release line at 07569cd, pull request #65. Landry asked for an animated
+background (the stars and the black hole), smooth tab changes, a background that moves "like we are moving", and a
+video. The sky streams past to the left, the black hole's disk turns on the graphics chip, and pages and tabs fade in.
+Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md) and [design/space-studio/README.md](../design/space-studio/README.md).
+Released as 2026.11.20.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-20 | `npx tsc --noEmit -p frontend` and `npm run build` after the review fixes | passed |
+| 2026-11-20 | pytest: `test_assistant_library`, `test_office`, `test_theme_contrast`, `test_network_paths`, `test_phone_monitor`, `test_autopilot_discovery`, `test_craft`, `test_pathguard`, `test_post_to_channels`, `test_remote_engines`, `test_tiktok_setup`, `test_studio_reference`, `test_clipforge_ai_chat` | 372 passed |
+| 2026-11-20 | Studio panel highlight against its tab (1000 to 1700 wide, with the count badge, Larger text) | the highlight matches the chosen tab to 0.1 px in all 12 cases (before: up to 35 px off) |
+| 2026-11-20 | Which parts fade in on 11 tab changes (Missions, Brain, Settings, Publishing) | a second row of tabs stays put when chosen in; content that loads within 1.2 s fades in (before: popped in) |
+| 2026-11-20 | Sky with a classic 15 px scrollbar, 1366×700 | window canvas 1351 px wide shown 1:1; masthead copy and window sky: 0 pixels differ (before: 82) |
+| 2026-11-20 | Still sky after height-only resizes (800 → 640 → 900) | masthead copy and window sky: 0 pixels differ each time (before: up to 329) |
+| 2026-11-20 | Sky after sign-out | 0 animation frames in 3 s (before: 181) |
+| 2026-11-20 | Black hole: three lost WebGL drawings, a real GPU-process crash, shaders that do not build | a fresh WebGL canvas after each loss and after the crash (same picture), the canvas painter after the third loss and when shaders fail (before: blank or a white box) |
+| 2026-11-20 | Black hole after 7 days of turning (fake clock, 30 frames at 30 fps) | every frame moves (with the old clock 14 of 30 did not) |
+| 2026-11-20 | Slow-computer rule in the cloud browser (fake clock) | holds still after 4.8 s; moving again after 2 minutes; second hold 5.6 s later; moving again after 4 more minutes |
+| 2026-11-20 | Frame-by-frame video, built app (`record.js`) | 1,015 frames, 33.8 s, 1440×900; frames checked |
+| 2026-11-20 | A second review of the fixes (two areas, a reviewer and a skeptic each) | 3 more problems confirmed and fixed; the next three rows check them |
+| 2026-11-20 | Canvas-painted black hole and the moving sky through a real GPU-process crash (which empties 2D canvases here, as on Windows) | the hole keeps its picture (2,479 warm pixels before and after; before the fix: 0) and the sky its stars (698 → 695 lit pixels; before: 0) |
+| 2026-11-20 | Black hole across the end of the first hour of turning and of the 168th (a week), fake clock, 50 frames each | the frame across the hour changes the disk as much as any other (mean change 1.93 and 1.95; other frames 1.90 to 1.96); before, about 14 times as much, with 30% of the disk's pixels changing |
+| 2026-11-20 | A second row of tabs brought in by the change (Brain Skills → Memory; Missions Live → Jobs and Styles → Memory facts with Back) | the new row fades in with what is under it (before: it popped in) |
+| 2026-11-20 | After those fixes (and with the disk's strips built at the first frame of each hour): the 11 tab changes, 7 days of turning, the end of hour 1, three lost drawings, the crash, shaders that do not build | the same results as above |
+| 2026-11-20 | `npx tsc --noEmit -p frontend`, `npm run build`, pytest `test_office` and `test_theme_contrast` after the second fixes | passed; 28 passed |
+| 2026-11-20 | `e2e/sandbox` visual specs: motion, brain-graph, brain-workspace, pixel-office, robot-office, living-office, lounge-life, department-office, office-handoff-flow | 46 passed (9.6 min); `motion` again on the final build: 3 passed |
+| 2026-11-20 | A last review of the fixes (two areas, a reviewer and a skeptic each) | both findings about the fixes refuted; an older problem confirmed and fixed (next row); the Settings flash noted and fixed |
+| 2026-11-20 | The ship, the Brain's galaxy and lightning, and still robot portraits through a real GPU-process crash, still and moving | the ship's still picture identical before and after (817,792 lit pixels, same hash) and about 817,800 moving (before: about 43,600 and 42,200, only robots, consoles and labels left); the galaxy (874,627) and the still lightning identical after the crash and after reopening the Brain (before: 0); moving lightning about 41,600 (before: about 9,400); 25 of 25 still portraits unchanged (before: all blank) |
+| 2026-11-20 | Settings: Media sources → Defaults, Appearance → Connections setup, Advanced → ClipForge AI → Integrations | only the section rises (260 ms) and what loads into it fades in; the title and the list of sections stay put (before: the whole page flashed to a skeleton and rose) |
+| 2026-11-20 | `npx tsc --noEmit -p frontend`, `npm run build`, pytest `test_office`, `test_theme_contrast` and `test_assistant_library` after the last fixes | passed; 40 passed |
+| 2026-11-20 | `e2e/sandbox`, every browser spec, on the final build | 90 passed (13.3 min); beginner-flow fails the same way as on the release (no Topics box) |
+| 2026-11-20 | Native Mac desktop app run 44815897634 on `72af02d` (PR #66: this work plus the Mac release notes) | macOS 15 native build and bundled-app smoke passed; fast 3,109 passed, 2 skipped; slow 31 passed, 1 skipped |
+| 2026-11-20 | Windows setup check 44816196313 (2026.11.19.2 installed first, then this version over it) | passed |
+| 2026-11-20 | Built app, `still-probe.js`: Motion › Reduced, the computer asking for less motion, Robot activity › Low power, a hidden window | the sky's tiles paused and its canvas and both black holes (Studio, Projects) unchanged over 1 s in each case; moving again once the window was shown; with Reduced, a page change and a tab change started no animation (Full motion: 4 and 2) |
+| 2026-11-20 | Fact-check of the Mac notes and the download page text (four checkers by area, a skeptic for each finding) | 66 claims; 1 gap confirmed (the hold-still settings not tried for this version: tried, row above), 3 findings refuted |
+| 2026-11-20 | `download/build.py --check` and `--verify` for the 2026.11.20 page | passed; every listed file downloaded and matched its size and SHA-256 |
+
+Not verified: Landry's Mac (WebKit) and the RTX 3050 laptop; moving the window to a screen of another pixel density
+(the cloud's emulation sends no change event; checked only through a resize).
+
+## Space studio: the ship and its crew, a galaxy Brain and a first clip in three steps — 2026-11-19 (Claude Code)
+
+Branch `claude/project-thread-t2bntx` from the release line at 87a38c8, pull request #62. Studio is a cutaway ship
+whose 25 robots and CORE move only for real work (Canvas 2D, no PixiJS or GSAP); Brain Memory is the real graph over
+a still galaxy; Styles has a playable preview; Projects, Publishing, Accounts and Settings → Appearance follow the
+new look; a first clip is three steps with More options. Later the same evening: the Studio panel (Working on and
+Make tabs), Talk to AI in the navigation, and the Brain's lines and dots as animated lightning. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md) and
+[design/space-studio/README.md](../design/space-studio/README.md). Released as 2026.11.19.2.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-20 | `npm run build` | passed; `frontend/dist` 3.9 MB |
+| 2026-11-20 | `pytest -m "not slow"` | 3,111 run, 0 failed, 2 skipped (two parts after a cloud restart) |
+| 2026-11-20 | `pytest -m slow` | 31 passed, 1 skipped |
+| 2026-11-20 | pytest, the 12 files that read frontend files, after the last ship changes | 339 passed |
+| 2026-11-20 | `e2e/tests` against the demo app | 62 passed, 6 skipped, 5 failed (the same 5 fail on the release) |
+| 2026-11-20 | `e2e/tests` office and app-shell against the demo app, after the last ship changes | 22 passed |
+| 2026-11-20 | `e2e/sandbox` (50 specs) | 48 passed; beginner-flow and video-setup fail the same way on the release |
+| 2026-11-20 | `e2e/sandbox` ship specs after the last ship changes (badges and room names) | 31 passed |
+| 2026-11-20 | The new badge check's measurement on the layout before those changes, 1440 wide | 7 badges and 3 names covered: the check would have failed |
+| 2026-11-20 | Badges and room names with every department at work, 36 window sizes from 390 to 1920 wide | no badge covers another (before: up to 63%); none touches a name from 1330 wide up or from 768 to 1180 wide |
+| 2026-11-20 | The same at 1190 to 1320 and 640 wide, and at 390 wide | a badge can touch the bottom edge of the name above it: at most 7% of its line (up to 24% before the badges shrank on a smaller ship); at 390 wide up to a fifth |
+| 2026-11-20 | GitHub run 44650380497 on cccd6a0 | native Mac build and bundled-app smoke passed (before the phone-size change) |
+| 2026-11-20 | GitHub run 44653081606 on 2014f3c | native Mac build, bundled-app smoke, fast and slow Python suites passed (before the last ship changes) |
+| 2026-11-20 | GitHub run 44658528437 on a273337 | native Mac build, bundled-app smoke, fast and slow Python suites passed (before the badges shrank on a smaller ship) |
+| 2026-11-20 | GitHub run 44661617599 on d38cf74 (the ship's final layout, before the Studio panel, Talk to AI and the lightning) | native Mac build, bundled-app smoke, fast and slow Python suites passed |
+| 2026-11-20 | `npm run build` after the Studio panel, Talk to AI and the lightning | passed |
+| 2026-11-20 | `e2e/sandbox`: brain-graph, brain-workspace, motion, department-office, living-office, lounge-life, office-handoff-flow, pixel-office, robot-office | 46 passed; brain-graph, brain-workspace and motion again after the last three layout fixes: 15 passed |
+| 2026-11-20 | `e2e/tests` app-shell, office and settings against the demo app | 29 passed, 2 failed (the same 2 Settings tests fail on the release) |
+| 2026-11-20 | pytest: the 12 files that read frontend files, plus `test_studio_reference.py` and `test_clipforge_ai_chat.py` | 380 passed, after fixing `test_each_channel_has_its_own_daily_limit_gap_and_slots` (it failed from 9 PM to midnight Chicago time, on the release too) |
+| 2026-11-20 | The lightning's still check (`final/scripts/lightning.js` in the project folder) | changes with nothing set and with Calm; holds still with the system's Reduce motion, Settings Motion "Reduced", Low power and a hidden tab (6 of 6) |
+| 2026-11-20 | The lightning's cost per frame in the cloud browser | 0.2 ms with 3 dots, 1.3 ms with 74, 2.9 ms with 174 (4.4 ms at most); with the processor slowed 4 times, 14 ms and about 6 frames a second |
+| 2026-11-20 | Studio panel, Brain and Talk to AI screenshots at 1585×992, 1366×768 and 390×844, and larger text | no sideways scroll and nothing cut off; the Brain's tabs wrap on a phone; beside the map the details scroll inside |
+
+Not verified: Landry's Mac and Windows, the frame rate on the RTX 3050 laptop, real connected accounts, a real video
+going through the pipeline while the ship animates.
+
+## Smarter chat, Brain-led clip picking, fuller clips, lessons from results — 2026-11-19 (Claude Code)
+
+Branch `claude/project-thread-dwz7vo` (release line afc0c1f merged in, with the live clips work of PR #57), pull
+request #59. The chat answers from sixteen playbooks, a guide to the app and switched-on skills; clip picking reads
+the Brain and says so on each clip;
+clips are grown to the whole moment (defaults 25 / 45 / 90 seconds); posted results become "From your results:"
+memories; titles, post text and hashtags follow the owner's rules. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-19 | `CLIPFOUNDRY_DATA=$(mktemp -d) python -m pytest -q -m "not slow"` on e932640 | 3105 passed, 2 skipped (27 min, alone on the machine) |
+| 2026-11-19 | `CLIPFOUNDRY_DATA=$(mktemp -d) python -m pytest -q -m slow` on e932640 | 31 passed, 1 skipped (21 min) |
+| 2026-11-19 | the same two runs on b523866 and on cb646fd (after the release line came in) | 3084 and 3050 passed; slow 31 passed each time |
+| 2026-11-19 | `cd frontend && npm run build` on cb646fd | reproduces the committed `frontend/dist`; no frontend file changed after it |
+| 2026-11-19 | `python -m pytest tests/test_brain_steer.py tests/test_post_style.py tests/test_assistant_library.py tests/test_clipforge_ai_knowhow.py -q` | 298 passed; the fifth check's 18 new cases fail on b523866 |
+| 2026-11-19 | lesson simulations from `tests/test_brain_steer.py` (200 runs each) | noise alone: 2.5%, clustered kinds 2.5%, one long stream 0.5-1.5%, volatile videos 2%; real gaps found in 94-100 of 100 |
+
+Not verified: a real model's answers, Landry's Mac, real streams, lessons on real posted results.
+
+## Live clips: better moments, split view, split between channels, Stop clipping — 2026-11-18 (Claude Code)
+
+PR #57, branch `claude/project-thread-82eyed` from the release line, with the channel picker branch (PR #58) merged
+in. Live streams get a per-stream pick level (few strong clips by default), a split view when a face cam is found,
+clips split between the ticked channels, and Stop clipping. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not
+released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-18 | `python -m pytest tests/test_live_pick.py tests/test_live_stop_clipping.py tests/test_split_between_channels.py tests/test_split_view.py -q` | 31 passed (13 picker, 5 Stop clipping, 6 split between channels, 7 split view) |
+| 2026-11-18 | the three real-recording live tests (`test_autopilot_live.py::test_live_capture_and_post_live_analysis`, `test_review_submitted_live_streams.py`, `test_zero_touch_loop.py::test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live`) | 3 passed (304 s); they set `autopilot_live_pick: "most"` because their streams last a minute |
+| 2026-11-18 | `cd frontend && npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-18 | browser check of Missions → Live streams against a throwaway app with two fake channels and two recording streams | form choices, split between channels, Stop clipping dialog and the stopped stream's card shown; no page errors |
+| 2026-11-18, on 7aad19e | GitHub run 44384825118: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | 2806 passed, 2 skipped (fast); 31 passed, 1 skipped (slow); Mac app built and passed its checks |
+| 2026-11-18 | `python -m pytest tests/test_live_pick.py -q` after the fuller live clips | 25 passed; one test runs the real analysis on a stand-in story stream (found 30-59 s, kept 58-79 s) |
+| 2026-11-18 | my live tests on a scratch merge with the clip-length branch (5da834d, PR #59) | 103 passed; live clips at 25/45/90: median 60 s at "most", 35-73 s at "best", none over 90 s |
+| 2026-11-18 | browser check of Settings → Defaults (Split view, Under the face cam) and the clip editor's Layout tab | rows shown, saved and read back; no page errors |
+| 2026-11-19 | independent review by three reviewers | 18 findings (6 medium, 12 low); fixed in 61db5c5, 83ffa92, 4cbbfb5 (one known limit, see the changelog) |
+| 2026-11-19 | the four feature test files after the fixes | 28 picker, 7 Stop clipping, 10 split between channels, 18 split view: all passed; each new test fails on the code before its fix |
+| 2026-11-19 | `npx tsc --noEmit`, `npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-19, on 5bf372d | GitHub run 44434195548: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | all three passed |
+| 2026-11-19 | a second look at the fixes by two reviewers | 6 smaller gaps (3 medium, 3 low), all fixed with tests |
+| 2026-11-19, after the second look | the four feature test files | 30 picker, 7 Stop clipping, 12 split between channels, 18 split view: all passed |
+| 2026-11-19, after the second look | `python -m pytest -m "not slow"` on the 29 test files near the changed code | 358 passed, 14 deselected |
+| 2026-11-19, on 47830df | GitHub run 44463238420, `pytest -m "not slow"` | 2,818 passed, 1 failed: the picker's half-hour stand-in stream gave a different third clip with 2 math threads (its repeated speech leaves the word-based meaning vectors without one answer) |
+| 2026-11-19 | `tests/test_live_pick.py` with 1, 2, 3 and 4 math threads (`OPENBLAS_NUM_THREADS`) after making the stand-in streams' meaning neutral | 30 passed each time |
+
+Not verified: real streams and face cams (the tests draw their own pictures and use stand-in recorders), real
+uploads to two channels, the screens in the Mac window.
+
+## Choose which channels each post goes to — 2026-11-18 (Claude Code)
+
+Branch `claude/project-thread-rxehvi` from the release line at 56d2cbd. Prepare post, Post selected… and Missions
+(submitted videos and live streams) let the owner tick the YouTube channels and TikTok accounts a post goes to, or
+All; Autopilot plans one post per chosen channel. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-18, on d9cb7c9 | `python -m pytest -m "not slow" -q` | 2743 passed, 2 skipped, 1 failed, 32 deselected (1785 s); the failure, `test_an_nvenc_encode_waits_while_the_gpu_is_transcribing` (a 2.5-second timing test, code not touched), passed 3 of 3 times alone |
+| 2026-11-18, on d9cb7c9 | `python -m pytest tests/test_post_to_channels.py -q` | 23 passed |
+| 2026-11-18 | `cd frontend && npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-18 | browser check against a throwaway app with fake channels | 16 of 16 steps passed, no page errors |
+| 2026-11-18, on 6d51ff0 | GitHub run 44320764673: `pytest -m "not slow"`, `pytest -m slow`, Native Mac desktop app | all three passed |
+| 2026-11-18, after the second review's fixes | `python -m pytest tests/test_post_to_channels.py -q` | 31 passed (8 new; 6 fail on the code before the fixes) |
+| 2026-11-18, after the second review's fixes | `python -m pytest -m "not slow"` on the 50 test files that touch the changed modules | 880 passed, 12 deselected |
+| 2026-11-18, after the second review's fixes | `npx tsc --noEmit`, `npm run build` | passed; `frontend/dist` rebuilt and committed |
+| 2026-11-18, after the second review's fixes | browser check against a throwaway app with fake channels | 27 of 27 steps passed, no page errors |
+
+The full suites and the Native Mac desktop app run on the final commit are on the pull request. Not verified: real
+YouTube channels and TikTok accounts; the screens in the Mac window.
+
+## Clip live streams while they are live, several at once — 2026-11-16 (Claude Code)
+
+PR #52, branch `claude/project-thread-09o53d` from the release line at cef8add. Missions → Live streams records
+several streams at once, clips them while live and uploads passing clips during the stream with each stream's own
+request. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-16, on 1c7ef31 | `python -m pytest -m "not slow" -q` | 2721 passed, 2 skipped, 32 deselected (2261 s) |
+| 2026-11-16, on 1c7ef31 | `python -m pytest -m slow -q` | 31 passed, 1 skipped, 2723 deselected (1851 s) |
+| 2026-11-16, on 1c7ef31 | `cd frontend && npm run build` | passed; `frontend/dist` unchanged from the commit |
+
+Not verified: real Twitch, Kick and YouTube broadcasts; CPU Whisper with 2-3 streams on a Mac.
+
+## A project's own re-stored copies go with it; privacy page — 2026-11-13 (Claude Code)
+
+PR #43, branch `claude/project-thread-gvcf5h` from the release line at 3d337c8. Deleting a project no longer keeps a
+copy its own work stored again in the last hour (new `asset_hand_outs` notes); the privacy page now covers uploads,
+animated shorts and the local picture, video and voice makers. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-13, on ac764a7 (last code change) | `python -m pytest -m "not slow" -q` | 2623 passed, 2 skipped, 31 deselected (1790 s) |
+| 2026-11-13, on ac764a7 | `python -m pytest -m slow -q` | 30 passed, 1 skipped, 2625 deselected (1376 s) |
+| 2026-11-13 | `cd frontend && npm ci && npm run build` | passed; `frontend/dist` unchanged (no frontend change) |
+
+Not verified: a real Mac or Windows PC; real ComfyUI, models and the Supertonic voice.
+
+## Latest Claude handoff and media-review result — 2026-11-04 (Codex)
+
+The owner's latest request is a detailed implementation prompt, including example-video learning and web media
+sourcing. Delivered `docs/CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md`: dark-only Studio/Home/Office redesign,
+all-bot naming/customization, real Brain influence and analyzed reference videos, supplied YouTube URLs,
+scalable multi-asset/audio editing, complete editable projects, bounded AI corrections, project-specific stock
+media/sounds/images, removal of unrelated automatic source discovery, complete visible rename, website/releases,
+and 31 acceptance scenarios. These new features are requirements, not implementation claims.
+
+The full media review finished **18 passed / 3 failed**. Diagnosed the new full-video renderer's failure:
+FFmpeg xfade received invalid 1/0 frame-rate metadata after timestamp/filter operations. Restored CFR metadata
+and the common time base at clip/title and transition boundaries. The offline speech fixture also selected its
+transcript by approximate container duration, which varies with encoder padding; it now matches the actual
+source asset. No assertion was removed. The complete focused full-video test then **passed (85.12 seconds)**,
+including mixed media, preview/final render, edits, restore, cancellation, captions and stored AAC clock checks.
+
+**Repository sync correction:** GitHub reports PR #16 was merged separately at 18:24 UTC on November 4,
+merge commit `883913c84e5cb621d70093b2692083962c1580c6`. The renderer repair and this handoff were created later
+on `codex/review-clipforge-pr16`; do not assume they are included in that merge or its packages. Two failures
+from this broader media run remain unresolved:
+- `test_worker_host_runs_complete_loop_and_repeats_after_restart[public]`: later source classified weak;
+  expected second post did not arrive.
+- `test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live`: live transcription timeout;
+  media-process timeouts also logged.
+Do not assume these are pre-existing without a baseline comparison. Fix them or deliberately replace obsolete
+discovery coverage with equivalent submitted-input recovery checks as part of the requested feature retirement.
+The full slow suite has not been rerun after the focused renderer repair. Evidence:
+`/workspace/work/clipfoundry/pr16-slow-complete.log`, `pr16-video-ffmpeg-error.log`, `pr16-video-fixed-final.log`.
+
+The public website version 3 is live at https://clipfoundry-studio.landryschreiner33.chatgpt.site.
+The Sites downloads were unchanged by this review. New remote work added the shared download page at
+https://landryschreiner33-coder.github.io/ClipForge-AI./download/ and lists November 4 packages from source
+`06f459eb185b87ac344ad14e8dbd3f8e03be58d1`; their manifest was inspected, but those newer binaries were not
+retested here. The latest prompt targets that shared site and optionally synchronizes Sites. No application
+cloud deployment, real account upload, real AI/media-provider connection or native hardware validation was
+performed in this review. Preserve the remote Mac release workflow changes pulled during final sync.
+
 ## PR #16 merge review and website refresh — 2026-11-04 (Codex)
 
 The owner explicitly requested reviewing Claude's changes, merging PR #16 and updating the existing public website.
@@ -18,8 +525,9 @@ Review fixes:
   the same request is now refused. The primary owner workflow remains available.
 
 Verification so far: 1,628 fast tests passed; eight focused full-story tests and 70 targeted cloud/studio/account regressions passed after the review fixes;
-production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
-existing local espeak-ng helper on PATH. No real account sign-in, video upload or owner-machine data was used.
+production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. The full slow-media run finished
+18 passed / 3 failed; the renderer subsequently passed its focused regression, with two failures unresolved (see latest checkpoint).
+No real account sign-in, video upload or owner-machine data was used.
 
 The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` was redesigned and published as version 3 from
 `/workspace/sites/clipfoundry-downloads`: ClipForge branding, both creation flows, Brain/styles/skills, robot office,
@@ -31,8 +539,9 @@ preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript downlo
 
 Website deployment succeeded: `appgdep_6aeb6be63940819185f90f2769de8ce2` (source `626295c6e31b0120043483e21aceda2718d57a14`);
 full publication/rollback evidence is in `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
-Outstanding before finishing this checkpoint: complete slow tests, push the final reviewed PR head and merge with the exact
-head SHA. Do not describe cloud hosting, public signup,
+Outstanding before merging: resolve the remaining media failures, complete the relevant verification and merge only the tested
+head SHA. The requested updated Claude prompt is delivered. This review did not merge PR #16; a final sync discovered
+it was merged separately while this review was running. See the latest checkpoint for the follow-up branch. Do not describe cloud hosting, public signup,
 per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
 `docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
 it is not a newly required owner approval for this session.

@@ -1,9 +1,15 @@
+import AiHelperSettings from "../components/AiHelperSettings";
 import AppearanceSettings from "../components/AppearanceSettings";
-import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import EditingAppsSettings from "../components/EditingApps";
+import LocalMakersSettings from "../components/LocalMakers";
+import MediaSourcesSettings from "../components/MediaSources";
+import ProcessingSettings from "../components/ProcessingSettings";
+import { MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
 import { navigate, useLeaveGuard } from "../router";
 import { useStatus } from "../status";
 import { AnimationMode, useMotion } from "../motion";
+import { LOOKS, lookOf } from "../looks";
 import {
   AccountBadge, ConnectButton, PLATFORM_NAME, TikTokSetupSteps, YouTubeSetupSteps,
 } from "../components/accounts";
@@ -16,7 +22,7 @@ import {
   TextInput, validate,
 } from "../components/settingsFields";
 import {
-  Banner, Disclosure, EmptyState, Icon, LinkTabs, LoadingPage, PageHead, Pill, StylePicker, toast, TRACKING,
+  Banner, Disclosure, EmptyState, Icon, LinkTabs, LoadingPanels, PageHead, Pill, StylePicker, toast, TRACKING,
 } from "../components/ui";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
@@ -34,7 +40,7 @@ const ACCOUNT_KEYS: Record<Platform, string[]> = {
     "tiktok_app_audited"],
 };
 const SECRETS = new Set(["openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-  "youtube_api_key", "tavily_api_key", "nvidia_api_key"]);
+  "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key"]);
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
@@ -45,13 +51,53 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * "•••••••• (saved)" with Replace.
  */
 export default function SettingsPage({ tab }: { tab?: string }) {
+  if (tab === "media") {
+    return (
+      <SettingsFrame current="media" sub="Where Find media looks for images, footage, music and sound effects.">
+        <MediaSourcesSettings />
+      </SettingsFrame>
+    );
+  }
+  if (tab === "ai") {
+    return (
+      <SettingsFrame current="ai" sub="An optional AI that helps edit your videos: free on your own computer, or with a free key.">
+        <AiHelperSettings />
+      </SettingsFrame>
+    );
+  }
+  if (tab === "apps") {
+    return (
+      <SettingsFrame current="apps" sub="FilmCraft and EffectCraft inside ClipForge: the AI edits with them and FilmCraft renders the final video.">
+        <EditingAppsSettings />
+      </SettingsFrame>
+    );
+  }
+  if (tab === "makers") {
+    return (
+      <SettingsFrame current="makers" sub="Pictures, short video clips and voice-overs made by free, open-source tools: on this computer, or on a cloud computer you rent.">
+        <LocalMakersSettings key="makers" />
+      </SettingsFrame>
+    );
+  }
+  if (tab === "processing") {
+    return (
+      <SettingsFrame current="processing" sub="Make clips on this computer, or on your own ClipForge worker in the cloud (Full Cloud).">
+        <ProcessingSettings />
+      </SettingsFrame>
+    );
+  }
+  if (tab === "cloud") {
+    return (
+      <SettingsFrame current="cloud" sub="Make pictures and video clips on a computer with a fast graphics card that you rent by the hour, instead of on this one.">
+        <LocalMakersSettings key="cloud" part="cloud" />
+      </SettingsFrame>
+    );
+  }
   if (tab === "appearance") {
     return (
-      <div className="page">
-        <PageHead kind="Settings" title="Settings" sub="How ClipForge looks on your devices. Saved to your account." />
-        <LinkTabs label="Settings sections" current="appearance" tabs={SETTINGS_TABS} />
+      <SettingsFrame current="appearance" wide>
         <AppearanceSettings />
-      </div>
+      </SettingsFrame>
     );
   }
   return <SettingsForm tab={tab} />;
@@ -59,11 +105,35 @@ export default function SettingsPage({ tab }: { tab?: string }) {
 
 const SETTINGS_TABS = [
   { id: "appearance", href: "#/settings/appearance", label: "Appearance" },
+  { id: "media", href: "#/settings/media", label: "Media sources" },
+  { id: "ai", href: "#/settings/ai", label: "ClipForge AI" },
+  { id: "apps", href: "#/settings/apps", label: "Editing apps" },
+  { id: "makers", href: "#/settings/makers", label: "Pictures, video, voice" },
+  { id: "processing", href: "#/settings/processing", label: "Processing" },
+  { id: "cloud", href: "#/settings/cloud", label: "Cloud computer" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
   { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
   { id: "advanced", href: "#/settings/advanced", label: "Advanced" },
 ];
+
+/** Every Settings page in one frame: the title, any banner, the section list down the side and the section itself. */
+function SettingsFrame({ current, sub, before, wide = false, onTabClick, children }: {
+  current: string; sub?: ReactNode; before?: ReactNode; wide?: boolean; onTabClick?: (e: MouseEvent) => void; children: ReactNode;
+}) {
+  return (
+    <div className="page">
+      <PageHead title="Settings" sub={sub} />
+      {before}
+      <div className="settings-layout">
+        <div className="settings-nav" onClickCapture={onTabClick}>
+          <LinkTabs label="Settings sections" current={current} tabs={SETTINGS_TABS} vertical />
+        </div>
+        <div className={`settings-body${wide ? " wide" : ""}`}>{children}</div>
+      </div>
+    </div>
+  );
+}
 
 function SettingsForm({ tab }: { tab?: string }) {
   const t: SettingsTab = tab === "defaults" || tab === "integrations" || tab === "advanced" ? tab : "accounts";
@@ -190,7 +260,21 @@ function SettingsForm({ tab }: { tab?: string }) {
       </div>
     );
   }
-  if (!draft || !saved) return <LoadingPage label="Loading settings" />;
+  const where = (
+    <>
+      Stored on this computer, in ClipForge's data folder
+      {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
+    </>
+  );
+  // the title and the list of sections stay put while these sections load (coming from Appearance, say), so the
+  // move changes only the section and fades it in, as every other change of section does
+  if (!draft || !saved) {
+    return (
+      <SettingsFrame current={t} onTabClick={tabClick} sub={where}>
+        <LoadingPanels label="Loading settings" />
+      </SettingsFrame>
+    );
+  }
 
   const c: FieldCtx = { s: draft, set, errors, saved };
   const expired = (["youtube", "tiktok"] as const).filter((p) => accounts?.[p]?.needs_reconnect);
@@ -198,12 +282,8 @@ function SettingsForm({ tab }: { tab?: string }) {
   const gpuFix = st?.gpu?.fix || health?.whisper.fix || "";
   const firstError = errorKeys[0];
   return (
-    <div className="page narrow">
-      <PageHead title="Settings"
-        sub={<>
-          Stored on this computer, in ClipForge's data folder
-          {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
-        </>} />
+    <SettingsFrame current={t} onTabClick={tabClick} sub={where}
+      before={<>
       {expired.length > 0 && t !== "accounts" && (
         <Banner tone="bad" icon="link"
           title={`${expired.map((p) => PLATFORM_NAME[p]).join(" and ")} ${expired.length > 1 ? "need" : "needs"} you `
@@ -218,9 +298,7 @@ function SettingsForm({ tab }: { tab?: string }) {
           {gpuProblem}{gpuFix ? <> <b>What to do:</b> {gpuFix}</> : null}
         </Banner>
       )}
-      <div onClickCapture={tabClick}>
-        <LinkTabs label="Settings sections" current={t} tabs={SETTINGS_TABS} />
-      </div>
+      </>}>
       {notes.length > 0 && (
         <Banner tone="warn" title="Some values were adjusted when saving">
           {notes.join(" ")}
@@ -273,7 +351,7 @@ function SettingsForm({ tab }: { tab?: string }) {
           {saving && <span className="inline-spinner" aria-hidden="true" />}Save settings
         </button>
       </section>
-    </div>
+    </SettingsFrame>
   );
 }
 
@@ -383,10 +461,15 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
       )}
       {!yt && <TikTokSetup account={account} preferences={s} onPreferences={c.set} />}
       <Disclosure plain open={!!account && !account.configured}
-        summary={`Your ${name} app codes${account?.configured ? "" : " (needed once)"}`}>
+        summary={account?.app === "built_in" ? `Advanced: use your own ${name} developer app instead`
+          : `Your own ${name} developer app${account?.configured ? "" : " (this copy has no built-in sign-in)"}`}>
         <div className="stack-3">
           <p className="small muted">
-            {name} only lets apps like ClipForge post through your own free developer app. Paste its two codes once.
+            {account?.app === "built_in"
+              ? <>Connect {name} uses ClipForge's own app registration: one sign-in, nothing to paste. Only if you
+                prefer your own free developer app, paste its two codes here; they then replace the built-in one.</>
+              : <>Release builds of ClipForge sign in with ClipForge's own app. This copy has none for {name}, so paste
+                the two codes of your own free developer app once.</>}
           </p>
           <div className="field">
             <label htmlFor={fieldId(idKey)}>{yt ? "OAuth client ID" : "Client key"}</label>
@@ -473,6 +556,42 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
           <Seg k="layout" c={c}
             options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" }]} />
         </SettingRow>
+        <SettingRow k="split_view" label="Split view" group
+          hint={"When a video has a face cam laid over the picture (a stream or gameplay recording), the clip shows "
+            + "the face cam on top and the picture below it. Videos without one use the layout above. A layout you "
+            + "choose for one video or clip always wins."}>
+          <Seg k="split_view" c={c}
+            options={[{ value: "auto", label: "When there is a face cam" }, { value: "off", label: "Off" }]} />
+        </SettingRow>
+        <SettingRow k="split_game" label="Under the face cam" group
+          hint={s.split_game === "zoom"
+            ? "The middle of the picture fills everything below the face cam; its sides are cut off."
+            : "All of the picture stays in view, as wide as the clip, over a blurred background."}>
+          <Seg k="split_game" c={c}
+            options={[{ value: "whole", label: "Whole picture" }, { value: "zoom", label: "Zoomed in" }]} />
+        </SettingRow>
+        <SettingRow k="clean_sound" label="Clean up the sound"
+          hint="Background noise, hum, breaths, uneven levels and voice polish. Auto leaves music alone." group>
+          <Seg k="clean_sound" c={c}
+            options={[{ value: "off", label: "Off" }, { value: "auto", label: "Auto" },
+              { value: "gentle", label: "Gentle" }, { value: "strong", label: "Strong" }]} />
+        </SettingRow>
+        <SettingRow k="auto_color" label="Automatic colour"
+          hint={"Each recording's white balance, brightness and contrast are measured once and gently corrected. "
+            + "Phone HDR video is always turned into normal video, so it never looks grey."}>
+          <Switch k="auto_color" c={c} />
+        </SettingRow>
+        <SettingRow k="look" label="Look" hint={lookOf(s.look).what}>
+          <Select k="look" c={c} options={LOOKS.map((l) => ({ value: l.value, label: l.label }))} />
+        </SettingRow>
+        <SettingRow k="look_strength" label="Look strength (%)"
+          hint="100 is the full look; lower keeps more of the original colours." errors={errors}>
+          <NumInput k="look_strength" c={c} label="Look strength" step={5} width={90} />
+        </SettingRow>
+        <SettingRow k="clean_picture" label="Clean up grainy footage"
+          hint="Only a picture with visible grain (low light) is cleaned; a clean picture is left as it is.">
+          <Switch k="clean_picture" c={c} />
+        </SettingRow>
         <SettingRow k="silence" label="Silence cleanup" hint="Removes long pauses" group>
           <Seg k="silence" c={c}
             options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" },
@@ -481,12 +600,21 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
         <SettingRow label="Extras" group>
           <div className="stack" style={{ gap: 0 }}>
             <Check k="highlight_words" c={c}>Highlight each word as it's spoken</Check>
-            <Check k="auto_zoom" c={c}>Auto-zoom on emphasized sentences</Check>
+            <Check k="auto_zoom" c={c}>Punch-ins on cuts and a push-in on key words</Check>
+            <Check k="sound_effects" c={c}>
+              Sound effects that follow the edit: whooshes and pops in clips and full videos
+            </Check>
             <Check k="remove_fillers" c={c}>Cut filler words (with silence cleanup)</Check>
             <Check k="caption_emphasis" c={c}>Emphasize key words in their own color</Check>
             <Check k="hook_overlay" c={c}>Hook on screen at the start</Check>
             <Check k="normalize_audio" c={c}>Normalize loudness</Check>
+            <Check k="auto_trims" c={c}>Start on the first real word and cut outros (each can be put back)</Check>
           </div>
+        </SettingRow>
+        <SettingRow k="post_always_hashtags" label="Hashtags on every post"
+          hint={"Up to 5, put first on every post: your series, your channel or the game you play. ClipForge adds "
+            + "the clip's own after them."} errors={errors}>
+          <TextInput k="post_always_hashtags" c={c} placeholder="#valorant #MyShow" label="Hashtags on every post" />
         </SettingRow>
       </SettingsPanel>
 
@@ -512,11 +640,6 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
             <span>o'clock</span>
           </div>
           <Errors keys={["autopilot_active_start", "autopilot_active_end"]} errors={errors} />
-        </SettingRow>
-        <SettingRow k="trend_topics" label="Topics to look for online"
-          hint="Broad on purpose; a few are searched at a time (separate them with commas)">
-          <textarea id={fieldId("trend_topics")} rows={3} value={String(s.trend_topics ?? "")}
-            onChange={(e) => set({ trend_topics: e.target.value })} />
         </SettingRow>
         <p className="small muted">
           Everything else has a sensible default. It's under Advanced, but you don't need to change it.
@@ -612,7 +735,7 @@ function AdvancedTab({ c, health, st }: {
       <SettingsPanel id="adv-brain" title="Brain (learning)"
         intro={<>How carefully ClipForge learns from your viewers' results. These are lower limits: it never learns
           from fewer than 30 clips or changes a value by more than 10% at once. Pause, reset and roll back are in the
-          Office's <a className="textlink" href="#/">Brain Room</a>.</>}>
+          Brain room of the Studio's office (<a className="textlink" href="#/office">open the office</a>, then the Brain room).</>}>
         <SettingRow k="brain_min_clips" label="Clips before any change" errors={errors}
           hint="Mature clips in one comparable audience before a strategy may change (30 to 1,000)">
           <NumInput k="brain_min_clips" c={c} />
@@ -665,13 +788,18 @@ function AdvancedTab({ c, health, st }: {
           errors={errors}>
           <NumInput k="hook_seconds" c={c} step={0.5} />
         </SettingRow>
+        <p className="small muted">
+          The easiest way to choose a free AI service is{" "}
+          <a className="textlink" href="#/settings/ai">Settings → ClipForge AI</a> (download a model, or paste a free key).
+          The same service helps the smart video editor.
+        </p>
         <SettingRow k="ai_provider" label="AI scoring"
           hint={"Stage 1 always runs locally. Stage 2 re-scores only the strongest candidates. Ollama and LM Studio "
             + "are free; the Claude API is paid per use"}>
           <Select k="ai_provider" c={c} options={[
             { value: "heuristic", label: "Local heuristic (offline, free)" },
             { value: "ollama", label: "Ollama (local AI, free)" },
-            { value: "openai_compatible", label: "LM Studio or another OpenAI-compatible local server" },
+            { value: "openai_compatible", label: "LM Studio, a free online service, or another OpenAI-compatible server" },
             { value: "anthropic", label: "Claude API (optional, paid)" },
             { value: "nvidia", label: "NVIDIA AI (optional; set it up under Integrations)" },
           ]} />
@@ -695,7 +823,7 @@ function AdvancedTab({ c, health, st }: {
           <>
             <SettingRow k="openai_url" label="Server address"><TextInput k="openai_url" c={c} /></SettingRow>
             <SettingRow k="openai_model" label="Server model"><TextInput k="openai_model" c={c} /></SettingRow>
-            <SettingRow k="openai_api_key" label="Server API key" hint="Usually not needed for local servers">
+            <SettingRow k="openai_api_key" label="Server API key" hint="Not needed for local servers; online services need their key">
               <SecretField k="openai_api_key" c={c} removable />
             </SettingRow>
           </>
@@ -714,6 +842,18 @@ function AdvancedTab({ c, health, st }: {
         <SettingRow k="ai_max_candidates" label="Max candidates"
           hint="How many candidates per video stage 2 re-scores; caps paid calls (1 to 30)" errors={errors}>
           <NumInput k="ai_max_candidates" c={c} />
+        </SettingRow>
+        <SettingRow k="ai_edit_requests_per_day" label="AI requests a day"
+          hint={"Requests to an online AI service each day, counted one by one: every round of a ClipForge AI answer, "
+            + "its helper agents, and \u201cTell the editor what to change\u201d when ClipForge does not understand a "
+            + "request on its own (as text, never video or sound). 0 never sends one. A model on this computer never "
+            + "limits ClipForge AI; the editor's requests to it stop at this many a day"}
+          errors={errors}>
+          <NumInput k="ai_edit_requests_per_day" c={c} />
+        </SettingRow>
+        <SettingRow k="ai_edit_timeout_s" label="Editor request timeout"
+          hint="Seconds to wait for an answer before giving up; nothing is changed (5 to 300)" errors={errors}>
+          <NumInput k="ai_edit_timeout_s" c={c} />
         </SettingRow>
         <div className="row wrap" style={{ paddingBottom: 8 }}>
           <button type="button" className="btn" aria-disabled={aiDirty || checking || undefined}

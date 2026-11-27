@@ -255,7 +255,7 @@ def discovery(settings: dict) -> dict:
     places = _places(settings)
     if not places:
         return _c("discovery", label, "error", "Autopilot is on, but it has nowhere to look for videos.",
-                  "Put a video in your videos folder (Videos\\ClipFoundry), connect YouTube in Settings → "
+                  "Put a video in your videos folder (Videos\\ClipForge), connect YouTube in Settings → "
                   "Integrations, or turn on the free-license library in Settings → Autopilot.")
     now = time.time()
     where = "Looks in " + ", ".join(places) + "."

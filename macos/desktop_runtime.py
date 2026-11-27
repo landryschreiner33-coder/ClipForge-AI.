@@ -49,7 +49,7 @@ def observe(parent: int, port: int, session: str, done: threading.Event, *, time
             except (OSError, ValueError):
                 pass
             if not ready and time.monotonic() > deadline:
-                report("error", "The studio took too long to start. Quit and reopen ClipFoundry, or view its local logs.")
+                report("error", "The studio took too long to start. Quit and reopen ClipForge, or view its local logs.")
                 os.kill(os.getpid(), signal.SIGTERM)
                 return
 
@@ -63,7 +63,7 @@ def main() -> int:
     args = parser.parse_args()
     os.umask(0o077)
     if args.parent != os.getppid() or not args.session or not 1024 <= args.port <= 65535:
-        report("error", "The desktop launch identity is invalid. Reopen ClipFoundry from Applications.")
+        report("error", "The desktop launch identity is invalid. Reopen ClipForge from Applications.")
         return 2
     resources = Path(__file__).resolve().parent
     app = resources / "app"
@@ -72,10 +72,10 @@ def main() -> int:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            report("error", "Another ClipFoundry app or setup is running. Quit it first, then click Try again. Your data is safe.")
+            report("error", "Another ClipForge app or setup is running. Quit it first, then click Try again. Your data is safe.")
             return 2
         if not port_available(args.port):
-            report("error", "Another app is using ClipFoundry’s local port. Close the old ClipFoundry window first, then click Try again. No other process was stopped.")
+            report("error", "Another app is using ClipForge’s local port. Close the old ClipForge window first, then click Try again. No other process was stopped.")
             return 2
         os.environ.update(CLIPFOUNDRY_DATA=str(args.base / "data"), CLIPFOUNDRY_DESKTOP_SESSION=args.session,
                           CLIPFOUNDRY_FFMPEG=str(resources.parent / "Helpers"), PYTHONDONTWRITEBYTECODE="1",
@@ -107,5 +107,5 @@ if __name__ == "__main__":
     except Exception:
         # Exception details can contain local paths or account data. Existing owned
         # backend logs remain local; do not send their contents through UI messages.
-        report("error", "ClipFoundry could not start. View the local logs for details, then try again.")
+        report("error", "ClipForge could not start. View the local logs for details, then try again.")
         raise SystemExit(1)

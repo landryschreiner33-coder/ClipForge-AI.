@@ -87,7 +87,7 @@ def setup_lock(root):
                 import fcntl
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            raise BootstrapError("Another ClipFoundry setup is running. Keep its window open and retry later.") from exc
+            raise BootstrapError("Another ClipForge setup is running. Keep its window open and retry later.") from exc
         try:
             yield
         finally:
@@ -123,7 +123,7 @@ def windows_python_paths():
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     snapshot = kernel.CreateToolhelp32Snapshot(2, 0)
     if snapshot == ctypes.c_void_p(-1).value or not snapshot:
-        raise BootstrapError("Windows could not check running apps. Close ClipFoundry and retry.")
+        raise BootstrapError("Windows could not check running apps. Close ClipForge and retry.")
     result = []
     try:
         entry = ProcessEntry()
@@ -142,7 +142,7 @@ def windows_python_paths():
                         kernel.CloseHandle(process)
             found = kernel.Process32NextW(snapshot, ctypes.byref(entry))
         if ctypes.get_last_error() != 18:
-            raise BootstrapError("Windows could not finish checking running apps. Close ClipFoundry and retry.")
+            raise BootstrapError("Windows could not finish checking running apps. Close ClipForge and retry.")
     finally:
         kernel.CloseHandle(snapshot)
     return result
@@ -153,7 +153,7 @@ def assert_environment_stopped(environment, processes=None):
         processes = windows_python_paths() if os.name == "nt" else []
     prefix = os.path.normcase(os.path.abspath(environment)) + os.sep
     if any(os.path.normcase(os.path.abspath(path)).startswith(prefix) for path in processes):
-        raise BootstrapError("ClipFoundry is still using this environment. Close its other windows and retry.")
+        raise BootstrapError("ClipForge is still using this environment. Close its other windows and retry.")
 
 
 def preserved_path(root, kind):
@@ -183,7 +183,7 @@ def prepare_venv(root):
                 environment.rename(backup)
             except OSError as exc:
                 raise BootstrapError("The incompatible .venv is in use or cannot be moved. "
-                                     "Close ClipFoundry and retry.") from exc
+                                     "Close ClipForge and retry.") from exc
             print("Preserved incompatible environment:", backup.name)
         print("Creating environment with", runtime_label(runtime_details()))
         try:
@@ -202,7 +202,7 @@ def prepare_venv(root):
                     print("Restored the previous environment without changing app data.")
             except OSError:
                 raise BootstrapError("Setup stopped. The old and incomplete environments were preserved. "
-                                     "Close ClipFoundry, then retry in a fresh extracted app folder.") from exc
+                                     "Close ClipForge, then retry in a fresh extracted app folder.") from exc
             raise BootstrapError(str(exc) + " Your Brain, accounts, videos and app data were not changed. "
                                  "Install 64-bit Python 3.12 from python.org and reopen this launcher.") from exc
         return environment

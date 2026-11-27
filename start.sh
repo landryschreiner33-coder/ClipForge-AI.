@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ClipFoundry launcher for Linux / macOS (Windows users: double-click start.bat).
+# ClipForge launcher for Linux / macOS (Windows users: double-click start.bat).
 set -euo pipefail
 cd "$(dirname "$0")"
 

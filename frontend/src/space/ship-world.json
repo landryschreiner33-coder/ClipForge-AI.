@@ -1,0 +1,535 @@
+{
+  "note": "World units are 2x the ship art pixels (frontend/public/space/ship.png is 768x384). Feet positions.",
+  "world": {
+    "w": 1536,
+    "h": 768
+  },
+  "rooms": {
+    "lounge": {
+      "x": 250,
+      "y": 104,
+      "w": 600,
+      "h": 200,
+      "doors": [
+        [
+          380,
+          306
+        ],
+        [
+          594,
+          306
+        ],
+        [
+          738,
+          306
+        ]
+      ],
+      "accent": "#5bd3f0"
+    },
+    "brain": {
+      "x": 864,
+      "y": 90,
+      "w": 336,
+      "h": 214,
+      "doors": [
+        [
+          1044,
+          306
+        ]
+      ],
+      "accent": "#b46cff"
+    },
+    "control": {
+      "x": 1210,
+      "y": 110,
+      "w": 270,
+      "h": 194,
+      "doors": [
+        [
+          1350,
+          304
+        ]
+      ],
+      "accent": "#ffb347"
+    },
+    "intake": {
+      "x": 280,
+      "y": 392,
+      "w": 244,
+      "h": 108,
+      "doors": [
+        [
+          403,
+          396
+        ]
+      ],
+      "accent": "#9ce646"
+    },
+    "research": {
+      "x": 560,
+      "y": 392,
+      "w": 220,
+      "h": 108,
+      "doors": [
+        [
+          660,
+          396
+        ]
+      ],
+      "accent": "#3cd6e6"
+    },
+    "story": {
+      "x": 810,
+      "y": 392,
+      "w": 270,
+      "h": 108,
+      "doors": [
+        [
+          944,
+          396
+        ]
+      ],
+      "accent": "#5a96ff"
+    },
+    "editing": {
+      "x": 1110,
+      "y": 392,
+      "w": 260,
+      "h": 108,
+      "doors": [
+        [
+          1244,
+          396
+        ]
+      ],
+      "accent": "#ff50c4"
+    },
+    "sound": {
+      "x": 296,
+      "y": 524,
+      "w": 268,
+      "h": 116,
+      "doors": [
+        [
+          426,
+          534
+        ]
+      ],
+      "accent": "#b278ff"
+    },
+    "quality": {
+      "x": 594,
+      "y": 524,
+      "w": 310,
+      "h": 116,
+      "doors": [
+        [
+          749,
+          534
+        ]
+      ],
+      "accent": "#ffb03c"
+    },
+    "publishing": {
+      "x": 934,
+      "y": 524,
+      "w": 386,
+      "h": 116,
+      "doors": [
+        [
+          1087,
+          534
+        ]
+      ],
+      "accent": "#ff963c"
+    }
+  },
+  "halls": {
+    "main": {
+      "y": 352,
+      "x0": 290,
+      "x1": 1390
+    },
+    "lower": {
+      "y": 514,
+      "x0": 300,
+      "x1": 1320
+    },
+    "links": [
+      544,
+      794,
+      1092
+    ]
+  },
+  "stations": {
+    "command": {
+      "x": 1352,
+      "y": 282,
+      "console": null
+    },
+    "tracker": {
+      "x": 418,
+      "y": 486,
+      "console": [
+        446,
+        486
+      ]
+    },
+    "radar": {
+      "x": 350,
+      "y": 488,
+      "console": [
+        374,
+        488
+      ]
+    },
+    "gavel": {
+      "x": 482,
+      "y": 486,
+      "console": [
+        508,
+        486
+      ]
+    },
+    "clock": {
+      "x": 640,
+      "y": 486,
+      "console": [
+        668,
+        486
+      ]
+    },
+    "pulse": {
+      "x": 712,
+      "y": 486,
+      "console": [
+        740,
+        486
+      ]
+    },
+    "archive": {
+      "x": 842,
+      "y": 486,
+      "console": [
+        870,
+        486
+      ]
+    },
+    "spark": {
+      "x": 906,
+      "y": 486,
+      "console": [
+        932,
+        486
+      ]
+    },
+    "boost": {
+      "x": 968,
+      "y": 486,
+      "console": [
+        996,
+        486
+      ]
+    },
+    "vector": {
+      "x": 1042,
+      "y": 486,
+      "console": [
+        1014,
+        486
+      ]
+    },
+    "frame": {
+      "x": 1170,
+      "y": 486,
+      "console": [
+        1196,
+        486
+      ]
+    },
+    "story": {
+      "x": 1226,
+      "y": 486,
+      "console": [
+        1254,
+        486
+      ]
+    },
+    "splice": {
+      "x": 1304,
+      "y": 486,
+      "console": [
+        1272,
+        486
+      ]
+    },
+    "glyph": {
+      "x": 380,
+      "y": 622,
+      "console": [
+        406,
+        622
+      ]
+    },
+    "script": {
+      "x": 452,
+      "y": 622,
+      "console": [
+        482,
+        622
+      ]
+    },
+    "switch": {
+      "x": 664,
+      "y": 622,
+      "console": [
+        692,
+        622
+      ]
+    },
+    "check": {
+      "x": 728,
+      "y": 622,
+      "console": [
+        756,
+        622
+      ]
+    },
+    "patch": {
+      "x": 804,
+      "y": 622,
+      "console": [
+        836,
+        622
+      ]
+    },
+    "quill": {
+      "x": 1000,
+      "y": 622,
+      "console": [
+        1024,
+        622
+      ]
+    },
+    "lock": {
+      "x": 1066,
+      "y": 622,
+      "console": [
+        1094,
+        622
+      ]
+    },
+    "harbor": {
+      "x": 1140,
+      "y": 622,
+      "console": [
+        1112,
+        622
+      ]
+    },
+    "dock": {
+      "x": 1244,
+      "y": 620,
+      "console": null
+    },
+    "metric": {
+      "x": 912,
+      "y": 290,
+      "console": [
+        940,
+        290
+      ]
+    },
+    "synapse": {
+      "x": 976,
+      "y": 292,
+      "console": [
+        1004,
+        292
+      ]
+    },
+    "curator": {
+      "x": 1150,
+      "y": 290,
+      "console": [
+        1122,
+        290
+      ]
+    }
+  },
+  "lounge": [
+    {
+      "x": 284,
+      "y": 206,
+      "activity": "drink"
+    },
+    {
+      "x": 404,
+      "y": 206,
+      "activity": "arcade"
+    },
+    {
+      "x": 580,
+      "y": 206,
+      "activity": "rest"
+    },
+    {
+      "x": 458,
+      "y": 254,
+      "activity": "boardgame"
+    },
+    {
+      "x": 292,
+      "y": 254,
+      "activity": "read"
+    },
+    {
+      "x": 356,
+      "y": 300,
+      "activity": "snack"
+    },
+    {
+      "x": 322,
+      "y": 206,
+      "activity": "drink"
+    },
+    {
+      "x": 442,
+      "y": 206,
+      "activity": "arcade"
+    },
+    {
+      "x": 620,
+      "y": 206,
+      "activity": "rest"
+    },
+    {
+      "x": 574,
+      "y": 254,
+      "activity": "boardgame"
+    },
+    {
+      "x": 340,
+      "y": 254,
+      "activity": "read"
+    },
+    {
+      "x": 780,
+      "y": 300,
+      "activity": "snack"
+    },
+    {
+      "x": 540,
+      "y": 206,
+      "activity": "drink"
+    },
+    {
+      "x": 480,
+      "y": 206,
+      "activity": "arcade"
+    },
+    {
+      "x": 660,
+      "y": 206,
+      "activity": "rest"
+    },
+    {
+      "x": 500,
+      "y": 300,
+      "activity": "boardgame"
+    },
+    {
+      "x": 380,
+      "y": 254,
+      "activity": "read"
+    },
+    {
+      "x": 820,
+      "y": 300,
+      "activity": "snack"
+    },
+    {
+      "x": 700,
+      "y": 206,
+      "activity": "rest"
+    },
+    {
+      "x": 628,
+      "y": 300,
+      "activity": "boardgame"
+    },
+    {
+      "x": 300,
+      "y": 300,
+      "activity": "read"
+    },
+    {
+      "x": 760,
+      "y": 254,
+      "activity": "snack"
+    },
+    {
+      "x": 540,
+      "y": 300,
+      "activity": "boardgame"
+    },
+    {
+      "x": 668,
+      "y": 300,
+      "activity": "boardgame"
+    },
+    {
+      "x": 690,
+      "y": 254,
+      "activity": "boardgame"
+    },
+    {
+      "x": 740,
+      "y": 206,
+      "activity": "rest"
+    },
+    {
+      "x": 632,
+      "y": 254,
+      "activity": "boardgame"
+    },
+    {
+      "x": 418,
+      "y": 254,
+      "activity": "read"
+    },
+    {
+      "x": 820,
+      "y": 254,
+      "activity": "drink"
+    }
+  ],
+  "core": {
+    "x": 1036,
+    "y": 166
+  },
+  "engines": [
+    [
+      90,
+      240
+    ],
+    [
+      90,
+      360
+    ],
+    [
+      90,
+      480
+    ]
+  ],
+  "hatch": {
+    "x": 1244,
+    "y": 576
+  },
+  "view": {
+    "x": -72,
+    "y": 0,
+    "w": 1608,
+    "h": 768
+  }
+}

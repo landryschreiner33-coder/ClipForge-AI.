@@ -4,6 +4,11 @@ on:
     branches: [codex/macos-native-app]
     paths: ['clipfoundry/**', 'macos/**', 'tests/**', 'frontend/dist/**', 'requirements*.txt', '.github/workflows/macos-desktop.yml']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release shown in About ClipForge, e.g. 2026.11.25 (leave empty for a test build)'
+        required: false
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -16,7 +21,18 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
+      - name: Built-in YouTube and TikTok sign-in (from the repository's secrets; skipped when they are not set)
+        env:
+          CLIPFORGE_YOUTUBE_CLIENT_ID: ${{ secrets.CLIPFORGE_YOUTUBE_CLIENT_ID }}
+          CLIPFORGE_YOUTUBE_CLIENT_SECRET: ${{ secrets.CLIPFORGE_YOUTUBE_CLIENT_SECRET }}
+          CLIPFORGE_TIKTOK_CLIENT_KEY: ${{ secrets.CLIPFORGE_TIKTOK_CLIENT_KEY }}
+          CLIPFORGE_TIKTOK_BROKER: ${{ secrets.CLIPFORGE_TIKTOK_BROKER }}
+          RELEASE: ${{ inputs.version }}
+        # a build with a version number is a release: a missing sign-in is flagged on the run and in its summary
+        run: python3 scripts/write_oauth_apps.py ${RELEASE:+--release}
       - name: Compile native window and build complete Apple-silicon app
+        env:
+          CLIPFORGE_VERSION: ${{ inputs.version }}
         run: |
           brew install x264 libass dav1d pkg-config
           python3 macos/build_desktop.py --work "$RUNNER_TEMP/clipfoundry-desktop"
@@ -47,7 +63,8 @@ jobs:
   regression:
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # the fast suite (3,317 tests) passed 93% in 40 minutes on GitHub's runner on Nov 25 and was stopped there
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:

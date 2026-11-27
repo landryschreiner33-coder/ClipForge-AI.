@@ -1,11 +1,12 @@
-import { FormEvent, useEffect, useId, useRef, useState } from "react";
+import { FormEvent, useId, useRef, useState } from "react";
 import { errorText } from "../api";
 import { ap } from "../autopilot";
 import { plural, when } from "../format";
 import { useLeaveGuard } from "../router";
-import { SubmissionOptions, SubmittedVideo, submissions } from "../submissions";
+import { channelNames, SubmittedVideo, submissions, UploadCanceled } from "../submissions";
+import { nameList } from "./channelPicker";
 import { Banner, Icon, Pill, ProgressBar, Segmented, Skel, toast, Tone, usePoll } from "./ui";
-import { YouTubeComments } from "./YouTubeComments";
+import { UploadChoice, useUploadChoice } from "./uploadChoice";
 
 const ACCEPT = [".mp4", ".mov", ".mkv", ".webm", ".m4v"];
 const isLink = (value: string) => /^https?:\/\/\S+$/i.test(value.trim());
@@ -20,11 +21,8 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
   const [inputMode, setInputMode] = useState("link");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [autoUpload, setAutoUpload] = useState(true);
-  const [kids, setKids] = useState("");
-  const [basis, setBasis] = useState<SubmissionOptions["reuse_basis"]>("");
-  const [statement, setStatement] = useState("");
-  const [agreed, setAgreed] = useState(false);
+  const choice = useUploadChoice(setup);
+  const { autoUpload, setAgreed } = choice;
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [problem, setProblem] = useState("");
@@ -32,13 +30,9 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
   const [acting, setActing] = useState("");
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const transfer = useRef<AbortController | null>(null);  // the file being sent, for Cancel upload
   const id = useId();
   useLeaveGuard(busy ? { what: "a video still being copied into ClipForge" } : null);
-
-  useEffect(() => {
-    setAgreed(false);
-    setKids("");
-  }, [setup?.account_id, setup?.privacy, setup?.audience.group_version]);
 
   const pick = (chosen?: File) => {
     if (!chosen || busy) return;
@@ -56,23 +50,19 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
     setProblem("");
   };
   const hasInput = inputMode === "file" ? !!file : isLink(url);
-  const ready = hasInput && !!setup && !setupError && !stopped && (!autoUpload || (
-    setup.can_upload && !!kids && !!basis && (basis !== "legal_exception" || !!statement.trim()) && agreed));
+  const ready = hasInput && !!setup && !setupError && !stopped && choice.complete;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!ready || !setup || busy) return;
     setBusy(true);
     setProblem("");
     setNotice("");
-    const options: SubmissionOptions = {
-      auto_upload: autoUpload, account_id: autoUpload ? setup.account_id : "",
-      privacy: setup.privacy, made_for_kids: autoUpload ? kids === "yes" : null,
-      audience_version: setup.audience.group_version, reuse_basis: autoUpload ? basis : "",
-      reuse_statement: autoUpload ? statement.trim() : "", agreed: autoUpload && agreed,
-    };
+    const options = choice.options();
     try {
       if (inputMode === "file") setProgress(0);
-      const result = inputMode === "file" && file ? await submissions.file(file, options, setProgress)
+      const ctl = new AbortController();
+      transfer.current = ctl;
+      const result = inputMode === "file" && file ? await submissions.file(file, options, setProgress, ctl.signal)
         : await submissions.link(url.trim(), options);
       const item = { ...result.item, submission: result.item.submission || result.submission };
       setData([item, ...(data || []).filter(row => row.id !== item.id)]);
@@ -82,27 +72,36 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       if (!result.already_added) {
         setUrl("");
         setFile(null);
-        setAgreed(false);
-        setBasis("");
-        setStatement("");
-        setKids("");
+        choice.reset();
       }
       refresh();
       refreshStatus();
     } catch (e) {
-      setProblem(errorText(e));
-      reloadSetup();
+      if (e instanceof UploadCanceled) setNotice(e.message);
+      else {
+        setProblem(errorText(e));
+        reloadSetup();
+      }
     } finally {
+      transfer.current = null;
       setBusy(false);
       setProgress(null);
     }
   };
-  const act = async (item: SubmittedVideo, action: "cancel" | "retry") => {
+  const act = async (item: SubmittedVideo, action: "cancel" | "retry" | "pause" | "resume") => {
     if (acting || busy) return;
     setActing(item.id);
     try {
-      await ap.linkAction(item.id, action);
-      toast(action === "cancel" ? "Video processing canceled" : "Video queued for another try");
+      if (action === "pause" || action === "resume") {
+        await ap.pauseMission(item.submission.id, action === "pause");
+        toast(action === "pause" ? "Uploads paused for this mission. Its clips are still made."
+          : "Uploads resumed for this mission");
+      } else {
+        await ap.linkAction(item.id, action);
+      }
+      if (action === "cancel" || action === "retry") {
+        toast(action === "cancel" ? "Video processing canceled" : "Video queued for another try");
+      }
       refresh();
       refreshStatus();
     } catch (e) {
@@ -135,7 +134,8 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
             aria-invalid={url.trim() !== "" && !isLink(url) ? true : undefined}
             aria-describedby={`${id}-link-help`} onChange={event => { setUrl(event.target.value); setAgreed(false); }} />
           <span className="hint" id={`${id}-link-help`}>A publicly accessible recorded video. Login-only, protected or
-            unavailable videos cannot be downloaded.</span>
+            unavailable videos cannot be downloaded. To clip a stream while it is live,
+            use <a className="textlink" href="#/missions/live">Live streams</a>.</span>
           {url.trim() !== "" && !isLink(url) && <span className="error-text">Use a link starting with https:// or http://.</span>}
         </label> : <div className={`submitted-drop${drag ? " over" : ""}`}
           onDragOver={event => { event.preventDefault(); if (!busy) setDrag(true); }}
@@ -153,74 +153,7 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
             aria-label="Video file" onChange={event => { pick(event.target.files?.[0]); event.target.value = ""; }} />
         </div>}
 
-        <fieldset className="submitted-mode">
-          <legend className="small strong">What happens next</legend>
-          <label className="choice"><input type="radio" name={`${id}-mode`} checked={autoUpload}
-            onChange={() => { setAutoUpload(true); setAgreed(false); }} />
-            <span><b>Make & upload clips</b><span className="hint block">Upload passing clips from this video to the
-              YouTube account shown below.</span></span></label>
-          <label className="choice"><input type="radio" name={`${id}-mode`} checked={!autoUpload}
-            onChange={() => { setAutoUpload(false); setAgreed(false); }} />
-            <span><b>Make clips only</b><span className="hint block">Keep the clips on this PC. You can edit, export or
-              review them later.</span></span></label>
-        </fieldset>
-
-        {autoUpload && <div className="stack-4 submitted-consent">
-          {setup === null ? <Skel className="skel-line" /> : <>
-            <div className="submitted-destination">
-              <div className="stack"><span className="small muted">YouTube account</span>
-                <b>{setup.account_name || (setup.connected ? setup.account_id : "Not connected")}</b></div>
-              <div className="stack"><span className="small muted">Visibility for these clips</span>
-                <b>{setup.privacy === "public" ? "Public · anyone can watch" : `Private · ${setup.audience.label}`}</b>
-              </div>
-              <a className="textlink small" href="#/settings">Change account or audience<Icon name="chev" className="sm" /></a>
-            </div>
-            {!setup.can_upload && <Banner tone="warn" title="Finish YouTube setup first">
-              {setup.blocker || "Connect YouTube and confirm who may watch new uploads in Settings."}
-              <a className="textlink" href="#/settings">Open account settings</a>
-            </Banner>}
-          </>}
-          <fieldset className="stack" role="group" aria-labelledby={`${id}-kids`}>
-            <legend className="small strong" id={`${id}-kids`}>Are these clips made for kids?</legend>
-            <div className="row wrap">
-              <label className="choice"><input type="radio" name={`${id}-kids`} checked={kids === "yes"}
-                onChange={() => { setKids("yes"); setAgreed(false); }} />Yes, made for kids</label>
-              <label className="choice"><input type="radio" name={`${id}-kids`} checked={kids === "no"}
-                onChange={() => { setKids("no"); setAgreed(false); }} />No, not made for kids</label>
-            </div>
-            <YouTubeComments privacy={setup?.privacy} kids={kids ? kids === "yes" : null} />
-          </fieldset>
-          <fieldset className="stack">
-            <legend className="small strong">Why can you use this video and its audio?</legend>
-            <div className="reuse-choices">{setup?.reuse_bases.map(option => <label key={option.id}
-              className={`reuse-option${basis === option.id ? " selected" : ""}`}>
-              <input type="radio" name={`${id}-basis`} checked={basis === option.id}
-                onChange={() => { setBasis(option.id); setAgreed(false); }} />
-              <span>{option.label}</span>
-            </label>)}</div>
-            {basis && <p className="hint">{setup?.reuse_bases.find(option => option.id === basis)?.text}</p>}
-            <details className="more" open={basis === "legal_exception" ? true : undefined}>
-              <summary><Icon name="chev" className="chev" />{basis === "legal_exception"
-                ? "Explain your legal basis (required)" : "Add permission details (optional)"}</summary>
-              <label className="stack small more-body" htmlFor={`${id}-statement`}>
-                <span>{basis === "legal_exception" ? "Legal basis covering footage, sound, edits and YouTube upload"
-                  : "Permission details for this video"}</span>
-                <textarea id={`${id}-statement`} rows={2} maxLength={4000} value={statement}
-                  required={basis === "legal_exception"}
-                  onChange={event => { setStatement(event.target.value); setAgreed(false); }} />
-              </label>
-            </details>
-            <p className="hint">This answer stays with this submitted video and its upload authorization. It is not
-              saved in Brain knowledge, and it does not authorize old clips or other videos.</p>
-          </fieldset>
-          <label className="choice submitted-agreement"><input type="checkbox" checked={agreed}
-            onChange={event => setAgreed(event.target.checked)} />
-            <span>I checked that I can use this video, its music and other material on the basis above. Make clips from
-              this video and automatically upload those that pass the final checks to
-              {" "}<b>{setup?.account_name || "the YouTube account above"}</b> as
-              {" "}<b>{setup?.privacy === "public" ? "Public" : "Private"}</b>, using my kids answer. No separate approval
-              is needed for each new clip from this video.</span></label>
-        </div>}
+        <UploadChoice choice={choice} setup={setup} id={id} what="video" />
       </fieldset>
       {setupError && <Banner tone="warn" title="Upload setup could not refresh">{setupError}
         <button type="button" className="textlink" onClick={reloadSetup}>Try again</button></Banner>}
@@ -228,7 +161,9 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       {progress !== null && <div className="stack" role="status">
         <ProgressBar value={progress} label="Copying video into ClipForge" />
         <span className="small muted">{progress < 1 ? `Copying video: ${Math.round(progress * 100)}%`
-          : "Copied. Preparing the video…"}</span>
+          : "Copied. Preparing the video… (too late to cancel: ClipForge is checking it)"}</span>
+        {progress < 1 && <div><button type="button" className="btn btn-small btn-danger"
+          onClick={() => transfer.current?.abort()}>Cancel upload</button></div>}
       </div>}
       <div className="row wrap submitted-actions">
         <span className="hint grow">Adding a video starts processing. Keep ClipForge open and the PC awake while it works. Weak or failed clips stay
@@ -254,7 +189,8 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
 }
 
 function SubmittedRow({ item, timezone, disabled, act }: {
-  item: SubmittedVideo; timezone: string; disabled: boolean; act: (action: "cancel" | "retry") => void;
+  item: SubmittedVideo; timezone: string; disabled: boolean;
+  act: (action: "cancel" | "retry" | "pause" | "resume") => void;
 }) {
   const source = item.submission;
   const p = source.progress;
@@ -268,7 +204,8 @@ function SubmittedRow({ item, timezone, disabled, act }: {
     <div className="row wrap top">
       <div className="stack grow">
         <h4 className="post-title">{item.project_id ? <a href={`#/project/${item.project_id}`}>{title}</a> : title}</h4>
-        <span className="small">{item.status_label}</span>
+        <span className="small">{item.status_label}{item.kind === "live" && <> · <a className="textlink"
+          href="#/missions/live">Live stream</a></>}</span>
         {item.detail && <span className="small muted break">{item.detail}</span>}
         {source.hold_reason && <span className="small bad-text">{source.hold_reason}</span>}
         {item.progress > 0 && item.progress < 1 && <ProgressBar value={item.progress}
@@ -277,14 +214,35 @@ function SubmittedRow({ item, timezone, disabled, act }: {
           {source.auto_upload && <> · {p.posts_waiting} waiting · {p.posts_uploading} uploading
             · {p.posts_uploaded} uploaded{p.posts_failed > 0 && ` · ${p.posts_failed} need attention`}</>}</p>}
         <p className="tiny faint">Added {when(source.created_at || item.added_at, timezone)}
-          {source.auto_upload ? ` · YouTube ${source.privacy === "public" ? "Public" : "Private"}` : " · Stays on this PC"}</p>
+          {source.auto_upload ? ` · YouTube ${source.privacy === "public" ? "Public" : "Private"}`
+            : " · Stays on this PC"}
+          {source.auto_upload && channelNames(source).length > 0 && ` to ${nameList(channelNames(source))}`}
+          {source.auto_upload && source.split === "turns" && ", taking turns"}</p>
+        {source.next_post && <p className="small">
+          <Icon name="calendar" className="sm" /> Next upload: <b>{source.next_post.label}</b>
+          {" "}({source.next_post.timezone})
+          {" "}to {source.next_post.platform === "youtube" ? "YouTube" : "TikTok"}
+          {source.next_post.account && <> · {source.next_post.account}</>}
+          {source.next_post.needs_ok && <> · <a className="textlink"
+            href={`#/post/${source.next_post.id}`}>needs your OK</a></>}
+          {source.paused && " · paused"}
+        </p>}
+        {!!source.agents?.length && <p className="small muted">
+          Working on it: {source.agents
+            .map((a) => `${a.name} (${a.title})${a.state === "running" ? "" : `, ${a.state}`}`).join(" · ")}
+        </p>}
       </div>
-      <Pill tone={tone}>{label}</Pill>
+      <Pill tone={source.paused ? "warn" : tone}>{source.paused ? "Uploads paused" : label}</Pill>
     </div>
     <div className="row wrap">
       {item.project_id && <a className="btn btn-small" href={`#/project/${item.project_id}`}>View clips</a>}
       {source.auto_upload && p?.posts_failed > 0 && <a className="btn btn-small" href="#/publishing/problems">Review upload issue</a>}
       {item.can_retry && <button type="button" className="btn btn-small" disabled={disabled} onClick={() => act("retry")}>Retry video</button>}
+      {source.auto_upload && !["uploaded", "local_ready"].includes(source.status) && (
+        <button type="button" className="btn btn-small" disabled={disabled}
+          onClick={() => act(source.paused ? "resume" : "pause")}>
+          <Icon name={source.paused ? "play" : "pause"} />{source.paused ? "Resume uploads" : "Pause uploads"}</button>
+      )}
       {item.can_cancel && <button type="button" className="btn btn-small btn-quiet" disabled={disabled}
         onClick={() => act("cancel")}>Cancel video</button>}
     </div>

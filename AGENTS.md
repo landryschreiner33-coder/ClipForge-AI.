@@ -152,12 +152,14 @@ clipfoundry/
   pipeline/nvidia.py optional NVIDIA-hosted text AI (off by default)
 frontend/src/      App.tsx (shell), router.ts (addresses, old-address aliases, unsaved-changes guard), status.tsx
                    (one shared Autopilot status poll), format.ts, api.ts, autopilot.ts, styles.css (design tokens),
-                   office/ (cast.ts registry, sprites.ts pixel art, world.ts floor plan, OfficeMap.tsx, panels.tsx,
-                   useOffice.ts event feed, api.ts), pages/ (Office, Team, Setup, Autopilot = Missions, Library =
-                   Clips, Feedback, Create, ProjectView, ClipEditor, Publish, Posts = Queue, PostReview, Settings),
-                   components/ (ui.tsx shared controls, integrations.tsx, page parts)
-design/            robots/ (art notes, manifest, contact sheet), robot-office/screenshots/, ui-redesign/ and
-                   retro-studio/ (earlier designs)
+                   office/ (cast.ts registry, crew.ts crew atlas, world.ts floor plan from space/ship-world.json,
+                   StudioScene.ts Canvas 2D ship, OfficeMap.tsx, panels.tsx, useOffice.ts event feed, api.ts),
+                   space.css + public/space/ (the space studio's look and art), pages/ (Studio, Office, Team, Setup,
+                   Autopilot = Missions, Projects, Feedback, MakeClips, Create, ProjectView, ClipEditor, Publish,
+                   Posts = Publishing, PostReview, Accounts, Brain, Settings), components/ (ui.tsx shared controls,
+                   integrations.tsx, page parts)
+design/            space-studio/ (the 2026-11-19 space studio: art tools and README), robots/ (art notes, manifest,
+                   contact sheet), robot-office/screenshots/, ui-redesign/ and retro-studio/ (earlier designs)
 tests/             pytest suites; fake_platforms.py (fake YouTube/TikTok), synthetic_media.py (ffmpeg test video)
 e2e/               Playwright tests for the user's own running app (read-only by design)
 data/              created at runtime (gitignored): clipfoundry.db, projects/<id>/..., models/, logs/workers.log
@@ -392,7 +394,12 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
    shown as "—" with the reason.
 9. **Publishing and account endpoints are local-only** (`publish/common.local_only`: loopback client and host).
 10. **Secrets stay secret.** Keep tokens and credentials out of the frontend bundle, logs, URLs, test fixtures and
-    commits.
+    commits. One sign-in (2026-11-25, `publish/oauth_apps.py`): release builds carry ClipForge's own Google
+    "Desktop app" client ID and secret (Google: desktop clients "cannot keep secrets confidential"; PKCE, state and
+    the 127.0.0.1 redirect protect the sign-in) in `clipfoundry/oauth_apps.json`, written by
+    `scripts/write_oauth_apps.py` from the repository's secrets and never committed. TikTok's client secret never
+    ships: the built-in TikTok registration goes through the stateless token broker (`deploy/tiktok_broker`), which
+    keeps nothing. Your own developer app under Advanced always wins over the built-in one.
 11. **Durable jobs.** Handlers must be safe to re-run: use idempotency keys and leases, and outcomes `Wait`,
     `Retry` or `Fail` (`autopilot/queue.py`).
 12. **Untrusted input.** Treat transcripts, fetched pages, feed rows, platform data and model output as data,
@@ -413,6 +420,37 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     work or substantive assigned backlog gathers the whole department; actual workers appear immediately at their
     own stations, idle peers remain idle, and managers supervise without inventing jobs or reports. Quiet paused
     or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
+    The owner's 2026-11-19 space studio adds decoration that shows no work: engine exhaust, CORE's idle rings, the
+    black hole's turning disk, the satellite's drift and the empty dock's beacon. They hold still under Reduced
+    motion, Low power or a hidden page. The owner's 2026-11-20 requests ("give the backround animation like the stars
+    and black hole", "make the backround animated like we are moving") add the moving sky: star tiles sliding past,
+    brighter stars that drift and twinkle, dust rushing by and the odd shooting star (components/starSky.ts), still
+    under Reduced motion, Low power or a hidden page, and (with the black holes) while FilmCraft's editor covers the
+    page (covered.ts: without a graphics card the moving sky takes about a fifth of the page's thread, which the
+    editor shares); the black hole also holds still off screen and for a while once a computer draws it too slowly. Pages and tabs fade up as they arrive (transitions.ts), never delaying or hiding
+    content, and arrive at once under Reduced motion. The galaxy behind the Brain graph is painted once and holds still.
+    The office's Taser (the owner, 2026-11-25/26; office/taser.ts, TaserItem.tsx) is play, not work: it lies on its
+    charger in the Control room, the person carries it and clicks a robot, and the robot plays a shock (lightning and a
+    "BZZZT!") and then one of twelve reactions (dealt so none repeats in a row) for about two seconds; the four biggest
+    jolt the ship for a moment. A zap shows no job state and never touches a job; it plays only after the person's
+    own click (so also under Low power or a paused feed) and is a still spark with the robot's words under Reduced
+    motion (no lightning, no jolt). The Taser is the owner's picture (public/space/taser.png). The setting
+    Settings → Appearance → Taser hides it. A zapped robot stands still where it was hit until its reaction ends
+    (OfficeMotion.stun; its job and route are untouched) and then walks on; a robot carrying or receiving a handoff
+    is never held (real work goes first).
+    The owner's 2026-11-26 polish (without GSAP): pop-ups (dialogs, menus, the small-window menu, notes) ease in and
+    out, rows moved up or down slide to their place (smooth.ts), the ship's camera glides to a picked room and the
+    Brain graph's zoom and Fit glide. A closing is played by an inert copy, never by the real element, and all of it
+    is instant under Reduced motion.
+    Anything painted once onto a canvas (a picture, a sprite, a still frame) paints itself again on `contextrestored`:
+    Chromium on Windows draws canvases on the graphics chip, and a reset of the chip gives them back empty.
+    The owner's later 2026-11-19 request ("make the brain lines and balls look like lighting and make sure its
+    animated") draws the graph's real links as bolts and its dots as glowing balls that strike again about twelve times
+    a second (pages/brainLightning.ts): decoration that shows no work or learning, still under Reduced motion, Low
+    power, a hidden or off-screen page or a lost connection; only rings and the words "just used" mark what a project
+    used. DOCK's beacon cues once only for a post newly seen in review.
+    Settings → Appearance's Studio preview is the real app in an inert frame that saves nothing
+    (design/space-studio/README.md).
 
 ## Historical continuation scope (2026-10-08)
 
@@ -436,6 +474,31 @@ checks remain unchanged. Prose is interpreted only into a bounded local editing 
 sent raw to a model. Uploaded examples supply measured length hints, not visual model training or result evidence.
 
 ## Standing instructions from the owner
+
+**Whole gameplay and longer live clips (2026-11-18):** Landry asked to "see the full gamplay and face cam like a
+split veiw or how other apps have it" and for clips that "arent so short and ... are actually longer and more
+engaging". Keep: a split view shows the whole picture under the face cam unless *Zoomed in* is chosen; any clip with
+a face cam gets a split view unless somebody chose its layout or Settings → Split view is Off (a chosen layout is
+never overridden: `render.layout_chosen`); a live clip keeps its moment's build-up and ending when that is about as
+strong, never across a change of subject or a long silence and never over the longest clip length
+(`live_pick.fuller`); live clips read the ordinary clip length Settings and have no lengths of their own.
+
+**Live clip quality continuation (2026-11-17):** Landry asked for better live moments with quality over quantity,
+fixed framing with a split view (face cam one half, gameplay the other, if needed), clips split between channels,
+and a way to stop clipping at any time while the scheduled clips still upload. Keep: each stream's own choices
+(`intake.live_choices`: how picky, split view) are copied to its project and never change mid-stream; the default is
+few, strong clips (`autopilot/live_pick.py`); split view is used only when a face cam is found, else the Settings
+layout; "split between channels" sends each clip to exactly one of the chosen channels and a clip never changes
+channel (`submissions.clip_turn`); Stop clipping never cancels, deletes or un-approves anything already made, and is
+not taken back by Try again. Scores stay labelled estimates. Details: docs/AUTOPILOT.md, *Clip live streams*.
+
+**Live streams continuation (2026-11-16):** Landry asked to clip streams while they are live, with Autopilot
+uploading the clips during the live, and to clip several streams at once. Missions → Live streams takes several
+links; each is its own input with its own Make & upload request, recorded and clipped while live and uploaded during
+the stream at the owner's posting pace (Minimum gap per account, shared by all streams). Keep: the request covers one
+broadcast only (a channel's next broadcast is a new input added by the owner), uploads stay bound to exact checked
+bytes, Stop recording keeps what was made, Stop all jobs holds recordings and Resume continues them. Live Monitor runs
+three lanes; post_live runs on the analyzer. Details: docs/AUTOPILOT.md, *Clip live streams*.
 
 **Confirmed upload-audio continuation (2026-10-29, America/Chicago):** The matching supplied media proves the
 local MP4 has a damaged AAC timing table that default FFmpeg parsing hides; Google's processed copy loses the
@@ -471,6 +534,13 @@ unchanged 1024-square robot, reused by the app, public pages, favicon and curren
 icon rather than interchangeable themes. Publish only the branding correction to the existing `gh-pages` site;
 preserve its existing verification file and legal/product copy. This request grants no real-post authorization
 or TikTok eligibility/approval. The public website update does not require reinstalling the desktop app.
+
+**Gold command robot icon (2026-11-25, owner's release prompt):** The owner approved a new icon, the gold command
+robot (`design/brand/clipforge-icon-gold-source.png`, sha256 f99cf07c…). It replaces the 2026-10-19 robot everywhere:
+`python scripts/make_icons.py` makes every copy from it (the 1024 PNG still at `design/tiktok/app-icon-dark.png`,
+the app, website and favicon copies, the Windows `.ico` and the Mac iconset), and `tests/test_icons.py` fails when a
+copy drifts. Never edit a copy by hand. The TikTok Basic information icon and the public `gh-pages` icon must be
+changed to the new picture by the owner (portal) and with the owner's OK (website) to keep them matching.
 
 **Latest Windows setup continuation (2026-10-19, America/Chicago):** The owner reports pip cannot find a
 matching CTranslate2 distribution. The screenshot alone does not identify the actual Python version, architecture

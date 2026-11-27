@@ -37,8 +37,13 @@ def test_the_cast_is_one_director_eight_managers_and_sixteen_workers():
     assert (ranks.count("director"), ranks.count("manager"), ranks.count("worker")) == (1, 8, 16)
     assert len({r["id"] for r in roles.ROLES}) == len({r["name"] for r in roles.ROLES}) == 25
     assert "core" not in roles.BY_ID  # CORE is the Brain room's object, not a 26th robot
-    # the Schedule department is CLOCK alone: no worker was invented to fill a chair
-    assert not [r for r in roles.ROLES if r["department"] == "schedule" and r["rank"] == "worker"]
+    # the rooms follow the workflow (studio upgrade handoff, section 4); discovery-centred rooms are gone
+    assert set(roles.ROOMS.values()) == {"Intake", "Media research", "Story & analysis", "Editing",
+                                         "Sound & captions", "Brain", "Quality & export", "Publishing",
+                                         "Control room", "Lounge"}
+    assert set(roles.OLD_ROOMS.values()) <= set(roles.ROOMS)
+    # Media research is CLOCK and PULSE: no worker was invented to fill a chair
+    assert sorted(r["id"] for r in roles.ROLES if r["department"] == "research") == ["clock", "pulse"]
     # every kind of real work has a robot that is not the catch-all, so the office never shows work nobody does
     for _label, kinds in queue.WORKERS.values():
         for kind in kinds:
@@ -75,7 +80,14 @@ def test_stages_move_work_between_robots():
     assert roles.role_for("analyze_source", "captions") == "glyph"
     assert roles.role_for("analyze_source", "render") == "splice"
     assert roles.role_for("publish", "audience") == "lock" and roles.role_for("publish", "upload") == "dock"
-    assert roles.role_for("schedule_tick") == "clock"
+    assert roles.role_for("schedule_tick") == "harbor"  # Publishing owns the schedule
+    # your own work has robots too (office/work.py): a Make clips project moves through the departments
+    assert [roles.role_for("project", s) for s in ("download", "transcribe", "candidates", "scoring", "render")] == \
+        ["radar", "archive", "spark", "boost", "splice"]
+    assert roles.role_for("project") == "radar"
+    assert [roles.role_for(k) for k in ("link_import", "media_import", "reference_analysis", "video_build",
+                                         "edit_request", "video_preview", "video_render")] == \
+        ["radar", "pulse", "boost", "story", "story", "splice", "check"]
 
 
 def test_job_transitions_become_events_and_a_manager_report(data):
@@ -93,7 +105,7 @@ def test_job_transitions_become_events_and_a_manager_report(data):
     assert types[:3] == ["job_started", "job_stage", "job_done"] and "report" in types
     assert {e["role"] for e in events if e["type"].startswith("job_")} == {"gavel"}
     rep = [e for e in events if e["type"] == "report"][0]
-    assert rep["role"] == "vector" and rep["data"]["recommendation"] == "continue"
+    assert rep["role"] == "tracker" and rep["data"]["recommendation"] == "continue"  # Intake's manager
     row = feed.db.select("office_reports", "job_id = ?", (job["id"],))[0]
     assert row["warnings"] == ["Attribution needed"] and row["worker"] == "gavel"
 
@@ -155,7 +167,7 @@ def test_robot_states_come_only_from_the_jobs(data):
     now = by_id()
     assert now["gavel"]["state"] == "working" and now["gavel"]["task"]["job_id"] == job["id"]
     assert now["gavel"]["task"]["progress"] == 0.5  # measured, so shown
-    assert now["vector"]["state"] == "working"  # its manager watches the department's running work
+    assert now["tracker"]["state"] == "working"  # its manager watches the department's running work
     assert now["command"]["state"] == "working"
     queue.fail(j, "w", "The license page could not be read", "Try again later")
     now = by_id()
@@ -217,11 +229,14 @@ def test_read_endpoints(client):
     assert health["status"] in ("healthy", "degraded", "error", "unknown")
     assert {c["id"] for c in health["checks"]} >= {"scheduler", "queue", "gpu", "ffmpeg", "disk", "database"}
     assert all(c["checked_at"] and c["reason"] for c in health["checks"])
-    room = client.get("/api/office/rooms/boss").json()
-    assert room["decisions"][0]["reason"] == "No reuse permission" and "queue" in room
+    room = client.get("/api/office/rooms/control").json()
+    assert room["decisions"][0]["reason"] == "No reuse permission" and "queue" in room and "yours" in room
     assert client.get("/api/office/rooms/attic").status_code == 404
-    for rid in ("discover", "analyze", "studio", "caption", "schedule", "dock", "system", "brain", "lounge"):
+    for rid in ("intake", "research", "story", "editing", "sound", "quality", "publishing", "brain", "lounge"):
         assert client.get(f"/api/office/rooms/{rid}").status_code == 200, rid
+    # an address from before the rooms were renamed opens the room that took its place
+    assert client.get("/api/office/rooms/boss").json()["id"] == "control"
+    assert client.get("/api/office/rooms/dock").json()["id"] == "publishing"
 
 
 def test_health_never_shows_green_for_a_reading_it_could_not_take(data, monkeypatch):

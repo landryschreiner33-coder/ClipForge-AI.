@@ -22,12 +22,16 @@ FEED_KEY = "my_videos:feed"
 
 
 def default_folder() -> Path:
-    """Videos\\ClipFoundry in your user folder (CLIPFOUNDRY_VIDEOS overrides it: tests, the sandbox)."""
+    """Videos\\ClipForge in your user folder (CLIPFOUNDRY_VIDEOS overrides it: tests, the sandbox). A folder made
+    before the rename (Videos\\ClipFoundry) is still used when it is there and the new one is not, so no video is
+    left behind."""
     env = os.environ.get("CLIPFOUNDRY_VIDEOS")
     if env:
         return Path(env)
     videos = Path.home() / "Videos"
-    return (videos / "ClipFoundry") if videos.is_dir() else (Path.home() / "ClipFoundry videos")
+    new, old = ((videos / "ClipForge", videos / "ClipFoundry") if videos.is_dir()
+                else (Path.home() / "ClipForge videos", Path.home() / "ClipFoundry videos"))
+    return old if old.is_dir() and not new.exists() else new
 
 
 def feed() -> dict | None:

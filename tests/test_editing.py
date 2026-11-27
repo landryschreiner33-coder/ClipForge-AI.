@@ -53,12 +53,16 @@ def test_emphasis_zoom_pushes_in_on_emphasized_sentences_only():
     marked = {words[i]["w"] for i in emph}
     assert "lesson" in marked and len(emph) >= 2
     n = int(t * 25)
-    z = render.zoom_curve(words, n, 25.0, 0.07, emph)
-    at = lambda sec: z[min(n - 1, int(sec * 25))]  # noqa: E731
-    first = next(w for w in words if w["w"] == "Then")["start"]
+    from clipfoundry.pipeline import moves
+
+    plain = moves.punch_curve(words, [], n, 25.0, 0.10)
+    z = moves.punch_curve(words, [], n, 25.0, 0.10, emph)
+    at = lambda curve, sec: curve[min(n - 1, int(sec * 25))]  # noqa: E731
     lesson = next(w for w in words if w["w"] == "lesson")["start"]
-    assert at(lesson + 0.8) > 1.05 and at(first + 1.0) < 1.01
-    assert z.max() <= 1.0701 and np.abs(np.diff(z)).max() < 0.02  # subtle and eased
+    pushed = moves.pushes(words, emph, n / 25)
+    assert lesson in pushed  # the stressed word gets a push on top of the framing changes
+    assert at(z, lesson + 0.1) - at(plain, lesson + 0.1) > 0.04
+    assert z.max() <= 1.1501 and np.abs(np.diff(z)).max() < 0.03  # subtle and eased (no cuts here)
     spaced = sorted(words[i]["start"] for i in emph)
     assert all(b - a >= 2.5 for a, b in zip(spaced, spaced[1:]))  # rare enough to mean something
 

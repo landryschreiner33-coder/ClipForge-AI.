@@ -1,71 +1,193 @@
-import { DragEvent, useEffect, useRef, useState } from "react";
-import { Connection, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
+import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  cancelUpload, ExampleVideo, FileGoneError, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress,
+  UploadStoppedError, Asset,
+} from "../studio";
 import { Icon } from "./ui";
 
-export type Picked = { key: string; file: File; progress: UploadProgress | null; asset: Asset | null; error: string };
+export type Picked = { key: string; file: File; progress: UploadProgress | null; asset: Asset | null; error: string;
+  /** The file can't be read any more (moved, renamed or deleted after it was chosen): only choosing it again helps. */
+  gone?: boolean;
+  /** Resume this file's upload where the server says it stopped. */
+  retry?: () => void;
+  /** Stop this file's upload (or take it out of the waiting line); it can be resumed later. */
+  cancel?: () => void;
+  /** Take this file out: its upload stops and its row goes (picking it again starts it over). */
+  forget?: () => void;
+  /** Cancel upload: stop sending and delete what the server received (not a pause; choosing it again starts over). */
+  cancelUpload?: () => void;
+  /** Cancel upload was pressed and the server's answer is awaited. */
+  canceling?: boolean;
+  /** The upload was canceled for good: no Resume button. */
+  canceled?: boolean;
+  /** The owner's own file used where it is on this computer (Add from this computer): nothing was uploaded. */
+  linked?: boolean };
 
-/** File drop + picker. Each file uploads in resumable chunks; the row shows bytes received, never a guess. */
-export function FileDrop({ accept, multiple, label, onAssets }: { accept: string; multiple?: boolean; label: string;
-  onAssets: (rows: Picked[]) => void }) {
+/** A row for a file used where it is (no upload): the asset stands in for the file. */
+export const linkedRow = (asset: Asset): Picked => ({ key: `linked|${asset.id}`, file: new File([], asset.filename, { type: `${asset.kind}/*` }),
+  progress: null, asset, error: "", linked: true });
+
+/** Every upload a page made, by file, also of a file picked again, taken out and added back, replaced by another
+ * file while it was still uploading, or added from this computer: all of them are the page's own, so they go with
+ * the file when the page makes its project (`of`), and none counts as another page's. */
+export function useUploadsByFile() {
+  const seen = useRef(new Map<string, Set<string>>());
+  return useMemo(() => ({
+    add: (asset: Asset) => {
+      if (!asset.upload_id) return;
+      const ids = seen.current.get(asset.id) || new Set<string>();
+      ids.add(asset.upload_id);
+      seen.current.set(asset.id, ids);
+    },
+    of: (assetIds: string[]) => [...new Set(assetIds.flatMap((a) => [...(seen.current.get(a) || [])]))],
+  }), []);
+}
+
+/** Uploads that run at the same time; the rest wait their turn (each one reads its file in chunks). */
+const PARALLEL = 3;
+
+/** File drop + picker. Any number of files, in as many batches as you like: each uploads in resumable chunks, a few
+ * at a time, and each row shows bytes received (never a guess), with cancel and resume. `onUploaded` hears of every
+ * finished upload, also one whose row is gone (another file picked instead while it was still uploading). */
+export function FileDrop({ accept, multiple, label, button, onAssets, onPicked, onUploaded }: { accept: string;
+  multiple?: boolean; label: string; button?: string; onAssets: (rows: Picked[]) => void;
+  onPicked?: (keys: string[]) => void; onUploaded?: (asset: Asset) => void }) {
   const [rows, setRows] = useState<Picked[]>([]);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const rowsRef = useRef<Picked[]>([]);
-  rowsRef.current = rows;
+  const files = useRef(new Map<string, File>());
+  const waiting = useRef<string[]>([]);
+  const running = useRef(new Map<string, AbortController>());
+  const ids = useRef(new Map<string, string>());  // the server's upload id of each file, once known
+  const canceled = useRef(new Set<string>());
+
+  // The page hears of every change once it is drawn, never while React is still working out the rows (calling the
+  // page's own setter from inside setRows warned "Cannot update a component while rendering a different component").
+  const told = useRef(rows);
+  const tell = useRef(onAssets);
+  tell.current = onAssets;
+  useEffect(() => {
+    if (told.current === rows) return;
+    told.current = rows;
+    tell.current(rows);
+  }, [rows]);
 
   const update = (key: string, patch: Partial<Picked>) => {
-    setRows((rs) => {
-      const next = rs.map((r) => (r.key === key ? { ...r, ...patch } : r));
-      onAssets(next);
-      return next;
-    });
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
-  const send = async (row: Picked) => {
-    update(row.key, { error: "" });
-    try {
-      const asset = await uploadFile(row.file, (p) => update(row.key, { progress: p }));
-      update(row.key, { asset });
-    } catch (e) {
-      update(row.key, { error: (e as Error).message });
+  const pump = () => {
+    while (running.current.size < PARALLEL && waiting.current.length) {
+      const key = waiting.current.shift()!;
+      const file = files.current.get(key);
+      if (!file || running.current.has(key)) continue;
+      const ctl = new AbortController();
+      running.current.set(key, ctl);
+      update(key, { error: "", gone: false });
+      canceled.current.delete(key);
+      uploadFile(file, (p) => { if (p.id) ids.current.set(key, p.id); update(key, { progress: p }); }, ctl.signal)
+        .then((asset) => { onUploaded?.(asset); update(key, { asset }); })
+        .catch((e) => {
+          if (canceled.current.has(key)) return;  // Cancel upload writes the row itself, with the server's answer
+          update(key, e instanceof FileGoneError ? { error: e.message, gone: true }
+            : e instanceof UploadStoppedError ? { error: e.message, canceled: true } : {
+              error: ctl.signal.aborted ? "Stopped. Resume upload to continue where it left off." : (e as Error).message,
+            });
+        })
+        .finally(() => { running.current.delete(key); pump(); });
     }
   };
-  const add = (files: FileList | null) => {
-    if (!files?.length) return;
-    const fresh = Array.from(multiple ? files : [files[0]]).map((file) => ({
-      key: `${file.name}|${file.size}|${file.lastModified}`, file, progress: null, asset: null, error: "" }));
-    setRows((rs) => {
-      const next = multiple ? [...rs, ...fresh.filter((f) => !rs.some((r) => r.key === f.key))] : fresh;
-      onAssets(next);
-      return next;
+  const start = (key: string) => {
+    if (!waiting.current.includes(key) && !running.current.has(key)) waiting.current.push(key);
+    update(key, { error: "" });
+    pump();
+  };
+  const stop = (key: string) => {
+    waiting.current = waiting.current.filter((k) => k !== key);
+    const ctl = running.current.get(key);
+    if (ctl) ctl.abort();
+    else update(key, { error: "Not started. Resume upload when you want it." });
+  };
+  /** Cancel upload: stop the transfer (the part being sent is dropped), then ask the server to delete what arrived.
+   * The other uploads keep going and the next waiting file takes this one's place. */
+  const cancelOne = async (key: string) => {
+    waiting.current = waiting.current.filter((k) => k !== key);
+    canceled.current.add(key);
+    update(key, { canceling: true });
+    running.current.get(key)?.abort();
+    const id = ids.current.get(key);
+    try {
+      const out = id ? await cancelUpload(id, files.current.get(key)) : { canceled: true, status: "", message: "" };
+      if (out.status === "complete" && out.asset) {
+        onUploaded?.(out.asset);
+        update(key, { canceling: false, asset: out.asset, error: "" });
+        canceled.current.delete(key);
+        return;
+      }
+      update(key, { canceling: false, canceled: out.canceled, progress: null,
+        error: out.canceled ? "Upload canceled. Nothing was kept. Choose the file again to upload it."
+          : out.message || "It could not be canceled." });
+    } catch (e) {
+      update(key, { canceling: false, error: `Could not cancel: ${(e as Error).message}` });
+    }
+  };
+  const forget = (key: string) => {
+    waiting.current = waiting.current.filter((k) => k !== key);
+    running.current.get(key)?.abort();
+    files.current.delete(key);
+    setRows((rs) => rs.filter((r) => r.key !== key));
+  };
+  const add = (list: FileList | null) => {
+    if (!list?.length) return;
+    const fresh: Picked[] = Array.from(multiple ? list : [list[0]]).map((file) => {
+      const key = `${file.name}|${file.size}|${file.lastModified}`;
+      return { key, file, progress: null, asset: null, error: "", retry: () => start(key), cancel: () => stop(key),
+        forget: () => forget(key), cancelUpload: () => void cancelOne(key) };
     });
-    fresh.forEach((r) => void send(r));
+    fresh.forEach((r) => files.current.set(r.key, r.file));
+    onPicked?.(fresh.map((r) => r.key));  // picked on purpose, also a file picked before
+    setRows((rs) => (multiple ? [...rs, ...fresh.filter((f) => !rs.some((r) => r.key === f.key))] : fresh));
+    fresh.forEach((r) => start(r.key));
+  };
+  /** A file that went missing: take its row out and open the file picker, so the same video can be chosen again. */
+  const chooseAgain = (key: string) => {
+    forget(key);
+    input.current?.click();
   };
   const drop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
     add(e.dataTransfer.files);
   };
+  useEffect(() => () => running.current.forEach((c) => c.abort()), []);
+  const done = rows.filter((r) => r.asset).length;
   return (
     <div className="stack-3">
       <div className={`drop ${over ? "over" : ""}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }}
         onDragLeave={() => setOver(false)} onDrop={drop}>
         <Icon name="upload" size={28} />
         <span>{label}</span>
-        <button type="button" className="btn" onClick={() => input.current?.click()}>Choose {multiple ? "files" : "a file"}</button>
-        <input ref={input} type="file" accept={accept} multiple={multiple} hidden onChange={(e) => add(e.target.files)} />
+        <button type="button" className="btn" onClick={() => input.current?.click()}>
+          {button || `Choose ${multiple ? "files" : "a file"}`}</button>
+        <input ref={input} type="file" accept={accept} multiple={multiple} hidden onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
       </div>
-      {rows.length > 0 && !multiple && rows.map((r) => <UploadRow key={r.key} row={r} onRetry={() => void send(r)} />)}
+      {rows.length > 0 && !multiple && rows.map((r) => <UploadRow key={r.key} row={r} onRetry={() => start(r.key)}
+        onChooseAgain={() => chooseAgain(r.key)} />)}
       {multiple && rows.length > 0 && <p className="small muted" aria-live="polite">
-        {rows.filter((r) => r.asset).length} of {rows.length} uploaded</p>}
-      {multiple && rows.map((r) => r.error && <UploadRow key={r.key} row={r} onRetry={() => void send(r)} />)}
+        {done} of {rows.length} uploaded{rows.length - done > PARALLEL ? ` · ${PARALLEL} at a time, the rest wait their turn` : ""}</p>}
+      {multiple && rows.map((r) => r.error && <UploadRow key={r.key} row={r} onRetry={() => start(r.key)}
+        onChooseAgain={() => chooseAgain(r.key)} />)}
     </div>
   );
 }
 
-export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry: () => void; extra?: React.ReactNode }) {
+export function UploadRow({ row, onRetry, onChooseAgain, extra }: { row: Picked; onRetry?: () => void;
+  onChooseAgain?: () => void; extra?: React.ReactNode }) {
   const p = row.progress;
-  const words = row.error ? row.error : row.asset ? `Uploaded · ${fmtBytes(row.file.size)}${row.asset.duration ? ` · ${Math.round(row.asset.duration)} s` : ""}`
-    : !p ? "Waiting" : p.state === "hashing" ? "Preparing the file" : p.state === "checking" ? "Checking the file"
+  const retry = onRetry || row.retry;
+  const sending = !row.asset && !row.error && p && p.state !== "done";
+  const words = row.error ? row.error : row.linked && row.asset ? `Used where it is · ${fmtBytes(row.asset.size)}${row.asset.duration ? ` · ${Math.round(row.asset.duration)} s` : ""}`
+    : row.asset ? `Uploaded · ${fmtBytes(row.file.size)}${row.asset.duration ? ` · ${Math.round(row.asset.duration)} s` : ""}`
+    : !p ? "Waiting its turn" : p.state === "hashing" ? "Preparing the file" : p.state === "checking" ? "Checking the file"
       : `${fmtBytes(p.received)} of ${fmtBytes(p.size)} received`;
   return (
     <div className="file-row" aria-live="polite">
@@ -76,43 +198,21 @@ export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry: () =>
         <span className={`block small ${row.error ? "error-text" : "muted"}`}>{words}</span>
         {p && !row.asset && !row.error && <progress max={p.size} value={p.received} aria-label={`${row.file.name} upload`} />}
       </div>
-      <div className="row-actions">{row.error && <button type="button" className="btn btn-small" onClick={onRetry}>Resume upload</button>}{extra}</div>
+      <div className="row-actions">
+        {row.gone && onChooseAgain && <button type="button" className="btn btn-small btn-primary"
+          onClick={onChooseAgain}>Choose file again</button>}
+        {row.error && !row.gone && !row.canceled && retry && <button type="button" className="btn btn-small"
+          onClick={retry}>Resume upload</button>}
+        {!row.asset && !row.error && row.cancel && !row.canceling && <button type="button" className="btn btn-small"
+          aria-label={`Pause uploading ${row.file.name}`} title="Pause: Resume upload continues where it stopped"
+          onClick={row.cancel}>{sending ? "Stop" : "Skip"}</button>}
+        {!row.asset && !row.canceled && row.cancelUpload && p && p.state !== "checking" && p.state !== "done" && (
+          <button type="button" className="btn btn-small btn-danger" disabled={row.canceling}
+            aria-label={`Cancel the upload of ${row.file.name}`} onClick={row.cancelUpload}>
+            {row.canceling ? "Canceling…" : "Cancel upload"}</button>)}
+        {extra}
+      </div>
     </div>
-  );
-}
-
-/** The exact accounts a project may upload to (names and pictures, never just a platform icon). */
-export function DestinationPicker({ value, onChange, platforms = ["youtube", "tiktok"] }: { value: string[];
-  onChange: (ids: string[], accounts: Connection[]) => void; platforms?: string[] }) {
-  const [rows, setRows] = useState<Connection[] | null>(null);
-  useEffect(() => {
-    studio.connections().then((r) => setRows(r.connections)).catch(() => setRows([]));
-  }, []);
-  if (rows === null) return <p className="muted small">Loading accounts…</p>;
-  const usable = rows.filter((r) => platforms.includes(r.platform));
-  if (!usable.length) return <p className="small">No account connected yet. <a href="#/accounts">Connect YouTube or TikTok</a> to upload from here.</p>;
-  return (
-    <fieldset className="dest-list">
-      <legend className="sr-only">Accounts to upload to</legend>
-      {usable.map((r) => {
-        const ok = r.health.state === "ok";
-        const on = value.includes(r.id);
-        return (
-          <label key={r.id} className="dest">
-            <input type="checkbox" checked={on} disabled={!ok} onChange={() => {
-              const next = on ? value.filter((v) => v !== r.id) : [...value, r.id];
-              onChange(next, rows.filter((x) => next.includes(x.id)));
-            }} />
-            {r.avatar ? <img src={r.avatar} alt="" className="avatar" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.removeAttribute("src"); }} /> : <span className="avatar" aria-hidden="true" />}
-            <span>
-              <span className="who-name">{r.nickname || r.display_name || r.account_id}</span>{" "}
-              <span className="small muted">{r.label}{r.is_default ? " · default" : ""}</span>
-              {!ok && <span className="block small error-text">{r.health.text}</span>}
-            </span>
-          </label>
-        );
-      })}
-    </fieldset>
   );
 }
 
@@ -134,21 +234,52 @@ export function StyleSelect({ value, onChange, mode }: { value: string; onChange
   );
 }
 
-const LEVEL_WORDS: Record<string, string> = { project: "This project", style: "Style", skill: "Skill", brain: "Brain note", settings: "Settings" };
+const LEVEL_WORDS: Record<string, string> = { project: "This project", reference: "Example chosen for this project",
+  style: "Style", skill: "Skill", example: "Example video", brain: "Brain note", settings: "Settings",
+  story: "Story clips (the whole picture, still)" };
+
+/** "Use an example": an analyzed example video whose saved choices this project should follow. */
+export function ExampleSelect({ value, onChange, mode }: { value: string; onChange: (v: string) => void; mode: string }) {
+  const [rows, setRows] = useState<ExampleVideo[] | null>(null);
+  useEffect(() => {
+    studio.examples(true).then(setRows).catch(() => setRows([]));
+  }, []);
+  const usable = (rows || []).filter((r) => r.style && r.enabled && !r.avoid && r.status !== "queued");
+  const chosen = usable.find((r) => r.id === value);
+  const fields = chosen?.style ? Object.keys(chosen.style.values) : [];
+  return (
+    <div className="stack-2">
+      <label className="field">
+        <span>Use an example</span>
+        <select value={value} onChange={(e) => onChange(e.target.value)} disabled={rows === null}>
+          <option value="">No example</option>
+          {usable.map((r) => <option key={r.id} value={r.id}>{r.title}{r.project_only ? " (this project only)" : ""}</option>)}
+        </select>
+      </label>
+      {chosen && <p className="small muted">Follows {fields.length} saved choice{fields.length === 1 ? "" : "s"} learned from “{chosen.title}”
+        {mode === "full_video" ? "" : " that apply to clips"}. Choices you make below still win. The example's own footage and sound are never used.</p>}
+      {rows !== null && !usable.length && <p className="small muted">No example videos yet. <a className="textlink" href="#/brain/example-videos">Add one in Brain</a>: ClipForge measures its cuts, captions, framing and sound, and you choose what to reuse.</p>}
+    </div>
+  );
+}
 
 /** "Used from your Brain": each decided choice with the entry (and revision) that decided it, and what it beat. */
 export function UsedFromBrain({ snapshot, compact }: { snapshot: Snapshot | null; compact?: boolean }) {
   if (!snapshot) return <p className="muted small">Working out what your style and Brain decide…</p>;
+  // a video made before ClipForge recorded its guidance has an empty record
+  if (!Array.isArray(snapshot.decisions)) return <p className="muted small">This video was made before ClipForge recorded which saved choices decided it.</p>;
   const shown = snapshot.decisions.filter((d) => d.text && (!compact || d.from.level !== "settings"));
   return (
     <div className="stack-3">
-      {snapshot.problems.length > 0 && <p className="error-text small">{snapshot.problems.join(" ")}</p>}
+      {!!snapshot.problems?.length && <p className="error-text small">{snapshot.problems.join(" ")}</p>}
       <ul className="used-list">
         {shown.map((d) => (
           <li key={d.field} className={d.from.level === "settings" ? "settings" : ""}>
             <span>{d.text}</span>
-            <span className="src">from {LEVEL_WORDS[d.from.level] || d.from.level}{d.from.name && d.from.level !== "settings" && d.from.level !== "project"
-              ? `: ${d.from.name}${d.from.revision ? ` (revision ${d.from.revision})` : ""}` : ""}
+            <span className="src">from {d.from.level === "reference" || d.from.level === "example"
+              ? `${d.from.name}${d.from.level === "reference" ? ", chosen for this project" : ""}${d.from.revision ? ` (style revision ${d.from.revision})` : ""}`
+              : <>{LEVEL_WORDS[d.from.level] || d.from.level}{d.from.name && d.from.level !== "settings" && d.from.level !== "project"
+                ? `: ${d.from.name}${d.from.revision ? ` (revision ${d.from.revision})` : ""}` : ""}</>}
               {d.overridden.length > 0 && ` · instead of ${d.overridden.map((o) => `${String(o.value)} from ${o.name}`).join(", ")}`}</span>
           </li>
         ))}

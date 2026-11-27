@@ -4,6 +4,7 @@ import { ActivityItem, ap, AutopilotStatus } from "../autopilot";
 import { PLATFORM_NAME } from "../components/accounts";
 import AdvancedView from "../components/apAdvanced";
 import LinkIntake from "../components/apLinkIntake";
+import LiveStreams from "../components/liveStreams";
 import SubmittedVideos from "../components/submittedVideos";
 import { ConnectAction, OpenVideosFolder, PLATFORMS, UpcomingRow } from "../components/apShared";
 import SourcesView from "../components/apSources";
@@ -15,6 +16,7 @@ import {
 } from "../components/ui";
 import { plural, zoneLine } from "../format";
 import { useStatus } from "../status";
+import { submissions } from "../submissions";
 
 /**
  * Autopilot, the control room: the switch, the truthful state, what needs you, the current work, your videos folder,
@@ -33,24 +35,44 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
   const since = lastOk ? new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   return (
     <div className="page">
-      <PageHead title="Missions" sub={st.settings.autopilot_input_mode === "submitted"
-        ? "Add a video link or file. Brain guides the edits; passing clips can upload automatically to your chosen YouTube account."
-        : st.settings.autopilot_review_before_publish !== false
-        ? "Finds videos, makes clips, checks them and plans posts. Nothing uploads until you review and approve each post."
-        : "Finds videos you may use, makes clips, checks them and plans posts. Nothing is posted without your OK, "
-          + "or the permission you gave for YouTube."} />
+      {/* Autopilot only works on the videos you add (discovery is retired); review mode decides what may upload. */}
+      <PageHead title="Missions" sub={st.settings.autopilot_review_before_publish !== false
+        ? "Add a video or a live stream. Brain guides the edits. With Make & upload clips, passing clips upload to "
+          + "YouTube automatically; every other post waits until you review and approve it."
+        : "Add a video or a live stream. Brain guides the edits; passing clips can upload automatically to your chosen YouTube account."} />
       {st.paused && <StoppedBanner refresh={refresh} />}
       <LinkTabs label="Missions sections" current={advanced ? "system" : slug || "overview"} tabs={[
         { id: "overview", href: "#/missions", label: "Overview" },
+        { id: "live", href: "#/missions/live", label: "Live streams" },
         { id: "activity", href: "#/missions/activity", label: "Activity" },
         { id: "sources", href: "#/missions/sources", label: "Permissions & sources" },
         { id: "system", href: "#/missions/system", label: "Advanced" },
       ]} />
       {advanced ? <AdvancedView which={slug} st={st} refresh={refresh} />
+        : slug === "live" ? <LiveStreams timezone={st.timezone} stopped={st.paused} enabled={st.enabled}
+          gapMinutes={Number(st.settings.autopilot_min_gap_minutes ?? 30)}
+          maxGb={Number(st.settings.autopilot_max_source_gb || 8)}
+          maxMinutes={Number(st.settings.autopilot_max_source_minutes || 240)}
+          livePick={String(st.settings.autopilot_live_pick || "best")}
+          liveFraming={String(st.settings.autopilot_live_framing || "auto")} refreshStatus={refresh} />
         : slug === "activity" ? <ActivityView st={st} refresh={refresh} />
           : slug === "sources" ? <SourcesView st={st} refreshStatus={refresh} />
             : <Overview st={st} lost={lost} since={since} refresh={refresh} setData={setData} />}
     </div>
+  );
+}
+
+/** While streams are recording, the overview says so (the recordings themselves are on Live streams). */
+function LiveStrip() {
+  const { data } = usePoll(submissions.live, [], 5000, () => true);
+  const recording = (data || []).filter((s) => s.live.recording);
+  if (!recording.length) return null;
+  const clips = recording.reduce((n, s) => n + s.live.live_clips, 0);
+  return (
+    <Banner tone="info" icon="dot" title={`${plural(recording.length, "live stream")} recording`}
+      actions={<a className="btn btn-small" href="#/missions/live">Open Live streams</a>}>
+      {plural(clips, "live clip")} made so far. Pausing Autopilot or Stop all jobs pauses recording.
+    </Banner>
   );
 }
 
@@ -170,6 +192,7 @@ function Overview({ st, lost, since, refresh, setData }: {
 
   return (
     <>
+      <LiveStrip />
       {submittedOnly && <SubmittedVideos timezone={st.timezone} stopped={st.paused} refreshStatus={refresh} />}
       <section className="panel" aria-labelledby="ap-state">
         <div className="ap-status">

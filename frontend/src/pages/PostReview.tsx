@@ -1,6 +1,8 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, ClipVersion, errorText, fmtTime, PlatformAccount, Publication, TikTokCreator } from "../api";
 import { ap, ScheduledItem } from "../autopilot";
+import { accountName, isPostable } from "../components/channelPicker";
+import { Connection, studio } from "../studio";
 import { plural, when } from "../format";
 import { useLeaveGuard } from "../router";
 import { useStatus } from "../status";
@@ -49,6 +51,35 @@ function formOf(p: Post): Form {
     disclose: !!o.disclose, brandOrganic: !!o.brand_organic, brandContent: !!o.brand_content,
   };
 }
+
+/**
+ * The account this post goes to, with what is known about it now: the post's own account (p.account), else the
+ * platform's default (a post from before posts recorded their account). Until the accounts load, a post bound to
+ * another account than the default shows it as unknown rather than borrowing the default's state.
+ */
+function postAccount(p: Post, fallback?: PlatformAccount, conns?: Connection[] | null): PlatformAccount | undefined {
+  const own = p.account;
+  if (!own?.connection_id) return fallback;
+  if (!conns) {
+    // Not loaded (yet): the default's state serves only when the post goes to that same account.
+    return fallback && fallback.account_id === own.account_id ? { ...fallback, name: own.name || fallback.name }
+      : undefined;
+  }
+  const row = conns.find((c) => c.id === own.connection_id);
+  const base: PlatformAccount = { configured: true, restriction: "", setup: "", ...fallback, name: own.name,
+    account_id: own.account_id, avatar: "", scopes: [], connected: false, needs_reconnect: false, connected_at: null,
+    can_direct_post: false, can_inbox: false };
+  if (!row) return base;  // the account is gone: nothing can go to it
+  // ok: connected; needs_reconnect: signed in once, sign-in expired; disconnected: no sign-in at all.
+  const state = isPostable(row) ? "ok" : row.health?.state || "needs_reconnect";
+  return {
+    ...base, name: own.name || accountName(row), account_id: row.account_id, avatar: row.avatar, scopes: row.scopes,
+    connected: state !== "disconnected", needs_reconnect: state !== "ok" && state !== "disconnected",
+    connected_at: row.connected_at, can_direct_post: row.can_direct_post ?? row.scopes.includes("video.publish"),
+    can_inbox: row.can_inbox ?? row.scopes.includes("video.upload"),
+  };
+}
+
 const serverKey = (p: Post) =>
   JSON.stringify([p.status, p.title, p.description, p.tags, p.privacy, p.options, p.approval?.hash || "",
     p.reuse_review, p.source?.rights_status]);
@@ -62,6 +93,21 @@ export default function PostReview({ id }: { id: string }) {
   const { st } = useStatus();
   const { data, error, refresh, setData } = usePoll(() => loadPost(id), [id], 6000, () => true);
   const post = data?.items.find((p) => p.id === id) || null;
+  // Every connected account, so a post bound to one shows that account's own state (not just the default's).
+  const [conns, setConns] = useState<Connection[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let timer: number | undefined;
+    // A failed read is tried again: without the accounts, a post to another channel than the default would keep
+    // showing its account as unknown until the page is reloaded.
+    const load = () => studio.connections().then((r) => alive && setConns(r.connections))
+      .catch(() => { if (alive) timer = window.setTimeout(load, 5000); });
+    load();
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [id]);
   const update = (p: Post) => {
     setData((d) => d && { ...d, items: d.items.map((x) => (x.id === p.id ? p : x)) });
     refresh();
@@ -94,7 +140,7 @@ export default function PostReview({ id }: { id: string }) {
   }
   return (
     <Review key={post.id} p={post} tz={data.timezone || st?.timezone} autoPublish={data.autoPublish}
-      account={st?.platforms?.[post.platform]} onChanged={update} />
+      account={postAccount(post, st?.platforms?.[post.platform], conns)} onChanged={update} />
   );
 }
 
@@ -147,12 +193,14 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
   // TikTok's creator info is read fresh from TikTok before posting (its sharing guidelines).
   const [creator, setCreator] = useState<TikTokCreator | null>(null);
   const [creatorError, setCreatorError] = useState("");
+  const connectionId = p.account?.connection_id || "";
   useEffect(() => {
     if (yt || !editable || !account?.connected) return;
     setCreator(null);
     setCreatorError("");
-    api.tiktokCreator().then(setCreator).catch((e) => setCreatorError(errorText(e)));
-  }, [yt, editable, account?.connected, account?.connected_at]);
+    // This post's own TikTok account (the default for a post from before posts recorded their account).
+    api.tiktokCreator(connectionId || undefined).then(setCreator).catch((e) => setCreatorError(errorText(e)));
+  }, [yt, editable, account?.connected, account?.connected_at, connectionId]);
 
   // The file that would be posted: the clip's posting version (its label and a cache key for this render).
   const [version, setVersion] = useState<ClipVersion | null>(null);
@@ -223,8 +271,10 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     }
     setBusy(true);
     try {
+      // Name the account only while it is connected: with none connected the server has no account to compare
+      // (a TikTok package you post yourself needs none), and naming a signed-out one would be refused.
       const body: Record<string, unknown> = { title: yt ? f.title.trim() : p.title, description: f.text.trim(),
-        expected_account_id: account?.account_id };
+        expected_account_id: account?.connected ? account.account_id : undefined };
       if (needsReuseCheck) Object.assign(body, { reuse_confirmed: agree, reuse_kind: reuseKind,
         ...(reuseKind === "custom" ? { reuse_basis: reuseBasis.trim() } : {}) });
       if (yt) Object.assign(body, { tags: tagList(f.tags), privacy: f.privacy, made_for_kids: f.kids === "yes" });
@@ -508,13 +558,32 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
         </section>
       );
     }
-    case "publishing":
+    case "publishing": {
+      const stopping = (p.status_note || "").startsWith("Canceling");
+      const tiktokDone = p.platform === "tiktok" && p.publication?.status === "processing";
+      const pct = Math.round(100 * Math.max(0, Math.min(1, p.publication?.progress ?? 0)));
       return (
-        <Banner tone="info" icon="upload" title="Uploading now">
-          {p.publication?.message || p.status_note || "The upload has started."} It can't be canceled from ClipForge
-          once it started; wait for it to finish.
+        <Banner tone="info" icon="upload" title={stopping ? "Canceling the upload" : "Uploading now"}>
+          {stopping ? p.status_note : (p.publication?.message || p.status_note || "The upload has started.")}
+          {p.publication && !tiktokDone && (
+            <div className="bar" style={{ margin: "8px 0" }} role="progressbar" aria-label="Upload progress" aria-valuemin={0}
+              aria-valuemax={100} aria-valuenow={pct}>
+              <span style={{ width: `${pct}%` }} />
+            </div>
+          )}
+          {tiktokDone ? (
+            <span> TikTok already has the whole video and is processing it, so it can't be canceled from ClipForge.</span>
+          ) : (
+            <div className="row wrap">
+              <button type="button" className="btn btn-small btn-danger" disabled={stopping}
+                onClick={() => onAction("cancel-upload")}>
+                <Icon name="x" />{stopping ? "Canceling…" : "Cancel upload…"}
+              </button>
+            </div>
+          )}
         </Banner>
       );
+    }
     case "published":
       if (onPlatform(p)) {
         return (

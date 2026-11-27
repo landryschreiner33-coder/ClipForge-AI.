@@ -1,41 +1,65 @@
 import { useState } from "react";
 import { errorText } from "../api";
-import { Icon, PageHead, toast } from "../components/ui";
+import { ConfirmDialog, Icon, PageHead, toast } from "../components/ui";
 import { useAppearance } from "../prefs";
 import { studio } from "../studio";
-import { BY_ID, CAST, CORE, DEPARTMENTS, Dir, validateCast } from "../office/cast";
+import { BY_ID, CAST, CORE, DEPARTMENTS, ROOM_NAMES, validateCast } from "../office/cast";
 import Portrait from "../office/Portrait";
-import { FRAMES, Pose } from "../office/sprites";
+import { RobotNameEditor } from "../office/RobotName";
+import { FRAME_NAMES, FrameName, Pose } from "../office/crew";
 
-/** Team roster: every one of the 25 robots, who manages whom and what each one really does. */
+/** Team roster: every one of the 25 robots and the Brain Core, who manages whom and what each one really does.
+ * Any of them can be renamed here or from the office's robot details; Reset all names asks first. */
 export default function Team() {
-  const [dir, setDir] = useState<Dir>("down");
+  const [pose, setPose] = useState<Pose>("idle");
+  const [askReset, setAskReset] = useState(false);
+  const { refreshNames } = useAppearance();
+  const resetAll = async () => {
+    try {
+      await studio.resetAllRobots();
+      await refreshNames();
+      toast("Every robot has its original name again");
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+  };
   const director = CAST.filter((c) => c.rank === "director");
   const groups = Object.entries(DEPARTMENTS).map(([id, d]) => ({ id, ...d, members: CAST.filter((c) => c.dept === id) }));
   return (
     <div className="page team-page">
-      <PageHead kind="Office" title="Team" crumbs={[{ label: "Office", href: "#/office" }, { label: "Team" }]}
+      <PageHead kind="Studio" title="Team" crumbs={[{ label: "Studio", href: "#/" }, { label: "Office", href: "#/office" }, { label: "Team" }]}
         sub="Each robot stands for one real part of the work. A robot moves only when that work really happens. Rename any robot; its job stays the same."
-        actions={<div className="seg" role="group" aria-label="Facing">
-          {(["down", "left", "up", "right"] as Dir[]).map((d) => (
-            <button key={d} type="button" className={dir === d ? "on" : ""} aria-pressed={dir === d} onClick={() => setDir(d)}>
-              {{ down: "Front", left: "Left", up: "Back", right: "Right" }[d]}
-            </button>
-          ))}
+        actions={<div className="row wrap">
+          <div className="seg" role="group" aria-label="Show the robots">
+            {(["idle", "work"] as Pose[]).map((p) => (
+              <button key={p} type="button" className={pose === p ? "on" : ""} aria-pressed={pose === p} onClick={() => setPose(p)}>
+                {p === "idle" ? "Standing" : "At work"}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="btn btn-small" onClick={() => setAskReset(true)}><Icon name="refresh" />Reset all names</button>
         </div>} />
+      {askReset && (
+        <ConfirmDialog title="Give every robot its original name?" confirmLabel="Reset all names"
+          onConfirm={resetAll} onClose={() => setAskReset(false)}>
+          <p>All 25 robots and the Brain Core go back to their original names. Their jobs, rooms and work do not change.</p>
+        </ConfirmDialog>
+      )}
       <section className="team-group" style={{ ["--accent" as string]: "#ffc94a" } as React.CSSProperties}>
-        <h2>Boss Hub</h2>
-        <div className="team-grid">{director.map((c) => <RobotCard key={c.id} id={c.id} dir={dir} />)}</div>
+        <h2>{ROOM_NAMES.control}</h2>
+        <div className="team-grid">{director.map((c) => <RobotCard key={c.id} id={c.id} pose={pose} />)}</div>
       </section>
       {groups.map((g) => (
         <section key={g.id} className="team-group" style={{ ["--accent" as string]: g.accent } as React.CSSProperties}>
           <h2>{g.name}</h2>
           <div className="team-grid">{g.members.sort((a, b) => (a.rank === "manager" ? -1 : 1) - (b.rank === "manager" ? -1 : 1))
-            .map((c) => <RobotCard key={c.id} id={c.id} dir={dir} />)}
+            .map((c) => <RobotCard key={c.id} id={c.id} pose={pose} />)}
             {g.id === "brain" && (
               <article className="team-card">
                 <div className="team-core" aria-hidden="true"><Icon name="spark" size={40} /></div>
-                <div><b>{CORE.name}</b><span className="muted small block">{CORE.title}</span><p className="small">{CORE.job}</p></div>
+                <div><b>{CORE.name}</b><span className="muted small block">{CORE.title}</span>
+                  <RobotNameEditor id={CORE.id} />
+                  <p className="small">{CORE.job}</p></div>
               </article>
             )}
           </div>
@@ -45,83 +69,48 @@ export default function Team() {
   );
 }
 
-function RobotCard({ id, dir }: { id: string; dir: Dir }) {
+function RobotCard({ id, pose }: { id: string; pose: Pose }) {
   const c = BY_ID[id];
   const manager = c.manager ? BY_ID[c.manager] : null;
-  const { refreshNames } = useAppearance();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(c.name);
-  const [error, setError] = useState("");
-  const save = async (reset = false) => {
-    setError("");
-    const text = draft.trim();
-    if (!reset && !text) {
-      setError("Type a name, or use Reset name.");
-      return;
-    }
-    if (!reset && [...text].length > 32) {
-      setError("Use at most 32 characters.");
-      return;
-    }
-    try {
-      if (reset) await studio.resetRobot(id);
-      else await studio.renameRobot(id, text);
-      await refreshNames();
-      setEditing(false);
-      toast(reset ? `Name reset to ${BY_ID[id].name}` : `Renamed to ${text}`);
-    } catch (e) {
-      setError(errorText(e));
-    }
-  };
   return (
     <article className="team-card">
-      <Portrait id={id} dir={dir} scale={2} label={`${c.name}, ${c.title}`} />
+      <Portrait id={id} pose={pose} scale={2} label={`${c.name}, ${c.title}`} />
       <div>
         <b>{c.name}</b>
         <span className="muted small block">{c.title}{c.rank === "manager" ? " · Manager" : c.rank === "director" ? " · Director" : ""}</span>
-        {editing ? (
-          <form className="robot-name-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-            <label className="sr-only" htmlFor={`name-${id}`}>New name for {c.title}</label>
-            <input id={`name-${id}`} value={draft} maxLength={64} onChange={(e) => setDraft(e.target.value)} autoFocus aria-describedby={error ? `err-${id}` : undefined} />
-            <button type="submit" className="btn btn-small btn-primary">Save</button>
-            <button type="button" className="btn btn-small" onClick={() => void save(true)}>Reset name</button>
-            <button type="button" className="btn btn-small btn-quiet" onClick={() => setEditing(false)}>Cancel</button>
-            {error && <span id={`err-${id}`} className="error-text small block">{error}</span>}
-          </form>
-        ) : <button type="button" className="link-btn small" onClick={() => { setDraft(c.name); setEditing(true); }}>Rename</button>}
+        <RobotNameEditor id={id} />
         <p className="small">{c.job}</p>
-        <p className="tiny muted">{manager ? `Reports to ${manager.name}` : "Reports to you"}</p>
+        <p className="tiny muted">{manager ? `Reports to ${manager.name} (${manager.title})` : "Reports to you"}</p>
       </div>
     </article>
   );
 }
 
-/** Developer gallery (#/dev/robots): every robot in every direction and pose, for checking the art. */
+/** Developer gallery (#/dev/robots): every robot in every frame, for checking the art. */
 export function RobotGallery() {
-  const poses = Object.keys(FRAMES) as Pose[];
-  const [pose, setPose] = useState<Pose>("idle");
   const problems = validateCast();
+  const names: Record<FrameName, string> = {
+    idle: "Standing", blink: "Blink", look_left: "Look left", look_right: "Look right", walk_left_a: "Walk left 1",
+    walk_left_b: "Walk left 2", walk_right_a: "Walk right 1", walk_right_b: "Walk right 2", work_0: "Work 1",
+    work_1: "Work 2", work_2: "Work 3", work_3: "Work 4",
+  };
   return (
     <div className="page">
-      <PageHead kind="Developer" title="Robot gallery" sub="All 25 robots in four directions. Choose a pose to check its frames."
-        actions={<label className="small">Pose{" "}
-          <select value={pose} onChange={(e) => setPose(e.target.value as Pose)}>
-            {poses.map((p) => <option key={p} value={p}>{p} ({FRAMES[p].n} frame{FRAMES[p].n > 1 ? "s" : ""})</option>)}
-          </select></label>} />
+      <PageHead kind="Developer" title="Robot gallery" sub="All 25 robots in every frame the ship uses: standing, blinking, looking, walking and their own work gesture." />
       {problems.length > 0 && <p className="error-text">{problems.join("; ")}</p>}
-      <table className="gallery">
-        <thead><tr><th>Robot</th>{(["down", "right", "up", "left"] as Dir[]).map((d) => <th key={d}>{d}</th>)}</tr></thead>
-        <tbody>
-          {CAST.map((c) => (
-            <tr key={c.id}>
-              <th scope="row">{c.name}<span className="block muted tiny">{c.title}</span></th>
-              {(["down", "right", "up", "left"] as Dir[]).map((d) => (
-                <td key={d}><Portrait id={c.id} dir={d} pose={pose} scale={2} /></td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="gallery-wrap">
+        <table className="gallery">
+          <thead><tr><th>Robot</th>{FRAME_NAMES.map((f) => <th key={f}>{names[f]}</th>)}</tr></thead>
+          <tbody>
+            {CAST.map((c) => (
+              <tr key={c.id}>
+                <th scope="row">{c.name}<span className="block muted tiny">{c.title}</span></th>
+                {FRAME_NAMES.map((f) => <td key={f}><Portrait id={c.id} frame={f} scale={2} animate={false} /></td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

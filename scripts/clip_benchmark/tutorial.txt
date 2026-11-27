@@ -1,0 +1,14 @@
+# Tutorial: a slow opening, real tips with numbers, a part that leans on an earlier section, and talk after a point.
+Hey everyone, um, so today, okay, today we are going to talk about video exports. Before we start, make sure you grab the project files from the link below. Okay, let's get into it.
+
+Your exports are slow because of one checkbox. In most editors, the export uses software encoding by default. Software encoding runs on your processor and it is slow. Almost every computer made in the last six years has a hardware encoder in the graphics chip. Turn on hardware encoding in the export settings. On my laptop, a ten minute video went from twenty two minutes to four minutes. Same quality, five times faster. So that's the setting. Anyway, I also use it for my other projects, and I think it's pretty good, and yeah, that's kind of what I use it for most of the time, I guess.
+
+Next, like I showed you in the last part, go back to that panel. As I mentioned earlier, you need to set it the same way as before. Then do the thing from step two again. It should look like the one from before.
+
+Here is a mistake that ruins quality. People export at a higher bit rate than their source. If your phone recorded at twenty megabits, exporting at eighty does not add any detail. It only makes the file four times bigger. Check the source bit rate in the file info and match it. Your files get smaller and they look exactly the same.
+
+Why does YouTube make your video look blurry? [pause 1.6] Because it re-encodes everything you upload. If you upload in ten eighty, YouTube gives you its lowest quality version. Upload in four K, even if you recorded in ten eighty, and YouTube gives your video a better encoder. The difference is huge on dark scenes.
+
+[dead 3.0]
+
+Okay so that's basically it for today. If this helped, please like and subscribe, and leave a comment with what you want to see next. Thanks for watching, see you in the next one.

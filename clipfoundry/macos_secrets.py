@@ -9,7 +9,10 @@ import re
 from . import config, locks
 
 PREFIX = "keychain:v1:"
-SERVICE = "ClipFoundry profile encryption"
+SERVICE = "ClipForge profile encryption"
+# before the rename: copied to SERVICE the first time it is read, and kept, so a copy of the app from before the
+# rename (still on the Mac, or in the Dock) opens the same profile with the same key
+OLD_SERVICE = "ClipFoundry profile encryption"
 
 
 def _backend():
@@ -28,9 +31,15 @@ def _key(identifier: str, create: bool = False) -> bytes:
     try:
         backend = _backend()
         value = backend.get_password(SERVICE, identifier)
+        if value is None:
+            value = _move_old(backend, identifier)
         if value is None and create:
             value = base64.b64encode(os.urandom(32)).decode("ascii")
             backend.set_password(SERVICE, identifier, value)
+            try:   # under the old name too: an older copy of the app finds it, and never makes a key of its own
+                backend.set_password(OLD_SERVICE, identifier, value)
+            except Exception:  # noqa: BLE001 - this app has the key
+                pass
         if value is None:
             raise ValueError("This Mac does not have the profile's encryption key")
         result = base64.b64decode(value, validate=True)
@@ -39,6 +48,21 @@ def _key(identifier: str, create: bool = False) -> bytes:
         return result
     finally:
         lock.release()
+
+
+def _move_old(backend, identifier: str) -> str | None:
+    """A key saved under the old name ("ClipFoundry profile encryption") is saved under the new one too, so Keychain
+    Access shows ClipForge. The old item is kept: a copy of the app from before the rename reads only that one, and
+    without it would make a new key and seal secrets this app could never open. If saving fails the old item is
+    used: the key is never lost."""
+    value = backend.get_password(OLD_SERVICE, identifier)
+    if value is None:
+        return None
+    try:
+        backend.set_password(SERVICE, identifier, value)
+    except Exception:  # noqa: BLE001 - the old item keeps working
+        pass
+    return value
 
 
 def seal(text: str) -> str:

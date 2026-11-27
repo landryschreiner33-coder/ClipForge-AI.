@@ -1,33 +1,87 @@
 import { ApiError, req } from "./api";
 import type { AutopilotLink } from "./autopilot";
+import type { Connection } from "./studio";
+
+/** A connected YouTube channel a submitted video or stream can upload to. */
+export interface SubmissionChannel {
+  id: string;
+  account_id: string;
+  name: string;
+  avatar: string;
+  is_default: boolean;
+  post_by_default: boolean;
+  /** Connected and signed in; otherwise `text` says why it can't be chosen. */
+  ok: boolean;
+  text: string;
+}
 
 export interface SubmissionSetup {
+  /** The default channel (kept for older screens); `channels` lists every connected channel. */
   account_id: string;
   account_name: string;
   connected: boolean;
+  channels: SubmissionChannel[];
   audience: { group_version: number; label: string; detail: string; confirmed: boolean };
   privacy: "private" | "public";
   can_upload: boolean;
   blocker: string;
-  reuse_bases: { id: SubmissionOptions["reuse_basis"]; label: string; text: string }[];
+  /** `text_many` is what the statement says (and saves) when more than one channel is ticked. */
+  reuse_bases: { id: SubmissionOptions["reuse_basis"]; label: string; text: string; text_many?: string }[];
   input_mode: string;
 }
 
 export interface SubmissionOptions {
   auto_upload: boolean;
+  /** The first chosen channel (older servers read only this one). */
   account_id: string;
+  /** Every chosen channel, in the owner's order, each with the account behind it when it was chosen. */
+  connections: { id: string; account_id: string }[];
   privacy: "private" | "public";
   made_for_kids: boolean | null;
   audience_version: number;
   reuse_basis: "owned" | "permission" | "legal_exception" | "";
   reuse_statement: string;
   agreed: boolean;
+  /** Sent only when the chosen channels take turns: each clip goes to one of them. */
+  split?: "turns";
+  /** Live streams only: how picky this stream is and whether its clips get a split view. */
+  live_pick?: LivePick;
+  live_framing?: LiveFraming;
 }
+
+export type LivePick = "best" | "balanced" | "most";
+export type LiveFraming = "auto" | "split" | "pip" | "game" | "off";
+export const LIVE_PICKS: { value: LivePick; label: string; hint: string }[] = [
+  { value: "best", label: "Only the best moments",
+    hint: "About three clips an hour at most. Each has to beat most of the stream so far, and ClipForge waits a "
+      + "couple of minutes in case a better moment follows." },
+  { value: "balanced", label: "Balanced", hint: "About six clips an hour at most, each above the stream's average." },
+  { value: "most", label: "Every good moment",
+    hint: "A clip for every moment that passes the minimum quality, as many as the stream gives." },
+];
+export const LIVE_FRAMINGS: { value: LiveFraming; label: string; hint: string }[] = [
+  { value: "auto", label: "Split view when there is a face cam",
+    hint: "When ClipForge finds a face cam in the picture, the clip shows the face cam on top and the whole "
+      + "gameplay below it. Without one, the clip uses your usual layout." },
+  { value: "split", label: "Gameplay + Facecam",
+    hint: "The face cam on top and the gameplay below it, also when the face is only sometimes in view. If no face "
+      + "is found at all, the clip uses your usual layout." },
+  { value: "pip", label: "Picture-in-picture",
+    hint: "The gameplay fills the clip and the face cam sits in a small box at the top. If no face is found at "
+      + "all, the clip uses your usual layout." },
+  { value: "game", label: "Gameplay only",
+    hint: "The gameplay fills the clip and the face cam is left out of it." },
+  { value: "off", label: "No split view", hint: "Every clip uses your usual layout from Settings." },
+];
 
 export interface Submission {
   id: string;
   auto_upload: boolean;
   account_id: string;
+  /** The channels this request uploads to (one for a request made before channels could be chosen). */
+  channels?: { id: string; name: string; account_id: string }[];
+  /** "turns": each clip goes to one of the channels, in turn. "each": every channel gets every clip. */
+  split?: "each" | "turns";
   privacy: "private" | "public";
   made_for_kids: boolean | null;
   created_at: number;
@@ -35,17 +89,58 @@ export interface Submission {
   hold_reason?: string;
   progress: { clips_ready: number; posts_waiting: number; posts_uploading: number;
     posts_uploaded: number; posts_failed: number };
+  /** Its uploads are paused (Missions → Pause uploads); its clips are still made. */
+  paused?: boolean;
+  /** The next planned upload: when (in the Autopilot time zone, named), where and to which account. */
+  next_post?: { id: string; at: number; label: string; timezone: string; platform: string; account: string;
+    needs_ok: boolean; title: string } | null;
+  /** The office robots working on it now, by their role. */
+  agents?: { role: string; name: string; title: string; state: string; doing: string }[];
 }
 
 export interface SubmittedVideo extends AutopilotLink { submission: Submission }
+
+/** A stream added in Live streams: its recording, live clips and the uploads of its clips. */
+export interface LiveStream extends SubmittedVideo {
+  /** The channel the platform named for the stream ("" when it named none). */
+  channel?: string;
+  live: { recording: boolean; finishing: boolean; minutes: number; live_clips: number; ended: boolean;
+    stopped: boolean;
+    /** "Stop clipping" was pressed: no more clips are made; the ones made still upload. */
+    clipping_stopped: boolean;
+    pick: LivePick; pick_label: string; framing: LiveFraming; framing_label: string;
+    /** While recording: why no clip is being made right now, in plain words ("" when unknown). */
+    note: string };
+}
 export interface SubmissionResult { item: SubmittedVideo; already_added: boolean; submission: Submission }
+
+/** The setup's channels in the shape the channel picker takes. */
+export const channelRows = (setup: SubmissionSetup | null): Connection[] => (setup?.channels || []).map((c) => ({
+  id: c.id, platform: "youtube", label: "YouTube", account_id: c.account_id, display_name: c.name, nickname: "",
+  avatar: c.avatar, scopes: [], is_default: c.is_default, status: c.ok ? "connected" : "needs_reconnect",
+  health: { state: c.ok ? "ok" : "needs_reconnect", text: c.text, action: c.ok ? "" : "reconnect" }, connected_at: 0,
+  active_uploads: 0, post_by_default: c.post_by_default, postable: c.ok, can_direct_post: false, can_inbox: false,
+}));
+
+/** "A and B": the names of the channels a request uploads to. */
+export const channelNames = (s: Submission) => (s.channels || []).map((c) => c.name || c.account_id);
 
 const ROOT = "/api/autopilot/submissions";
 export const submissions = {
   setup: () => req<SubmissionSetup>("GET", `${ROOT}/setup`),
   list: () => req<SubmittedVideo[]>("GET", ROOT),
-  link: (url: string, options: SubmissionOptions) => req<SubmissionResult>("POST", `${ROOT}/link`, { url, ...options }),
-  file: (file: File, options: SubmissionOptions, onProgress: (fraction: number) => void) =>
+  link: (url: string, options: SubmissionOptions, live = false) =>
+    req<SubmissionResult>("POST", `${ROOT}/link`, { url, ...options, live }),
+  live: () => req<LiveStream[]>("GET", `${ROOT}/live`),
+  /** A picture from the newest whole recorded minute of a live stream (a fresh one each time). */
+  liveFrame: (projectId: string) => `${ROOT}/live/${projectId}/frame?at=${Date.now()}`,
+  /** The face cam box set for a live stream's clips (`locked`: the owner drew it). */
+  liveFacecam: (projectId: string) => req<{ box: number[] | null; locked: boolean }>("GET", `${ROOT}/live/${projectId}/facecam`),
+  lockLiveFacecam: (projectId: string, box: number[] | null) =>
+    req<{ box: number[] | null; locked: boolean }>("PUT", `${ROOT}/live/${projectId}/facecam`, { box }),
+  /** Copy a video file in. `signal` cancels the transfer while bytes are still being sent; once every byte has
+   * arrived ClipForge is copying and checking it, and a cancel can no longer stop that (the answer still comes). */
+  file: (file: File, options: SubmissionOptions, onProgress: (fraction: number) => void, signal?: AbortSignal) =>
     new Promise<SubmissionResult>((resolve, reject) => {
       const form = new FormData();
       form.append("file", file);
@@ -67,6 +162,17 @@ export const submissions = {
         }
       };
       xhr.onerror = () => reject(new Error("Could not reach ClipForge. Keep the app open and try again."));
+      xhr.onabort = () => reject(new UploadCanceled());
+      signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+      if (signal?.aborted) return reject(new UploadCanceled());
       xhr.send(form);
     }),
 };
+
+/** Cancel upload was pressed while the file was still being sent: nothing was added, the file stays on this PC. */
+export class UploadCanceled extends Error {
+  constructor() {
+    super("Upload canceled. Nothing was added; your file is still on this computer.");
+    this.name = "UploadCanceled";
+  }
+}

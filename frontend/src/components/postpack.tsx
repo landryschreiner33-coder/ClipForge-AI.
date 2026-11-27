@@ -50,21 +50,44 @@ export function PostTextFields({ pkg, onChange, onUseHook }: {
   }, [pkg.generated_at]); // eslint-disable-line react-hooks/exhaustive-deps
   const titleLen = (pkg.title || "").length;
   const captionLen = (pkg.caption || "").length;
+  const guide = pkg.guide;
+  const tiktokPick = guide?.tiktok ? guide.options[guide.tiktok.recommended]?.text : "";
+  const limits = [...(pkg.limits?.youtube || []).map((x) => `YouTube: ${x}`),
+    ...(pkg.limits?.tiktok || []).map((x) => `TikTok: ${x}`)];
 
   return (
     <div className="stack-4">
       {titles.length > 0 && (
         <fieldset>
           <legend className="label">Title suggestions</legend>
-          {titles.map((t, i) => (
-            <label key={i} className="hook-opt">
-              <input type="radio" name={`${id}-title`} checked={pkg.title === t}
-                onChange={() => onChange({ title: t })} />
-              <span className="small">
-                {t}{i === pkg.recommended_title && <> <Pill tone="accent" icon="spark">Suggested</Pill></>}
-              </span>
-            </label>
-          ))}
+          {titles.map((t, i) => {
+            const kind = guide?.options.find((o) => o.text === t)?.label;
+            return (
+              <label key={i} className="hook-opt">
+                <input type="radio" name={`${id}-title`} checked={pkg.title === t}
+                  onChange={() => onChange({ title: t })} />
+                <span className="small">
+                  {kind && <span className="kind-tag">{kind}</span>}{" "}
+                  {t}{i === pkg.recommended_title && <> <Pill tone="accent" icon="spark">Suggested</Pill></>}
+                </span>
+              </label>
+            );
+          })}
+          {guide?.youtube && guide.options[guide.youtube.recommended] && (
+            <p className="tiny muted">
+              <b>For YouTube:</b> “{guide.options[guide.youtube.recommended].text}”. {guide.youtube.why}
+              {guide.youtube.note && <> {guide.youtube.note}</>}
+            </p>
+          )}
+          {tiktokPick && (
+            <p className="tiny muted">
+              <b>For TikTok</b> (no title; {guide!.tiktok!.field}): “{tiktokPick}”. {guide!.tiktok!.why}{" "}
+              <button type="button" className="textlink" disabled={(pkg.caption || "").startsWith(tiktokPick)}
+                onClick={() => onChange({ caption: `${tiktokPick}\n${pkg.caption || ""}`.trim() })}>
+                Start the caption with it
+              </button>
+            </p>
+          )}
         </fieldset>
       )}
       <div className="field">
@@ -103,6 +126,11 @@ export function PostTextFields({ pkg, onChange, onUseHook }: {
         }} />
         <Checks notes={pkg.checks?.hashtags} />
       </div>
+      {limits.length > 0 && (
+        <ul className="flags" aria-label="Before posting">
+          {limits.map((x) => <li key={x} className="warn">{x}</li>)}
+        </ul>
+      )}
 
       <div className="field">
         <label htmlFor={`${id}-d`}>Short description</label>
@@ -161,7 +189,8 @@ export function RewritePostDialog({ clip, edited, onClose, onDone }: {
       <p className="muted">
         ClipForge writes new titles, captions, hashtags, a description and a hook from this clip's own words.
       </p>
-      {edited && <p className="small"><b>Your edited post text is replaced.</b> The video doesn't change.</p>}
+      {edited && <p className="small"><b>What you typed yourself is kept;</b> the new suggestions are there to pick
+        from. Unsaved changes are not kept. The video doesn't change.</p>}
     </ConfirmDialog>
   );
 }

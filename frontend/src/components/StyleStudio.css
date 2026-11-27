@@ -1,0 +1,152 @@
+/* Brain → Styles (components/StyleStudio.tsx): the form on the left, the caption preview on the right. The preview
+   uses the faces the renderer burns into clips (clipfoundry/assets/fonts, OFL), so it shows the real look. */
+@font-face {
+  font-family: "Caption Poppins";
+  src: url("../assets/fonts/Poppins-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Caption Poppins";
+  src: url("../assets/fonts/Poppins-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Caption Poppins";
+  src: url("../assets/fonts/Poppins-ExtraBold.ttf") format("truetype");
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Caption Anton";
+  src: url("../assets/fonts/Anton-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
+.style-studio { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); gap: var(--s6);
+  align-items: start; }
+.style-form { display: grid; gap: var(--s4); padding-right: var(--s6); border-right: 1px solid var(--line-strong);
+  min-width: 0; }
+.style-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s4);
+  padding-bottom: var(--s4); border-bottom: 1px solid var(--line-strong);
+}
+.style-title-row { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; }
+.style-title-row h2 { margin: 0; font-size: clamp(1.5rem, 2vw, 2rem); padding-right: var(--s4);
+  border-right: 1px solid var(--line-strong); }
+.style-state {
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 14px; border: 1px solid var(--line-strong);
+  border-radius: 10px; font-size: 1rem; color: var(--text);
+}
+.style-state i { width: 8px; height: 8px; border-radius: 50%; background: #b48cff; box-shadow: 0 0 8px #b48cff; }
+.style-state.saved i { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.style-head p { margin: 6px 0 0; }
+.style-stars { width: 140px; height: 70px; flex: none; }
+.style-stars path { fill: none; stroke: #9a6bff; stroke-width: 1.5; opacity: 0.8; }
+.style-stars circle { fill: #0b0820; stroke: #c9a2ff; stroke-width: 2; filter: drop-shadow(0 0 4px #b48cff); }
+
+.style-pick { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.style-pick button {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong); background: rgba(5, 8, 20, 0.6); color: var(--text-2); font: inherit;
+  font-size: 0.9375rem; cursor: pointer;
+}
+.style-pick button[aria-pressed="true"] { border-color: var(--primary); color: var(--text);
+  box-shadow: 0 0 12px -4px var(--primary); }
+.style-pick button:disabled { opacity: 0.45; cursor: not-allowed; }
+.style-pick .icon { width: 16px; height: 16px; }
+
+.style-rows { display: grid; gap: var(--s4); }
+.style-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); align-items: start; gap: var(--s4); }
+.style-row > label, .style-label { font-weight: 700; font-size: 1.0625rem; padding-top: 12px; color: var(--text); }
+.style-row input, .style-row select { width: 100%; min-height: 48px; font-size: 1.0625rem; border-radius: 10px; }
+.style-control { display: grid; gap: 6px; min-width: 0; }
+.style-hint { color: var(--text-3); font-size: 0.875rem; margin: 0; }
+.style-format { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+.style-format button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; border-radius: 10px;
+  border: 1px solid var(--line-strong); background: rgba(5, 8, 20, 0.6); color: var(--text); font: inherit;
+  font-size: 1.0625rem; cursor: pointer;
+}
+.style-format button[aria-pressed="true"] {
+  border-color: var(--primary); background: color-mix(in srgb, var(--primary) 16%, transparent);
+  box-shadow: 0 0 14px -4px var(--primary);
+}
+
+.style-more summary { cursor: pointer; font-weight: 700; color: var(--primary); min-height: 40px; display: flex;
+  align-items: center; }
+.style-more[open] summary { margin-bottom: var(--s3); }
+
+.style-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); padding-top: var(--s5);
+  border-top: 1px solid var(--line-strong); }
+.style-foot > .btn { min-height: 48px; padding: 0 26px; font-size: 1.0625rem; }
+.style-foot-note { padding-left: var(--s4); border-left: 1px solid var(--line-strong); color: var(--text-2); }
+.style-foot-more { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+.style-preview { display: grid; gap: var(--s4); justify-items: center; position: sticky; top: 100px; min-width: 0; }
+.style-preview h2 { justify-self: start; margin: 0; font-size: 1.5rem; }
+.style-frame {
+  position: relative; overflow: hidden; border-radius: 16px; border: 1px solid var(--line-strong);
+  box-shadow: 0 0 30px -10px rgba(120, 160, 255, 0.5); background: #10081f;
+}
+/* small enough that the play button stays in view under the top bar */
+.style-frame.tall { width: min(100%, 340px, max(200px, calc((100vh - 340px) * 9 / 16))); aspect-ratio: 9 / 16; }
+.style-frame.wide { width: 100%; aspect-ratio: 16 / 9; }
+/* the drawn night drive behind the sample words */
+.style-scene {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, #2a1650 0%, #6b2a74 30%, #d0567a 48%, #f59a5b 57%, #2a2440 58.5%, #15142a 100%);
+}
+.style-scene .sun {
+  position: absolute; left: 50%; top: 53%; width: 46%; aspect-ratio: 1; transform: translate(-50%, -50%);
+    border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 214, 150, 0.95) 0 28%, rgba(255, 150, 100, 0.35) 52%, transparent 70%);
+}
+.style-scene .hills {
+  position: absolute; left: 0; right: 0; top: 41%; height: 18%; background: #2b1d48;
+  clip-path: polygon(0 100%, 0 55%, 12% 35%, 24% 60%, 38% 20%, 52% 55%, 64% 30%, 78% 62%, 90% 28%, 100% 50%, 100% 100%);
+}
+.style-scene .road {
+  position: absolute; left: 0; right: 0; top: 58.5%; bottom: 0; background: linear-gradient(180deg, #24203a, #0d0c1a);
+  clip-path: polygon(47% 0, 53% 0, 100% 100%, 0 100%);
+}
+.style-scene .road::after {
+  content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 3%; transform: translateX(-50%);
+  background: repeating-linear-gradient(180deg, #ffcf4a 0 7%, transparent 7% 14%);
+  clip-path: polygon(45% 0, 55% 0, 100% 100%, 0 100%);
+}
+/* the picture covers the drawn road; captions sit above it */
+.style-scene-picture { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.style-caption { position: absolute; left: 8%; right: 8%; text-align: center; color: #fff; line-height: 1.12;
+  overflow-wrap: anywhere; }
+.style-caption.at-middle { top: 50%; transform: translateY(-50%); }
+/* as the burned-in captions do (pipeline/captions.py): each new page grows from the style's pop size to full size in
+   90 ms, and the word being said is bigger in High energy (its word_scale). No pop under Reduced motion. */
+.style-caption.pops { animation: style-pop 90ms linear; }
+@keyframes style-pop { from { scale: var(--pop); } }
+.style-caption .now.grow { display: inline-block; scale: var(--grow); }
+.style-player { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: var(--s3);
+  width: 100%; }
+.style-play {
+  width: 52px; height: 52px; border-radius: 12px; border: 1px solid var(--line-strong); background: rgba(5, 8, 20, 0.7);
+  color: var(--text); display: grid; place-items: center; cursor: pointer;
+}
+.style-play:hover { border-color: var(--primary); }
+.style-time { font-variant-numeric: tabular-nums; color: var(--text); font-size: 1rem; white-space: nowrap; }
+.style-player input[type="range"] { width: 100%; accent-color: var(--primary); }
+.style-preview > .style-hint { justify-self: stretch; }
+
+@media (max-width: 1100px) {
+  .style-studio { grid-template-columns: minmax(0, 1fr); }
+  .style-form { padding-right: 0; border-right: 0; }
+  .style-preview { position: static; }
+}
+@media (max-width: 640px) {
+  .style-row { grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
+  .style-row > label, .style-label { padding-top: 0; }
+  .style-stars { display: none; }
+  .style-foot-note { padding-left: 0; border-left: 0; flex-basis: 100%; }
+  .style-foot-more { margin-left: 0; }
+}

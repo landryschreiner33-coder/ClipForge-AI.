@@ -18,6 +18,11 @@ async ({ page }) => {
     audience: { intent: "PUBLIC", visibility: "public" }, delivery: { transfer: "outcome_unknown" } };
   const account = { configured: true, connected: true, needs_reconnect: false, name: "Isolated test channel",
     account_id: "controlled-channel", verified: true, scopes: [], restriction: "" };
+  // The one connected channel (GET /api/connections): Prepare post ticks it and uploads to it by its id.
+  const connection = { id: "controlled-connection", platform: "youtube", label: "YouTube",
+    account_id: account.account_id, display_name: account.name, nickname: "", avatar: "", scopes: [], is_default: true,
+    status: "connected", health: { state: "ok", text: "Connected", action: "" }, connected_at: 1, active_uploads: 0,
+    post_by_default: true, postable: true, can_direct_post: false, can_inbox: false };
   await page.route("**/api/**", async route => {
     const request = route.request(), pathname = new URL(request.url()).pathname;
     if (request.method() !== "GET") {
@@ -39,6 +44,7 @@ async ({ page }) => {
     if (pathname === `/api/clips/${clip.id}/versions`)
       return route.fulfill({ json: { versions: [], active: "" } });
     if (pathname === `/api/clips/${clip.id}/publications`) return route.fulfill({ json: [publication] });
+    if (pathname === "/api/connections") return route.fulfill({ json: { protection: "", connections: [connection] } });
     if (pathname === "/api/publish/accounts")
       return route.fulfill({ json: { youtube: account, tiktok: { ...account, configured: false, connected: false } } });
     if (pathname === "/api/audience") return route.fulfill({ json: {

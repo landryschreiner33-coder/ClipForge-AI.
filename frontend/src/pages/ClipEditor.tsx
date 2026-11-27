@@ -1,20 +1,29 @@
 import { ReactElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  alignWords, api, Clip, ClipEdit, ClipVersion, errorText, fmtPrecise, Project, Settings, versionVideoUrl, Word,
+  alignWords, api, AutoTrim, Clip, ClipEdit, ClipVersion, errorText, fmtPrecise, Project, Settings, TrimSuggestion,
+  versionVideoUrl, Word,
 } from "../api";
 import { at, plural } from "../format";
 import { editHash, TimeField, Timeline } from "../components/editorParts";
 import { ExportDialog, useClipPosts } from "../components/libParts";
+import { SoundCompare } from "../components/SoundCompare";
 import { hasPostText, PostDraft, postPatch, PostTextFields, RewritePostDialog } from "../components/postpack";
 import {
   announce, Banner, ConfirmDialog, EmptyState, Icon, LoadingPage, PageHead, Pill, ProgressBar, Segmented, StylePicker,
   TabPanel, Tabs, Toggle, toast, TRACKING,
 } from "../components/ui";
 import { VersionsCard } from "../components/versions";
+import { ClipPredictorCard } from "../components/predictor";
+import type { PredictorFix } from "../predictor";
+import { SuggestedTrims } from "../components/suggestedTrims";
+import { FaceCamPanel } from "../components/faceCam";
+import { learnedApi } from "../brain";
 import { useLeaveGuard } from "../router";
+import { fmtTime, STORY_MAX_S } from "../studio";
+import { colourLine, ColourReport, LOOKS, lookOf } from "../looks";
 import "./editor.css";
 
-type Group = "trim" | "captions" | "layout" | "audio" | "post";
+type Group = "trim" | "captions" | "layout" | "colour" | "audio" | "post";
 type Key = Exclude<keyof ClipEdit, "caption_words">;
 type Words = Awaited<ReturnType<typeof api.clipWords>>;
 
@@ -22,6 +31,7 @@ const GROUPS: { id: Group; label: string; what: string }[] = [
   { id: "trim", label: "Trim", what: "the trim" },
   { id: "captions", label: "Captions", what: "the captions or hook" },
   { id: "layout", label: "Layout", what: "the layout" },
+  { id: "colour", label: "Colour", what: "the colour" },
   { id: "audio", label: "Audio", what: "the audio" },
   { id: "post", label: "Post text", what: "the post text" },
 ];
@@ -29,23 +39,51 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
   trim: ["start", "end"],
   captions: ["captions_enabled", "caption_style", "caption_position", "caption_size", "caption_emphasis",
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
-  layout: ["tracking", "crop_x", "layout", "zoom", "auto_zoom"],
-  audio: ["gain_db", "normalize_audio", "silence", "remove_fillers", "speed"],
+  layout: ["tracking", "crop_x", "layout", "split_game", "cam_box", "pip_corner", "zoom", "auto_zoom"],
+  colour: ["auto_color", "look", "look_strength", "clean_picture"],
+  audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed", "sound_effects"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
+
+/** What the last render's editing moves did (pipeline/moves.py), in words. */
+function movesNote(m: unknown): string {
+  if (!m || typeof m !== "object") return "";
+  const v = m as { on_cuts?: number; eased?: number; pushes?: number; effects?: string[] };
+  const parts: string[] = [];
+  const n = (k: number | undefined, one: string, many: string) => (k ? `${k} ${k === 1 ? one : many}` : "");
+  for (const p of [n(v.on_cuts, "punch-in on a cut", "punch-ins on cuts"),
+    n(v.eased, "framing change", "framing changes"), n(v.pushes, "push-in on a key word", "push-ins on key words")]) {
+    if (p) parts.push(p);
+  }
+  const fx = v.effects || [];
+  if (fx.length) parts.push(`${fx.length} sound effect${fx.length === 1 ? "" : "s"}`);
+  return parts.join(", ");
+}
 // What the renderer uses when neither the clip, the video's options nor Settings say otherwise.
 const FALLBACK: Partial<Record<Key, unknown>> = {
-  tracking: "auto", crop_x: 0.5, layout: "fill", zoom: 1, auto_zoom: true,
+  tracking: "auto", crop_x: 0.5, layout: "fill", split_game: "whole", zoom: 1, auto_zoom: true,
   captions_enabled: true, caption_style: "bold", caption_position: "bottom", caption_size: 1, caption_emphasis: false,
   highlight_words: true, highlight_color: "", hook_overlay: true, hook_seconds: 3,
-  gain_db: 0, normalize_audio: true, silence: "light", remove_fillers: true, speed: 1,
+  gain_db: 0, normalize_audio: true, clean_sound: "auto", silence: "light", remove_fillers: true, speed: 1,
+  auto_color: true, look: "natural", look_strength: 100, clean_picture: true, sound_effects: true,
 };
 const TITLE_MAX = 100;
 const CAPTION_MAX = 2200;
 
 const isBusy = (c: Clip) => c.status === "queued" || c.status === "rendering";
 const same = (a: unknown, b: unknown) =>
-  typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-6 : a === b;
+  typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-6
+    : Array.isArray(a) || Array.isArray(b) ? JSON.stringify(a ?? null) === JSON.stringify(b ?? null) : a === b;
+// The layouts that use a face cam laid over gameplay (config.CLIP_LAYOUTS); "auto" splits only when one is found.
+const CAM_LAYOUTS = ["split", "pip", "game", "auto"];
+const LAYOUT_HINTS: Record<string, string> = {
+  fill: "One picture that fills the clip; the sides of a wide video are cropped.",
+  fit: "The whole picture over a blurred background, nothing cut off.",
+  split: "The face cam on top and the gameplay below it, with the captions between them.",
+  pip: "The gameplay fills the clip and the face cam sits in a small box in a top corner.",
+  game: "The gameplay fills the clip and the face cam is left out of it.",
+  auto: "Gameplay + Facecam when a face cam is found in this clip; otherwise one picture.",
+};
 const norm = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
 const andList = (xs: string[]) =>
   (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
@@ -63,6 +101,56 @@ function Check({ label, on, onChange, disabled }: {
       <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className="small">{label}</span>
     </label>
+  );
+}
+
+const LEARNED_WORD: Record<string, string> = { start: "start", end: "end", tracking: "framing", layout: "layout",
+  crop_x: "picture position", zoom: "zoom", caption_style: "caption style", caption_position: "caption position",
+  caption_size: "caption size", highlight_words: "word highlight", captions_enabled: "captions", silence: "pause cutting",
+  speed: "speed", remove_fillers: "“um” cutting" };
+
+/** Thumbs up or down on a clip (it teaches ClipForge which moments you like), and which of the clip's values it
+ * started with because ClipForge learned them from your edits (Brain → Learned). */
+function ClipTeach({ clipId, learned }: { clipId: string; learned: string[] }) {
+  const [said, setSaid] = useState<boolean | null>(null);
+  const tell = async (good: boolean) => {
+    try {
+      await learnedApi.feedback(clipId, good);
+      setSaid(good);
+      toast(good ? "Noted: more clips like this one." : "Noted: fewer clips like this one.");
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+  };
+  return (
+    <div className="row wrap clip-teach small">
+      <span className="muted">Good clip?</span>
+      <button type="button" className={`btn btn-small btn-quiet btn-icon${said === true ? " on" : ""}`} aria-pressed={said === true}
+        aria-label="Good clip: more like this" onClick={() => void tell(true)}><Icon name="thumbup" /></button>
+      <button type="button" className={`btn btn-small btn-quiet btn-icon${said === false ? " on" : ""}`} aria-pressed={said === false}
+        aria-label="Not a good clip: fewer like this" onClick={() => void tell(false)}><Icon name="thumbdown" /></button>
+      {learned.length > 0 && <span className="muted grow" data-testid="clip-learned">
+        Started with what you usually do: {learned.map((k) => LEARNED_WORD[k] || k).join(", ")}.{" "}
+        <a className="textlink" href="#/brain/learned">Brain → Learned</a></span>}
+    </div>
+  );
+}
+
+/** The trims ClipForge made on this new clip (start on the first real word, cut an outro), each with Put back. */
+function AutoTrims({ trims, draft, onPutBack }: {
+  trims: AutoTrim[]; draft: ClipEdit; onPutBack: (side: "start" | "end", at: number) => void;
+}) {
+  const shown = trims.filter((t) => draft[t.side] === t.to);
+  if (!shown.length) return null;
+  return (
+    <ul className="small muted clip-auto-trims" data-testid="clip-auto-trims">
+      {shown.map((t) => (
+        <li key={t.side}>
+          Trimmed for you: {t.label}. <span className="faint">{t.why}</span>{" "}
+          <button type="button" className="textlink" onClick={() => onPutBack(t.side, t.was)}>Put it back</button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -99,6 +187,8 @@ export default function ClipEditor({ id }: { id: string }) {
   const [dialog, setDialog] = useState<"" | "discard" | "again" | "rewrite" | "export">("");
   const [pollTick, setPollTick] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const pendingSeek = useRef<number | null>(null);  // a predictor time to jump to once the rendered clip loads
+  const [fixesAdded, setFixesAdded] = useState<string[]>([]);
   const uid = useId();
   const posts = useClipPosts([id]);
 
@@ -153,6 +243,7 @@ export default function ClipEditor({ id }: { id: string }) {
       setJustRendered(true);
       setSavedHere(false);
       setShown(null);
+      setFixesAdded([]);  // the new video has its own prediction and fixes
       toast("Rendered. The new video gets its own final check before it is posted.");
     } else if (clip.status === "error") {
       announce("The render didn't finish. The reason is at the top of the page.");
@@ -180,10 +271,19 @@ export default function ClipEditor({ id }: { id: string }) {
   const opts = (project?.options || {}) as Record<string, unknown>;
   const saved = (clip?.edit || {}) as Record<string, unknown>;
   const d = draft as Record<string, unknown>;
+  // The layout: what this clip's last render was asked for when that was a look for a face cam (Settings → Split
+  // view does that for a clip nobody chose a layout for), so the choice shown is the one that made the picture.
   const base = (k: Key): unknown =>
     k === "start" ? clip?.start : k === "end" ? clip?.end : k === "hook" ? clip?.hook
-      : opts[k] ?? settings[k] ?? FALLBACK[k];
+      : k === "layout" ? clip?.render_info?.layout_asked ?? opts[k] ?? settings[k] ?? FALLBACK[k]
+        // a split view keeps the look it was made with when it is rendered again
+        : k === "split_game" ? clip?.render_info?.split_game ?? opts[k] ?? settings[k] ?? FALLBACK[k]
+        : opts[k] ?? settings[k] ?? FALLBACK[k];
   const eff = (k: Key) => d[k] ?? base(k);
+  // the layout a clip gets without a split view: what its last render would have used, else the video's own, else
+  // the one from Settings
+  const usualLayout = [clip?.render_info?.layout_fallback, opts.layout, settings.layout]
+    .find((v) => v === "fill" || v === "fit") ?? "fill";
   const num = (k: Key) => Number(eff(k) ?? 0);
   const bool = (k: Key) => !!eff(k);
   const str = (k: Key) => String(eff(k) ?? "");
@@ -244,6 +344,8 @@ export default function ClipEditor({ id }: { id: string }) {
   const lo = Math.max(0, Math.min(savedStart - 10, start));
   const hi = Math.min(dur, Math.max(savedEnd + 10, end));
   const trimChanged = changed("start") || changed("end");
+  // a hook can show for up to 15 seconds, or for the whole clip ("Part N" on a story part does)
+  const hookMax = Math.max(15, Math.ceil(end - start) + 1, num("hook_seconds"));
   const canReset = !same(start, clip.start) || !same(end, clip.end);
 
   const set = (patch: Partial<ClipEdit>) => setDraft((x) => ({ ...x, ...patch }));
@@ -257,6 +359,11 @@ export default function ClipEditor({ id }: { id: string }) {
     if (clickMode === "start") setTrim(Math.max(0, w.start - 0.12), Math.max(end, w.start + 1.5));
     else setTrim(Math.min(start, w.end - 1.5), w.end + 0.3);
     announce(`${clickMode === "start" ? "Start" : "End"} set at “${w.w}”`);
+  };
+  const useTrim = (s: TrimSuggestion) => {
+    if (s.edit.start !== undefined || s.edit.end !== undefined) setTrim(s.edit.start ?? start, s.edit.end ?? end);
+    if (s.edit.silence) set({ silence: s.edit.silence });
+    announce(`${s.label}: not saved yet${s.edit.silence ? " (Remove pauses is set to Light under Audio)" : ""}`);
   };
   const resetTrim = () => setDraft((x) => {
     const n = { ...x };
@@ -344,6 +451,7 @@ export default function ClipEditor({ id }: { id: string }) {
     setPostDraft(clip.post || {});
     setPostKey((n) => n + 1);
     setCustomHook("");
+    setFixesAdded([]); // the fixes added to the draft went with it
   };
   saveRef.current = save;
   discardRef.current = discard;
@@ -406,6 +514,26 @@ export default function ClipEditor({ id }: { id: string }) {
     if (view === "source" && (v.currentTime < start - 0.05 || v.currentTime >= end - 0.05)) v.currentTime = start;
     v.play().catch(() => toast("This video can't be played here.", true));
   };
+  // The viral predictor's times are in the rendered clip: show it and jump there.
+  const seekClip = (at: number) => {
+    const v = videoRef.current;
+    if (view === "clip" && v) {
+      v.currentTime = at;
+      return;
+    }
+    pendingSeek.current = at;
+    setView("clip");
+  };
+  const applyFix = (f: PredictorFix) => {
+    const e = (f.edit || {}) as Partial<ClipEdit>;
+    if (e.start !== undefined || e.end !== undefined) setTrim(e.start ?? start, e.end ?? end);
+    const rest = { ...e };
+    delete rest.start;
+    delete rest.end;
+    if (Object.keys(rest).length) set(rest);
+    setFixesAdded((x) => [...x, f.id]);
+    toast(`“${f.label}” is in your edit. Save and render to see the new prediction.`);
+  };
   const shownLabel = shown ? shown.label : "Original";
   const shownAt = shown ? renderedAt(shown.render_info) : clipAt;
   const badge = view === "source" ? "Source" : `${shownLabel}${shownAt ? ` · rendered ${at(shownAt)}` : ""}`;
@@ -432,6 +560,10 @@ export default function ClipEditor({ id }: { id: string }) {
     { knowledge_id: string; revision: number; snapshot: { title: string } }[];
   const sizePct = Math.round(num("caption_size") * 100);
   const gain = num("gain_db");
+  const cleanNote = String((ri.audio_processing as { clean_sound?: { summary?: string } } | undefined)
+    ?.clean_sound?.summary || "");
+  const strength = num("look_strength");
+  const styled = str("look") !== "natural";
 
   const panels: Record<Group, ReactElement> = {
     trim: (
@@ -445,10 +577,17 @@ export default function ClipEditor({ id }: { id: string }) {
           Length: <b>{(end - start).toFixed(1)} s</b>
           {trimChanged && <span className="faint"> (saved: {(savedEnd - savedStart).toFixed(1)} s)</span>}
         </p>
+        {clip.category === "story" && (
+          <p className={end - start > STORY_MAX_S + 0.001 ? "error-text" : "hint"} role={end - start > STORY_MAX_S + 0.001 ? "alert" : undefined}>
+            A story clip can be at most {fmtTime(STORY_MAX_S)} long. For a longer story, split it into parts under Stories on the
+            project page.
+          </p>
+        )}
         <p className="hint">
           ClipForge suggested {fmtPrecise(clip.start)} to {fmtPrecise(clip.end)}. Silence cleanup, filler cuts and
           pacing (in Audio) can make the video shorter than this.
         </p>
+        <SuggestedTrims clipId={clip.id} version={clip.version} onUse={useTrim} />
       </>
     ),
     captions: (
@@ -464,7 +603,13 @@ export default function ClipEditor({ id }: { id: string }) {
           <Segmented labelledBy={`${uid}-pos`} value={str("caption_position")}
             onChange={(v) => set({ caption_position: v })}
             options={[{ value: "top", label: "Top" }, { value: "middle", label: "Middle" },
-              { value: "bottom", label: "Bottom" }]} />
+              { value: "bottom", label: "Bottom" },
+              ...(str("layout") === "fit" || str("caption_position") === "above"
+                ? [{ value: "above", label: "Above the picture" }] : [])]} />
+          {str("caption_position") === "above" && (
+            <p className="hint">Right above the video when the layout is Fit, so none of the picture is covered. When there is no room
+              (a tall picture, or Fill), the captions go to the bottom.</p>
+          )}
         </div>
         <div className="field">
           <label htmlFor={`${uid}-size`}>Size <span className="faint tnum">{sizePct}%</span></label>
@@ -540,10 +685,10 @@ export default function ClipEditor({ id }: { id: string }) {
         <div className="row wrap hook-row">
           <Check label="Show the hook on screen for" on={bool("hook_overlay")}
             onChange={(v) => set({ hook_overlay: v })} />
-          <input type="number" min={1} max={15} step={0.5} aria-label="Seconds the hook shows"
+          <input type="number" min={1} max={hookMax} step={0.5} aria-label="Seconds the hook shows"
             value={num("hook_seconds")} disabled={!bool("hook_overlay")} onChange={(e) => {
               const n = Number(e.target.value);
-              if (e.target.value !== "" && Number.isFinite(n)) set({ hook_seconds: Math.min(15, Math.max(1, n)) });
+              if (e.target.value !== "" && Number.isFinite(n)) set({ hook_seconds: Math.min(hookMax, Math.max(1, n)) });
             }} />
           <span className="small">seconds</span>
         </div>
@@ -557,7 +702,14 @@ export default function ClipEditor({ id }: { id: string }) {
       <>
         <div className="field">
           <label htmlFor={`${uid}-tr`}>Framing follows</label>
-          <select id={`${uid}-tr`} value={str("tracking")} onChange={(e) => set({ tracking: e.target.value })}>
+          <select id={`${uid}-tr`} value={str("tracking")} onChange={(e) => {
+            const tracking = e.target.value;
+            // Framing the picture by hand means one picture: a split view places its two pictures itself and would
+            // ignore it. Unless a split view was picked for this clip, the layout shown changes with it.
+            const toUsual = tracking !== "auto" && CAM_LAYOUTS.includes(str("layout"))
+              && d.layout == null && saved.layout == null;
+            set({ tracking, ...(toUsual ? { layout: usualLayout } : {}) });
+          }}>
             {[...TRACKING, { value: "manual", label: "A position you choose" }].map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
@@ -576,14 +728,37 @@ export default function ClipEditor({ id }: { id: string }) {
         <div className="field">
           <span className="label" id={`${uid}-lay`}>Layout</span>
           <Segmented labelledBy={`${uid}-lay`} value={str("layout")} onChange={(v) => set({ layout: v })}
-            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" }]} />
+            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (whole frame)" },
+              { value: "split", label: "Gameplay + Facecam" }, { value: "pip", label: "Picture-in-picture" },
+              { value: "game", label: "Gameplay only" }, { value: "auto", label: "Automatic" }]} />
+          <p className="hint">{LAYOUT_HINTS[str("layout")] || ""}
+            {CAM_LAYOUTS.includes(str("layout")) && str("layout") !== "auto"
+              && " If no face cam is found in this clip and you haven't drawn one, it uses the layout from Settings."}
+            {CAM_LAYOUTS.includes(str("layout")) && str("tracking") !== "auto"
+              && " These layouts place the picture themselves, so Framing does not change them."}
+          </p>
         </div>
+        {CAM_LAYOUTS.includes(str("layout")) && (
+          <FaceCamPanel project={project} clip={clip} layout={str("layout")}
+            box={Array.isArray(eff("cam_box")) ? (eff("cam_box") as number[]) : null}
+            setBox={(b) => set({ cam_box: b })}
+            pipCorner={(eff("pip_corner") as "left" | "right" | undefined) ?? clip.render_info?.pip_corner ?? "right"}
+            setPipCorner={(c) => set({ pip_corner: c })} renderNow={renderOnly} busy={busy} />
+        )}
+        {(str("layout") === "split" || str("layout") === "auto") && <div className="field">
+          <span className="label" id={`${uid}-game`}>Under the face cam</span>
+          <Segmented labelledBy={`${uid}-game`} value={str("split_game")} onChange={(v) => set({ split_game: v })}
+            options={[{ value: "whole", label: "Whole picture" }, { value: "zoom", label: "Zoomed in" }]} />
+          <p className="hint">{str("split_game") === "zoom"
+            ? "The middle of the picture fills everything below the face cam; its sides are cut off."
+            : "All of the picture stays in view, as wide as the clip, over a blurred background."}</p>
+        </div>}
         <div className="field">
           <label htmlFor={`${uid}-zoom`}>Zoom <span className="faint tnum">{num("zoom").toFixed(2)}×</span></label>
           <input id={`${uid}-zoom`} type="range" min={1} max={2} step={0.05} value={num("zoom")}
             aria-valuetext={`${num("zoom").toFixed(2)} times`} onChange={(e) => set({ zoom: +e.target.value })} />
         </div>
-        <Check label="Subtle push-in on sentences with an emphasized word" on={bool("auto_zoom")}
+        <Check label="Punch-ins on cuts and a push-in on key words" on={bool("auto_zoom")}
           onChange={(v) => set({ auto_zoom: v })} />
         {ri.mode && (
           <p className="hint">
@@ -592,6 +767,35 @@ export default function ClipEditor({ id }: { id: string }) {
             {ri.cuts ? `, ${plural(Number(ri.cuts), "scene cut")}` : ", no scene cuts"}.
           </p>
         )}
+      </>
+    ),
+    colour: (
+      <>
+        <Check label="Correct the colour automatically" on={bool("auto_color")}
+          onChange={(v) => set({ auto_color: v })} />
+        <p className="hint">
+          White balance, brightness and contrast are measured once for this clip and gently corrected; skin tones stay
+          natural and a game's or app's own colours are only half corrected. Phone HDR video is always turned into
+          normal video so it never looks grey.
+        </p>
+        <div className="field">
+          <label htmlFor={`${uid}-look`}>Look</label>
+          <select id={`${uid}-look`} value={str("look") || "natural"} onChange={(e) => set({ look: e.target.value })}>
+            {LOOKS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+          </select>
+          <p className="hint">{lookOf(str("look")).what}</p>
+        </div>
+        <div className="field">
+          <label htmlFor={`${uid}-strength`}>
+            Look strength <span className="faint tnum">{styled ? `${strength} %` : "(choose a look first)"}</span>
+          </label>
+          <input id={`${uid}-strength`} type="range" min={0} max={100} step={5} value={strength} disabled={!styled}
+            aria-valuetext={`${strength} percent`} onChange={(e) => set({ look_strength: +e.target.value })} />
+        </div>
+        <Check label="Clean up grainy footage (low light)" on={bool("clean_picture")}
+          onChange={(v) => set({ clean_picture: v })} />
+        <p className="hint">Only a picture with visible grain is cleaned; a clean picture is left as it is.</p>
+        {ri.colour ? <p className="hint">Last render: {colourLine(ri.colour as ColourReport)}</p> : null}
       </>
     ),
     audio: (
@@ -607,6 +811,19 @@ export default function ClipEditor({ id }: { id: string }) {
         <Check label="Normalize loudness (target −14 LUFS; preserve peaks)" on={bool("normalize_audio")}
           onChange={(v) => set({ normalize_audio: v })} />
         <div className="field">
+          <span className="label" id={`${uid}-clean`}>Clean up the sound</span>
+          <Segmented labelledBy={`${uid}-clean`} value={str("clean_sound") || "auto"}
+            onChange={(v) => set({ clean_sound: v })}
+            options={[{ value: "off", label: "Off" }, { value: "auto", label: "Auto" },
+              { value: "gentle", label: "Gentle" }, { value: "strong", label: "Strong" }]} />
+          <p className="hint">
+            Lowers background noise and hum, softens breaths, evens out quiet and loud parts and polishes the voice.
+            Auto leaves music and clips that are mostly not speech as they are.
+          </p>
+        </div>
+        <SoundCompare clipId={clip.id} mode={str("clean_sound") || "auto"} />
+        {cleanNote && <p className="hint">Last render: {cleanNote}</p>}
+        <div className="field">
           <span className="label" id={`${uid}-sil`}>Silence cleanup</span>
           <Segmented labelledBy={`${uid}-sil`} value={str("silence")} onChange={(v) => set({ silence: v })}
             options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" },
@@ -614,6 +831,9 @@ export default function ClipEditor({ id }: { id: string }) {
         </div>
         <Check label="Cut “um” and “uh” with the pause around them" on={bool("remove_fillers")}
           onChange={(v) => set({ remove_fillers: v })} />
+        <Check label="Sound effects: a soft whoosh with each push-in, a pop on coloured key words"
+          on={bool("sound_effects")} onChange={(v) => set({ sound_effects: v })} />
+        {movesNote(ri.moves) && <p className="hint">Last render: {movesNote(ri.moves)}</p>}
         <div className="field">
           <label htmlFor={`${uid}-speed`}>
             Pacing <span className="faint tnum">{num("speed").toFixed(2)}× (voice pitch unchanged)</span>
@@ -672,7 +892,7 @@ export default function ClipEditor({ id }: { id: string }) {
         </span>}
         actions={<>
           <button type="button" className="btn" disabled={!clip.has_video} onClick={() => setDialog("export")}>
-            <Icon name="download" />Export
+            <Icon name="download" />Save to computer
           </button>
           <a className="btn" href={`#/publish/${clip.id}`}><Icon name="upload" />Prepare post</a>
         </>}
@@ -688,6 +908,9 @@ export default function ClipEditor({ id }: { id: string }) {
           {clip.has_video && <p>The video below is the last render that worked.</p>}
         </Banner>
       )}
+
+      <ClipTeach clipId={clip.id} learned={clip.edit?.learned_keys || []} />
+      <AutoTrims trims={clip.edit?.auto_trims || []} draft={draft} onPutBack={(side, at) => set({ [side]: at })} />
 
       {brainLessons.length > 0 && <p className="small muted" data-testid="clip-brain-guidance">
         Brain guidance used for this clip: {brainLessons.map(item =>
@@ -712,6 +935,8 @@ export default function ClipEditor({ id }: { id: string }) {
                   aria-label={view === "source" ? "Source video" : `Clip preview: ${shownLabel}`}
                   onLoadedMetadata={(e) => {
                     if (view === "source") e.currentTarget.currentTime = start;
+                    else if (pendingSeek.current !== null) e.currentTarget.currentTime = pendingSeek.current;
+                    pendingSeek.current = null;
                     setT(e.currentTarget.currentTime);
                   }}
                   onTimeUpdate={(e) => {
@@ -737,7 +962,7 @@ export default function ClipEditor({ id }: { id: string }) {
                   <span>
                     {videoFailed === "format"
                       ? (view === "source" ? "The cut can still be set with the timeline and words."
-                        : "Use Export to download it and watch it in another player.")
+                        : "Use Save to computer and watch it in another player.")
                       : view === "source" ? "The source file may have been moved or deleted."
                         : "The file may have been moved or deleted. Rendering the clip makes it again."}
                   </span>
@@ -764,6 +989,11 @@ export default function ClipEditor({ id }: { id: string }) {
           <Timeline lo={lo} hi={hi} start={start} end={end} words={words} playhead={view === "source" ? t : null}
             nowWord={nowWord} clickMode={clickMode} onClickMode={setClickMode} onTrim={setTrim} onWord={onWord}
             onReset={resetTrim} canReset={canReset} />
+
+          <ClipPredictorCard clipId={clip.id} versionId={shown?.id || ""} busy={busy}
+            stamp={`${clip.version}|${clip.status}|${shown?.id ?? ""}|${shown?.status ?? ""}`}
+            onSeek={seekClip} onApply={shown ? undefined : applyFix} applyLabel="Add to my edit"
+            appliedIds={fixesAdded} />
 
           <VersionsCard clip={clip} playing={view === "clip" ? shown?.id ?? "" : undefined}
             onPlay={(v) => {

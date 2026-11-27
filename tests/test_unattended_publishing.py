@@ -283,11 +283,9 @@ def test_cancel_after_final_byte_marker_retains_uncertainty(env, api, monkeypatc
         pub_id = result.json()["id"]
         jobs.worker._run(pub_id)
         pub = db.get_publication(pub_id)
-        assert pub["status"] == "processing" and pub["info"]["outcome_unknown"]
-        assert "Nothing was published" not in pub["message"]
-        assert api.post(f"/api/clips/{item['clip_id']}/publish/youtube", headers=H, json={
-            "title": "Canceled reply after upload", "privacy": "public", "made_for_kids": False,
-            "confirm": True}).status_code == 409
+        # YouTube's upload session says the whole file arrived: the real state is shown, never "canceled"
+        assert pub["status"] == "done" and pub["info"]["cancel_too_late"] and pub["message"].startswith(jobs.TOO_LATE)
+        assert "Nothing was published" not in pub["message"] and pub["remote_id"] in google.videos
     else:
         item = scheduler.approve(item["id"], {"privacy": "public", "options": {"made_for_kids": False}})
         with pytest.raises(queue.Canceled):

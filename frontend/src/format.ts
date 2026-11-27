@@ -3,7 +3,8 @@
 /** "1 clip", "3 clips", "1 person", "2 people" */
 export const plural = (n: number, one: string, many?: string) => `${n} ${n === 1 ? one : many || `${one}s`}`;
 
-function zoneOf(tz?: string): string | undefined {
+/** The time zone id when this browser knows it, else undefined (times then use this computer's zone). */
+export function zoneOf(tz?: string): string | undefined {
   if (!tz) return undefined;
   try {
     new Intl.DateTimeFormat([], { timeZone: tz });

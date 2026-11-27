@@ -167,7 +167,7 @@ def test_disk_stop_during_live_turn_does_not_finalize(data, monkeypatch, returnc
     assert read_json(sess.segdir / "state.json")["offset"] == 120
     assert not read_json(sess.segdir / "state.json")["capture_complete"]
     assert db.fetch("sources", src["id"])["live_status"] != "ended"
-    assert not [row for row in queue.jobs(worker="live_monitor") if row["kind"] == "post_live"]
+    assert not [row for row in queue.jobs(limit=1000) if row["kind"] == "post_live"]
 
 
 def test_live_assembly_refuses_low_space_without_touching_previous_files(data, monkeypatch):

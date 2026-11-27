@@ -31,7 +31,7 @@ TRANSCRIPT_FILE = "transcript.final.json"
 # Render options that change what the output looks or sounds like (recorded with every artifact)
 SETTINGS_KEYS = ("caption_style", "caption_position", "highlight_words", "caption_emphasis", "tracking", "layout",
                  "crop_x", "zoom", "auto_zoom", "silence", "remove_fillers", "speed", "normalize_audio", "gain_db",
-                 "hook", "hook_overlay", "hook_seconds")
+                 "hook", "hook_overlay", "hook_seconds", "clean_sound")
 
 
 class TimeMap(Protocol):

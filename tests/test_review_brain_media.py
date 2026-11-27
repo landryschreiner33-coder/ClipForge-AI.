@@ -69,7 +69,7 @@ def test_source_tagged_note_and_example_reach_real_render_without_claiming_overr
     assert {row["knowledge_id"]: row["decisions"] for row in result["render_info"]["brain_knowledge"]} == expected
     assert result["render_info"]["artifact"]["settings"]["caption_style"] == "bold"
     assert "Style: Caption,Poppins ExtraBold,92," in ass
-    assert ",7,3,5,90,90,0,1" in ass  # Bold preset outline/shadow; actual middle alignment/margin.
+    assert ",7,3,5,150,150,0,1" in ass  # Bold preset outline/shadow; middle alignment; margins clear of app buttons
     assert "PRACTICE" in ass and "Practice" not in ass
     db.update_clip(clip["id"], **result, status="ready")
     db.init()  # A process/database reopen retains actual render provenance and the originally saved plan.

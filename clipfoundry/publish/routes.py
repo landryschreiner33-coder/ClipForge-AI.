@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, StrictBool
 
 from .. import config, db, learning, secure
-from . import audience, connection_routes, jobs, stats, tiktok, tiktok_setup, youtube
+from . import audience, connection_routes, jobs, oauth_apps, stats, tiktok, tiktok_setup, youtube
 from .common import (PublishError, app_request, callback_page, challenge_hex, challenge_s256, finish_login,
                      local_only, redirect_uri, start_login)
 
@@ -21,7 +21,8 @@ def _youtube_state(settings: dict) -> dict:
     acc = db.get_account("youtube") or {}
     info = acc.get("info") or {}
     return {
-        "configured": youtube.configured(settings), "connected": bool(acc.get("has_tokens")),
+        "configured": youtube.configured(settings), "app": oauth_apps.source(settings, "youtube"),
+        "connected": bool(acc.get("has_tokens")),
         "needs_reconnect": bool(info.get("needs_reconnect")), "name": acc.get("display_name", ""),
         "account_id": acc.get("account_id", ""), "avatar": acc.get("avatar_url", ""),
         "scopes": acc.get("scopes") or [], "connected_at": acc.get("connected_at"),
@@ -38,7 +39,8 @@ def _tiktok_state(settings: dict, request: Request | None) -> dict:
     granted = acc.get("scopes") or []
     audited = bool(settings.get("tiktok_app_audited"))
     return {
-        "configured": tiktok.configured(settings), "connected": bool(acc.get("has_tokens")),
+        "configured": tiktok.configured(settings), "app": oauth_apps.source(settings, "tiktok"),
+        "connected": bool(acc.get("has_tokens")),
         "needs_reconnect": bool((acc.get("info") or {}).get("needs_reconnect")), "name": acc.get("display_name", ""),
         "account_id": acc.get("account_id", ""), "avatar": acc.get("avatar_url", ""), "scopes": granted,
         "connected_at": acc.get("connected_at"), "audited": audited,
@@ -447,6 +449,18 @@ def performance_overview() -> dict:
     return {"published": len(pubs), "with_stats": sum(1 for p in pubs if p["id"] in latest), "totals": totals,
             "last_refreshed": last, "items": items, "check": learning.ranking_check(settings=settings),
             "totals_note": learning.YOUTUBE_NOTE if excluded else "", "excluded_from_totals": excluded}
+
+
+@router.get("/api/performance/compare", dependencies=[Depends(local_only)])
+def performance_compare(by: str = "format") -> dict:
+    """Your posts grouped by channel, niche, format or clip length, each group against the rest of the same
+    platform and audience, read 48 hours after each went out (autopilot/compare.py)."""
+    from ..autopilot import compare
+
+    try:
+        return compare.compare(by)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/api/performance/dataset", dependencies=[Depends(local_only)])

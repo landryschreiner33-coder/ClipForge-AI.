@@ -16,7 +16,9 @@ def local_options():
     return {"auto_upload": False}
 
 
-def test_advanced_source_route_redirects_submitted_mode_without_breaking_explicit_discovery(data):
+def test_advanced_source_route_stays_closed_now_that_discovery_is_retired(data):
+    """The discovery-only source route refuses in submitted mode, and an old client saving the retired discovery
+    mode cannot reopen it (CF2-16): nothing is created and no source search is queued."""
     from clipfoundry import db
     from clipfoundry.api import app
 
@@ -28,12 +30,10 @@ def test_advanced_source_route_redirects_submitted_mode_without_breaking_explici
         assert "Use Add video in Missions" in denied.json()["detail"]
         assert {table: db.select(table) for table in before} == before
         db.save_settings({"autopilot_input_mode": "discovery"})
-        accepted = client.post("/api/autopilot/sources", headers=H, json=body)
-        assert accepted.status_code == 200, accepted.text
-    sources = db.select("sources")
-    assert len(sources) == 1 and sources[0]["url"] == body["url"]
-    assert not db.select("source_submissions") and not db.select("source_rights")
-    assert db.select("worker_jobs", "kind='source_scout'")
+        still = client.post("/api/autopilot/sources", headers=H, json=body)
+        assert still.status_code == 409, still.text
+    assert {table: db.select(table) for table in before} == before
+    assert not db.select("worker_jobs", "kind='source_scout'")
 
 
 def test_file_submission_requires_app_request_and_strict_options_and_stays_managed(data):

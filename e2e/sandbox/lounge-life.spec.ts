@@ -174,7 +174,7 @@ async ({ page, request }) => {
   await expect(robot(page, "radar")).toHaveAttribute("data-break-activity", "");
   await expect(splice).toHaveAttribute("data-pose", "work");
   await expect(splice).toHaveAttribute("data-posture", "desk");
-  await expect(splice).toHaveAttribute("data-room", "studio");
+  await expect(splice).toHaveAttribute("data-room", "editing");
   await expect(splice).toHaveAttribute("data-break-activity", "");
   await uniqueClaims(page);
 
@@ -211,63 +211,23 @@ async ({ page, request }) => {
   expect(feed.writes).toEqual([]);
 });
 
-test("stalled skyline art keeps Pixi usable, and a missing graphics bundle keeps animated Canvas activities",
+// Since the space studio (2026-11-19) the ship is drawn by office/StudioScene.ts alone; the older skyline picture and
+// the animated canvas fallback are gone. Without the ship's code the map stays usable as plain rooms and robots.
+test("a missing ship bundle keeps the rooms and all 25 resting robots usable as a plain map",
 async ({ page, request }) => {
   const feed = await loungeFixture(page, request);
-  let skylineRequests = 0, graphicsRequests = 0;
-  let holdSkyline = true;
-  const releaseSkyline: (() => Promise<void>)[] = [];
-  await page.route("**/office-art/skyline.png", route => {
-    skylineRequests++;
-    if (holdSkyline) {
-      releaseSkyline.push(() => route.abort("failed"));
-      return;
-    }
-    return route.abort("failed");
-  });
-  // A decorative image request may never complete, so the test does not wait for the page's load event.
-  await page.goto("/#/office", { waitUntil: "domcontentloaded" });
-  await animationControl(page).selectOption("full");
-  await expect.poll(() => skylineRequests, { timeout: 6000,
-    message: "the optional skyline request remains pending while the office starts" })
-    .toBeGreaterThan(0);
-  await expect(activityRobots(page)).toHaveCount(25, { timeout: 6000 });
-  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "pixi");
-  const painted = await page.locator(".office-world canvas").evaluate((canvas: HTMLCanvasElement) => {
-    const copy = document.createElement("canvas"); copy.width = canvas.width; copy.height = canvas.height;
-    const ctx = copy.getContext("2d")!; ctx.drawImage(canvas, 0, 0);
-    const pixels = ctx.getImageData(0, 0, copy.width, copy.height).data;
-    let opaque = 0;
-    for (let i = 3; i < pixels.length; i += 4) if (pixels[i]) opaque++;
-    return opaque;
-  });
-  expect(painted, "the office paints without waiting for its decorative skyline").toBeGreaterThan(5000);
-  const pixiImage = await loungeImage(page);
-  await page.waitForTimeout(850);
-  expect(await loungeImage(page), "a stalled image does not disable the Pixi activities").not.toBe(pixiImage);
-  holdSkyline = false;
-  await Promise.all(releaseSkyline.map(release => release()));
-  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "pixi");
-
-  // Reload creates a fresh module graph: an already-loaded Scene cannot hide this deliberate bundle failure.
+  let graphicsRequests = 0;
   await page.route("**/assets/StudioScene-*.js", route => {
     graphicsRequests++;
     return route.abort("failed");
   });
-  await page.reload();
-  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "canvas");
+  await page.goto("/#/office");
+  await animationControl(page).selectOption("full");
+  await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "plain");
   expect(graphicsRequests, "the production graphics chunk really failed to load").toBeGreaterThan(0);
-  await expect(activityRobots(page)).toHaveCount(25);
+  await expect(page.getByText("The ship pictures could not load.", { exact: false })).toBeVisible();
+  await expect(page.locator(".robot-hit")).toHaveCount(25);
   await expect(page.locator('.robot-hit[data-state="paused"][data-room="lounge"]')).toHaveCount(25);
-  const fallbackImage = await loungeImage(page);
-  await page.waitForTimeout(850);
-  expect(await loungeImage(page), "the compatibility renderer also animates games, eating and drinking")
-    .not.toBe(fallbackImage);
-  await animationControl(page).selectOption("reduced");
-  await page.waitForTimeout(400);
-  const stillImage = await loungeImage(page), stillState = await loungeState(page);
-  await page.waitForTimeout(850);
-  expect(await loungeImage(page), "Reduced stills the Canvas activities as well").toBe(stillImage);
-  expect(await loungeState(page)).toEqual(stillState);
+  await expect(page.locator(".office-world").getByRole("button", { name: /^Lounge: / })).toHaveCount(1);
   expect(feed.writes).toEqual([]);
 });

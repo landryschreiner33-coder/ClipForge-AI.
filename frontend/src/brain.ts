@@ -49,3 +49,175 @@ export const knowledgeApi = {
   asset: (id: string, download = false) => `${base}/${id}/asset${download ? "?download=true" : ""}`,
   export: `${base}/export`,
 };
+
+// ------------------------------------------------------------------ ClipForge AI: memories and the chat
+export type MemoryKind = "rule" | "fact" | "episode" | "asset" | "answer";
+export type MemorySource = "said" | "did" | "guessed" | "imported";
+export type Memory = { id: string; kind: MemoryKind; text: string; source: MemorySource; confidence: number; scope: string;
+  project_id: string; platform: string; tags: string[]; data: Record<string, unknown>; enabled: boolean;
+  expires_at: number | null; used_count: number; last_used_at: number | null; revision: number; created_at: number;
+  updated_at: number; expired: boolean; has_meaning: boolean; score?: number };
+export type MemoryUse = { id: string; memory_id: string; where_used: string; ref_id: string; created_at: number };
+export type MemoryCheck = { ok: boolean; total: number; enabled: number; counts: Record<string, number>;
+  sources: Record<string, number>; meaning_model: string; problems: { code: string; count: number; text: string; ids: string[] }[];
+  duplicates: unknown[]; duplicates_truncated: boolean; size_bytes: number; uses: number; checked_at: number };
+export type Recalled = { memories: (Memory & { score: number })[]; prompt: string };
+/** One playbook of ClipForge AI's built-in craft know-how (brain/knowhow.py). */
+export type KnowHowTopic = { id: string; title: string; summary: string; lines: string[]; tasks: string[]; chars: number; score: number };
+export type KnowHow = { topics: KnowHowTopic[]; source: string; tasks: string[] };
+/** One thing an answer read: a craft playbook, a section of the guide to ClipForge or a switched-on skill. */
+export type UsedKnowHow = { id: string; title: string; score?: number; source?: "knowhow" | "guide" | "skill" };
+const mem = "/api/brain/memories";
+export const memoryApi = {
+  list: (q = "", kind = "", projectId = "") =>
+    req<Memory[]>("GET", `${mem}?q=${encodeURIComponent(q)}&kind=${encodeURIComponent(kind)}&project_id=${encodeURIComponent(projectId)}`),
+  create: (body: { text: string; kind?: MemoryKind; scope?: string; project_id?: string; platform?: string; mode?: string; tags?: string[] }) =>
+    req<Memory>("POST", mem, body),
+  edit: (id: string, body: { text?: string; kind?: MemoryKind; scope?: string; tags?: string[]; enabled?: boolean }) =>
+    req<Memory>("PATCH", `${mem}/${id}`, body),
+  confirm: (id: string) => req<Memory>("POST", `${mem}/${id}/confirm`),
+  forget: (id: string) => req<{ forgotten: Memory }>("DELETE", `${mem}/${id}`),
+  /** A chat's Undo chip: forgets the memory only while it is as that answer added it (revision 1, these words). */
+  undo: (id: string, words: string) => req<{ forgotten: Memory }>("POST", `${mem}/${id}/undo`, { words }),
+  uses: (id: string) => req<MemoryUse[]>("GET", `${mem}/${id}/uses`),
+  recall: (query: string, projectId = "") => req<Recalled>("POST", `${mem}/recall`, { query, project_id: projectId }),
+  check: () => req<MemoryCheck>("GET", `${mem}/check`),
+  rebuild: () => req<{ rebuilt: number }>("POST", `${mem}/rebuild`),
+  tidy: () => req<{ expired: number; merged: number }>("POST", `${mem}/tidy`),
+  import: (data: unknown) => req<{ added: number; updated: number; skipped: number; invalid: number }>("POST", `${mem}/import`, { data }),
+  exportUrl: `${mem}/export`,
+  knowhow: () => req<KnowHow>("GET", `${mem}/knowhow`),
+};
+
+/** What answered a message: the rules alone (remember … explain, help), a change request ("change"), the assistant
+ * ("talk") or the new-video planner ("plan"). */
+export type ChatTool = "remember" | "forget" | "list" | "explain" | "change" | "answer" | "help" | "talk" | "plan";
+export type UsedMemory = { id: string; kind: MemoryKind; text: string; score?: number };
+/** A helper agent as a chat shows it. */
+export type AgentCard = { id: string; name: string; icon: string };
+/** A tool ClipForge AI used while answering ("Looked at your projects (3)"). */
+export type ChatStep = { tool: string; label: string; ok: boolean; why?: string };
+/** A button to a page or a project inside the app ("#/project/…"). */
+export type ChatLink = { label: string; href: string };
+export type ChatActionState = "waiting" | "done" | "failed" | "skipped" | "blocked";
+/** A change or a delete ClipForge AI proposed: it happens only when you press OK. */
+export type ChatAction = { id: string; tool: string; args: Record<string, unknown>; risk: "change" | "delete"; label: string;
+  detail: string[]; blocked: string; state: ChatActionState; result: string;
+  /** made at once, without your OK (Settings → ClipForge AI → Do it without asking) */
+  alone?: boolean };
+/** A helper agent's work inside ClipForge AI's answer. */
+export type HelperWork = { agent: AgentCard; task: string; text: string; ok: boolean; steps?: ChatStep[] };
+export type ChatAsk = { question: string; choices: string[] };
+export type ChatData = { tool?: ChatTool; used?: UsedMemory[]; knowhow?: UsedKnowHow[]; memory?: Memory; forgotten?: Memory;
+  candidates?: { id: string; kind: MemoryKind; text: string }[]; memories?: { id: string; kind: MemoryKind; text: string; source: MemorySource }[];
+  request_id?: string; request?: import("./studio").ChangeRequest; provider?: string; sent?: string; remote?: boolean;
+  /** an @mention's answer: the agent that wrote it (role "agent") */
+  agent?: AgentCard; steps?: ChatStep[]; pending?: ChatAction[]; links?: ChatLink[]; helpers?: HelperWork[];
+  /** a helper agent's work while it is being written */
+  helper_live?: { agent: AgentCard; task: string; text: string };
+  /** what the assistant saved with its remember tool */
+  remembered?: Memory[]; ask?: ChatAsk;
+  /** work a command queued (a render, a project made again, a post moved): the chat follows its state */
+  work?: ChatWork[];
+  /** answered without a model: it offers to set up the built-in model */
+  setup?: boolean;
+  /** your 👍 (good) or 👎 on this answer, with the reason you gave for 👎 (brain/ratings.py) */
+  rating?: { good: boolean; why: string; at: number } };
+export type ChatWork = { kind: "project" | "clip" | "post" | "job"; id: string; label: string; started: number };
+export type WorkState = { state: "queued" | "running" | "completed" | "failed" | "canceled"; progress: number;
+  message: string; href: string };
+/** A saved general chat (Talk to AI keeps several; a video's chat is its own). */
+export type SavedChat = { id: string; title: string; named: boolean; messages: number; last: string;
+  created_at: number; updated_at: number };
+export type ChatMessage = { id: string; chat_id: string; role: "owner" | "ai" | "agent"; text: string;
+  status: "done" | "thinking" | "failed"; data: ChatData; created_at: number; updated_at: number;
+  /** after pressing OK: the action deleted this chat's own video (and the chat with it) */
+  gone?: boolean };
+/** ClipForge AI's model as the chat shows it, and the built-in model's setup when it is (or could be) the one. */
+export type ChatAi = { ready: boolean; provider: string; label: string; local: boolean;
+  builtin?: { supported: boolean; recommended: string; level: string; task: import("./api").BuiltinTask;
+    levels: Pick<import("./api").BuiltinLevel, "id" | "name" | "model" | "installed" | "download_bytes" | "recommended" | "fits">[] };
+  /** a level of the built-in model this computer runs well and that talks better than the one in use */
+  better?: { level: string; name: string; model: string; installed: boolean; download_bytes: number } };
+/** A switched-on helper agent you can talk to with "@Name …". */
+export type ChatAgent = AgentCard & { role: string };
+export type Chat = { id: string; workspace_id: string; project_id: string; title: string; messages: ChatMessage[];
+  ai?: ChatAi; agents?: ChatAgent[] };
+export const MAX_CHAT_TEXT = 4000;
+const chats = "/api/brain/chats";
+export const chatApi = {
+  /** A video's chat, or a general chat: `chatId` one of the saved ones ("" = the one used last). */
+  open: (projectId = "", chatId = "") => req<Chat>("POST", chats, { project_id: projectId, chat_id: chatId }),
+  list: () => req<SavedChat[]>("GET", chats),
+  create: () => req<{ id: string; title: string }>("POST", `${chats}/new`),
+  rename: (chatId: string, title: string) => req<SavedChat>("PATCH", `${chats}/${chatId}`, { title }),
+  remove: (chatId: string) => req<{ deleted: string; messages: number }>("DELETE", `${chats}/${chatId}`),
+  work: (kind: string, id: string) => req<WorkState>("GET", `${chats}/work/${kind}/${encodeURIComponent(id)}`),
+  messages: (chatId: string, after = "") => req<ChatMessage[]>("GET", `${chats}/${chatId}/messages?after=${encodeURIComponent(after)}`),
+  /** `choice`: a quick reply pressed (words the model or the editor offered): it never forgets anything at once.
+   * `forget`: a "Which one?" button's memory words, forgotten exactly as they are (not read from the message). */
+  say: (chatId: string, text: string, baseRevision?: number, choice = false, forget?: string) =>
+    req<{ owner: ChatMessage; ai: ChatMessage }>("POST", `${chats}/${chatId}/messages`,
+      { text, base_revision: baseRevision ?? null, ...(choice ? { choice: true } : {}),
+        ...(forget !== undefined ? { forget } : {}) }),
+  clear: (chatId: string) => req<{ cleared: number }>("DELETE", `${chats}/${chatId}/messages`),
+  apply: (chatId: string, messageId: string) => req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/apply`),
+  discard: (chatId: string, messageId: string) => req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/discard`),
+  /** Stop the answer being written; it keeps what it wrote so far. Returns the chat's messages. */
+  stop: (chatId: string) => req<ChatMessage[]>("POST", `${chats}/${chatId}/stop`),
+  /** Your OK (true) or no (false) for a change or delete ClipForge AI proposed. */
+  decide: (chatId: string, messageId: string, actionId: string, doIt: boolean) =>
+    req<ChatMessage>("POST", `${chats}/${chatId}/messages/${messageId}/actions/${actionId}`, { do: doIt }),
+  /** 👍 (true) or 👎 (false) on an answer, with an optional reason for 👎; null takes it back. */
+  /** The rated message, and whether the next answers read ratings (learning on: Settings, as in Brain → Learned). */
+  rate: (chatId: string, messageId: string, good: boolean | null, why = "") =>
+    req<ChatMessage & { learning?: boolean }>("POST", `${chats}/${chatId}/messages/${messageId}/rating`, { good, why }),
+};
+
+// ------------------------------------------------------------------ helper agents (Brain → Agents)
+export type Agent = { id: string; template: string; name: string; icon: string; role: string; instructions: string;
+  tools: string[]; helps_plans: boolean; enabled: boolean; position: number; runs: number; last_run_at: number | null;
+  created_at: number; updated_at: number };
+/** A ready-made helper; `added` when you already have it. */
+export type AgentTemplate = { template: string; name: string; icon: string; role: string; instructions: string;
+  tools: string[]; helps_plans: boolean; added: boolean };
+/** A tool a helper may be given: only looking and making ones (a helper never changes or deletes anything). */
+export type AgentTool = { name: string; risk: "look" | "make"; label: string; about: string; video_only: boolean };
+export type AgentsView = { agents: Agent[]; templates: AgentTemplate[]; tools: AgentTool[]; icons: string[]; limit: number };
+export type AgentInput = { name: string; icon: string; role: string; instructions: string; tools: string[];
+  helps_plans: boolean; enabled: boolean };
+const agentsBase = "/api/brain/agents";
+export const agentsApi = {
+  list: () => req<AgentsView>("GET", agentsBase),
+  add: (body: Partial<AgentInput> & { template?: string }) => req<Agent>("POST", agentsBase, body),
+  edit: (id: string, body: Partial<AgentInput> & { position?: number }) => req<Agent>("PATCH", `${agentsBase}/${id}`, body),
+  remove: (id: string) => req<{ removed: Agent }>("DELETE", `${agentsBase}/${id}`),
+};
+
+// ------------------------------------------------------------------ Brain → Learned (clipfoundry/brain/learned.py)
+export type LearnedCheck = { n: number; before: number | null; after: number | null; unit: string; passed: boolean;
+  summary: string; at?: number; by_format?: Record<string, { n: number; before: number; after: number }> };
+export type LearnedItem = { id: string; key: string; kind: string; source: "explicit" | "inferred"; text: string;
+  value: unknown; evidence: number; status: "trying" | "in_use" | "off"; version: number;
+  evaluation: LearnedCheck | Record<string, never>; created_at: number; updated_at: number };
+export type LearnedVersion = { id: string; number: number; what: string; created_at: number; taste: boolean;
+  evaluation: LearnedCheck | Record<string, never>; in_use: string[] };
+export type Learned = { on: boolean; explicit: LearnedItem[]; inferred: LearnedItem[]; observed: Record<string, number>;
+  rules: number; versions: LearnedVersion[]; keys: Record<string, string>;
+  taste: { events: number; kept: number; left_out: number; ready: boolean; preferences: string[]; used: boolean;
+    check: { n: number; before: number | null; after: number | null; passed: boolean; summary: string } };
+  rules_text: { min_evidence: number; agree: number; eval_min: number; promote: number } };
+const learnedBase = "/api/brain/learned";
+export const learnedApi = {
+  view: () => req<Learned>("GET", learnedBase),
+  switch: (on: boolean) => req<Learned>("POST", `${learnedBase}/switch`, { on }),
+  taste: (on: boolean) => req<Learned>("POST", `${learnedBase}/taste`, { on }),
+  check: () => req<Learned>("POST", `${learnedBase}/check`),
+  status: (id: string, status: "in_use" | "off") => req<Learned>("PATCH", `${learnedBase}/${id}`, { status }),
+  change: (id: string, value: unknown) => req<Learned>("PATCH", `${learnedBase}/${id}`, { value }),
+  remove: (id: string) => req<Learned>("DELETE", `${learnedBase}/${id}`),
+  forgetEdits: () => req<Learned>("DELETE", `${learnedBase}/edits`),
+  rollback: (n: number) => req<Learned>("POST", `${learnedBase}/versions/${n}/rollback`),
+  feedback: (clipId: string, good: boolean, why = "") =>
+    req<{ saved: boolean }>("POST", `${learnedBase}/clips/${clipId}/feedback`, { good, why }),
+};

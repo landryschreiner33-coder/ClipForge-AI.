@@ -28,6 +28,9 @@ from ..pipeline.common import Cancelled, log
 ACTIVE = ("queued", "running", "waiting", "retrying")
 TERMINAL = ("completed", "failed", "canceled")
 LEASE_SECONDS = 90.0
+# A live recording hands its turn back every few seconds. Those turns are not logged one by one (several streams
+# would otherwise fill the job log and the office feed within hours); everything else a recording does still is.
+ROUTINE_WAITS = ("live",)
 STOP_ALL = "stop_all"  # wait_reason of a job canceled by Stop all jobs: a hold, so asking again after Resume revives it
 
 # worker name -> (label, job kinds it runs)
@@ -35,9 +38,11 @@ WORKERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "trend_scout": ("Trend Scout", ("trend_scan",)),
     "source_scout": ("Source Scout", ("source_scout", "feed_scan", "identify_link")),
     "rights_gate": ("Rights Gate", ("rights_check",)),
-    "live_monitor": ("Live Monitor", ("live_watch", "live_capture", "post_live")),
+    # post_live (the hours-long analysis of a finished recording) runs with the other analysis work, so it never
+    # holds a lane that a stream still being recorded needs. Older queued post_live rows keep their worker.
+    "live_monitor": ("Live Monitor", ("live_watch", "live_capture")),
     "clip_hunter": ("Clip Hunter", ("hunt_source",)),
-    "analyzer": ("Deep Clip Analyzer", ("analyze_source", "regenerate_clip")),
+    "analyzer": ("Deep Clip Analyzer", ("analyze_source", "regenerate_clip", "post_live")),
     "packager": ("Packaging AI", ("package_clip",)),
     "quality_gate": ("Final Quality Gate", ("quality_check",)),
     "scheduler": ("Smart Scheduler", ("schedule_tick",)),
@@ -46,6 +51,9 @@ WORKERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "maintenance": ("Maintenance", ("maintenance", "selftest")),
 }
 KIND_WORKER = {kind: name for name, (_, kinds) in WORKERS.items() for kind in kinds}
+# Workers that run several jobs at once, each in its own thread. Every live stream keeps recording on its own; the
+# lanes are how many streams are transcribed, searched and clipped at the same time (claims stay atomic per job).
+WORKER_LANES: dict[str, int] = {"live_monitor": 3}
 
 
 def source_priority(source: dict | str, base: int = 0) -> int:
@@ -180,7 +188,7 @@ def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | 
             if not enabled or not json.loads(enabled["value"]):
                 floor = max(floor, manual_priority)
         row = conn.execute(
-            "SELECT id, status FROM worker_jobs WHERE worker = ? AND status IN ('queued', 'retrying', 'waiting') "
+            "SELECT id, status, wait_reason FROM worker_jobs WHERE worker = ? AND status IN ('queued', 'retrying', 'waiting') "
             "AND run_after <= ? AND cancel_requested = 0 AND priority >= ? "
             "ORDER BY priority DESC, run_after ASC, created_at ASC LIMIT 1",
             (worker, now, floor)).fetchone()
@@ -195,7 +203,7 @@ def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | 
                      "WHERE id = ?", (owner, now + lease_s, bump, now, now, row["id"]))
         conn.execute("COMMIT")
     job = db.fetch("worker_jobs", row["id"])
-    if job:
+    if job and not (row["status"] == "waiting" and row["wait_reason"] in ROUTINE_WAITS):
         log_line(job["id"], worker, "info", "started", f"attempt {job['attempts']} of {job['max_attempts']}",
                  owner=owner)
         feed.job_event(job, "job_started", job.get("message") or "", attempt=job["attempts"])
@@ -215,7 +223,7 @@ def renew(job_id: str, owner: str, lease_s: float = LEASE_SECONDS) -> dict | Non
     return dict(row) if row else None
 
 
-def _finish(job: dict, owner: str, **fields: Any) -> bool:
+def _finish(job: dict, owner: str, *, unless_canceled: bool = False, **fields: Any) -> bool:
     """Write the outcome only if this worker still owns the job (a recovered job may belong to another)."""
     now = _now()
     fields = {**fields, "lease_owner": "", "lease_until": 0, "updated_at": now}
@@ -223,9 +231,10 @@ def _finish(job: dict, owner: str, **fields: Any) -> bool:
         if k in fields:
             fields[k] = json.dumps(fields[k], default=str)
     cols = ", ".join(f"{k} = ?" for k in fields)
+    extra = " AND cancel_requested = 0" if unless_canceled else ""
     with db.connect() as conn:
-        n = conn.execute(f"UPDATE worker_jobs SET {cols} WHERE id = ? AND lease_owner = ? AND status = 'running'",
-                         [*fields.values(), job["id"], owner]).rowcount
+        n = conn.execute(f"UPDATE worker_jobs SET {cols} WHERE id = ? AND lease_owner = ? AND status = 'running'"
+                         + extra, [*fields.values(), job["id"], owner]).rowcount
     return bool(n)
 
 
@@ -247,18 +256,23 @@ def backoff(attempts: int, base: float = 30.0, cap: float = 3600.0) -> float:
 def retry_or_fail(job: dict, owner: str, error: str, fix: str = "", delay: float | None = None) -> str:
     """A transient failure: retry with backoff while attempts remain. Returns the new status."""
     if job["attempts"] >= job["max_attempts"]:
-        fail(job, owner, f"{error} (gave up after {job['attempts']} attempts)", fix)
+        # Cancel, Stop all jobs or the time limit win over running out of attempts, too: the caller cancels instead.
+        if not fail(job, owner, f"{error} (gave up after {job['attempts']} attempts)", fix, unless_canceled=True):
+            return ""
         return "failed"
     wait_s = backoff(job["attempts"]) if delay is None else delay
-    if _finish(job, owner, status="retrying", error=error[:2000], fix=fix, run_after=_now() + wait_s,
-               message=f"Retrying in {int(wait_s // 60)} min {int(wait_s % 60)} s"):
-        log_line(job["id"], job["worker"], "warning", "retry", error, fix=fix, delay=round(wait_s, 1))
-        feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_retry", error[:300], delay=round(wait_s, 1))
+    # A retrying row with a cancel request could never be claimed again: refused, and the caller cancels instead.
+    if not _finish(job, owner, unless_canceled=True, status="retrying", error=error[:2000], fix=fix,
+                   run_after=_now() + wait_s, message=f"Retrying in {int(wait_s // 60)} min {int(wait_s % 60)} s"):
+        return ""  # Cancel, Stop all jobs or the time limit arrived during the turn (or the lease was lost)
+    log_line(job["id"], job["worker"], "warning", "retry", error, fix=fix, delay=round(wait_s, 1))
+    feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_retry", error[:300], delay=round(wait_s, 1))
     return "retrying"
 
 
-def fail(job: dict, owner: str, error: str, fix: str = "") -> bool:
-    ok = _finish(job, owner, status="failed", error=error[:2000], fix=fix, message="Failed", finished_at=_now())
+def fail(job: dict, owner: str, error: str, fix: str = "", *, unless_canceled: bool = False) -> bool:
+    ok = _finish(job, owner, unless_canceled=unless_canceled, status="failed", error=error[:2000], fix=fix,
+                 message="Failed", finished_at=_now())
     if ok:
         log_line(job["id"], job["worker"], "error", "failed", error, fix=fix)
         latest = db.fetch("worker_jobs", job["id"]) or job
@@ -268,9 +282,11 @@ def fail(job: dict, owner: str, error: str, fix: str = "") -> bool:
 
 
 def wait(job: dict, owner: str, reason: str, seconds: float, message: str = "") -> bool:
-    ok = _finish(job, owner, status="waiting", wait_reason=reason, run_after=_now() + seconds,
+    """Park the job until later. Refused (False) when Cancel or Stop all jobs arrived while it ran: a parked job with
+    a pending cancel request would never be claimed again, so the caller cancels it instead (host._run)."""
+    ok = _finish(job, owner, unless_canceled=True, status="waiting", wait_reason=reason, run_after=_now() + seconds,
                  message=message or reason)
-    if ok:
+    if ok and reason not in ROUTINE_WAITS:
         log_line(job["id"], job["worker"], "info", "waiting", message or reason, reason=reason,
                  seconds=round(seconds, 1))
         feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_waiting", (message or reason)[:300],
@@ -344,8 +360,10 @@ def cancel_all(message: str = "Stopped with Stop all jobs", workers: tuple[str, 
                                "updated_at = ?, wait_reason = ? WHERE status IN ('queued', 'retrying', 'waiting')"
                                + scope, [message, now, now, STOP_ALL, *args]).rowcount
         # The marker survives the running job's own cancel (mark_canceled keeps wait_reason)
+        # A running job already stopping (your own Cancel, or its time limit) keeps that reason: it stays final.
         running = conn.execute("UPDATE worker_jobs SET cancel_requested = 1, message = 'Stopping...', updated_at = ?, "
-                               "wait_reason = ? WHERE status = 'running'" + scope, [now, STOP_ALL, *args]).rowcount
+                               "wait_reason = ? WHERE status = 'running' AND cancel_requested = 0" + scope,
+                               [now, STOP_ALL, *args]).rowcount
     log_line("", "", "warning", "cancel_all", message, pending=pending, running=running)
     return {"canceled": pending, "stopping": running}
 

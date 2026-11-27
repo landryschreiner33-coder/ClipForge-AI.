@@ -27,6 +27,7 @@ from collections import defaultdict
 import numpy as np
 
 from .. import db, learning
+from ..pipeline.common import log
 from ..pipeline.text_utils import tokens
 from ..publish import stats
 from ..publish.common import PublishError
@@ -211,6 +212,7 @@ def rows(settings: dict) -> list[dict]:
                        "trend": scores.get("trend"), "source": scores.get("source"),
                        "diversity": scores.get("diversity"), "retention": scores.get("retention")},
             "views": snap["views"], "avg_view_percentage": snap.get("avg_view_percentage"),
+            "prediction": feats.get("prediction"),  # what the viral predictor said when it went out
             "source_key": project.get("source_id") or clip.get("project_id") or pub["clip_id"],
             "age_h": round((snap["fetched_at"] - shown_at(pub)) / 3600, 1)})
     return out
@@ -384,6 +386,13 @@ def learn(job: Job) -> dict:
     few_views = sum(r["views"] < min_views for r in allowed)
     allowed = [r for r in allowed if r["views"] >= min_views]
     sources = len({r["source_key"] for r in allowed})
+    try:  # the viral predictor checks its predictions against these results and calibrates itself (bounded)
+        from ..predictor import learn as predictor_learn
+
+        status_predictor = predictor_learn.learn(allowed)["message"]
+    except Exception:  # noqa: BLE001 - never stops the rest of learning
+        log.exception("viral predictor learning failed")
+        status_predictor = ""
     note = ("YouTube results are shown but not used for learning: YouTube's Developer Policies require Google's "
             "approval for metrics derived from YouTube API data." if excluded else "")
     if other_audience:
@@ -399,8 +408,14 @@ def learn(job: Job) -> dict:
     status = {"at": time.time(), "samples": len(allowed), "needed": need, "excluded_youtube": excluded,
               "excluded_other_audience": other_audience, "note": note, "refreshed": refreshed["refreshed"],
               "findings": [], "weights": {}, "calibration": None}
-    status.update(excluded_few_views=few_views, sources=sources)
+    status.update(excluded_few_views=few_views, sources=sources, predictor=status_predictor)
     evaluated = brain.evaluate(settings)
+    try:  # which kinds of moment did better or worse: kept as Brain memories that clip picking reads
+        from ..brain import lessons
+
+        status["lessons"] = lessons.learn(settings)
+    except Exception:  # noqa: BLE001 - a lesson that cannot be learned never stops the rest of learning
+        log.exception("Brain lessons failed")
     if len({r["cohort"] for r in allowed}) > 1:
         status["message"] = ("Public and selected-viewer results are kept separate. Shared score and timing "
                              "learning waits for one comparable audience; clip-length strategies stay per platform.")

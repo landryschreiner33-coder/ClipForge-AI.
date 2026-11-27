@@ -95,6 +95,15 @@ export function ViralPanel({ c }: { c: Clip }) {
         ))}
       </div>
       <StructureChips c={c} />
+      {(a.reasons || []).length > 0 && (
+        <ul className="rank-reasons" aria-label="Why it ranks here">
+          {a.reasons!.map((r) => (
+            <li key={r.area} className={r.good === true ? "good" : r.good === false ? "weak" : "unknown"}>
+              <b>{r.area}:</b> {r.text}
+            </li>
+          ))}
+        </ul>
+      )}
       {(a.flags || []).length > 0 && (
         <ul className="flags">
           {a.flags!.map((f) => (
@@ -104,6 +113,7 @@ export function ViralPanel({ c }: { c: Clip }) {
           ))}
         </ul>
       )}
+      <AiNotes a={a} />
       <Disclosure plain summary="All 11 factors">
         <div className="scorebars">
           {FACTOR_LABELS.map(([k, label]) => (
@@ -116,6 +126,52 @@ export function ViralPanel({ c }: { c: Clip }) {
         </div>
       </Disclosure>
       <p className="tiny faint">{a.note || ESTIMATE_NOTE}</p>
+    </div>
+  );
+}
+
+const kindWord = (k: string) => k.replace(/_/g, " ");
+
+/** What ClipForge AI added to the local analysis: its ranking of the finalists, what it saw, how the voice sounds, your
+ * taste, and how the Clip Score came about. Only the parts that ran are shown; every line says what made it. */
+export function AiNotes({ a }: { a: Partial<NonNullable<Clip["analysis"]>> }) {
+  const seen = a.deep?.seen;
+  const voice = a.deep?.prosody;
+  const brain = a.brain && (a.brain.why.length || a.brain.avoid) ? a.brain : null;
+  const sensed = a.senses && (a.senses.seen?.length || a.senses.heard?.length || a.senses.picture) ? a.senses : null;
+  const any = a.scout || a.judge || seen || voice || a.taste || brain || a.brain_length || sensed || a.sense;
+  const explanation = a.explanation || [];
+  if (!any && !explanation.length) return null;
+  return (
+    <div className="stack">
+      {any && (
+        <ul className="flags ai-notes">
+          {a.scout && <li className="info"><b>ClipForge AI picked this while reading the whole video</b> ({kindWord(a.scout.kind)}): {a.scout.why}</li>}
+          {a.judge && <li className={a.judge.verdict === "red" ? "warn" : "info"}>
+            <b>ClipForge AI ranked it {a.judge.rank} of {a.judge.of}{a.judge.verdict ? ` (${a.judge.verdict})` : ""}.</b> {a.judge.note}</li>}
+          {a.sense && <li className="info"><b>Built around a moment:</b> {a.sense.why}{a.sense.why.startsWith("ClipForge AI") ? "" : " (ClipForge AI watched it)"}</li>}
+          {sensed?.seen && sensed.seen.length > 0 && <li className="info"><b>What happens:</b> {sensed.seen.join(" · ")}</li>}
+          {sensed?.heard && sensed.heard.length > 0 && <li className="info"><b>What is heard:</b> {sensed.heard.join(" · ")}</li>}
+          {sensed?.picture && <li className="info"><b>The picture:</b> {sensed.picture}</li>}
+          {seen && <li className="info"><b>ClipForge AI saw:</b> {seen.description || kindWord(seen.kind)}
+            {seen.text_on_screen ? ` · on screen: “${seen.text_on_screen}”` : ""} (picture appeal {seen.appeal}/10{seen.problem ? `; ${seen.problem}` : ""})</li>}
+          {voice && <li className="info"><b>The voice:</b> {voice.monotone ? "stays flat here" : `${voice.pitch_variation >= 0.5 ? "lively" : "steady"}, ${voice.emphasis_per_30s} emphasis moments per 30 s`}
+            {voice.laughter_like ? `, ${voice.laughter_like} laugh-like burst${voice.laughter_like === 1 ? "" : "s"}` : ""} (estimated from the sound)</li>}
+          {brain && <li className={brain.avoid ? "warn" : "info"}><b>Your Brain:</b>{" "}
+            {brain.why.length > 0 && <>{(brain.points ?? 0) >= 0 ? "+" : ""}{brain.points ?? 0} points. It {brain.why.join("; ")}.</>}
+            {brain.avoid && <> You said to pass over {brain.avoid.label}: “{brain.avoid.by.text}”.</>}
+            {brain.used.length > 0 && <> <a href="#/brain/memory">See what it went by</a></>}</li>}
+          {a.brain_length && <li className="info"><b>Clip length from your Brain:</b> {Math.round(a.brain_length.after[0])} to{" "}
+            {Math.round(a.brain_length.after[1])} seconds, because you said “{a.brain_length.by.text}”.</li>}
+          {a.taste && <li className="info"><b>Your taste:</b> {a.taste.adjust >= 0 ? "+" : ""}{a.taste.adjust} points
+            {a.taste.why && a.taste.why.length ? ` (you tend to keep clips with ${a.taste.why.join(" and ")})` : ""}</li>}
+        </ul>
+      )}
+      {explanation.length > 0 && (
+        <Disclosure plain summary={`How the Clip Score${a.clip_score !== undefined ? ` of ${Math.round(a.clip_score)}` : ""} came about`}>
+          <ul className="small">{explanation.map((l, i) => <li key={i}>{l}</li>)}</ul>
+        </Disclosure>
+      )}
     </div>
   );
 }

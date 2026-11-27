@@ -106,7 +106,7 @@ def _publish(client, clip_id: str, **kw) -> dict:
 
 def test_connect_needs_setup_first(app_client):
     r = app_client.post("/api/publish/youtube/connect", headers=H)
-    assert r.status_code == 400 and "Desktop app" in r.json()["fix"]
+    assert r.status_code == 400 and "Desktop app" in r.json()["fix"] and "release build" in r.json()["fix"]
     assert app_client.get("/api/publish/accounts").json()["youtube"]["configured"] is False
 
 
@@ -309,6 +309,119 @@ def test_cancel_during_upload(app_client, google, clip):
     assert _wait(app_client, pub_id)["status"] == "cancelled"
     assert not google.videos
 
+
+
+def test_cancel_after_youtube_got_the_whole_video_says_it_is_uploaded(app_client, google, clip):
+    """The last part reached YouTube but its answer was lost; Cancel upload comes while ClipForge waits to ask again.
+    YouTube's upload session says the video exists, so the post shows that instead of "canceled", and nothing is
+    sent again."""
+    from clipfoundry.publish import jobs
+
+    from clipfoundry.publish import youtube
+
+    c, _ = clip
+    _connect(app_client, google)
+    google.drop_final_reply = True
+    real_resume, asked = youtube._resume_offset, []
+
+    def cancel_while_waiting_to_ask(*a, **kw):  # Cancel upload pressed in the wait after the lost answer
+        if not asked:
+            asked.append(app_client.post(f"/api/publications/{pid}/cancel", headers=H).status_code)
+        return real_resume(*a, **kw)
+
+    youtube._resume_offset = cancel_while_waiting_to_ask
+    try:
+        pid = _publish(app_client, c["id"]).json()["id"]
+        pub = _wait(app_client, pid)
+    finally:
+        youtube._resume_offset = real_resume
+    assert asked == [200]
+    assert pub["status"] == "done" and pub["message"].startswith(jobs.TOO_LATE) and pub["info"]["cancel_too_late"]
+    assert len(google.videos) == 1 and pub["remote_id"] in google.videos and len(google.sessions) == 1
+
+
+def test_cancel_after_the_last_part_when_youtube_forgot_the_session_keeps_the_hold(app_client, google, clip):
+    c, _ = clip
+    _connect(app_client, google)
+    google.drop_final_reply = google.expire_sessions = True
+    pid = _publish(app_client, c["id"]).json()["id"]
+    _wait_until(app_client, pid, lambda p: (p.get("info") or {}).get("final_chunk_at"))
+    app_client.post(f"/api/publications/{pid}/cancel", headers=H)
+    pub = _wait_until(app_client, pid, lambda p: p["status"] == "processing")
+    assert pub["info"]["outcome_unknown"] and "Nothing was published" not in pub["message"]
+    assert _publish(app_client, c["id"]).status_code == 409  # never a second upload while it may exist
+
+
+def test_cancel_keeps_what_the_upload_wrote_at_the_same_moment(clip, monkeypatch):
+    """Cancel upload read the post, the upload then wrote the outcome of its last part, and Cancel wrote the whole
+    info it had read back: "outcome_unknown" was lost and the post stayed in processing without saying why (seen in
+    the full suite as a KeyError in the test above). Cancel now only adds its mark."""
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    c, _ = clip
+    pub = db.create_publication(c["id"], "youtube", status="uploading", info={"final_chunk_at": 1.0})
+    real = db.get_publication
+
+    def read_then_the_upload_writes(pub_id):
+        row = real(pub_id)
+        db.update_publication(pub_id, status="processing", info={**(row["info"] or {}), "outcome_unknown": True})
+        return row
+
+    with monkeypatch.context() as here:
+        here.setattr(db, "get_publication", read_then_the_upload_writes)
+        jobs.PublishWorker().cancel(pub["id"])
+    info = db.get_publication(pub["id"])["info"]
+    assert info["outcome_unknown"] is True and info["cancel_requested_at"] > 0 and info["final_chunk_at"] == 1.0
+
+
+def test_cancel_a_queued_upload_behind_another_ends_it_at_once_and_a_retry_uploads_once(app_client, google, clip,
+                                                                                         tmp_path):
+    """Release check: a long upload is running, the next one waits; canceling the waiting one ends it right away,
+    the running one finishes, and publishing the canceled one again makes exactly one more video."""
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    c, _ = clip
+    _connect(app_client, google)
+    google.chunk_delay = 0.5
+    first = _publish(app_client, c["id"]).json()["id"]
+    _wait(app_client, first, until=("uploading",))
+    other = db.get_clip(c["id"])
+    second_clip = dict(other)
+    second_clip.update(id="clip-two", title="Second")
+    db.insert("clips", {k: v for k, v in second_clip.items() if k in db.columns("clips")})
+    second = _publish(app_client, "clip-two", title="The second one").json()["id"]
+    assert db.get_publication(second)["status"] == "queued"
+    app_client.post(f"/api/publications/{second}/cancel", headers=H)
+    pub = db.get_publication(second)
+    assert pub["status"] == "cancelled" and "Nothing was published" in pub["message"]
+    assert jobs.worker.current == first  # the running upload is untouched
+    assert _wait(app_client, first)["status"] == "done"
+    google.chunk_delay = 0
+    again = _publish(app_client, "clip-two", title="The second one").json()["id"]
+    assert _wait(app_client, again)["status"] == "done"
+    assert len(google.videos) == 2 and {v["snippet"]["title"] for v in google.videos.values()} == {
+        "Why do most diets fail?", "The second one"}
+
+
+def test_a_cancel_pressed_before_the_app_closed_is_kept_after_the_restart(app_client, google, clip):
+    from clipfoundry import db
+
+    c, _ = clip
+    _connect(app_client, google)
+    google.chunk_delay = 0.5
+    pid = _publish(app_client, c["id"]).json()["id"]
+    _wait(app_client, pid, until=("uploading",))
+    pub = db.get_publication(pid)
+    db.update_publication(pid, info={**(pub.get("info") or {}), "cancel_requested_at": time.time()})
+    # the app closes before the worker saw the cancel (no final part sent: the row is still mid-transfer)
+    info = db.get_publication(pid)["info"]
+    info.pop("final_chunk_at", None)
+    db.update_publication(pid, status="uploading", info=info)
+    db.interrupted_work()
+    pub = db.get_publication(pid)
+    assert pub["status"] == "cancelled" and pub["message"] == "Upload canceled. Nothing was published."
 
 def test_refresh_status_and_disconnect(app_client, google, clip):
     c, _ = clip

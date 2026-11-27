@@ -257,3 +257,65 @@ def test_reschedule_checks_the_gap_and_cancel(data):
     moved = scheduler.reschedule(b["id"], a["planned_at"] + 7200)
     assert moved["slot"]["note"] == "chosen by you" and moved["audit"][-1]["event"] == "rescheduled"
     assert scheduler.cancel(b["id"])["status"] == "canceled"
+
+
+# ------------------------------------------------------------------ times you type, conflicts and missions
+def test_a_typed_time_is_read_in_the_settings_time_zone_across_daylight_saving(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import scheduler
+
+    db.save_settings({"autopilot_timezone": "Europe/Berlin"})
+    s = db.get_settings()
+    berlin = ZoneInfo("Europe/Berlin")
+    summer = scheduler.from_wall_time("2027-07-01T18:30", s)
+    winter = scheduler.from_wall_time("2027-01-15T18:30", s)
+    assert dt.datetime.fromtimestamp(summer, berlin).strftime("%H:%M %z") == "18:30 +0200"
+    assert dt.datetime.fromtimestamp(winter, berlin).strftime("%H:%M %z") == "18:30 +0100"
+    with pytest.raises(ValueError, match="clocks jump forward"):
+        scheduler.from_wall_time("2027-03-28T02:30", s)  # skipped when Berlin springs forward
+    twice = scheduler.from_wall_time("2027-10-31T02:30", s)  # happens twice when it falls back: the first one
+    assert dt.datetime.fromtimestamp(twice, berlin).strftime("%H:%M %z") == "02:30 +0200"
+    for bad in ("tomorrow", "2027-07-01T18:30+02:00"):
+        with pytest.raises(ValueError):
+            scheduler.from_wall_time(bad, s)
+
+
+def test_a_time_too_close_to_another_post_suggests_the_nearest_free_one(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import scheduler
+
+    make_clip(data, "A", 70)
+    make_clip(data, "B", 60)
+    scheduler.plan_new(db.get_settings(), _at(6))
+    a, b = db.select("scheduled_publications", "", (), "planned_at")
+    with pytest.raises(scheduler.Conflict) as err:
+        scheduler.reschedule(b["id"], a["planned_at"] + 600)
+    free = err.value.suggestion
+    assert free is not None and abs(free - a["planned_at"]) >= 3600 and "nearest free time" in str(err.value)
+    assert scheduler.reschedule(b["id"], free)["planned_at"] == free  # the suggestion really is free
+
+
+def test_the_reschedule_route_takes_a_clock_time_and_answers_a_conflict_with_a_suggestion(data):
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+    from clipfoundry.autopilot import scheduler
+
+    make_clip(data, "A", 70)
+    make_clip(data, "B", 60)
+    # planned from tomorrow morning: the route takes only times in the future, and today's slots pass as the day goes
+    scheduler.plan_new(db.get_settings(), _at(6, days=1))
+    a, b = db.select("scheduled_publications", "", (), "planned_at")
+    h = {"X-ClipFoundry": "1"}
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        later = dt.datetime.fromtimestamp(a["planned_at"] + 3 * 3600, CHI).strftime("%Y-%m-%dT%H:%M")
+        r = c.post(f"/api/autopilot/scheduled/{b['id']}/reschedule", json={"local": later}, headers=h)
+        assert r.status_code == 200, r.text
+        assert dt.datetime.fromtimestamp(r.json()["planned_at"], CHI).strftime("%Y-%m-%dT%H:%M") == later
+        close = dt.datetime.fromtimestamp(a["planned_at"] + 600, CHI).strftime("%Y-%m-%dT%H:%M")
+        r = c.post(f"/api/autopilot/scheduled/{b['id']}/reschedule", json={"local": close}, headers=h)
+        body = r.json()
+        assert r.status_code == 409 and body["code"] == "conflict" and body["suggestion_local"]
+        assert c.post(f"/api/autopilot/scheduled/{b['id']}/reschedule", json={"local": body["suggestion_local"]},
+                      headers=h).status_code == 200
