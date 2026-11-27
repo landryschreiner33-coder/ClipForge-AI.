@@ -1,0 +1,41 @@
+name: FFmpeg probe (temporary)
+# Temporary: finds why colour and camera tests fail on GitHub's Linux runner but pass with FFmpeg 6.1.
+on:
+  push:
+    branches: [claude/project-thread-don0k7]
+    paths: ['.github/workflows/ffmpeg-probe.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: System and FFmpeg
+        run: |
+          head -4 /etc/os-release
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg espeak-ng
+          ffmpeg -version | head -2
+          apt-cache policy ffmpeg | head -3
+      - name: Colour tags through libx264
+        run: |
+          set -x
+          P="ffprobe -v error -select_streams v:0 -show_entries stream=color_transfer,color_primaries,color_space,color_range -of compact=p=0"
+          ffmpeg -y -v error -f lavfi -i testsrc2=size=320x180:rate=10:d=1 -vf format=yuv420p10le -c:v libx264 -pix_fmt yuv420p10le -crf 8 -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc /tmp/a.mp4
+          $P /tmp/a.mp4
+          ffmpeg -y -v error -f lavfi -i testsrc2=size=320x180:rate=10:d=1 -vf format=yuv420p10le,setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc -c:v libx264 -pix_fmt yuv420p10le -crf 8 /tmp/b.mp4
+          $P /tmp/b.mp4
+          ffmpeg -y -v error -f lavfi -i testsrc2=size=320x180:rate=10:d=1 -vf format=yuv420p10le,setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc -c:v libx264 -pix_fmt yuv420p10le -crf 8 -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc /tmp/c.mp4
+          $P /tmp/c.mp4
+          ffmpeg -y -v error -f lavfi -i testsrc2=size=320x180:rate=10:d=1 -vf scale=out_color_matrix=bt709:out_range=tv,format=yuv420p -c:v libx264 -crf 10 -color_primaries bt709 -color_trc bt709 -colorspace bt709 /tmp/d.mp4
+          $P /tmp/d.mp4
+          ffprobe -v error -select_streams v:0 -show_entries stream=color_transfer,color_primaries,color_space -of compact=p=0 /tmp/a.mp4 -show_entries frame=color_transfer,color_primaries,color_space -read_intervals %+#1
+      - name: The failing tests, in detail
+        run: |
+          python -m pip install -q -r requirements-dev.txt
+          python -m pytest -q -p no:cacheprovider -vv tests/test_gate_levels.py "tests/test_grade.py::test_hlg_file_through_ffmpeg_matches_the_colour_math" "tests/test_grade.py::test_filmcraft_keeps_finals_whose_colour_step_does_something_on_the_built_in_engine" "tests/test_text_story_colour.py" "tests/test_grade_render.py::test_full_video_colour_hdr_cast_old_plans_and_looks" "tests/test_multicam.py::test_every_frame_shows_the_chosen_camera_at_the_synced_moment_with_the_corner_camera" -m "slow or not slow" 2>&1 | tail -150 || true
