@@ -45,6 +45,16 @@ starts moving again, and its clock counts only turning time. The chip is given t
 (it counts in 32-bit numbers), and at each new hour every streak's starting point moves on by as far as it turned,
 so the disk never jumps, however long the app is open.
 
+Over Studio the big hole is normally seen from a ship orbiting it (`components/blackHoleOrbit.ts`, Settings →
+Appearance → Space view: Orbit): every pixel's light is traced back from the camera and bent by the hole's gravity, so
+the far side of the disk shows bent over the top of the shadow and under it, as in Interstellar. The camera sits 70
+times the hole's radius away and 2-7.5° above the disk (2026-11-27): from closer (30) the near side of the disk loomed
+over the lower half of the shadow like a brown bowl, and from higher the bent light over the top reached past the
+hole's box and was cut off. The hole sits a little below the middle of its box, and its blue haze fades out well
+inside the box, so the box never shows. Landry's little ship flies in front of it (`components/shipArt.ts`), banking
+with the orbit, its flame flickering; the earlier grey dust squares in front of the hole are gone (the sky has its own
+dust).
+
 Pages and tabs arrive smoothly (`frontend/src/transitions.ts`): a new page fades in and rises 14 px, and a new tab
 only what is under its tabs, 8 px (a second row of tabs that the change brings in fades in with it); the content is
 there at once and only its look eases in. The Studio panel's tab highlight slides between Working on and Make.
@@ -58,6 +68,7 @@ there at once and only its look eases in. The Studio panel's tab highlight slide
 | `core.png`, `consoles.png`, `exhaust.png` | CORE on its projector with orbiting rings; the console screens (asleep, awake, working); the three engines' flames. |
 | `sky.jpg`, `stars-near.png`, `stars-far.png` | The nebula sky (`tools/sky.py`) and the crisp small stars (`tools/stars.py`). |
 | `dock-scene.png`, `orbit.png`, `satellite.png` | Publishing's empty dock, and Accounts' Earth horizon and satellite (`tools/extract_scenes.py`). |
+| `flyer-384.png`, `flyer-192.png` | Landry's little pixel-art ship (2026-11-27) that flies in front of the Studio's orbiting black hole (`components/shipArt.ts`), cut out of its picture and scaled down (`tools/flyer.py`; the picture itself is kept in the project files, `space-studio/flyer/`). |
 | `src/space/ship-world.json` | The ship's floor plan: rooms, doors, halls, consoles and the lounge places (`office/world.ts`). |
 
 `tools/build_space.py` writes these files from the cleaned art. `tools/preview.py` draws a still of the ship with
