@@ -309,7 +309,12 @@ def _check_sound(tmp_out: Path, audio_in: list[str], effects_in: list[str], segs
     owner = float(opts.get("gain_db", 0) or 0)
     src = ap.get("integrated_lufs") if normalized else None
     expected = src + float(ap.get("normalization_gain_db") or 0) + owner if src is not None else None
-    out = loudness.measure(tmp_out, ctx.cancelled, max(60.0, duration * 3))
+    try:
+        out = loudness.measure(tmp_out, ctx.cancelled, max(60.0, duration * 3))
+    except FFmpegError as exc:  # the check never fails a render that made its file
+        log.warning("sound check skipped: %s", exc)
+        return {"status": "skipped", "note": "The finished sound could not be measured.", "expected_lufs": expected,
+                "fixed_db": 0.0}
     held = "cap" if ap.get("boost_capped") else "peaks" if ap.get("peak_limited") else ""
     verdict = loudness.check(out, expected, normalized=normalized, owner_gain_db=owner, held=held)
     fixed, ceiling = 0.0, loudness.LIMIT_DBFS
@@ -325,16 +330,22 @@ def _check_sound(tmp_out: Path, audio_in: list[str], effects_in: list[str], segs
                               "-b:a", AUDIO_BITRATE, "-ac", "2", "-ar", "48000", "-movflags", "+faststart",
                               "-t", f"{duration:.6f}", str(again)],
                              timeout=max(120.0, duration * 6), cancel=ctx.cancelled)
-        if result.returncode or not again.exists():
-            again.unlink(missing_ok=True)
-            log.warning("sound fix failed: %s", result.stderr.decode("utf-8", "replace")[-300:])
+        try:
+            if result.returncode or not again.exists():
+                raise FFmpegError(result.stderr.decode("utf-8", "replace")[-300:])
+            timing = audio_timing.require_valid(again, ctx.cancelled)
+            second = loudness.measure(again, ctx.cancelled, max(60.0, duration * 3))
+        except FFmpegError as exc:  # the first file stays, with what was measured on it
+            log.warning("sound fix failed: %s", exc)
             fixed, ceiling = 0.0, loudness.LIMIT_DBFS
         else:
-            ap["packet_timing"] = audio_timing.require_valid(again, ctx.cancelled)
+            ap["packet_timing"] = timing
             os.replace(again, tmp_out)
-            out = loudness.measure(tmp_out, ctx.cancelled, max(60.0, duration * 3))
+            out = second
             verdict = loudness.check(out, None if expected is None else expected + fixed, normalized=normalized,
                                      owner_gain_db=owner, held=held)
+        finally:
+            again.unlink(missing_ok=True)
     return {"status": verdict["status"], "note": verdict["note"], **out, "expected_lufs": expected,
             "fixed_db": fixed, **({"ceiling_dbfs": ceiling} if ceiling != loudness.LIMIT_DBFS else {})}
 

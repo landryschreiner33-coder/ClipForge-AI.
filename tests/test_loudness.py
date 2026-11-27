@@ -205,6 +205,37 @@ def test_a_hot_peak_gets_the_sound_made_again_under_a_lower_ceiling_with_the_sam
     assert not list(final.parent.glob("render.sound.mp4"))
 
 
+@needs_ffmpeg
+def test_a_check_that_cannot_measure_or_fix_keeps_the_rendered_file(data, monkeypatch):
+    from clipfoundry.pipeline import audio_timing
+    from clipfoundry.pipeline.ffmpeg_utils import FFmpegError
+
+    real, real_timing = loudness.measure, audio_timing.require_valid
+
+    def broken(*a, **k):
+        raise FFmpegError("no measurement")
+
+    monkeypatch.setattr(loudness, "measure", broken)
+    out = _render_clip(data, "unmeasured")
+    assert Path(out["output_path"]).exists()
+    assert out["render_info"]["qc"]["sound"]["status"] == "skipped"
+
+    # the second try fails (its file's audio timing is refused): the first file stays, judged as it was measured
+    monkeypatch.setattr(loudness, "measure", lambda path, *a, **k: {**real(path, *a, **k), "tp": -0.4})
+
+    def refuse_second(path, *a, **k):
+        if Path(path).name == "render.sound.mp4":
+            raise FFmpegError("bad timing")
+        return real_timing(path, *a, **k)
+
+    monkeypatch.setattr(audio_timing, "require_valid", refuse_second)
+    out = _render_clip(data, "unfixed")
+    sound = out["render_info"]["qc"]["sound"]
+    assert sound["status"] == "warn" and sound["fixed_db"] == 0.0 and "ceiling_dbfs" not in sound
+    assert "Peaks reach -0.4 dBTP" in sound["note"]
+    assert not list(Path(out["output_path"]).parent.glob("render.sound.mp4"))
+
+
 # ------------------------------------------------------------------ the full-video renderer
 @pytest.mark.slow
 @needs_ffmpeg

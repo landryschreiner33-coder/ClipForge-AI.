@@ -66,7 +66,7 @@ from .. import config
 from ..pipeline import audio_timing, cleanup, grade, loudness, steady
 from . import multicam, retime, sound_joins
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
-from ..pipeline.common import Cancelled
+from ..pipeline.common import Cancelled, log
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
 
 ENGINE = "ffmpeg-v2"
@@ -1707,6 +1707,40 @@ def _measure(mixed: Path, total_s: float, work: Path, cancelled) -> dict:
     return {**got, "gain_db": gain, "held": held}
 
 
+def _check_sound(tmp_out: Path, level: dict, gain: float, total_s: float, cancelled, remux) -> dict:
+    """The finished file's sound, measured (pipeline/loudness.py). A missed level (over loudness.FIX_LU) or a true
+    peak the encoder pushed over loudness.MAX_TP gets the sound made once more (`remux(target, trim_db, ceiling)`:
+    the picture copied again, the mix still on disk). The check never fails a render that made its file: when it
+    cannot measure or the second try fails, the first file stays."""
+    expected = level["lufs"] + gain if level["lufs"] is not None else None
+    base = {"expected_lufs": expected, "source_lufs": level["lufs"], "source_tp": level["tp"],
+            "peak_limited": level["held"] == "peaks", "boost_capped": level["held"] == "cap"}
+    timeout = max(60.0, total_s * 3)
+    try:
+        out = loudness.measure(tmp_out, cancelled, timeout)
+    except FFmpegError as exc:
+        log.warning("sound check skipped: %s", exc)
+        return {"status": "skipped", "note": "The finished sound could not be measured.", "fixed_db": 0.0, **base}
+    verdict = loudness.check(out, expected, normalized=True, held=level["held"])
+    fixed, ceiling = 0.0, loudness.LIMIT_DBFS
+    if verdict["fix_db"] or verdict["lower_ceiling"]:
+        again = tmp_out.with_name(tmp_out.stem + ".sound.mp4")
+        try:
+            remux(again, verdict["fix_db"], verdict["ceiling_dbfs"])
+            second = loudness.measure(again, cancelled, timeout)
+        except FFmpegError as exc:
+            log.warning("sound fix failed: %s", exc)
+        else:
+            again.replace(tmp_out)
+            fixed, ceiling, out = verdict["fix_db"], verdict["ceiling_dbfs"], second
+            verdict = loudness.check(out, None if expected is None else expected + fixed, normalized=True,
+                                     held=level["held"])
+        finally:
+            again.unlink(missing_ok=True)
+    return {"status": verdict["status"], "note": verdict["note"], **out, "fixed_db": fixed, **base,
+            **({"ceiling_dbfs": ceiling} if ceiling != loudness.LIMIT_DBFS else {})}
+
+
 def _size(plan: dict, preview: bool) -> tuple[int, int]:
     width, height = ASPECTS[plan["output"]["aspect"]]
     if preview:
@@ -2040,29 +2074,16 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         # ---- the file: joined picture (stream copy) and the mixed, normalised sound
         tmp_out = out_path.with_suffix(".tmp.mp4")
 
-        def mux(trim_db: float, ceiling: float, lo: float, hi: float) -> None:
+        def mux(target: Path, trim_db: float, ceiling: float, lo: float, hi: float) -> None:
             run(["-f", "h264", "-framerate", str(fps), "-i", str(joined), *_raw_input(mixed),
                  "-filter_complex", f"[1:a]{_post(gain, False, trim_db, ceiling)}[aout]", "-map", "0:v",
                  "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-profile:a", "aac_low",
                  "-b:a", "128k" if preview else "256k", "-ac", "2", "-ar", "48000", "-movflags", "+faststart",
-                 "-t", f"{total_s:.6f}", str(tmp_out)],
+                 "-t", f"{total_s:.6f}", str(target)],
                 duration=total_s, progress=lambda f: report(lo + (hi - lo) * f), cancel=cancelled, cwd=work)
-        mux(0.0, loudness.LIMIT_DBFS, 0.88, 0.95)
-        # the finished file's sound is measured; a missed level or a peak the encoder pushed over -1 dBTP gets the
-        # sound made once more (the picture is copied again, the mix is still on disk)
-        expected = level["lufs"] + gain if level["lufs"] is not None else None
-        out = loudness.measure(tmp_out, cancelled, max(60.0, total_s * 3))
-        verdict = loudness.check(out, expected, normalized=True, held=level["held"])
-        fixed, ceiling = verdict["fix_db"], verdict["ceiling_dbfs"]
-        if fixed or verdict["lower_ceiling"]:
-            mux(fixed, ceiling, 0.95, 0.99)
-            out = loudness.measure(tmp_out, cancelled, max(60.0, total_s * 3))
-            verdict = loudness.check(out, None if expected is None else expected + fixed, normalized=True,
-                                     held=level["held"])
-        sound = {"status": verdict["status"], "note": verdict["note"], **out, "expected_lufs": expected,
-                 "fixed_db": fixed, "source_lufs": level["lufs"], "source_tp": level["tp"],
-                 "peak_limited": level["held"] == "peaks", "boost_capped": level["held"] == "cap",
-                 **({"ceiling_dbfs": ceiling} if ceiling != loudness.LIMIT_DBFS else {})}
+        mux(tmp_out, 0.0, loudness.LIMIT_DBFS, 0.88, 0.95)
+        sound = _check_sound(tmp_out, level, gain, total_s, cancelled,
+                             lambda target, trim, ceiling: mux(target, trim, ceiling, 0.95, 0.99))
         tmp_out.replace(out_path)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # raw audio and joined copies never outlive the render
