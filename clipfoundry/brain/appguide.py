@@ -40,6 +40,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "text_stories": ("Text Stories", "#/stories"),
     "from_link": ("Make clips from a link", "#/create/link"),
     "live_streams": ("Missions → Live streams", "#/missions/live"),
+    "check_video": ("Make → Check a video", "#/create/check"),
     "missions": ("Missions", "#/missions"),
     "missions_activity": ("Missions → Activity", "#/missions/activity"),
     "missions_sources": ("Missions → Permissions & sources", "#/missions/sources"),
@@ -116,6 +117,20 @@ SECTIONS: tuple[Section, ...] = (
         "minutes unless you change it)."),
         ("live", "live stream", "livestream", "stream", "streams", "streaming", "twitch", "kick", "while live",
          "going live", "record", "recording", "broadcast", "streamer"), "live_streams"),
+    Section("predictor", "The predictor", (
+        "Every clip is predicted after it renders: a viral score from 0 to 100, the hook (the first 3 seconds), how "
+        "much is watched on average and how many stay to the end (a hold curve), the strongest moment, and a "
+        "heatmap of vision, sound, language, attention and memory second by second.",
+        "The clip editor's Viral predictor card lists fixes it tried on the clip first (start later, end earlier, "
+        "remove pauses, captions, the hook on screen, punch-ins, louder sound); Add to my edit puts one in, then "
+        "Save and render.",
+        "Make → Check a video predicts any video you upload, on this computer.",
+        "It is an estimate, not a promise of views. Once your posts have results, Publishing → Results shows how "
+        "well it matched and it calibrates itself. Its on/off switch is in the AI settings."),
+        ("predictor", "predict", "prediction", "predicted", "heatmap", "=viral score", "=viral predictor",
+         "=check a video", "=will it go viral", "=how will it do", "=hold rate", "=retention curve", "=hook score",
+         "=strongest moment"),
+        "check_video"),
     Section("clip_length", "How long clips are", (
         "Settings → Defaults sets the Shortest clip, the Ideal clip length and the Longest clip in seconds, and "
         "how many clips a video gives.",

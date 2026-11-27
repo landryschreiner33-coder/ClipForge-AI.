@@ -9,6 +9,7 @@ import { CastPanel, SceneCast, UseAsReference } from "./ShortCast";
 import { FileDrop, Picked, useUploadsByFile } from "./studioParts";
 import { announce, Banner, ConfirmDialog, Disclosure, Icon, IconName, Pill, ProgressBar, Tone, toast } from "./ui";
 import "../pages/shorts.css";
+import { useSlide } from "../smooth";
 
 /** A plan clip made from a scene (its id is the scene's id; a part split off in the editor names its scene). */
 type SceneClip = PlanClip & { scene_id?: string };
@@ -582,6 +583,9 @@ export function ShortScenes({ v, busy, onVideo }: { v: Video; busy: boolean; onV
   const [deleting, setDeleting] = useState<ShortScene | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const head = useRef<HTMLHeadingElement>(null);
+  // a scene moved earlier or later slides to its new place (and the one it swapped with to the old)
+  const list = useRef<HTMLOListElement>(null);
+  useSlide(list);
   const refocus = useRef(false);
   const headId = useId();
   const loadOptions = useCallback(() => {
@@ -685,7 +689,7 @@ export function ShortScenes({ v, busy, onVideo }: { v: Video; busy: boolean; onV
           : "Changes are saved when you leave the box, and ClipForge makes that scene again."}</p>
       )}
       {scenes.length > 0 && (
-        <ol className="scene-list">
+        <ol ref={list} className="scene-list">
           {scenes.map((sc) => (
             <SceneRow key={sc.id} scene={sc} v={v} s={s} moves={movesOf(sc.id)} off={off} run={run}
               adding={adding === sc.id} onAdding={(on) => setAdding(on ? sc.id : null)} onDelete={() => setDeleting(sc)} />

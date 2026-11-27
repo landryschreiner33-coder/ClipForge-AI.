@@ -96,7 +96,20 @@ def feature_snapshot(clip: dict, version: dict | None = None) -> dict:
             "factors": a.get("factors") or {}, "structure": (a.get("structure") or {}).get("label", ""),
             "flags": [f.get("id") for f in a.get("flags") or []], "category": clip.get("category", ""),
             "duration": (version or clip).get("duration"), "version": (version or {}).get("kind", "original"),
-            "scored_by": clip.get("score_source", ""), "snapshot_at": time.time()}
+            "scored_by": clip.get("score_source", ""), "snapshot_at": time.time(),
+            "prediction": _prediction(clip, version)}
+
+
+def _prediction(clip: dict, version: dict | None) -> dict | None:
+    """What the viral predictor said about the file that goes out (predictor.snapshot), when it has a prediction."""
+    try:
+        from .. import predictor
+
+        if version is not None:
+            return predictor.snapshot({**clip, "active_version": version.get("id", "")})
+        return predictor.snapshot(clip)
+    except Exception:  # noqa: BLE001 - a snapshot never stops a post
+        return None
 
 
 def _progress_writer(pub_id: str) -> Callable[[float], None]:

@@ -62,6 +62,8 @@ function LeafName({ node, parent, home }: { node: BrainNode; parent?: BrainNode;
 }
 /** How far the galaxy reaches from CORE, in graph units (the branches sit within about 480). */
 const GALAXY_REACH = 560;
+/** How long a zoom, a fit or an arrow-key pan of the map takes, ms. */
+const VIEW_GLIDE_MS = 260;
 function bounds(model: BrainGraphModel): View {
   const xs = model.nodes.map((node) => node.x),
     ys = model.nodes.map((node) => node.y);
@@ -119,8 +121,45 @@ export default function BrainGraph({
   const zoomLevel = home.width / view.width;
   // dots' names show once zoomed in; until then the chosen item, its links and every collection keep theirs
   const allLabels = zoomLevel >= 1.5;
+  // + and −, Fit graph, 0 and the arrow keys glide to the new view in about a quarter of a second, and a press during a
+  // glide goes on from where the last one was heading; a drag follows the pointer directly. At once under Reduced
+  // motion or in a hidden tab.
+  const shown = useRef(view);
+  shown.current = view;
+  // the view as last asked for: a glide's step or a drag can be a frame ahead of what React has drawn, and a drag or a
+  // new glide must go on from there (or the map would jump back a step)
+  const show = (next: View) => {
+    shown.current = next;
+    setView(next);
+  };
+  const glide = useRef<{ frame: number; to: View | null }>({ frame: 0, to: null });
+  const stopGlide = () => {
+    cancelAnimationFrame(glide.current.frame);
+    glide.current = { frame: 0, to: null };
+  };
+  const glideTo = (next: View) => {
+    stopGlide();
+    if (reduceMotion || pageHidden || typeof requestAnimationFrame !== "function") {
+      show(next);
+      return;
+    }
+    const from = shown.current, began = performance.now();
+    const step = (now: number) => {
+      // a frame's time can be a little before the press (it is when the frame began): never step backwards
+      const u = Math.max(0, Math.min(1, (now - began) / VIEW_GLIDE_MS)), k = 1 - (1 - u) ** 3;
+      show(u >= 1 ? next : { x: from.x + (next.x - from.x) * k, y: from.y + (next.y - from.y) * k,
+        width: from.width + (next.width - from.width) * k, height: from.height + (next.height - from.height) * k });
+      if (u < 1) glide.current.frame = requestAnimationFrame(step);
+      else glide.current = { frame: 0, to: null };
+    };
+    glide.current = { frame: requestAnimationFrame(step), to: next };
+  };
+  /** Where the map is heading: the end of a glide, else where it is. */
+  const aim = () => glide.current.to || shown.current;
+  useEffect(() => () => cancelAnimationFrame(glide.current.frame), []);
   useEffect(() => {
-    setView(home);
+    stopGlide();
+    show(home);
   }, [home]);
   // the galaxy follows the map's pan and zoom and otherwise holds still (decoration: the map moves only when used)
   const galaxy = useRef<HTMLDivElement>(null);
@@ -216,29 +255,30 @@ export default function BrainGraph({
     seen.observe(section.current);
     return () => seen.disconnect();
   }, []);
-  const zoom = (factor: number) =>
-    setView((current) => {
-      const width = Math.max(home.width * 0.28, Math.min(home.width * 2.5, current.width * factor));
-      const ratio = width / current.width;
-      const height = current.height * ratio;
-      return {
-        x: current.x + (current.width - width) / 2,
-        y: current.y + (current.height - height) / 2,
-        width,
-        height,
-      };
+  const zoom = (factor: number) => {
+    const current = aim();
+    const width = Math.max(home.width * 0.28, Math.min(home.width * 2.5, current.width * factor));
+    const ratio = width / current.width;
+    const height = current.height * ratio;
+    glideTo({
+      x: current.x + (current.width - width) / 2,
+      y: current.y + (current.height - height) / 2,
+      width,
+      height,
     });
+  };
   const start = (event: PointerEvent<SVGSVGElement>) => {
     if ((event.target as Element).closest("[data-brain-node]")) return;
     if (event.button !== 0) return;
+    stopGlide();
     svg.current?.setPointerCapture(event.pointerId);
-    drag.current = { x: event.clientX, y: event.clientY, view };
+    drag.current = { x: event.clientX, y: event.clientY, view: shown.current };
   };
   const move = (event: PointerEvent<SVGSVGElement>) => {
     if (!drag.current || !svg.current) return;
     const rect = svg.current.getBoundingClientRect();
     const scale = Math.max(drag.current.view.width / rect.width, drag.current.view.height / rect.height);
-    setView({
+    show({
       ...drag.current.view,
       x: drag.current.view.x - (event.clientX - drag.current.x) * scale,
       y: drag.current.view.y - (event.clientY - drag.current.y) * scale,
@@ -255,11 +295,12 @@ export default function BrainGraph({
     if (directions[event.key]) {
       event.preventDefault();
       const [dx, dy] = directions[event.key];
-      setView((current) => ({
+      const current = aim();
+      glideTo({
         ...current,
         x: current.x + dx * current.width * 0.08,
         y: current.y + dy * current.height * 0.08,
-      }));
+      });
     } else if (event.key === "+" || event.key === "=") {
       event.preventDefault();
       zoom(0.8);
@@ -268,7 +309,7 @@ export default function BrainGraph({
       zoom(1.25);
     } else if (event.key === "0") {
       event.preventDefault();
-      setView(home);
+      glideTo(home);
     }
   };
 
@@ -435,7 +476,7 @@ export default function BrainGraph({
           <button aria-label="Zoom in" onClick={() => zoom(0.8)}>
             +
           </button>
-          <button onClick={() => setView(home)}>Fit graph</button>
+          <button onClick={() => glideTo(home)}>Fit graph</button>
         </div>
         <p id={`${gradient}-help`}>Drag to explore · Tab selects items · Arrow keys pan · + / − zoom · 0 fits
           {Object.values(model.hidden).some(Boolean) ? " · large collections are listed in full under Saved items" : ""}</p>

@@ -14,6 +14,7 @@ import {
   usePoll,
 } from "../components/ui";
 import { ESTIMATE_NOTE, QualitySummary, ViralPanel } from "../components/viral";
+import { PredictorBadge } from "../components/predictor";
 import { useMotion } from "../motion";
 import { navigate } from "../router";
 import type { LinkProblem } from "../studio";
@@ -408,6 +409,7 @@ function ClipCard({ c, posts, onPreview, onToggle, onExport }: {
         <span className="kind-label">Generated clip · 9:16</span>
         <h3 className="clamp-2" id={`cc-${c.id}`} style={{ fontSize: "var(--fs-body)" }}>{c.title}</h3>
         <span className="score" title={ESTIMATE_NOTE}><b>{Math.round(c.score)}</b>Viral Potential (estimate)</span>
+        <PredictorBadge p={c.prediction} />
         <span className="tiny faint">
           {c.category || "Highlight"} · from {fmtTime(c.edit?.start ?? c.start)} in the source
         </span>

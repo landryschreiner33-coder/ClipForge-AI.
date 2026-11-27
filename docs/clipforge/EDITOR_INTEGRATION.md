@@ -79,6 +79,9 @@ ducking; per-track gain and mute; aspect ratio 16:9, 9:16, 1:1 or 4:5 with fit (
 24/25/30/50/60 fps. Mixed frame rates and sample rates are normalised to the plan's output rate. The final audio
 clock is rebuilt after all filters and the output must pass the raw AAC packet check.
 
-Not supported (reported, never silently dropped): colour grading, keyframed motion, picture-in-picture, speed
-changes, effects plugins, multicam, and project interchange formats other than ClipForge's own JSON edit plan
-(`clipforge.edit-plan/v2`).
+Added 2026-11-26: colour correction, matching and looks ([COLOUR.md](COLOUR.md)); speed changes, speed ramps, freeze
+frames and slow camera moves ([RANGE_EDITING.md](RANGE_EDITING.md)); several cameras of one recording and pictures or
+a camera small in a corner ([MULTICAM.md](MULTICAM.md)).
+
+Not supported (reported, never silently dropped): effects plugins, and project interchange formats other than
+ClipForge's own JSON edit plan (`clipforge.edit-plan/v2`).

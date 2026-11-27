@@ -43,7 +43,7 @@ from typing import Callable
 from .. import config, db
 from ..pipeline import artifact, grade
 from ..pipeline.ffmpeg_utils import extract_audio
-from . import engine, guidance, prefs, retime, styles, uploads
+from . import camera_edits, engine, guidance, multicam, prefs, retime, styles, uploads
 from .jobs import Lease, enqueue, handler, on_stop
 
 # hard cuts are 95-99 % of an edit's joins (docs/clipforge/EDITING_CRAFT_RESEARCH.md): a dissolve says time passed
@@ -500,6 +500,7 @@ def _assets(project: dict, plan: dict | None = None) -> dict[str, dict]:
     if plan:
         ids += [c["asset_id"] for c in plan.get("clips") or []] + [i["asset_id"] for i in plan.get("audio") or []]
         ids += [o["asset_id"] for o in plan.get("overlays") or []]
+        ids += multicam.used_assets(plan)  # the other cameras of a recording
         if plan.get("music"):
             ids.append(plan["music"].get("asset_id"))
     out = {}
@@ -698,6 +699,25 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
 SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound", "color")
 
 
+def _keep_cameras(old: dict, new: dict, words: dict[str, list[dict]], assets: dict[str, dict]) -> str:
+    """The cameras you lined up stay when the video is edited again: their line-up, names and shots, the camera in
+    the corner, and cameras you chose by hand (they are stored in the recording's own time, so they stay on their
+    moments). Switching that was automatic is worked out again for the new cut. Returns a note ("" for none)."""
+    if not multicam.groups(old):
+        return ""
+    new["multicam"] = copy.deepcopy(old["multicam"])
+    said = []
+    for main_id, g in multicam.groups(new).items():
+        mode = g.get("switching")
+        if mode not in ("speaker", "angles"):
+            continue
+        try:
+            said.append(camera_edits.auto(new, main_id, mode, words, assets))
+        except multicam.MulticamError as exc:  # the cameras stay as they were
+            logging.getLogger(__name__).info("cameras of %s not switched again: %s", main_id, exc)
+    return ("Your cameras stay. " + "; ".join(said) + ".") if said else "Your cameras stay as you set them."
+
+
 def is_short(project: dict) -> bool:
     """An animated short (makers/shorts.py): made from a script with a voice and pictures, not from footage."""
     return (project or {}).get("workflow") == "animated_short"
@@ -790,9 +810,12 @@ def _smart_job(project: dict, job: dict, lease: Lease) -> dict:
     assets = _assets(project, current)
     words = listen(assets, project["asset_ids"], settings, lease, 0.05, 0.55)
     lease.progress(0.6, "Editing")
-    ctx = prepare_smart(project, assets, words, settings, lease)
+    # the other cameras of a recording are angles of its moments, not more footage: the edit is cut from the rest
+    angles = set(multicam.used_assets(current)) - set(multicam.groups(current))
+    ctx = prepare_smart({**project, "asset_ids": [a for a in project["asset_ids"] if a not in angles]}, assets, words,
+                        settings, lease)
     project = db.fetch("studio_projects", project["id"])
-    new = rough_cut(project, assets, words, ctx)
+    new = rough_cut({**project, "asset_ids": [a for a in project["asset_ids"] if a not in angles]}, assets, words, ctx)
     for key in SMART_KEEP:  # the look and the fixes you made stay as they are
         if key in current:
             new[key] = copy.deepcopy(current[key])
@@ -820,6 +843,9 @@ def _smart_job(project: dict, job: dict, lease: Lease) -> dict:
     keep_ov = [o for o in current.get("overlays") or [] if not o.get("auto") and o.get("clip_id") in clip_ids]
     lost += [o.get("label", "") for o in current.get("overlays") or [] if not o.get("auto") and o not in keep_ov]
     new["overlays"] = [{**o, "id": f"o{n}"} for n, o in enumerate(keep_ov + (new.get("overlays") or []), 1)]
+    cameras = _keep_cameras(current, new, words, assets)
+    if cameras:
+        new["notes"].append(cameras)
     if lost:
         new["notes"].append("These were attached to parts that are no longer in the video and were left out: " +
                             ", ".join(x for x in lost if x)[:300] + ". Add them again from Your media.")
@@ -889,6 +915,14 @@ def prepare_media(job: dict, lease: Lease) -> dict:
     assets = _assets(project)
     videos = [aid for aid, a in assets.items() if a["kind"] == "video"]
     listen(assets, videos, settings, lease, 0.0, 1.0)
+    if len(videos) >= 2:  # several recordings: read their sound now, so lining up cameras later is quick
+        for aid in videos:
+            if lease.canceled():
+                break
+            try:
+                multicam.sound_profile(assets[aid], lease.canceled)
+            except Exception as exc:  # noqa: BLE001 - only a head start: lining up reads it again if needed
+                logging.getLogger(__name__).info("sound profile of %s skipped: %s", aid, exc)
     return {"videos": len(videos)}
 
 
@@ -1201,6 +1235,15 @@ def _overlay_edit(p: dict, edit: dict, assets: dict[str, dict]) -> str:
             o["fit"] = value
         elif field == "clip_id":
             o["clip_id"] = _find(p, value)["id"]
+        elif field == "place" and value in multicam.PLACES:  # the whole frame, or small in a corner
+            if value == "full":
+                o.pop("place", None)
+                o.pop("size", None)
+            else:
+                o["place"] = value
+        elif field == "size" and isinstance(value, (int, float)) and not isinstance(value, bool) and \
+                multicam.CORNER_SIZE[0] <= value <= multicam.CORNER_SIZE[1]:
+            o["size"] = round(float(value), 3)
         else:
             raise VideoError(f"“{field}” cannot be set to that.")
         o.pop("auto", None)  # you changed it: a later "Edit it for me" keeps it
@@ -1382,6 +1425,11 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
         return p, _audio_edit(p, edit, assets)
     if op in ("overlay_add", "overlay_remove", "overlay_set"):
         return p, _overlay_edit(p, edit, assets)
+    if op in camera_edits.OPS:
+        try:
+            return p, camera_edits.apply(p, edit, words, assets)
+        except multicam.MulticamError as exc:
+            raise VideoError(str(exc)) from exc
     if op == "track_set":
         track = edit.get("track")
         if track not in engine.TRACKS:
@@ -1839,6 +1887,10 @@ def _colour_skipped(info: dict, plan: dict, assets: dict, project: dict, words: 
         skipped.append("FilmCraft played speed ramps at their average speed, freeze frames without room sound and "
                        "no slow zooms or pans, so it may differ from the preview. Choose the built-in editor in "
                        "Settings, Editing apps, to use them.")
+    if engine.cameras_in_use(plan):
+        skipped.append("FilmCraft played the other cameras from their own track without ClipForge's framing and "
+                       "colour, and left out pictures and cameras in a corner, so it may differ from the preview. "
+                       "Choose the built-in editor in Settings, Editing apps, to use them.")
     if skipped:
         info["craft_skipped"] = skipped
     return info
@@ -1875,6 +1927,9 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         return None, ""
     if not hand and choice == "auto" and engine.retiming_in_use(plan):
         # nor ClipForge's speed ramps, freeze frames with room tone and camera moves (studio/retime.py)
+        return None, ""
+    if not hand and choice == "auto" and engine.cameras_in_use(plan):
+        # nor other cameras of a recording or pictures in a corner (studio/multicam.py)
         return None, ""
     if not apps.find_cli("filmcraft"):
         if hand:
@@ -2056,7 +2111,30 @@ def view(project: dict) -> dict:
             "script": script_view(project.get("script") or {}),
             "workflow": project.get("workflow") or "full_video", "short": _short_view(project, plan),
             **_setup_view(project),
-            "capabilities": engine.capabilities(), **_media_view(project, plan, assets), **_smart_view(plan)}
+            "capabilities": engine.capabilities(), **_media_view(project, plan, assets), **_smart_view(plan),
+            **_cameras_view(plan, assets)}
+
+
+def _cameras_view(plan: dict | None, assets: dict[str, dict]) -> dict:
+    """The recordings with other cameras (multicam), and which camera is on screen when."""
+    if not plan:
+        return {"cameras": [], "camera_timeline": []}
+    out = []
+    for aid, g in multicam.groups(plan).items():
+        if aid not in assets:
+            continue
+        cams = [{"id": multicam.MAIN, "label": multicam.label_of(g, multicam.MAIN),
+                 "shot": multicam.shot_of(g, multicam.MAIN), "asset_id": aid, "filename": assets[aid]["filename"],
+                 "offset_ms": 0, "drift_ppm": 0, "match": None}]
+        for c in g.get("cams") or []:
+            a = assets.get(c.get("asset_id")) or {}
+            cams.append({"id": c["id"], "label": multicam.label_of(g, c["id"]), "shot": multicam.shot_of(g, c["id"]),
+                         "asset_id": c.get("asset_id"), "filename": a.get("filename", ""),
+                         "offset_ms": c.get("offset_ms"), "drift_ppm": c.get("drift_ppm") or 0,
+                         "match": c.get("match")})
+        out.append({"of": aid, "filename": assets[aid]["filename"], "switching": g.get("switching") or "off",
+                    "changes": len(g.get("cuts") or []), "corner": g.get("corner"), "cams": cams})
+    return {"cameras": out, "camera_timeline": engine.camera_timeline(plan, assets)}
 
 
 def _short_view(project: dict, plan: dict | None) -> dict | None:

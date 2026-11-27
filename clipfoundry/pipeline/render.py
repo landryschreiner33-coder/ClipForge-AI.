@@ -397,12 +397,15 @@ def thumbnail_time(clip: dict, duration: float) -> float:
 
 
 def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict, ctx: JobContext,
-                out_dir: Path | None = None, blueprint: "blueprint_mod.Blueprint | None" = None) -> dict:
+                out_dir: Path | None = None, blueprint: "blueprint_mod.Blueprint | None" = None,
+                source_offset: float = 0.0) -> dict:
     """Render `clip` (with its edit) to a new MP4 in `out_dir` (default: the clip's folder; versions use a
     subfolder). The framing analysis is cached in the clip's folder and shared by all versions.
 
     With a `blueprint` (Autopilot clips) the render follows that validated plan exactly: its source intervals,
-    speed, framing, captions, emphasis, audio and hook. Without one (manual clips) it renders as it always has."""
+    speed, framing, captions, emphasis, audio and hook. Without one (manual clips) it renders as it always has.
+    `source_offset`: where `project`'s source starts in the clip's recording (a live clip renders from a window of
+    the stream); kept in render_info so the predictor's trims are in the recording's time."""
     t0 = time.time()
     src = project["source_path"]
     info = project.get("info") or {}
@@ -466,6 +469,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
 
     clip_dir = Path(project["dir"]) / "clips" / clip["id"]
     clip_dir.mkdir(parents=True, exist_ok=True)
+    own_file = out_dir is None  # the clip's own render (a version is changed on its own page)
     out_dir = out_dir or clip_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -741,6 +745,15 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     if blueprint is not None:
         write_json(out_dir / "blueprint.json", blueprint.to_dict())
     record = artifact.record(out_path, out_dir, tl, words, start, end, opts, encoder, followed)
+    # the viral predictor watches the finished file: a score, the hook, the hold curve, reasons and fixes
+    # (predictor/; never stops a render)
+    from .. import predictor
+
+    prediction = None
+    if predictor.enabled(settings):
+        ctx.progress(0.98, "Predicting how it will do")
+        prediction = predictor.for_render(out_path, record, opts, clip, settings, ctx.cancelled, editable=own_file,
+                                          source_offset=source_offset)
     ctx.progress(1.0, "Done")
     return {
         "output_path": str(out_path),
@@ -768,7 +781,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                                    "noise": round(float((look_stats or {}).get("noise") or 0), 2)},
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
                         "snapped_to_cut": snapped, "edit_hash": edit_hash(clip.get("edit") or {}),
-                        "artifact": record},
+                        **({"source_offset": round(float(source_offset), 3)} if source_offset else {}),
+                        "artifact": record, **({"prediction": prediction} if prediction else {})},
     }
 
 

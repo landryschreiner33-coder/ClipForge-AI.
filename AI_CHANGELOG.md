@@ -1,5 +1,110 @@
 # AI changelog
 
+## Editing quality, batch 4b: several cameras of one recording, pictures in a corner — 2026-11-26 (Claude Code)
+
+Batch 4b of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 4a (PR #85). Details:
+[docs/clipforge/MULTICAM.md](docs/clipforge/MULTICAM.md). Not released.
+
+- **Lining up by sound** (`studio/multicam.py`): each recording's speech-band loudness (cached in
+  `data/cache/multicam/`) is cross-correlated at every shift (FFT, onsets, scored per second of overlap); the peak is
+  refined between frames; recordings overlapping 8 minutes or more get their clock drift measured from seven
+  one-minute stretches. Files without the same sound are named and left out.
+- **Who speaks:** each close camera's level per word, minus the word's mean (gains cancel out), grouped by weighted
+  k-means; people must be 4 dB apart; one shared microphone or no words falls back to changing angles, and says why.
+  The wide camera listens too (it owns no person, so it shows the pauses); a camera guessed wide that hears one person
+  loudest becomes that person's close-up.
+- **Switching rules** (`plan_cuts`): opens and ends on the wide shot, wide in pauses of 2.5 s or more and to break a
+  close-up of 14 s, no shot under 2 s, cuts in the gaps between words (at most 150 ms before the new speaker), another
+  camera at every jump cut; angles mode holds 3.5-12 s and changes at pauses. Cameras are only chosen where their
+  file has picture.
+- **Rendering** (`engine._piece`): pieces split where the camera changes; each camera read at its lined-up moment
+  through the clip's speed, framing and its own colour; a drifting camera is lined up again every minute. One camera
+  in a corner (hidden while it is the full picture) and pictures over the video in a corner (`overlay.place`,
+  `size`), with a light border, inside the 9:16 safe box. Plans without cameras render as before.
+- **Editor** (`studio/camera_edits.py`, `components/Cameras.tsx`): a Cameras panel (line up, switch, corner camera
+  with place and size, each camera's name, shot and ±1 frame), a Cameras row on the timeline, a Camera choice and
+  "Change camera at the split point" in a clip's panel, and Where for pictures over the video.
+- **Plain words** (`edit_requests._camera_rule`): "switch cameras to whoever is talking", "switch between camera
+  angles", "stop switching cameras", "use camera 2 for clip 3", "use the wide shot for the intro", "put camera 2 in
+  the bottom right corner", "picture in picture", "make the corner camera bigger", "remove the corner camera"; the AI
+  may propose `cameras`, `camera` and `camera_corner` and sees each camera's name and shot (no file names).
+- **FilmCraft and export:** with "auto", finals using another camera or a corner stay on the built-in engine
+  (`engine.cameras_in_use`); the export puts other cameras on an "Other cameras" track and corner items on a
+  switched-off track, and says so.
+- **Review** (3 reviewers with probes, 12 problems confirmed, all fixed with tests): "Edit it for me" again kept no
+  cameras (now kept; automatic switching re-planned; the other cameras' files are no longer used as more footage);
+  camera requests were refused as "nothing to change" (proposals now list camera changes); camera changes inside a
+  dissolve were ignored while the Cameras row showed them (moved to the transition's edge in both); a corner picture
+  hid under the corner camera (moves to the other corner on that side, drawn above); who speaks dropped every word
+  a camera that stopped early could not hear (now any two cameras); the ±1 frame nudge erased the clock drift (new
+  `nudge_ms`); moments played twice merged their cuts into flash shots (later parts plan only new moments);
+  malformed setups crashed validate or the editor (named now); camera rules took over speed, move and remove
+  requests (left to their rules); the corner camera popped in over a title in a dissolve (fades with its side); odd
+  edit parameters raised TypeErrors; two recordings with cameras were told "one camera" (now "Which recording?").
+  Also: parts already cut from a camera's own file move to the main recording when that camera is lined up.
+- **Tests:** `tests/test_multicam.py` (52 fast on a made-up conversation, 3 real renders read frame by frame), plus
+  camera tests in `test_studio_edit_requests.py` and `test_studio_smart_edit.py`. Not verified: real podcast footage,
+  real clock drift.
+
+## Smoother motion without GSAP: Taser, zapped robots, pop-ups, glides, caption pop, reordering — 2026-11-26 (Claude Code)
+
+Landry asked whether GSAP could improve anything. The answer was no (it can't reach the canvas and WebGL loops or the
+Python-rendered videos, ticks outside `document.getAnimations()` and the Reduced-motion switch, and has a
+proprietary licence), so the six rough spots found on the way were smoothed with the browser's own animations.
+Branch `claude/project-thread-wkj3fp`.
+
+- **Taser:** the held Taser's sway uses `rotate`/`translate` (space.css) and the lunge is a Web Animation on
+  `transform` (TaserItem.tsx), so they add up instead of fighting over one property (it used to snap about 3 degrees).
+  The lunge and the ship's jolt restart without a forced reflow.
+- **A zapped robot stands still** for its reaction (OfficeMotion.stun), so the lightning and words stay on it; its
+  job and route are untouched and it walks on afterwards. Not under Reduced motion (nothing walks then anyway).
+- **Pop-ups ease in and out** (`frontend/src/smooth.ts`, space.css "pop-ups"): dialogs rise in and fade out, menus
+  (Make, More, Brain) scale in and out, the small-window menu slides, notes slide up and fade. Closing never waits:
+  the real element is gone at once (focus, clicks, screen readers move on) and only an inert, aria-hidden copy with no
+  ids or names fades. Pop-ups holding a frame, video or canvas close at once. A note replaced by a new one replays
+  its entrance.
+- **Glides:** picking a room on the ship glides the camera there (450 ms, OfficeMap.tsx; not under Reduced motion or
+  Low power). The Brain graph's zoom buttons, arrow keys, 0 and Fit glide the view (260 ms, BrainGraph.tsx); a drag
+  stops a glide.
+- **Caption pop, preview and video:** Brain → Styles' preview pops each new page (90 ms from the preset's `pop`)
+  and shows High energy's bigger current word; it re-renders 20 times a second instead of every frame. The finished
+  video's pop (captions.py `build_ass`) only reached the first word (a word's own look ends with `{\r}`, which also
+  ended the pop) and not at all in High energy (its lit word is drawn bigger): now every word of a page's first line
+  grows in together, each to its own size (`test_a_new_caption_page_pops_every_word_not_only_the_first`).
+- **Reordering slides:** files on Make a YouTube video and scenes of an animated short slide to their new place
+  (FLIP, `useSlide`).
+- Everything is instant under Reduced motion and visible to `document.getAnimations()` (the demo recorder and the
+  browser checks step it). No new dependency.
+- **Review (3 reviewers, a verifier per finding), all fixed:** the Office's and Studio's Escape now skip a fading
+  dialog copy (`.dialog:not(.leaving *)`); a copy keeps the original's scroll and list choices; a robot carrying or
+  receiving a handoff is never held by a zap, and a stun ends at its time even while the feed is frozen (the list
+  of stuns is replaced every frame); a reorder during a slide measures places without the slide and carries on from
+  where each row is shown; a menu reopened while its copy fades focuses its real first item; the Brain map's glide
+  never steps backwards on its first frame, and a drag or new glide starts from the view last asked for.
+- Video of every change: /mnt/project-files/smooth-polish/smooth-polish.mp4 (record.js beside it).
+
+## ClipForge's own viral predictor — 2026-11-26 (Claude Code)
+
+Landry: "reverse engineer how their viral predictor works so we can implement it to help the videos go more viral"
+(Higgsfield's Virality Predictor). Built from Higgsfield's public page, published coverage and research only; nothing
+decompiled or scraped. Details, sources and every number: [docs/clipforge/VIRAL_PREDICTOR.md](docs/clipforge/VIRAL_PREDICTOR.md).
+
+- **Every clip is predicted after it renders** (`clipfoundry/predictor/`): a viral score 0-100, the hook (first 3 s of
+  picture, sound and words), a hold curve (share still watching each second, average watched, hold rate), the
+  strongest moment, a five-channel heatmap (vision, sound, language, attention, memory), reasons tied to moments.
+- **Fixes it tried first:** start later, end earlier, remove pauses, captions, the hook on screen, punch-ins, louder
+  sound, tease the strongest moment; only those that do not lower the score are offered, and Add to my edit puts one
+  in the clip editor.
+- **Make → Check a video:** any video up to 10 minutes, measured on this computer.
+- **Wired in:** clip picking (a moment's hook and hold move its Clip Score by at most 5), the posting plan's expected
+  retention, the prediction kept with each post, and a bounded learner that measures accuracy on the owner's posts,
+  calibrates average watched (from 15 posts) and adjusts the score's weights (from 30, at most 40%).
+- **Screens:** the clip editor's Viral predictor card, Prepare post, clip cards, Publishing → Results (how well it
+  matched), and an on/off switch in the AI settings. ClipForge AI's app guide has "The predictor".
+- No brain model: Meta's TRIBE v2 (which Higgsfield may use) is CC BY-NC, so the channels are measured from the clip.
+- Tests: `tests/test_viral_predictor.py` (19).
 ## ClipForge AI watches and listens — 2026-11-26 (Claude Code)
 
 Landry: "Make it so it can actually watch the videos frame by frame and listen to the audio or piece of media, so it

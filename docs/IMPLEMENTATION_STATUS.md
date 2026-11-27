@@ -1,5 +1,42 @@
 # Implementation status
 
+## Editing quality, batch 4b: several cameras and pictures in a corner — 2026-11-26 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 4a (PR #85). Full videos can use several cameras of one
+recording: lined up by their sound, switching to whoever speaks or to another angle at pauses, by hand per clip or at
+a moment, and one camera or picture small in a corner
+([docs/clipforge/MULTICAM.md](clipforge/MULTICAM.md)). Not released. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-26 | Review (3 reviewers with probes) | 12 problems confirmed, all fixed with tests (AI_CHANGELOG.md, "Review") |
+| 2026-11-26 | `pytest -m "slow or not slow"` on d0fb474 (final code merged with the release line at cc71e90) | 3,742 passed, 3 skipped (1 h 08 min) |
+| 2026-11-27 | `pytest -m "not slow"` and `pytest -m slow` side by side on c6f10c8 (merged with the release line at d37fbcf: PRs #89, #92) | 3,765 passed, 3 skipped; 1 timing check (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, 2.5 s wait under the doubled load) failed once and passed alone |
+| 2026-11-26 | GitHub check on PR #90 (macos-15, ubuntu) | passed on 43b8bb0 and d0fb474 |
+| 2026-11-26 | `pytest tests/test_multicam.py` (fast and slow) | 55 passed (52 fast, 3 real renders) |
+| 2026-11-26 | `pytest tests/test_multicam.py tests/test_studio_edit_requests.py tests/test_studio_editor.py tests/test_studio_smart_edit.py tests/test_retime.py tests/test_craft.py -m "not slow"` | 300 passed, 1 skipped |
+
+Not verified: real podcast footage with one microphone per person (the speaker test uses made-up levels), real
+cameras' clock drift, the Cameras panel in a browser beyond the demo.
+## Smoother motion without GSAP — 2026-11-26/27 (Claude Code)
+
+From `claude/project-thread-wkj3fp`, PR #92. GSAP was checked and not added; six jumpy spots were smoothed with the
+browser's own animations, and the finished video's caption pop now covers every word of a new page. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `pytest -m "not slow"` on 89e4f25 | 3,596 passed, 41 skipped (32 min) |
+| 2026-11-26 | Each change in Chromium against the sandbox (Reduced motion too); frame-by-frame video of all six | as intended; /mnt/project-files/smooth-polish/smooth-polish.mp4 |
+| 2026-11-27 | Review (3 reviewers, a verifier per finding) | 5 confirmed + 4 smaller, all fixed and re-probed |
+| 2026-11-27 | `npx tsc --noEmit -p frontend` and `npm run build` on the merge with the release line (c0b8d70) | passed |
+| 2026-11-27 | `pytest -m "not slow"` on the files that read frontend sources, captions, editing, core, predictor | 374 passed, 33 skipped |
+| 2026-11-27 | `npm run test:sandbox` (port 8871, espeak-ng installed) on c0b8d70 | 90 passed, 2 failed: beginner-flow (no Topics box on setup) and zero-touch-loop (broken source never "failed"); both fail the same way on the release line f8b02d1 without this change |
+| 2026-11-27 | `pytest -m slow` on c0b8d70 | 49 passed, 1 skipped (26 min) |
+
+Not verified: WKWebView on a real Mac; the animated short's scene list in a browser (same code as the file list).
+
 ## Editing quality, batch 4a: speed, ramps, freeze frames, camera moves — 2026-11-26 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on top of batch 3, PR #85. Full videos get per-clip speed, eased speed ramps,

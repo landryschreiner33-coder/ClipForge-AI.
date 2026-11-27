@@ -4,6 +4,7 @@ import {
 } from "react";
 import { errorText, fmtTime, type Status } from "../api";
 import { arrive } from "../transitions";
+import { useLeave } from "../smooth";
 
 // ------------------------------------------------------------------ icons (one stroke style, 24 px grid)
 const PATHS = {
@@ -427,6 +428,8 @@ export function Modal({ children, onClose, label, labelledBy, wide, className = 
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
+  // it eases in (space.css) and, once closed, out (smooth.ts)
+  const leave = useLeave<HTMLDivElement>("dialog");
   useLayoutEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     const box = ref.current!;
@@ -456,7 +459,7 @@ export function Modal({ children, onClose, label, labelledBy, wide, className = 
     }
   };
   return (
-    <div className="dialog-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div ref={leave} className="dialog-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div ref={ref} className={`dialog ${wide ? "wide" : ""} ${className}`} role="dialog" aria-modal="true"
         aria-label={label} aria-labelledby={labelledBy} tabIndex={-1} onKeyDown={onKey}>
         {children}
@@ -538,6 +541,9 @@ export type MenuItem =
   | { label: ReactNode; onSelect?: () => void; href?: string; external?: boolean; danger?: boolean; icon?: IconName; disabled?: string }
   | "separator";
 
+/** A menu's items, leaving out those of a closed menu's copy that is still fading away (smooth.ts). */
+const LIVE_ITEM = '[role="menuitem"]:not(.leaving *)';
+
 /**
  * Keyboard and pointer behaviour for a menu button: opening focuses the first item, arrows and Home/End move between
  * items, Escape closes and gives focus back to the button, and Tab or a click elsewhere closes.
@@ -545,16 +551,18 @@ export type MenuItem =
 export function useMenu(open: boolean, setOpen: (open: boolean) => void) {
   const wrap = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  // for the menu itself: it eases in (space.css) and, once closed, out (smooth.ts)
+  const menu = useLeave<HTMLDivElement>("menu");
   useEffect(() => {
     if (!open) return;
-    wrap.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    wrap.current?.querySelector<HTMLElement>(LIVE_ITEM)?.focus();
     const away = (e: MouseEvent) => wrap.current && !wrap.current.contains(e.target as Node) && setOpen(false);
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
   }, [open, setOpen]);
   const onKey = (e: ReactKeyboardEvent) => {
     if (!open) return;
-    const all = Array.from(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') || []);
+    const all = Array.from(wrap.current?.querySelectorAll<HTMLElement>(LIVE_ITEM) || []);
     const i = all.indexOf(document.activeElement as HTMLElement);
     if (e.key === "Escape") {
       e.preventDefault();
@@ -571,7 +579,7 @@ export function useMenu(open: boolean, setOpen: (open: boolean) => void) {
       setOpen(false);
     }
   };
-  return { wrap, button, onKey };
+  return { wrap, button, menu, onKey };
 }
 
 /**
@@ -580,7 +588,7 @@ export function useMenu(open: boolean, setOpen: (open: boolean) => void) {
  */
 export function MoreMenu({ label, items, up, text }: { label: string; items: MenuItem[]; up?: boolean; text?: string }) {
   const [open, setOpen] = useState(false);
-  const { wrap, button, onKey } = useMenu(open, setOpen);
+  const { wrap, button, menu, onKey } = useMenu(open, setOpen);
   const id = useId();
   const pick = (fn?: () => void) => {
     setOpen(false);
@@ -595,7 +603,7 @@ export function MoreMenu({ label, items, up, text }: { label: string; items: Men
         <Icon name="more" />{text}
       </button>
       {open && (
-        <div className={`menu ${up ? "up" : ""}`} role="menu" id={id} aria-label={label}>
+        <div ref={menu} className={`menu ${up ? "up" : ""}`} role="menu" id={id} aria-label={label}>
           {items.map((it, i) => {
             if (it === "separator") return <hr key={i} />;
             if (it.disabled) {
@@ -637,6 +645,21 @@ export const announce = (msg: string) => pushAnnounce?.(msg);
 export function ToastHost() {
   const [t, setT] = useState<{ msg: string; bad: boolean; id: number } | null>(null);
   const [said, setSaid] = useState("");
+  // a note eases in (space.css), eases out when it goes (smooth.ts), and comes in again when a new one replaces it
+  const box = useRef<HTMLDivElement | null>(null);
+  const leave = useLeave("toast", box);
+  const shown = useRef<{ el: HTMLDivElement | null; id: number }>({ el: null, id: 0 });
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!t || !el) return;
+    // a new note in the same box (a fresh box eases in by itself)
+    const again = shown.current.el === el && shown.current.id !== t.id;
+    shown.current = { el, id: t.id };
+    if (again && document.documentElement.dataset.motion !== "reduced" && typeof el.animate === "function") {
+      el.animate([{ opacity: 0, translate: "0 10px" }, { opacity: 1, translate: "0 0" }],
+        { duration: 200, easing: "cubic-bezier(0.2, 0.75, 0.25, 1)" });
+    }
+  }, [t]);
   useEffect(() => {
     pushToast = (msg, bad = false) => {
       setT({ msg, bad, id: Date.now() });
@@ -657,7 +680,7 @@ export function ToastHost() {
     <>
       <div className="sr-only" role="status" aria-live="polite">{said}</div>
       {t && (
-        <div className={`toast ${t.bad ? "bad" : ""}`} aria-hidden="true">
+        <div ref={leave} className={`toast ${t.bad ? "bad" : ""}`} aria-hidden="true">
           <Icon name={t.bad ? "alert" : "check"} />
           <span>{t.msg}</span>
         </div>
