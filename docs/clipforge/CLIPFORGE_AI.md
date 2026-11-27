@@ -1312,6 +1312,26 @@ setting); all fixed with tests, each fix broken on purpose once to see a test fa
 Tests: `tests/test_assistant_commands.py`, `tests/test_assistant_acts_alone.py`, `tests/test_assistant_library.py`
 (the questions that pick the new section first, and the loop and music questions that must not).
 
+## What the last render did, in words (2026-11-27)
+
+The editor's checks after a render (batch 4d steadying, batch 5a sound check, the colour check's notes) leave notes
+in a clip's `render_info` and a full video artifact's `info`. ClipForge AI now reads them (`toolbox.render_notes`),
+so "why is my clip so quiet?", "did it steady clip 3?" or "what did the colour check change?" are answered from what
+happened, not guessed:
+
+- **`clip`** (one clip in words) adds "The last render: …": the sound check (passed, has a warning, skipped or could
+  not measure it; LUFS and true peak; a correction in dB; its note), shaky footage steadied (seconds, how much closer),
+  a loop ending's pause at the seam, and the colour check's notes (what it changed or eased, and why).
+- **A full video** (`open_project`, `describe_project`) adds "Its last render (version N, preview or final): …" from
+  the newest artifact: the sound check, the parts steadied (count, seconds, the largest zoom) and the colour notes of
+  every recording, each said once.
+- Only what the notes hold is said; a missing or malformed note says nothing.
+
+The final quality report's own checks (loudness, levels, colour tags; batch 5) reach ClipForge AI through
+`crew_report`, which shows a clip's first two warnings: those that hold a clip come first.
+
+Tests: `tests/test_assistant_library.py` (the clip), `tests/test_clipforge_ai_assistant.py` (a full video).
+
 ## API
 
 - `GET /api/brain/memories?q=&kind=&project_id=&limit=` (`project_id`: the memories kept for that video or for every video, by their scope) · `POST /api/brain/memories` `{text, kind?, scope?, project_id?, platform?, tags?}` · `PATCH /api/brain/memories/{memory_id}` · `DELETE /api/brain/memories/{memory_id}` · `POST /api/brain/memories/{memory_id}/confirm` · `POST /api/brain/memories/{memory_id}/undo` `{words}` (a chat chip's Undo: forgets the memory only while it is as that answer added it, revision 1 and the same words; 404 when it is gone, 409 when it changed since) · `GET /api/brain/memories/{memory_id}/uses`

@@ -342,8 +342,21 @@ def test_the_assistant_reads_a_clips_words_before_it_writes_for_it(env, monkeypa
         toolbox._clip(ctx, {"project": "Ranked night", "clip": "7"})
     with pytest.raises(ToolError, match="Its clips: 1. “One health left”; 2. “Lobby talk”"):
         toolbox._clip(ctx, {"project": "Ranked night", "clip": "penguins"})
-    long = "word " * 2000
     from clipfoundry import db
+
+    # what the last render did and found, from its notes: never more than the notes say
+    db.update_clip(a["id"], render_info={
+        "qc": {"version": 1, "sound": {"status": "pass", "note": "On target.", "lufs": -14.04, "tp": -1.2,
+                                       "fixed_db": 1.5}},
+        "steady": {"seconds": 3.21, "zoom": 1.06}, "loop": {"seam_s": 0.25},
+        "colour": {"notes": ["Flat colours (a cartoon or graphics): left as drawn"]}})
+    text = toolbox._clip(ctx, {"project": "Ranked night", "clip": "1"}).text
+    assert ("The last render: Sound check after the render passed, -14.0 LUFS, true peak -1.2 dBTP, corrected by "
+            "+1.5 dB: On target. Shaky footage steadied for 3.2 s, 6% closer to hide the edges. Loop ending: it runs "
+            "straight back into its start, with a 0.25 s pause at the seam. Colour check: Flat colours (a cartoon or "
+            "graphics): left as drawn.") in text
+    assert "The last render" not in toolbox._clip(ctx, {"project": "Ranked night", "clip": "2"}).text
+    long = "word " * 2000
 
     db.update_clip(b["id"], caption_text=long)
     assert len(toolbox._clip(ctx, {"project": "Ranked night", "clip": "2"}).text) <= tools.MAX_TEXT

@@ -58,6 +58,17 @@ Batch 5b of Landry's "majorly improve the editing" (plan in
 - `grade.VERSION` 2 (measurement cache key and the engine's piece key): every recording is measured again once.
 - **Privacy page:** the colour measurements row covers the pixel sample.
 
+## ClipForge AI reads what the last render did — 2026-11-27 (Claude Code)
+
+Part of Landry's "make the AI way smarter and more useful" (`claude/project-thread-st8tpc`), after the editing
+thread's batch 5a (sound check after every render). Details: [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md),
+"What the last render did, in words". Not released.
+
+- **One clip** (`clip`): "The last render: …" with the sound check, steadied footage, a loop ending's seam and the
+  colour check's notes.
+- **A full video** (`describe_project`): "Its last render (version N): …" from the newest artifact.
+- **Tests:** `tests/test_assistant_library.py`, `tests/test_clipforge_ai_assistant.py`.
+
 ## Editing quality, batch 5a: the sound checked after every render — 2026-11-27 (Claude Code)
 
 Batch 5a of Landry's "majorly improve the editing" (plan in
