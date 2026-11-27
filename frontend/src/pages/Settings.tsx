@@ -604,6 +604,9 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
             <Check k="sound_effects" c={c}>
               Sound effects that follow the edit: whooshes and pops in clips and full videos
             </Check>
+            <Check k="loop_ending" c={c}>
+              Loop endings: clips stop just after the last word and run straight back into the start
+            </Check>
             <Check k="remove_fillers" c={c}>Cut filler words (with silence cleanup)</Check>
             <Check k="caption_emphasis" c={c}>Emphasize key words in their own color</Check>
             <Check k="hook_overlay" c={c}>Hook on screen at the start</Check>

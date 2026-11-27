@@ -112,17 +112,26 @@ def pushes(words: list[dict], emphasis: set[int] | None, duration: float) -> lis
     return kept
 
 
+def opens_tight(events: list[tuple[float, bool]], loop: bool) -> bool:
+    """Whether the clip starts on the punched-in framing: only for a loop ending (loops.py) whose framing would
+    otherwise end at the size it started with. Every change switches the size, so an even number of them ends where
+    it began; starting tight then makes the loop seam switch the size like every other jump cut."""
+    return loop and bool(events) and len(events) % 2 == 0
+
+
 def punch_curve(words: list[dict], cuts: list[tuple[float, float]], n: int, fps: float, strength: float,
-                emphasis: set[int] | None = None) -> np.ndarray:
+                emphasis: set[int] | None = None, loop: bool = False) -> np.ndarray:
     """The zoom for each output frame (1.0 = the framing's own size): switched on jump cuts, eased elsewhere, with
-    a push on rationed stressed words."""
+    a push on rationed stressed words. With `loop` (a loop ending) the last framing differs from the first, so the
+    loop back to the start changes the shot size too."""
     z = np.ones(n)
     if strength <= 0 or n < 2:
         return z
     duration = n / fps
     t = np.arange(n) / fps
     events = changes(words, cuts, duration)
-    level, value = np.ones(n), 1.0
+    value = 1.0 + strength if opens_tight(events, loop) else 1.0
+    level = np.full(n, value)
     for at, on_cut in events:
         new = 1.0 + strength if value == 1.0 else 1.0
         k = min(n, int(round(at * fps)))

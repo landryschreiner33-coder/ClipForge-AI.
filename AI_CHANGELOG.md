@@ -1,5 +1,25 @@
 # AI changelog
 
+## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)
+
+Batch 4c of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 4b (PR #90). Details:
+[docs/clipforge/SHORTS_EDITING.md](docs/clipforge/SHORTS_EDITING.md), "Loop endings". Not released.
+
+- **A tight seam** (`pipeline/loops.py`, used by `render.render_clip`): what is played starts 0.10 s before the first
+  word and stops 0.15 s after the last sound (a laugh or shout right after the last word counts), on the frame grid,
+  so the replay runs straight into the start with a sentence-length pause (0.2-0.3 s). More than 0.8 s of quiet
+  before the first word or 1.2 s after the last is left alone; a clip never gets shorter than a second. The clip's
+  start and end stay; the kept parts are tightened like silence cleanup, so captions, punch-ins and effects follow.
+- **The shot size switches on the seam** (`moves.punch_curve(loop=True)`, `moves.opens_tight`): a clip whose
+  framing would end on the size it started with starts punched in, so the loop seam is a punch-in cut like every
+  other jump cut.
+- **Setting and editor:** `loop_ending` (Settings → Clips → Extras, on), a clip edit (Clip editor → Trim, with what
+  the last render did), in Full Cloud's job settings and the artifact's recorded settings. `render_info.loop` =
+  `{head_s, tail_s, seam_s, switch}`.
+- **Tests:** `tests/test_loops.py` (8 fast, 1 real render).
+
 ## Editing quality, batch 4b: several cameras of one recording, pictures in a corner — 2026-11-26 (Claude Code)
 
 Batch 4b of Landry's "majorly improve the editing" (plan in

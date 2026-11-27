@@ -1,5 +1,19 @@
 # Implementation status
 
+## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 4b (PR #90). Short clips stop 0.15 s after their last sound and
+start 0.10 s before their first, and the shot size switches on the loop seam
+([docs/clipforge/SHORTS_EDITING.md](clipforge/SHORTS_EDITING.md), "Loop endings"). Not released. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-27 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-27 | `pytest tests/test_loops.py` | 9 passed (8 fast, 1 real render) |
+
+Not verified: real talking-head clips played on a phone in a loop (the cloud has only synthetic video).
+
 ## Editing quality, batch 4b: several cameras and pictures in a corner — 2026-11-26 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on top of batch 4a (PR #85). Full videos can use several cameras of one

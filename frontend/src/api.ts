@@ -93,6 +93,8 @@ export interface ClipEdit {
   clean_picture?: boolean;
   /** A soft whoosh with each push-in and a pop with each coloured key word (pipeline/moves.py). */
   sound_effects?: boolean;
+  /** Stop just after the last word so the clip runs straight back into its start (pipeline/loops.py). */
+  loop_ending?: boolean;
   speed?: number;
   remove_fillers?: boolean;
   caption_emphasis?: boolean;

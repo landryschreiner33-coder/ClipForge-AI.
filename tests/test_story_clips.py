@@ -506,6 +506,9 @@ def test_a_story_clip_renders_the_whole_game_still_and_centred_with_the_captions
                               words, settings, JobContext(), out_dir=tmp_path / "bare")
     assert shown["render_info"]["layout"] == "fit" and shown["render_info"]["mode"] == "center"
     top, height = 656, 607  # where the fitted 16:9 picture sits in the 1080x1920 frame
+    # the loop ending (loops.py) starts the clip just before the first word: the source moment of output time t
+    head = (bare["render_info"].get("loop") or {}).get("head_s", 0.0)
+    assert head == (shown["render_info"].get("loop") or {}).get("head_s", 0.0)
     for t in (0.6, 2.1, 3.6, 5.1):
         out = _frame(bare["output_path"], t).reshape(1920, 1080)
         sharp = np.nonzero(_edges(out).mean(axis=1) > 4)[0]  # the picture's rows: the fill around it is blurred
@@ -513,8 +516,8 @@ def test_a_story_clip_renders_the_whole_game_still_and_centred_with_the_captions
         # the whole frame, not cropped, zoomed or moved: its edges line up with the source's, and a push-in of only
         # five percent would already lose them
         band = out[top + 6:top + height - 6]
-        want = _frame(src, t, "scale=1080:607").reshape(607, 1080)[6:height - 6]
-        pushed = _frame(src, t, "crop=iw/1.05:ih/1.05,scale=1080:607").reshape(607, 1080)[6:height - 6]
+        want = _frame(src, t + head, "scale=1080:607").reshape(607, 1080)[6:height - 6]
+        pushed = _frame(src, t + head, "crop=iw/1.05:ih/1.05,scale=1080:607").reshape(607, 1080)[6:height - 6]
         same = np.corrcoef(_edges(band).ravel(), _edges(want).ravel())[0, 1]
         assert same > 0.7 and same > np.corrcoef(_edges(band).ravel(), _edges(pushed).ravel())[0, 1] + 0.2, t
         with_captions = _frame(shown["output_path"], t).reshape(1920, 1080)

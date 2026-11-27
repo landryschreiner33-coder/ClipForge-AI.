@@ -20,7 +20,7 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, audio_timing, captions, cleanup, facecam, grade, moves, reframe, trims
+from . import artifact, audio_timing, captions, cleanup, facecam, grade, loops, moves, reframe, trims
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, FFmpegError, MediaWatchdog, delivery_args, ffmpeg_bin,
@@ -319,7 +319,8 @@ def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> lis
 def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
     keys = ["caption_style", "caption_position", "highlight_words", "tracking", "layout", "silence", "auto_zoom",
             "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis", "clean_sound",
-            "split_view", "split_game", "auto_color", "look", "look_strength", "clean_picture", "sound_effects"]
+            "split_view", "split_game", "auto_color", "look", "look_strength", "clean_picture", "sound_effects",
+            "loop_ending"]
     opts = {k: settings.get(k) for k in keys}
     opts.update({k: v for k, v in (project_opts or {}).items() if k in keys and v is not None})
     opts.update({k: v for k, v in (edit or {}).items() if v is not None})
@@ -476,8 +477,13 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     words = opts.get("caption_words") or [w for w in words_all if w["end"] > start and w["start"] < end]
     within = [(i.start, i.end) for i in blueprint.intervals] if blueprint is not None else None
     silence = opts.get("silence", "off")
+    loop_on = bool(opts.get("loop_ending", True))
+    loud = heard(project["dir"], words_all, start, end) if silence in SILENCE_PRESETS or loop_on else None
     segs = keep_segments(words, start, end, silence, fps, bool(opts.get("remove_fillers")), within,
-                         heard(project["dir"], words_all, start, end) if silence in SILENCE_PRESETS else None)
+                         loud if silence in SILENCE_PRESETS else None)
+    # a loop ending: the clip stops just after its last sound and starts just before its first (loops.py)
+    segs, loop = loops.seam(segs, words, start, fps, float(opts.get("speed", 1.0) or 1.0), loud) if loop_on \
+        else (segs, None)
     tl = Timeline(segs, float(opts.get("speed", 1.0) or 1.0))
     fillers_cut = sum(1 for w in words if FILLER_WORD.match(w["w"].strip()) and not tl.contains(w["start"] + 0.01))
     if blueprint is not None:  # only words that are heard get captions (whole sentences may be cut out)
@@ -580,7 +586,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     n_out_frames = int(round(tl.duration * fps))
     # punch-ins on the jump cuts, a change at least every 5 s, a push on rationed stressed words (moves.py)
     punch = moves.punch_strength(src_h) if opts.get("auto_zoom") else 0.0
-    zc = moves.punch_curve(words_out, cuts, n_out_frames, fps, punch, emphasis) * base_zoom
+    zc = moves.punch_curve(words_out, cuts, n_out_frames, fps, punch, emphasis, loop=loop_on) * base_zoom
+    if loop is not None:  # does the shot size change where the end runs back into the start?
+        loop["switch"] = bool(len(zc) > 1 and abs(float(zc[0]) - float(zc[-1])) > 1e-6)
     framing_changes = moves.changes(words_out, cuts, tl.duration) if punch else []
     pushed = moves.pushes(words_out, emphasis, tl.duration) if punch else []
     # sound effects from the edit: a whoosh with each push, a pop with each key word the captions colour (a style
@@ -777,6 +785,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                         "moves": {"punch": punch, "on_cuts": sum(1 for _, c in framing_changes if c),
                                   "eased": sum(1 for _, c in framing_changes if not c), "pushes": len(pushed),
                                   "effects": [e["kind"] for e in effects]},
+                        **({"loop": loop} if loop is not None else {}),
                         "colour": {**look.summary(), "denoise": bool(denoise),
                                    "noise": round(float((look_stats or {}).get("noise") or 0), 2)},
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,

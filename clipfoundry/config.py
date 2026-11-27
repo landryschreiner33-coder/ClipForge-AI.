@@ -151,6 +151,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "remove_fillers": True,           # with silence cleanup: an "um"/"uh" goes together with the pause around it
     "auto_zoom": True,                # punch-ins on jump cuts, a framing change every few seconds, pushes on key words
     "sound_effects": True,            # a soft whoosh with each push-in, a pop with each coloured key word (moves.py)
+    "loop_ending": True,              # clips stop just after the last word and run straight back into the start
     "caption_emphasis": False,        # key words in their own color
     "hook_overlay": True,
     "hook_seconds": 3.0,

@@ -741,7 +741,7 @@ EDIT_KEYS = {"start", "end", "tracking", "layout", "crop_x", "zoom", "caption_st
              "caption_size", "highlight_color", "highlight_words", "captions_enabled", "caption_words", "hook",
              "hook_overlay", "hook_seconds", "silence", "auto_zoom", "gain_db", "normalize_audio", "speed",
              "remove_fillers", "caption_emphasis", "clean_sound", "split_game", "cam_box", "pip_corner",
-             "auto_color", "look", "look_strength", "clean_picture", "sound_effects"}
+             "auto_color", "look", "look_strength", "clean_picture", "sound_effects", "loop_ending"}
 
 
 def _percent(v: Any) -> bool:
@@ -796,7 +796,7 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
                     or (k == "split_game" and v is not None and v not in config.SPLIT_GAMES) \
                     or (k == "pip_corner" and v is not None and v not in config.PIP_CORNERS) \
                     or (k == "look" and v is not None and v not in config.LOOKS) \
-                    or (k in ("auto_color", "clean_picture", "sound_effects") and v is not None
+                    or (k in ("auto_color", "clean_picture", "sound_effects", "loop_ending") and v is not None
                         and type(v) is not bool) \
                     or (k == "look_strength" and v is not None and not _percent(v)):
                 continue

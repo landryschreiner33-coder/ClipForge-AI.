@@ -11,6 +11,8 @@ renderer (`pipeline/render.py`) for every short clip, Autopilot clips included.
 | Settings → Clips → Extras | Punch-ins on cuts and a push-in on key words (on), Sound effects (on; one choice for clips and full videos) |
 | Clip editor → Layout | Punch-ins on cuts and a push-in on key words |
 | Clip editor → Audio | Sound effects, and what the last render did ("3 punch-ins on cuts, 1 push-in on a key word, 2 sound effects") |
+| Settings → Clips → Extras | Loop endings: clips stop just after the last word and run straight back into the start (on) |
+| Clip editor → Trim | Loop ending, and what the last render did ("the end runs back into the start 0.25 s after the last word, with a change of shot size like the other cuts") |
 
 ## What happens
 
@@ -44,6 +46,31 @@ renderer (`pipeline/render.py`) for every short clip, Autopilot clips included.
 
 The render notes keep what was done: `render_info.moves` = `{punch, on_cuts, eased, pushes, effects}`.
 
+## Loop endings (batch 4c)
+
+TikTok, Shorts and Reels play a clip again the moment it ends. The research's rule is to cut 100-150 ms after the
+last word, with no fade and no end card, so the replay runs straight into the start and reads as one more cut. The
+code is `clipfoundry/pipeline/loops.py`, used by the clip renderer (Autopilot clips included).
+
+- **A tight seam.** The picture and sound that are played start 0.10 s before the first word and stop 0.15 s after
+  the last sound, on the clip's frame grid (a little more is kept rather than less, so a word's first and last sounds
+  survive). The end and the start then meet with about the pause people leave between two sentences (0.2-0.3 s). A
+  laugh, a shout or a cheer right after the last word (or before the first; `render.heard`) counts as the last sound,
+  so a reaction to the punchline stays.
+- **Moments of their own stay.** More than 0.8 s of quiet before the first word, or 1.2 s after the last, is
+  something else (a look, an action, a reveal) and is left as it is. A clip never gets shorter than a second.
+- **The shot size changes on the seam.** With punch-ins on, the framing alternates between plain and punched in at
+  every jump cut. The loop back to the start is a jump cut too, so when the clip would end on the size it started with
+  (an even number of changes), it starts punched in instead (`moves.opens_tight`). A clip without any change keeps the
+  plain framing (nothing to alternate with).
+- **Only what is played changes.** The clip's start and end stay where they are (the editor's trim, the predictor's
+  times); the tightening is done on the kept parts like silence cleanup, so the captions, punch-ins and effects follow
+  it. Sound effects already stay out of the first 0.3 s and the last second, so the seam is clean.
+
+The render notes keep it: `render_info.loop` = `{head_s, tail_s, seam_s, switch}` (seconds left out at each end, the
+pause at the seam in the clip's own time, and whether the shot size changes there). `loop_ending` is a Setting (on), a
+clip edit, part of the Full Cloud job settings and of the artifact's recorded settings.
+
 ## Tests
 
 `tests/test_moves.py` (14 fast, 1 real render): switches on cuts and eased elsewhere, a change at least every 5 s at a
@@ -53,6 +80,13 @@ the zoom switch on the first new frame at speeds 0.8-1.5 (against a copy of the 
 cuts, effects following the speech level and the clip volume, and a real render of a synthetic clip with three cut
 pauses (punch-ins counted, effects present, at least 12 dB under the speech at their loudest, only now and then, their
 track removed).
+
+`tests/test_loops.py` (8 fast, 1 real render): the seam keeps 0.10 s before the first word and 0.15 s after the
+last, on the frame grid; long quiet ends are left alone; a laugh after the last word stays; only the ends change (a
+jump cut inside stays, a cut filler is not the last word); nothing changes without words or below a second; the seam
+pause at the clip's speed; the shot size switches on the seam (an even number of changes starts tight, an odd one is
+unchanged, none keeps the plain framing); the setting everywhere it is read; and a real render that stops just after
+its last word with the captions moved with it.
 
 ## Not verified yet
 
