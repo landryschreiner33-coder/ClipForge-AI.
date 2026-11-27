@@ -16,6 +16,7 @@ haze rectangle or star scratches; Landry's pixel ship flies in front of it. Deta
 | 2026-11-27 | Review (2 reviewers) | 4 findings, all fixed: number overflow on phones' half-precision GPUs, haze centred on the box, half-size ship enlarged, one failed picture hiding both |
 | 2026-11-27 | `npm run test:sandbox` | 89 passed, 3 failed: beginner-flow and zero-touch-loop (fail the same way on the release line, see PR #92) and video-setup "words not sent…" (fails in this checkout with the release line's own build too; passes with this branch's build in a clean copy of the release line d37fbcf) |
 | 2026-11-27 | Before/after video, frame by frame | /mnt/project-files/space-studio/flyer/ship-warp.mp4 |
+| 2026-11-27 | After merging the release line 8fe9a76 (PR #90): `npx tsc --noEmit -p frontend`, `npm run build`, `pytest -m "not slow"` on the 10 test files that read frontend/ or design/space-studio, `department-office.spec.ts` in the sandbox | passed; 152 passed; 6 passed |
 
 Not verified: a real GPU (Mac, Windows, phone); the cloud has only the SwiftShader software renderer.
 
