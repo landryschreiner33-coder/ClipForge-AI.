@@ -1224,6 +1224,23 @@ set it from words, on the video's page and in the chat about a video (`chat._rul
 
 Tests: `tests/test_studio_edit_requests.py` (the music-ending tests: phrases, parts, which music, reasons, frames, the AI).
 
+## The app guide follows the editor (2026-11-27)
+
+Each editing batch adds options to a full video's editor, so the app guide (`appguide`) gets a section for each one,
+in the screen's own words, and the chat can answer "how do I …?" about them:
+
+- **"A full video's speed, slow motion, freeze frames and camera moves"** (batch 4a, docs/clipforge/RANGE_EDITING.md):
+  Speed, Speed ramp, Freeze here and Hold the last frame (Holds for), Camera move.
+- **"A full video with several cameras, and pictures in a corner"** (batch 4b, docs/clipforge/MULTICAM.md): the
+  Cameras panel (Line up and switch to whoever speaks, Line up and change angles, Only line them up), Switch cameras,
+  In a corner (Corner, Size), Back to one camera, a clip's Camera and From the split point, and a picture over the
+  video in a corner.
+- **"A full video's sound and music"** (batch 3, above).
+
+Each names the plain-word requests the editor understands (`studio/edit_requests.py`, where these edits live, not
+`brain/operations.py`). Checked with the library: the questions about them pick their section first, and questions
+about short clips still go to the clip editor and Framing.
+
 ## API
 
 - `GET /api/brain/memories?q=&kind=&project_id=&limit=` (`project_id`: the memories kept for that video or for every video, by their scope) · `POST /api/brain/memories` `{text, kind?, scope?, project_id?, platform?, tags?}` · `PATCH /api/brain/memories/{memory_id}` · `DELETE /api/brain/memories/{memory_id}` · `POST /api/brain/memories/{memory_id}/confirm` · `POST /api/brain/memories/{memory_id}/undo` `{words}` (a chat chip's Undo: forgets the memory only while it is as that answer added it, revision 1 and the same words; 404 when it is gone, 409 when it changed since) · `GET /api/brain/memories/{memory_id}/uses`

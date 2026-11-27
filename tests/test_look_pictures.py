@@ -1,5 +1,6 @@
-"""The animated-short looks and the caption preview use the owner's pictures (made with ChatGPT, 2026-11-26) instead
-of shapes drawn in code; a drawing still shows if a picture can't load."""
+"""The animated-short looks and the caption preview use pictures instead of shapes drawn in code; a drawing still
+shows if a picture can't load. The caption preview's are the owner's ChatGPT pictures (2026-11-26); the looks' were
+made with Higgsfield on 2026-11-27 (Landry: "use higgsfield to make the example images for the animated shorts")."""
 from __future__ import annotations
 
 import re
@@ -19,6 +20,14 @@ def test_every_look_has_its_picture_at_9_by_16():
     for look_id, url in listed.items():
         with Image.open(FRONT / "public" / url.lstrip("/")) as im:
             assert im.format == "JPEG" and im.size == (720, 1280), look_id
+
+
+def test_a_look_card_keeps_the_robot_whole():
+    # the robot sits low in every picture: a card shows 2:3 of the 9:16 picture from low down, so its boots (and the
+    # lighthouse's lamp) stay in view
+    css = (FRONT / "src" / "pages" / "shorts.css").read_text(encoding="utf-8")
+    assert ".look-card .look-thumb { width: 100%; max-height: none; aspect-ratio: 2 / 3; }" in css
+    assert ".look-card .look-thumb .look-art { object-position: 50% 70%; }" in css
 
 
 def test_a_picture_that_cannot_load_falls_back_to_the_drawing():
