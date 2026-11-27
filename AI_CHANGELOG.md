@@ -19,6 +19,11 @@ Batch 5c of Landry's "majorly improve the editing", on top of 5b. Details:
 - Review: a reviewer found the temporary file (a full disk failed the decode check), the shared graph (a stitched
   file's loudness), a memory map that could block cleanup on Windows, and BT.709 maths on BT.601 video; all fixed,
   each with a test.
+- Second review: a post already planned and waiting for (automatic) approval never asked for the new gate's check
+  after the version bump (`scheduler.auto_approve`, `submissions.auto_approve` and the batch review now request it);
+  the informing checks come last (`informing_last`); the loudness is explained by what the render asked
+  (`sound_intent`); at most 600 small frames (`LEVEL_MAX_FRAMES`). Text Stories are put together in RGB and turned
+  into BT.709 once (`textstory.TO_VIDEO`): before, BT.601 conversions under BT.709 tags made reds 10 codes off.
 - `GATE_VERSION` 4: stored reports are checked again once.
 
 ## Editing quality, batch 5b: the picture checked before every render — 2026-11-27 (Claude Code)

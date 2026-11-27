@@ -113,15 +113,15 @@ def test_untagged_sd_video_is_read_with_bt601_like_players_do(tmp_path):
     sd = _checks(_make(tmp_path / "sd.mp4", "testsrc2=s=642x362:r=30:d=4", tags=[]))
     assert sd["levels"]["status"] == "pass", sd["levels"]
     assert sd["colour_tags"]["status"] == "pass" and "players assume BT.601" in sd["colour_tags"]["detail"]
-    assert quality.level_matrix({"matrix": "", "height": 362}) == "smpte170m"
+    assert quality.level_matrix({"matrix": "", "height": 362}) == "bt601"
     assert quality.level_matrix({"matrix": "", "height": 1920}) == "bt709"
-    assert quality.level_matrix({"matrix": "bt470bg", "height": 1920}) == "bt470bg"
+    assert quality.level_matrix({"matrix": "bt470bg", "height": 1920}) == "bt601"
     # read with the BT.709 maths instead, the same file looks out of range: the matrix matters
     raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(tmp_path / "sd.mp4"), "-frames:v", "1", "-vf",
                           "scale=160:90:flags=area,format=yuv444p", "-f", "rawvideo", "-"],
                          capture_output=True, check=True).stdout
     frame = np.frombuffer(raw, np.uint8).reshape(3, 90, 160)
-    assert quality._frame_levels(frame, 0, "smpte170m")["rgb_out"] <= quality.LEVEL_AREA
+    assert quality._frame_levels(frame, 0, "bt601")["rgb_out"] <= quality.LEVEL_AREA
     assert quality._frame_levels(frame, 0, "bt709")["rgb_out"] > quality.LEVEL_AREA
 
 
@@ -138,3 +138,31 @@ def test_the_small_frames_are_always_read_even_when_measuring_fails(tmp_path, mo
     c = _checks(clip)
     assert c["decode"]["status"] == "pass" and c["decode"]["values"]["frames"] == 120
     assert c["levels"]["status"] == "skipped" and c["loudness"]["status"] in ("pass", "warn")
+
+
+@needs_ffmpeg
+def test_the_loudness_is_explained_as_the_renderer_did_and_informing_checks_come_last(tmp_path):
+    clip = _make(tmp_path / "quiet.mp4", PATTERN, vf=LEGAL)
+    # the owner turned normalization off: the same warning, with the render's own reason
+    off = quality.sound_intent({"artifact": {"sha256": "x", "settings": {"normalize_audio": False, "gain_db": -3}}})
+    assert off == {"normalized": False, "owner_gain_db": -3.0, "held": "", "expected_lufs": None}
+    c = {x["name"]: x for x in quality.media_checks(clip, {"has_audio": True, "sound": off})}
+    assert c["loudness"]["status"] == "warn" and "normalization is off" in c["loudness"]["detail"]
+    held = quality.sound_intent({"audio_processing": {"peak_limited": True}, "qc": {"sound": {"expected_lufs": -20}}})
+    assert held["held"] == "peaks" and held["expected_lufs"] == -20 and held["normalized"]
+    c = {x["name"]: x for x in quality.media_checks(clip, {"has_audio": True, "sound": held})}
+    assert "its loudest peaks held it back" in c["loudness"]["detail"]
+    # the checks that only inform come after the ones that can hold a clip, so a short list shows those first
+    names = [x["name"] for x in quality.media_checks(clip, {"has_audio": True})]
+    assert names[-3:] == ["levels", "colour_tags", "loudness"]
+    mixed = [{"name": n} for n in ("levels", "silence", "loudness", "framing", "colour_tags", "sound_rights")]
+    assert [x["name"] for x in quality.informing_last(mixed)] == \
+        ["silence", "framing", "sound_rights", "levels", "loudness", "colour_tags"]
+
+
+@needs_ffmpeg
+def test_a_long_file_keeps_at_most_600_small_frames(tmp_path):
+    clip = _make(tmp_path / "clip.mp4", PATTERN, vf=LEGAL)
+    sc = quality.scan(clip, True, size=(360, 640), seconds=600)  # as if 10 minutes long: one frame a second
+    assert len(sc.levels) == 4 and [f["t"] for f in sc.levels] == [0.0, 1.0, 2.0, 3.0]
+    assert sc.frames == 120  # still every frame decoded and counted

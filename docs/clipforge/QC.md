@@ -192,19 +192,25 @@ Three more lines in the final check's report (Publish Center, the post's checks)
 
 All three only warn: they never block scheduling or publishing, and they are not among the warnings that hold a clip
 for review instead of publishing it automatically (`autopublish.HOLD_ON`). Platforms publish no loudness target, and
-a level a little outside the broadcast range is clipped by the player, not lost.
+a level a little outside the broadcast range is clipped by the player, not lost. They come last in the report
+(`quality.informing_last`, also in `gate.run`), so a short list of warnings (the crew report shows two, the feed five)
+shows the ones that hold a clip first.
 
 ### What happens
 
 - **One pass.** The detectors' chain (black, freeze, silence) runs as before, its frames still all counted for the
-  decode check; a `split` keeps 2 frames a second at a quarter of the width and height (an area average, which also
+  decode check; a `split` keeps 2 frames a second (at most 600 spread over a long file: a one-hour master gets one
+  every 6 s) at a quarter of the width and height (an area average, which also
   stands in for EBU R103's low-pass filter) and sends them through a pipe, measured as they arrive (nothing large is
   written to the disk, and the pipe is always read to the end); the sound goes through `silencedetect` and then
   `ebur128` (`loudness.FILTER`) in a graph of its own, so a stitched file whose picture changes size part-way is
   still measured whole (in one graph with the picture the measurement started again). Measured on an 8 s 1080x1920
   clip: 0.9-1.3 s for the whole check, as before.
 - **Loudness** is judged by `loudness.check` against -14 LUFS (pass within 1 LU) and -1 dBTP, exactly as the
-  renderers judge their own file, without trusting what the renderer said. A silent clip or one without sound skips
+  renderers judge their own file, without trusting the level the renderer measured. What the render asked of the
+  sound (`quality.sound_intent`: normalization on or off and the owner's volume from the artifact's settings, peaks
+  or the boost cap that held the level back, the level it aimed at) explains a level off target the way the render's
+  own note does ("normalization is off", "its loudest peaks held it back"). A silent clip or one without sound skips
   it (the "Sound" check covers silence).
 - **Picture levels** (EBU R103): a sampled frame is outside when more than 1% of it has luma outside codes 14-241
   (-1% to 103%) or any of R, G, B outside -5% to 105%, read with the file's matrix as players read it (its tag;
@@ -214,11 +220,27 @@ a level a little outside the broadcast range is clipped by the player, not lost.
   each frame outside the RGB limits.
 - **Colour tags:** a tag other than BT.709 / limited range warns; a missing tag passes (players read HD video as
   BT.709; the note says BT.601 for an untagged SD file).
-- `GATE_VERSION` is 4: every stored report is checked again once (about a second a clip).
+- `GATE_VERSION` is 4: every stored report is checked again once (about a second a clip). A post already planned
+  asks for its new check itself: automatic publishing (`scheduler.auto_approve`) and a video's upload request
+  (`submissions.auto_approve`) request it when the current file has no report from this gate, and a batch review in
+  the Publish Center starts it and says "The check has started: preview the selection again in a minute." Before,
+  such a post waited for good with "the final check has not run yet" (nothing else asks for a check of a post that
+  is already planned and not yet approved).
 
 Tests: `tests/test_gate_levels.py` (the one pass still counts every frame and keeps 2 frames a second, the gate's
 loudness equals the renderers' measurement, -14 LUFS passes, hot sound, a full-range picture, oversaturated colours in
 part of a clip, SD tags and an untagged file all only warn, no sound and silence skip it, a picture that changes
 size half way keeps the whole file's loudness, untagged SD read as BT.601, the small frames read to the end even when
-measuring them fails);
-`tests/test_artifact_quality.py` (a clean render passes the new checks too).
+measuring them fails, the loudness explained by what the render asked, the informing checks last, at most 600 small
+frames); `tests/test_gate_upgrade.py` (after a gate upgrade, automatic publishing, an upload request and a batch
+review each ask for the new check, and approve once it passes); `tests/test_artifact_quality.py` (a clean render
+passes the new checks too).
+
+**Text Stories' colours** (found by the review): the story was put together in YCbCr with FFmpeg's default (BT.601)
+conversions and then tagged BT.709, so a red background came out 10 codes off and the chat card's blue 6, and a
+BT.601 phone clip was read wrongly. Now every picture is read with its own matrix (`grade.input_matrix`), put
+together in RGB (backgrounds, the chat card, the captions) and turned into BT.709 limited range once
+(`textstory.TO_VIDEO`); the looped part is made BT.709 and tagged so, and the preview is tagged BT.709 too. Tests:
+`tests/test_text_story_colour.py` (an untagged SD clip and a tagged HD clip's looped part within 4 codes of their
+colour, the card's header and blue bubbles exact). The full-video engine and the animated shorts maker already
+converted with BT.709.

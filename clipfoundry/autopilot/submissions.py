@@ -773,6 +773,9 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     if report and report.get("artifact_sha256") != sha:
         gate.request(clip, sha=sha)
         return False
+    if report is None:  # never checked, or checked by an older gate (GATE_VERSION): nothing else asks for it
+        gate.request(clip)
+        return False
     if report and not gate.context_valid(report, clip, settings):
         gate._request_terms_check(clip, priority=100)
         return False

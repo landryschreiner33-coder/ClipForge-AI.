@@ -57,6 +57,9 @@ recognisable at 100 % and protects skin tones; the strength mixes it with the co
 
 A cancelled measurement is never kept, and a probe that failed (a busy disk) is tried again next time.
 
+**Text Stories** (`makers/textstory.py`, 2026-11-27) read each background with its own matrix, put the picture
+together in RGB and turn it into BT.709 limited range once, so the chat card and captions keep their exact colours.
+
 **FilmCraft.** FilmCraft does not run this colour step. With Settings → Editing apps on "auto", a final whose colour
 step changes the picture (a look, phone HDR, or a correction or cleanup the recordings really need, measured as the
 render would: `engine.colour_in_use`) is rendered by the built-in engine, so it looks like the preview; with
