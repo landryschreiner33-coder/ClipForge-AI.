@@ -1661,7 +1661,7 @@ SETTING_NAMES = dict(_SETTINGS_WORDS) | dict(PUBLISHING_WORDS)
 # "it" in "Highlight each word as it is spoken").
 _SETTING_FILLER = frozenset(("a", "an", "the", "it", "its", "is", "as", "at", "and", "or", "of", "on", "off", "in",
                              "to", "my", "me", "make", "turn", "set", "each", "per", "do", "don't", "dont", "please",
-                             "s"))
+                             "s", "footage"))  # "footage" alone is any recording: "shaky footage" says "shaky"
 
 
 # Words that name a setting besides its label: singulars the plural rule misses, and short names.
@@ -1677,8 +1677,9 @@ _SETTING_NOT = {"loop_ending": frozenset(("music", "song", "songs", "soundtrack"
                                       "missions", "stream", "live")),
                 # "steady" said of something else: a steady zoom, pace or volume
                 "stabilize": frozenset(("pace", "pacing", "speed", "volume", "level", "levels", "loudness", "music",
-                                        "sound", "voice", "rhythm", "tempo", "beat", "cuts", "zoom", "push", "pan",
-                                        "posting", "posts"))}
+                                        "sound", "audio", "voice", "rhythm", "tempo", "beat", "cuts", "zoom", "push",
+                                        "pan", "move", "moves", "moving", "motion", "drift", "ramp", "posting",
+                                        "posts"))}
 # Words for the owner's own pages (automatic publishing and its pause, spending, the AI model): a request with one
 # of them is never matched to an editing setting by its other words ("pause publishing" is not Pauses cut).
 _OWNER_ONLY = frozenset(("publish", "publishing", "published", "paused", "spending", "spend", "model"))
@@ -1712,17 +1713,27 @@ def _which_setting(text: str) -> str:
 # off word with a negation or an on word ("don't turn it off", "on, not off") is unclear, so it asks.
 _NEGATORS = frozenset(("no", "not", "never", "don't", "dont", "without"))
 _OFF_WORDS = frozenset(("off", "false", "0", "disable", "disabled", "stop"))
-_ON_WORDS = frozenset(("on", "true", "yes", "1", "enable", "enabled", "start", "use", "loop", "looping", "steady",
-                       "stabilize", "stabilise"))
+_ON_WORDS = frozenset(("on", "true", "yes", "1", "enable", "enabled", "start", "use"))
+# A setting's own name said as its value: on by itself ("loop", "keep it steady", "don't stabilize" is off), only the
+# name beside an on or off ("loop off", "steady: off", "turn stabilize off"). Never an on word for another setting.
+_NAME_WORDS = {"loop_ending": frozenset(("loop", "loops", "looping", "looped")),
+               "stabilize": frozenset(("steady", "steadied", "steadying", "stabilize", "stabilise", "stabilized",
+                                       "stabilised", "stabilizing", "stabilising", "stabilization", "stabilisation"))}
+# Words of the shake itself: "not shaky" and "leave it shaky" mean opposite things, so a value with one asks.
+_SHAKE = re.compile(r"^(?:shak\w*|wobbl\w*|jitter\w*|handheld)$")
 
 
-def _on_off(value: object) -> bool | None:
+def _on_off(value: object, key: str = "") -> bool | None:
     if isinstance(value, bool):
         return value
     text = "" if value is None else str(value).strip()
     said = set(_said_words(text)) | ({text} if text in ("0", "1") else set())
+    if key == "stabilize" and any(_SHAKE.match(w) for w in said):
+        return None
     negated = bool(said & _NEGATORS) or any(w.endswith("n't") for w in said)
     off, on = bool(said & _OFF_WORDS), bool(said & _ON_WORDS)
+    if not (off or on):
+        on = bool(said & _NAME_WORDS.get(key, frozenset()))
     if off:
         return None if negated or on else False
     return False if negated else True if on else None
@@ -1739,7 +1750,7 @@ def _setting_preview(ctx: Ctx, args: dict) -> dict:
     value = args.get("value")
     if isinstance(config.DEFAULT_SETTINGS.get(key), bool):
         # Only a clear on or off: the settings saver reads any other word as off.
-        value = _on_off(value)
+        value = _on_off(value, key)
         if value is None:
             raise ToolError(f"Say on or off for {SETTING_NAMES[key]}.")
     try:

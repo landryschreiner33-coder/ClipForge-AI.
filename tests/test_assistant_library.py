@@ -81,6 +81,8 @@ def test_a_question_finds_the_craft_the_page_or_both(env):
         assert top(q)[0] == "guide:steady", q
     assert top("how do I make my clips loop seamlessly")[0] == "guide:clip_editor"
     assert top("make the music loop to the end")[0] == "guide:video_sound"
+    for q in ("where do i upload footage", "can I use drone footage"):   # footage is not about steadying
+        assert top(q)[0] == "guide:make_video", q
     # words every question uses decide nothing, and nonsense finds nothing
     assert top("what about penguins flying") == [] and top("") == [] and top("hello") == []
     assert top("look at everything") == [] and top("what is the best way to make a good one") == []

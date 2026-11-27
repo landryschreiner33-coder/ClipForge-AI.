@@ -216,7 +216,7 @@ SECTIONS: tuple[Section, ...] = (
         ("music", "song", "songs", "soundtrack", "background music", "fade", "fade in", "fade out", "loop",
          "looping", "last frame", "end on the last frame", "music ends", "cut off", "ending", "room tone",
          "room sound", "click", "clicks", "dips", "ducking", "voiceover track", "sound panel"), "projects"),
-    Section("steady", "Steadying shaky camera footage", (
+    Section("steady", "Steadying a shaky camera", (
         "Shaky handheld camera footage is smoothed out in clips and full videos, a little closer to hide the edges. "
         "Only footage that shakes: a tripod shot, a pan, a game or a screen recording stays as it is.",
         "For new clips and videos: Settings → Defaults → New clips → Steady shaky footage (on unless you turn it "
@@ -225,8 +225,8 @@ SECTIONS: tuple[Section, ...] = (
         "shakes (untick it to keep that clip as shot).",
         "Or tell me: “steady the footage”, “it's too shaky”, “keep the handheld shake”, “don't stabilize”."),
         ("steady", "steadying", "stabilize", "stabilise", "stabilization", "stabilisation", "stabilizer", "shaky",
-         "shake", "shaking", "camera shake", "handheld", "wobbly", "jittery", "steady footage", "shaky footage",
-         "keep the shake", "as shot"), "projects"),
+         "shake", "shaking", "camera shake", "handheld", "wobbly", "jittery", "keep the shake", "as shot"),
+        "projects"),
     Section("make_short", "Making an animated short", (
         "Make → Make an animated short. Paste my script or Write it for me (a topic, a tone and a length).",
         "Choose the look, the voice (Hear it plays a sample), the speed, the music and the captions, and camera "
