@@ -17,10 +17,16 @@
 
 /** Seconds for one turn round the hole: slow enough to be calm, quick enough to see it move in a few seconds. */
 export const ORBIT = 150;
-/** The camera's distance from the hole, in the hole's radius. */
-const DIST = 30;
+/**
+ * The camera's distance from the hole, in the hole's radius. Far enough that the near side of the disk is a thin band
+ * across the shadow, with the shadow black above and below it (as in Interstellar); from closer the near side looms
+ * over the lower half of the shadow like a bowl.
+ */
+const DIST = 70;
 /** The disk's inner and outer edge, in the hole's radius (the inner edge is the last stable orbit, 3). */
 const RIN = 3.0, ROUT = 10.5;
+/** Where the light is traced step by step, in the hole's radius: further out it runs straight enough to skip. */
+const NEAR = 25;
 /** The size of the hole's shadow seen from far away, in the hole's radius (√27 / 2). */
 const SHADOW = 2.598;
 /** Seconds of turning after which the shader's time starts again (see `draw`). */
@@ -37,13 +43,16 @@ export type OrbitPose = {
   roll: number;
 };
 
+/** The camera's usual height above the disk, radians (about 4.5°): low, so the disk reads as a thin band. */
+export const TILT = 0.08;
+
 /** Where the camera (and the ship) is `t` seconds into the orbit. */
 export function orbitPose(t: number): OrbitPose {
   const phi = (t / ORBIT) * Math.PI * 2;
   return {
     phi,
-    // from about 2° to about 13° above the disk and back, twice a turn: the disk opens and closes
-    incl: 0.13 + 0.1 * Math.sin(phi * 2 + 0.6),
+    // from about 2° to about 7.5° above the disk and back, twice a turn: the disk opens and closes
+    incl: TILT + 0.05 * Math.sin(phi * 2 + 0.6),
     roll: 0.07 * Math.sin(phi * 2 + 2.2),
   };
 }
@@ -59,6 +68,7 @@ precision highp float;
 precision mediump float;
 #endif
 uniform vec2 uRes;     // traced pixels
+uniform vec2 uMid;     // where the hole's centre is, in traced pixels
 uniform vec3 uCam;     // the camera, in the hole's radius; the disk lies in y = 0
 uniform vec3 uRight;
 uniform vec3 uUp;
@@ -69,8 +79,25 @@ uniform float uTimeB;  // ... and another half a wrap apart
 uniform float uMix;    // how much of the first: none as it wraps, so the disk never jumps
 const float RIN = ${RIN.toFixed(3)};
 const float ROUT = ${ROUT.toFixed(3)};
+const float NEAR = ${NEAR.toFixed(1)};
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+
+// Far from the hole light runs almost straight: the pull the steps below add up falls off as 1/r⁴. Between s1 and s2
+// along a straight line that passes the hole at b (s = 0 nearest the hole, r = √(b² + s²)) it turns the light
+// towards the hole by ∫ 1.5 b³ / r⁵ ds = [u (3 - u²) / 2b] with u = s / r; this is that sum.
+float bend(float b, float s1, float s2) {
+  if (b < 0.5) return 0.0;
+  float u1 = s1 / sqrt(b * b + s1 * s1), u2 = s2 / sqrt(b * b + s2 * s2);
+  return (u2 * (3.0 - u2 * u2) - u1 * (3.0 - u1 * u1)) / (2.0 * b);
+}
+
+// turns the ray at pos going along vel (unit) towards the hole by the angle a
+vec3 turned(vec3 pos, vec3 vel, float a) {
+  vec3 side = pos - dot(pos, vel) * vel;
+  float l = length(side);
+  return l > 0.0 ? normalize(vel - side / l * a) : vel;
+}
 
 // value noise that wraps round the disk: x is the angle in 1/n turns
 float noise(vec2 p, float n) {
@@ -131,11 +158,18 @@ vec3 stars(vec3 d) {
 }
 
 void main() {
-  vec2 px = gl_FragCoord.xy - uRes * 0.5;
+  vec2 px = gl_FragCoord.xy - uMid;
   vec3 dir = normalize(uFwd + uRight * px.x * uTan + uUp * px.y * uTan);
   vec3 pos = uCam, vel = dir;
   vec3 hv = cross(pos, vel);
-  float h2 = dot(hv, hv);
+  float h2 = dot(hv, hv), b = sqrt(h2);
+  // from the camera to NEAR from the hole in one go, turned by the little it bends on the way (bend), so the steps are
+  // spent where the light really bends; the same on the way out. It draws faster than the closer camera did.
+  float s1 = dot(pos, vel), s2 = b < NEAR ? -sqrt(NEAR * NEAR - h2) : 0.0;
+  if (s1 < s2) {
+    vel = turned(pos, vel, bend(b, s1, s2));
+    pos += dir * (s2 - s1);
+  }
   vec3 col = vec3(0.0);
   float alpha = 0.0, closest = 100.0;
   bool fell = false, left = false;
@@ -157,7 +191,14 @@ void main() {
     }
     pos = next;
     if (dot(pos, pos) < 1.0) { fell = true; break; }
-    if (r > ${(DIST + 8).toFixed(1)} && dot(pos, vel) > 0.0) { left = true; break; }
+    if (r > NEAR && dot(pos, vel) > 0.0) {
+      // on its way out past NEAR: the rest of its bending in one go, as on the way in
+      vec3 v = normalize(vel);
+      float bOut = length(pos - dot(pos, v) * v), sOut = dot(pos, v);
+      vel = turned(pos, v, bend(bOut, sOut, 1e4));
+      left = true;
+      break;
+    }
   }
   if (fell) {
     alpha = 1.0;
@@ -165,16 +206,20 @@ void main() {
     vec3 d = normalize(vel);
     // a thin bright ring where light went round the hole before leaving (the photon ring)
     float ring = exp(-max(0.0, closest - 1.5) * 9.0) * 0.9;
-    // the bent stars, only near the hole, where the bending shows; further out the page's own sky shows through
-    float near = 1.0 - smoothstep(4.0, 7.0, length(px) * uTan * ${DIST.toFixed(1)} / ${SHADOW.toFixed(3)});
+    // the bent stars, only close round the shadow, where the bending shows; further out the page's own sky shows
+    // through. They stop short of the ring (about 4.5 shadows out) where the bending draws each star out into a long
+    // thin arc: at this size those arcs look like scratches on the picture, not like stars.
+    float near = 1.0 - smoothstep(2.4, 3.6, length(px) * uTan * ${DIST.toFixed(1)} / ${SHADOW.toFixed(3)});
     vec3 light = vec3(1.0, 0.88, 0.7) * ring + stars(d) * near;
     float a = clamp(max(light.r, max(light.g, light.b)), 0.0, 1.0);
     col += (1.0 - alpha) * light;
     alpha += (1.0 - alpha) * a;
   }
-  // a faint blue haze well round the hole, the studio's colour, so the scene sits in the blue sky
+  // a faint blue haze well round the hole, the studio's colour, so the scene sits in the blue sky; it is gone well
+  // before the edges of the box, so the box never shows as a band or a rectangle
   float far = length(px) * uTan * ${DIST.toFixed(1)};
-  float glow = smoothstep(3.0, 6.0, far) * (1.0 - smoothstep(8.0, 13.0, far)) * 0.07;
+  vec2 e2 = (gl_FragCoord.xy / uRes - 0.5) * 2.0;
+  float glow = smoothstep(3.0, 6.0, far) * (1.0 - smoothstep(0.35, 0.9, length(e2))) * 0.07;
   col += (1.0 - alpha) * vec3(0.32, 0.6, 0.95) * glow;
   alpha += (1.0 - alpha) * glow;
   // bright light rolls off instead of clipping to flat white
@@ -249,8 +294,8 @@ export function makeOrbitRenderer(canvas: HTMLCanvasElement): OrbitRenderer | nu
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
   const corner = gl.getAttribLocation(prog, "aCorner");
   const u = (name: string) => gl.getUniformLocation(prog, name);
-  const U = { res: u("uRes"), cam: u("uCam"), right: u("uRight"), up: u("uUp"), fwd: u("uFwd"), tan: u("uTan"),
-    timeA: u("uTimeA"), timeB: u("uTimeB"), mix: u("uMix") };
+  const U = { res: u("uRes"), mid: u("uMid"), cam: u("uCam"), right: u("uRight"), up: u("uUp"), fwd: u("uFwd"),
+    tan: u("uTan"), timeA: u("uTimeA"), timeB: u("uTimeB"), mix: u("uMix") };
   let w = 0, h = 0, tw = 0, th = 0;
 
   const resize = (nw: number, nh: number) => {
@@ -266,9 +311,9 @@ export function makeOrbitRenderer(canvas: HTMLCanvasElement): OrbitRenderer | nu
   const draw = (disk: number, orbit: number) => {
     if (!tw || !th || gl.isContextLost()) return;
     const { cam, right, up, fwd } = orbitCamera(orbitPose(orbit));
-    // the shadow a little smaller than the lighter hole's (blackHoleArt.holeGeometry): the light bent over the top
-    // reaches higher than in that picture
-    const R = Math.min(th * 0.235, tw * 0.088);
+    // the shadow smaller than the lighter hole's (blackHoleArt.holeGeometry) and a little below the middle: the light
+    // bent over the top reaches about 2.2 shadows up, and must fade out inside the box rather than be cut off by it
+    const R = Math.min(th * 0.21, tw * 0.078);
     const tan = (SHADOW / DIST) / R;
     gl.viewport(0, 0, tw, th);
     gl.clearColor(0, 0, 0, 0);
@@ -278,6 +323,7 @@ export function makeOrbitRenderer(canvas: HTMLCanvasElement): OrbitRenderer | nu
     gl.enableVertexAttribArray(corner);
     gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
     gl.uniform2f(U.res, tw, th);
+    gl.uniform2f(U.mid, tw * 0.5, th * 0.478);  // counted from the bottom
     gl.uniform3f(U.cam, ...cam);
     gl.uniform3f(U.right, ...right);
     gl.uniform3f(U.up, ...up);

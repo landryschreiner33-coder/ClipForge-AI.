@@ -5,7 +5,7 @@ import { paintFrame, paintStill } from "./blackHoleArt";
 import { HoleRenderer, makeHoleRenderer } from "./blackHoleGl";
 import { makeOrbitRenderer, orbitPose } from "./blackHoleOrbit";
 import { onPixelRatioChange } from "./pixelRatio";
-import { paintShip } from "./shipArt";
+import { loadShip, paintShip } from "./shipArt";
 
 /**
  * One clock for every black hole: how far the disk has turned, in seconds of turning. It moves on only while a hole
@@ -86,7 +86,7 @@ export function BlackHole({ size = "small", className = "" }: { size?: "small" |
   return <TurningHole size={size} className={className} />;
 }
 
-/** The big hole seen from the orbiting ship: the hole traced on the chip, the ship and dust painted over it. */
+/** The big hole seen from the orbiting ship: the hole traced on the chip, the ship painted over it. */
 function OrbitingHole({ className }: { className: string }) {
   const box = useRef<HTMLDivElement>(null);
   const { reduceMotion, pageHidden, officeActivity } = useMotion();
@@ -167,6 +167,14 @@ function OrbitingHole({ className }: { className: string }) {
         draw(performance.now());
       },
     };
+    // the ship's picture arrives after the first frame: a still hole is drawn once, so draw it again with the ship.
+    // Where the browser paints canvases on the chip, a reset of the chip gives the ship's canvas back empty: the same.
+    let alive = true;
+    const again = () => {
+      if (alive) draw(performance.now());
+    };
+    loadShip().then(again);
+    front.addEventListener("contextrestored", again);
     const resize = new ResizeObserver(fit);
     resize.observe(el);
     const unwatchRatio = onPixelRatioChange(fit);
@@ -175,11 +183,13 @@ function OrbitingHole({ className }: { className: string }) {
     seen?.observe(el);
     fit();
     return () => {
+      alive = false;
       run.current = null;
       halt();
       resize.disconnect();
       unwatchRatio();
       seen?.disconnect();
+      front.removeEventListener("contextrestored", again);
       cv.removeEventListener("webglcontextlost", lost);
       gl.dispose();
       cv.remove();
