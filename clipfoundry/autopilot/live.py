@@ -886,7 +886,8 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
                                  sess.settings, JobContext(None, job.cancelled),
                                  # the learned look over the plan, as for_render does for every other render
                                  blueprint=blueprint.shifted(blueprint.with_edit(bp, look, "edit") if look else bp,
-                                                             -shift))
+                                                             -shift),
+                                 source_offset=shift)  # the predictor's trims are in the recording's time
         db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
     except (queue.Canceled, queue.Wait):
         raise

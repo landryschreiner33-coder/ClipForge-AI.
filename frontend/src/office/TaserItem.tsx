@@ -29,6 +29,12 @@ export interface ZapFx { kind: ZapReaction; start: number; seed: number }
 export interface Burst { key: number; id: string; x: number; y: number; kind: ZapReaction | "miss"; words: string;
   sfx: string; bolts: string[][] }
 type Pt = { x: number; y: number };
+/** The Taser's thrust at a robot: a turn back, a jab forward, home. It is added on top of the sway in your hand (the
+ * sway turns it with `rotate`, the lunge with `transform`), so neither snaps when the other starts or ends. */
+const LUNGE: Keyframe[] = [{ transform: "none" },
+  { transform: "rotate(-8deg) translate(-14%, -8%) scale(1.12)", offset: .25 },
+  { transform: "rotate(8deg) translate(9%, 9%)", offset: .6 }, { transform: "none" }];
+const LUNGE_MS = 280;
 
 /** The Taser: the owner's pixel-art picture (yellow and dark grey, a bolt on its side), its prongs' sparks as a
  * second layer that crackles, and its light, cyan when charged and amber while it recharges. */
@@ -57,6 +63,7 @@ export function useTaser({ enabled, sounds, reduce, robots, world, name }: {
   const hand = useRef<HTMLDivElement>(null), dock = useRef<HTMLButtonElement>(null);
   const pointer = useRef<Pt | null>(null), holding = useRef(false), returning = useRef(false), aimed = useRef<Pt>();
   const chargedAt = useRef(0), count = useRef(0), glideUntil = useRef(0), timers = useRef(new Set<number>());
+  const lungeUntil = useRef(0), lunging = useRef<Animation | null>(null);
   holding.current = held;
 
   const later = (fn: () => void, ms: number) => {
@@ -112,17 +119,24 @@ export function useTaser({ enabled, sounds, reduce, robots, world, name }: {
     setSaid("The Taser is back on its charger.");
   };
 
+  /** The Taser jabs at what you clicked and its prongs flare. A jab still going starts over (it is rewound, not
+   * restarted through a fresh layout of the page); under Reduced motion only the prongs flare. */
   const lunge = () => {
-    const el = hand.current;
+    const el = hand.current, art = el?.querySelector<HTMLElement>(".taser-art");
     if (!el) return;
-    el.classList.remove("lunge"); void el.offsetWidth; el.classList.add("lunge");
-    later(() => el.classList.remove("lunge"), 300);
+    el.classList.add("lunge");
+    lungeUntil.current = performance.now() + LUNGE_MS;
+    later(() => { if (performance.now() >= lungeUntil.current - 5) el.classList.remove("lunge"); }, LUNGE_MS + 20);
+    lunging.current?.cancel();
+    lunging.current = !reduce && art && typeof art.animate === "function"
+      ? art.animate(LUNGE, { duration: LUNGE_MS, easing: "ease-out" }) : null;
   };
-  /** The whole ship shakes for a moment (only for the biggest reactions, never under Reduced motion). */
+  /** The whole ship shakes for a moment (only for the biggest reactions, never under Reduced motion). A jolt is over
+   * (SHOCK_MS + 40) before the Taser has recharged (RECHARGE_MS), so one never needs restarting. */
   const jolt = () => {
     const ship = world.current;
     if (!ship || reduce) return;
-    ship.classList.remove("ship-jolt"); void ship.offsetWidth; ship.classList.add("ship-jolt");
+    ship.classList.add("ship-jolt");
     later(() => ship.classList.remove("ship-jolt"), SHOCK_MS + 40);
   };
   /** Lightning from the Taser's prongs over the robot: to its head, its feet and its far side, three takes each. */

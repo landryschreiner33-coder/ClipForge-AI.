@@ -29,6 +29,49 @@ the owner can pick a camera per clip or at a moment, and one camera or a picture
   `cameras {mode, of?}`, `camera`, `camera_corner {cam, place?, size?, of?}` (brain/operations.py is theirs to expose).
 - **Next:** batch 4c (loop endings for shorts, stabilising), batch 5 (automatic quality check after each render).
 
+## Smoother motion without GSAP — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** the held Taser no longer twitches when it lunges, a zapped robot stops walking so the
+lightning stays on it, menus, dialogs, the small-window menu and notes ease in and out instead of blinking, the ship's
+camera glides between rooms and the Brain map's zoom and Fit glide, the caption preview pops each new line like the
+finished video, and moving a file or scene up or down slides it into place. GSAP was looked at and not added.
+
+- **Where things are:** `frontend/src/smooth.ts` (`useLeave` for closing pop-ups, `useSlide` for reordered lists),
+  space.css "pop-ups" (entrances), `OfficeMotion.stun`, OfficeMap `pickRoom` + the camera glide, BrainGraph
+  `glideTo`, StyleStudio `pops`/`grow`, TaserItem `LUNGE`.
+- **Worth knowing:** a closing pop-up is removed by React at once; `useLeave` clones it (inert, aria-hidden, no ids or
+  names, `.leaving`) for the fade, so tests that read text right after a close may briefly see the copy through
+  `getByText` (never through `getByRole`). Pop-ups with an iframe, video, audio, canvas, object or embed skip the
+  copy. The Taser's sway must stay on `rotate`/`translate` and the lunge on `transform`, or they fight again.
+  Everything checks `data-motion="reduced"` itself because Web Animations ignore the CSS kill switch.
+  Code that asks "is a dialog or menu open?" must skip copies (`.dialog:not(.leaving *)`, `LIVE_ITEM` in ui.tsx).
+- **Captions in the finished video:** a page's first Dialogue line now pops every word (each word's own size,
+  `\fscx{size*pop/100}…\t(0,90,\fscx{size})`, given again after each `{\r}`); later lines are unchanged.
+
+## The viral predictor — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** every clip now gets a prediction after it renders (viral score, hook, how long people stay,
+strongest moment, a heatmap) with fixes ClipForge already tried on it, and any video can be checked on Make → Check a
+video. It learns from the owner's real results, within limits. Design and sources: docs/clipforge/VIRAL_PREDICTOR.md.
+
+- **Where things are:** `clipfoundry/predictor/` (`signals.py` measure, `model.py` predict, `fixes.py`, `learn.py`,
+  `checks.py`, `routes.py`, `__init__.py` with `run`, `moment`, `for_render`, `stored`, `predict_clip`, `snapshot`,
+  `summary`); hooks in `pipeline/render.py` (after artifact.record), `pipeline/deep.py` (step 5c, `clip_score` adj_p),
+  `autopilot/scheduler.py` (`_predicted_watch`), `autopilot/learner.py` (status `predictor`), `publish/jobs.py`
+  (`feature_snapshot.prediction`); frontend `src/predictor.ts`, `components/predictor.tsx` (+ `.css`),
+  `pages/CheckVideo.tsx`.
+- **Worth knowing:** a stored prediction counts only while its `file_sha256` matches the artifact and `MODEL_VERSION`
+  matches; bump `MODEL_VERSION` when the model changes (it also drops learned weights). Fixes are re-predicted on the
+  clip and dropped if they lower the score or cost more than 3 points of hook. The predictor's CSS uses `vp-*` classes
+  only (global `.drop` and `.grid` collided). The app guide section uses phrase-only words (`=viral score`) so "tips
+  for viral hooks" still finds skills and the hooks playbook. `GET /api/clips/{id}/prediction` without `version_id`
+  means the posted file; `version_id=` (empty) means the clip's own file (the editor always sends it). A review round
+  fixed: trims judged with the lines around the cut (`content.trim_flags`), the Shortest-clip floor for every fix,
+  live renders' `source_offset`, weights that move only on 10 new posts, and Check a video's drop zone staying
+  mounted while it uploads. PR #88 (watch and listen, merged first) adds its own bounded
+  senses term to `deep.clip_score`; both terms are summed, each within its own bounds. The predictor does not read
+  `p.senses` yet, so a later change could feed its watched/heard features into the channels (keep the bounds and
+  avoid counting a moment twice).
 ## ClipForge AI watches and listens — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** before picking clips ClipForge now listens to every sound (a sound model that ships with

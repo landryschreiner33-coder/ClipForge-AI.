@@ -8,6 +8,7 @@ import { PlanForm, PlanSheet, useChanged } from "../components/VideoPlan";
 import { useAppearance } from "../prefs";
 import { navigate, redirect, useLeaveGuard } from "../router";
 import { Asset, PlanFields, Script, SetupFile, SetupMessage, SetupMode, SetupQuestion, studio, uploadIds, VideoSetup } from "../studio";
+import { useSlide } from "../smooth";
 import "../videoSetup.css";
 
 const ACCEPT = "video/*,image/png,image/jpeg,image/webp,audio/*,.mkv,.m4v,.flac,.opus,.ogg";
@@ -46,6 +47,9 @@ function Start() {
   const [files, setFiles] = useState<Picked[]>([]);
   const [linked, setLinked] = useState<Picked[]>([]);
   const [order, setOrder] = useState<string[]>([]);
+  // a file moved up or down (or dragged) slides to its new place
+  const fileList = useRef<HTMLOListElement>(null);
+  useSlide(fileList);
   const [local, setLocal] = useState<"unknown" | "yes" | "no">("unknown");
   const [browsing, setBrowsing] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -124,7 +128,7 @@ function Start() {
             {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer (big files, nothing is copied)</button>}
             {browsing && <LocalFiles onLinked={addLinked} onClose={() => setBrowsing(false)} />}
             {ordered.length > 1 && <p className="small muted">Videos and pictures start in this order. ClipForge AI listens to every video as soon as you start, so it knows what is said in them while you plan.</p>}
-            <ol className="file-list" aria-label="Your files in order">
+            <ol ref={fileList} className="file-list" aria-label="Your files in order">
               {ordered.map((f, i) => (
                 <li key={f.key} draggable onDragStart={() => setDragging(f.key)} onDragEnd={() => setDragging(null)}
                   onDragOver={(e) => e.preventDefault()} onDrop={() => dragging && dragging !== f.key && move(dragging, order.indexOf(f.key) - order.indexOf(dragging))}

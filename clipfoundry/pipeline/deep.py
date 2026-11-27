@@ -216,12 +216,16 @@ def clip_score(r: dict) -> tuple[float, list[str]]:
     adj_n = float(n.get("adjust") or 0.0) + float(n.get("show_adjust") or 0.0)
     j = r.get("judge") or {}
     adj_j = float(j.get("adjust") or 0.0)
+    pr = r.get("predicted") or {}
+    adj_p = float(pr.get("adjust") or 0.0)
+    p_label = (f"the viral predictor (hook {pr.get('hook')}/100, about {pr.get('avg_view')}% watched, from the "
+               "words and sound)") if pr else ""
     j_label = (f"ClipForge AI ranked it {j['rank']} of {j['of']}" + (f" ({j['verdict']})" if j.get("verdict") else "")) \
         if j else ""
     for label, v in (("shareability, quotes, debate, titles, loops, audio/visual", adj_x),
                      ("semantic shape (one topic, closure, standalone, distinct)", adj_s),
                      ("matches the source's trending topic", adj_t), ("weak picture", adj_v), (e_label, adj_e),
-                     (j_label, adj_j), (y_label, adj_y)):
+                     (j_label, adj_j), (y_label, adj_y), (p_label, adj_p)):
         if abs(v) >= 0.5:
             why.append(f"{v:+.1f} {label}")
     if abs(adj_n) >= 0.5:
@@ -239,7 +243,31 @@ def clip_score(r: dict) -> tuple[float, list[str]]:
                    f"what happens in it ({float(n['show']):.0f}/100 by what ClipForge AI saw and heard)")
     if d.get("prosody") and d["prosody"].get("monotone"):
         why.append("the voice stays flat here (estimated from the sound)")
-    return round(max(0.0, min(100.0, base + adj_x + adj_s + adj_t + adj_v + adj_e + adj_j + adj_y + adj_n)), 1), why
+    points = base + adj_x + adj_s + adj_t + adj_v + adj_e + adj_j + adj_y + adj_n + adj_p
+    return round(max(0.0, min(100.0, points)), 1), why
+
+
+def _predict_moments(results: list[dict], words: list[dict], loud: Loudness, opts: dict) -> bool:
+    """The viral predictor's look at each finalist (Settings → viral predictor; nothing when it is off or fails)."""
+    from .. import predictor
+
+    if not predictor.enabled(opts):
+        return False
+    try:
+        lrn = predictor.learned()
+        for r in results:
+            if r.get("s0", 0) < 0:
+                continue
+            emphasis = list(((r.get("deep") or {}).get("prosody") or {}).get("emphasis_times") or [])
+            content = r.get("analysis") if isinstance(r.get("analysis"), dict) else None
+            r["predicted"] = predictor.moment(r["start"], r["end"], words, loud, content, emphasis,
+                                              learned_values=lrn)
+        return True
+    except Exception:  # noqa: BLE001 - an extra opinion never stops clip picking
+        log.exception("viral predictor failed while picking clips")
+        for r in results:
+            r.pop("predicted", None)
+        return False
 
 
 def _timed(r: dict) -> bool:
@@ -418,6 +446,13 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
     if taste.apply(results, opts):
         for r in results:
             if r.get("taste"):
+                r["clip_score"], r["explanation"] = clip_score(r)
+                track[r["cid"]]["score"] = r["clip_score"]
+    # 5c. the viral predictor: the hook and how long people stay, from each finalist's words and sound (bounded,
+    # explained; predictor/)
+    if _predict_moments(results, words, loud, opts):
+        for r in results:
+            if r.get("predicted"):
                 r["clip_score"], r["explanation"] = clip_score(r)
                 track[r["cid"]]["score"] = r["clip_score"]
     # 6. diversity

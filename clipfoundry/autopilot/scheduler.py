@@ -257,6 +257,9 @@ def candidates(settings: dict, now: float) -> list[dict]:
                 continue
         sc = db.fetch("clip_scores", clip["id"], "clip_id") or {}
         retention, _ = learner.expected_retention(sc.get("retention"))
+        watched = _predicted_watch(clip, settings)
+        if watched is not None:  # the viral predictor watched the finished file: both estimates count equally
+            retention = watched if retention is None else round((float(retention) + watched) / 2, 1)
         ready: dict[str, dict | None] = {}  # platform -> its selected text, checked once for every account
         for platform, connection_id in destinations:
             if not settings.get("autopilot_allow_republish") and \
@@ -286,6 +289,16 @@ def candidates(settings: dict, now: float) -> list[dict]:
             if turn:
                 submissions.took_turn(source, clip, turn, dealt)
     return out
+
+
+def _predicted_watch(clip: dict, settings: dict) -> float | None:
+    """The viral predictor's average watched for the file that would be posted (percent), when it has one."""
+    try:
+        from .. import predictor
+
+        return predictor.watched(clip) if predictor.enabled(settings) else None
+    except Exception:  # noqa: BLE001 - an estimate never stops planning
+        return None
 
 
 # ------------------------------------------------------------------ planning

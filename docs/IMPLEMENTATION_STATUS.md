@@ -18,6 +18,23 @@ a moment, and one camera or picture small in a corner
 
 Not verified: real podcast footage with one microphone per person (the speaker test uses made-up levels), real
 cameras' clock drift, the Cameras panel in a browser beyond the demo.
+## Smoother motion without GSAP — 2026-11-26/27 (Claude Code)
+
+From `claude/project-thread-wkj3fp`, PR #92. GSAP was checked and not added; six jumpy spots were smoothed with the
+browser's own animations, and the finished video's caption pop now covers every word of a new page. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-26 | `pytest -m "not slow"` on 89e4f25 | 3,596 passed, 41 skipped (32 min) |
+| 2026-11-26 | Each change in Chromium against the sandbox (Reduced motion too); frame-by-frame video of all six | as intended; /mnt/project-files/smooth-polish/smooth-polish.mp4 |
+| 2026-11-27 | Review (3 reviewers, a verifier per finding) | 5 confirmed + 4 smaller, all fixed and re-probed |
+| 2026-11-27 | `npx tsc --noEmit -p frontend` and `npm run build` on the merge with the release line (c0b8d70) | passed |
+| 2026-11-27 | `pytest -m "not slow"` on the files that read frontend sources, captions, editing, core, predictor | 374 passed, 33 skipped |
+| 2026-11-27 | `npm run test:sandbox` (port 8871, espeak-ng installed) on c0b8d70 | 90 passed, 2 failed: beginner-flow (no Topics box on setup) and zero-touch-loop (broken source never "failed"); both fail the same way on the release line f8b02d1 without this change |
+| 2026-11-27 | `pytest -m slow` on c0b8d70 | 49 passed, 1 skipped (26 min) |
+
+Not verified: WKWebView on a real Mac; the animated short's scene list in a browser (same code as the file list).
 
 ## Editing quality, batch 4a: speed, ramps, freeze frames, camera moves — 2026-11-26 (Claude Code)
 
