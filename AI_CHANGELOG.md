@@ -78,6 +78,25 @@ Batch 4c of Landry's "majorly improve the editing" (plan in
   cleanup).
 - **Tests:** `tests/test_loops.py` (12 fast, 1 real render).
 
+## ClipForge AI's app guide follows the editor: speed, freeze frames, cameras — 2026-11-27 (Claude Code)
+
+Two new `brain/appguide.py` sections, in the screen's words: a full video's speed, slow motion, freeze frames and
+camera moves (editing batch 4a, PR #85) and several cameras of one recording with pictures in a corner (batch 4b,
+PR #90). The chat can now answer "how do I slow down a clip?", "how do I freeze a frame?" or "I filmed my podcast
+with two cameras, how do I switch between them?". Details: docs/clipforge/CLIPFORGE_AI.md, "The app guide follows
+the editor".
+
+## Higgsfield pictures for the animated-short looks — 2026-11-27 (Claude Code)
+
+Landry: "use higgsfield to make the example images for the animated shorts". The eight look pictures
+(`frontend/public/looks/<look>.jpg`, 720 x 1280) are now Higgsfield's, made from the same scene (the yellow robot on a
+hill, a lighthouse behind), and this time the robot itself is drawn in each look. They replace the ChatGPT pictures of
+Nov 26 at the same names and size, cropped to 9:16 from 1024 x 1536 (centred; 3D cartoon a little right and Comic
+book a little left so the robot and the lighthouse both stay in). The robot sits low in every picture, so a look card
+now shows 2:3 of the picture anchored low (it was 3:4 from the middle): the robot's boots and the lighthouse's lamp
+both stay in view. Tests: `tests/test_look_pictures.py` (new card check), `tests/test_grade.py` still passes on the
+new 3D cartoon picture.
+
 ## Landry's ship in front of the black hole, and a cleaner warp — 2026-11-27 (Claude Code)
 
 Landry sent a pixel-art ship: "use this as the tiny ship in the backround and fix the warp around the black whole".

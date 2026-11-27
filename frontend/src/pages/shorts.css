@@ -225,8 +225,10 @@
   background: var(--well); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 .look-thumb .look-art { display: block; width: 100%; height: 100%; object-fit: cover; }
-.look-card .look-thumb { width: 100%; max-height: none; aspect-ratio: 3 / 4; }
-.look-card .look-thumb .look-art { object-position: 50% 62%; }
+/* a look card shows 2:3 of the 9:16 picture, low down: the robot sits low in every picture (Higgsfield, 2026-11-27),
+   and this keeps its boots and the whole lighthouse in view */
+.look-card .look-thumb { width: 100%; max-height: none; aspect-ratio: 2 / 3; }
+.look-card .look-thumb .look-art { object-position: 50% 70%; }
 .look-preview {
   display: grid; grid-template-columns: minmax(0, 168px) minmax(0, 1fr); gap: var(--s4); align-items: center;
   margin-top: var(--s4); padding: var(--s3); border: 1px solid var(--line-strong); border-radius: var(--r-panel);
