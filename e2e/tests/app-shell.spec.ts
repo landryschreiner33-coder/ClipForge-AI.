@@ -77,12 +77,14 @@ test("the Autopilot pill shows its state in a word", async ({ page, request }) =
 });
 
 // The owner, 2026-11-19: "make everything easily accessible so i can easly make all type of clips, make youtube video,
-// make animated short, clip live stream as it goes". Studio and + Make offer the same four, in the same order. Since
-// 8:47 PM that evening the Studio panel opens on Working on, and its Make tab holds the four.
+// make animated short, clip live stream as it goes". Studio and + Make offer the same choices, in the same order. Since
+// 8:47 PM that evening the Studio panel opens on Working on, and its Make tab holds them. Text stories came on Nov 25,
+// and Check a video (the viral predictor) on Nov 26.
 const MAKE = [["Make clips", "#/create/clips"], ["Make a YouTube video", "#/create/video"],
-  ["Make an animated short", "#/create/short"], ["Clip a live stream", "#/missions/live"]];
+  ["Make an animated short", "#/create/short"], ["Make a text story", "#/stories"], ["Clip a live stream", "#/missions/live"],
+  ["Check a video", "#/create/check"]];
 
-test("Studio and + Make offer the same four things to make", async ({ page }) => {
+test("Studio and + Make offer the same things to make", async ({ page }) => {
   await page.goto("/#/");
   const panel = page.getByRole("tablist", { name: "Studio panel" });
   await expect(panel.getByRole("tab", { name: /^Working on/ })).toHaveAttribute("aria-selected", "true");

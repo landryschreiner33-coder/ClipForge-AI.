@@ -29,6 +29,7 @@ from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import connection_routes
 from .studio import local_routes, project_delete, routes as studio_routes
+from .predictor import routes as predictor_routes
 from .craft import routes as craft_routes
 from .engines import routes as engine_routes
 from .makers import routes as maker_routes
@@ -70,6 +71,7 @@ async def lifespan(_: FastAPI):
         worker.resume(db.interrupted_work())
         worker.start()
         from .studio import edit_requests, jobs as studio_jobs, link_import, media_sources, reference, video_flow  # noqa: F401
+        from .predictor import checks as predictor_checks  # noqa: F401 - the viral_check job handler
         from .makers import shorts, textstory  # noqa: F401 - the short_build and text story job handlers
         from .brain import chat as brain_chat
 
@@ -136,6 +138,7 @@ app.include_router(auth_routes.router)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(connection_routes.router)
 app.include_router(studio_routes.router)
+app.include_router(predictor_routes.router)  # the viral predictor: clip predictions, Check a video, accuracy
 app.include_router(local_routes.router)  # desktop: files used where they are, and background preparation
 app.include_router(project_delete.router)  # what deleting a project does, and deleting a full video
 app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
@@ -190,7 +193,17 @@ def _public_clip(c: dict) -> dict:
     if isinstance(c.get("analysis"), dict) and (c["analysis"].get("factors") or {}):
         out["analysis"] = {**c["analysis"], "reasons": virality.reasons(c["analysis"], c.get("render_info") or {})}
     out["cam_check"] = facecam.cam_check(c.get("render_info"))  # how sure its face cam is (clip editor)
+    out["prediction"] = _prediction_summary(c)  # the viral predictor's numbers for clip cards
     return out
+
+
+def _prediction_summary(c: dict) -> dict | None:
+    from . import predictor
+
+    try:
+        return predictor.summary(predictor.stored(c))
+    except Exception:  # noqa: BLE001 - a card shows the clip either way
+        return None
 
 
 def _clean_options(raw: dict) -> dict:

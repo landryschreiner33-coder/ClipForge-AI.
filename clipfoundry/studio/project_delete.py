@@ -178,7 +178,7 @@ def _asset_folder(asset: dict) -> Path | None:
 
 def _used_elsewhere(ws: str, kind: str, project_id: str) -> str:
     """Everything that names media outside this project, as one text to search: other clips projects and their link
-    imports, examples, and every other video (its media, brief and setup, every saved revision, so an older revision
+    imports, examples, checked videos (Check a video), and every other video (its media, brief and setup, every saved revision, so an older revision
     can still be restored, its media imports, and an animated short's scenes and the list of files its builds stored:
     files are stored once, so another short's build may have stored the same bytes), the reusable characters'
     reference pictures and the text stories' backgrounds. An asset id found anywhere in it counts as a use: when in
@@ -190,6 +190,7 @@ def _used_elsewhere(ws: str, kind: str, project_id: str) -> str:
         texts += [r[0] or "" for r in conn.execute("SELECT asset_id FROM link_imports WHERE project_id != ?",
                                                    (other_clips,))]
         texts += [r[0] or "" for r in conn.execute("SELECT asset_id FROM reference_videos")]
+        texts += [r[0] or "" for r in conn.execute("SELECT asset_id FROM viral_checks")]  # Check a video
         texts += [" ".join(str(v) for v in tuple(r)) for r in conn.execute(
             "SELECT * FROM studio_projects WHERE workspace_id = ? AND id != ?", (ws, other_video))]
         texts += [r[0] or "" for r in conn.execute(

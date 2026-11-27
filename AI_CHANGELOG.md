@@ -37,6 +37,26 @@ Branch `claude/project-thread-wkj3fp`.
   never steps backwards on its first frame, and a drag or new glide starts from the view last asked for.
 - Video of every change: /mnt/project-files/smooth-polish/smooth-polish.mp4 (record.js beside it).
 
+## ClipForge's own viral predictor — 2026-11-26 (Claude Code)
+
+Landry: "reverse engineer how their viral predictor works so we can implement it to help the videos go more viral"
+(Higgsfield's Virality Predictor). Built from Higgsfield's public page, published coverage and research only; nothing
+decompiled or scraped. Details, sources and every number: [docs/clipforge/VIRAL_PREDICTOR.md](docs/clipforge/VIRAL_PREDICTOR.md).
+
+- **Every clip is predicted after it renders** (`clipfoundry/predictor/`): a viral score 0-100, the hook (first 3 s of
+  picture, sound and words), a hold curve (share still watching each second, average watched, hold rate), the
+  strongest moment, a five-channel heatmap (vision, sound, language, attention, memory), reasons tied to moments.
+- **Fixes it tried first:** start later, end earlier, remove pauses, captions, the hook on screen, punch-ins, louder
+  sound, tease the strongest moment; only those that do not lower the score are offered, and Add to my edit puts one
+  in the clip editor.
+- **Make → Check a video:** any video up to 10 minutes, measured on this computer.
+- **Wired in:** clip picking (a moment's hook and hold move its Clip Score by at most 5), the posting plan's expected
+  retention, the prediction kept with each post, and a bounded learner that measures accuracy on the owner's posts,
+  calibrates average watched (from 15 posts) and adjusts the score's weights (from 30, at most 40%).
+- **Screens:** the clip editor's Viral predictor card, Prepare post, clip cards, Publishing → Results (how well it
+  matched), and an on/off switch in the AI settings. ClipForge AI's app guide has "The predictor".
+- No brain model: Meta's TRIBE v2 (which Higgsfield may use) is CC BY-NC, so the channels are measured from the clip.
+- Tests: `tests/test_viral_predictor.py` (19).
 ## ClipForge AI watches and listens — 2026-11-26 (Claude Code)
 
 Landry: "Make it so it can actually watch the videos frame by frame and listen to the audio or piece of media, so it
