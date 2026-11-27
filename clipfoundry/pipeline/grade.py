@@ -49,6 +49,7 @@ import base64
 import hashlib
 import json
 import math
+import re
 import os
 import subprocess
 import threading
@@ -136,8 +137,7 @@ MATCH_GAMMA = (0.9, 1.1)
 MATCH_PIXELS = 1500          # pixels kept with a recording's statistics for matching
 MATCH_SKIN = 0.02            # recordings with at least this share of skin-coloured pixels are matched to each other
 
-GRAPHIC_TOP8 = 0.85         # the 8 commonest colours (32 levels a channel) cover this share: flat graphics...
-GRAPHIC_SPAN = 12.0          # ...or 95% of the picture lies within this many luma codes (a flat colour field)
+GRAPHIC_TOP8 = 0.80         # the 8 commonest exact colours of the real pixels cover this share: flat graphics
 
 # The predicted check (check_grade): (warn, ease) limits on the grade applied to the recording's own pixels
 CHECK_CLIP = (0.002, 0.005)  # share of pixels newly at full scale whose detail is lost (flat areas left out)
@@ -671,15 +671,6 @@ def noise_sigma(gray: np.ndarray) -> float:
     return float(math.sqrt(math.pi / 2) * flat.mean() / 6)
 
 
-def _span(y: np.ndarray, share: float) -> float:
-    """The narrowest range of values that holds `share` of `y`."""
-    v = np.sort(y)
-    k = max(1, int(math.ceil(share * len(v))) - 1)
-    if k >= len(v):
-        return float(v[-1] - v[0])
-    return float(np.min(v[k:] - v[:len(v) - k]))
-
-
 def measure(frames: list[np.ndarray], crops: list[np.ndarray] | None = None,
             check: np.ndarray | None = None) -> dict | None:
     """Statistics of a recording (or clip) from its sampled frames (and the unaveraged pixels of check_sample for
@@ -703,13 +694,16 @@ def measure(frames: list[np.ndarray], crops: list[np.ndarray] | None = None,
           "cb": float(cb.mean()), "cr": float(cr.mean()),
           # the brightest channel's 99.5th percentile: how far the whites can be lifted before a colour clips
           "p995_max": float(np.percentile(px.max(axis=1), 99.5))}
-    # flat graphics (a cartoon, slides, a title card): a few flat colours cover most of the picture, or nearly all
-    # of it is one brightness. Camera footage has noise and light falling off, so its colours spread.
-    q = np.clip((np.clip(px, 0.0, 1.0) * 32).astype(np.int64), 0, 31)
-    counts = np.bincount(q[:, 0] * 1024 + q[:, 1] * 32 + q[:, 2], minlength=32768)
-    st["top8"] = float(np.sort(counts)[-8:].sum() / max(1, len(px)))
-    st["span95"] = _span(y, 0.95) * 219
-    st["graphic"] = bool(st["top8"] >= GRAPHIC_TOP8 or st["span95"] <= GRAPHIC_SPAN)
+    # flat graphics (a cartoon, slides, a title card): a few exact colours cover most of the picture. Counted on
+    # real, unaveraged pixels (the check sample): a camera's noise spreads even a plain wall or a dark night sky over
+    # many colours, while a drawing repeats its own exactly. Averaged frames would not tell them apart (the darker a
+    # camera picture, the fewer colours it seems to have).
+    st["top8"], st["graphic"] = None, False
+    if check is not None and len(check):
+        q = np.clip(np.round(check * 255), 0, 255).astype(np.int64)
+        _, counts = np.unique(q[:, 0] * 65536 + q[:, 1] * 256 + q[:, 2], return_counts=True)
+        st["top8"] = float(np.sort(counts)[-8:].sum() / len(q))
+        st["graphic"] = st["top8"] >= GRAPHIC_TOP8
     if ok.sum() >= 64:
         sel = lin[ok]
         sog = np.mean(sel ** 6, axis=0) ** (1 / 6)
@@ -965,6 +959,9 @@ def _ease(g: Grade, why: str) -> None:
         g.gamma = 1.0 if abs(g.gamma - 1) < 0.05 else 1 + (g.gamma - 1) / 2
     else:
         g.wb = tuple(1 + (v - 1) / 2 for v in g.wb)
+        g.notes = [re.sub(r"\((\d+)% of the measured cast\)",
+                          lambda m: f"({int(round(int(m.group(1)) / 2))}% of the measured cast)", n)
+                   if n.startswith("White balance:") else n for n in g.notes]
         g.black, g.gain, g.gamma = g.black / 2, 1 + (g.gain - 1) / 2, 1 + (g.gamma - 1) / 2
         g.s_curve, g.vibrance = g.s_curve / 2, g.vibrance / 2
         g.match_gamma, g.match_cb, g.match_cr = 1 + (g.match_gamma - 1) / 2, g.match_cb / 2, g.match_cr / 2
@@ -978,12 +975,18 @@ def _drop_notes(g: Grade) -> None:
     g.notes = [n for n in g.notes if not any(gone[k] and n.startswith(head) for k, head in _STEP_NOTES.items())]
 
 
-def guard(g: Grade, st: dict | None) -> Grade:
+def _note(g: Grade, text: str) -> None:
+    if text not in g.notes:
+        g.notes.append(text)
+
+
+def guard(g: Grade, st: dict | None, *, look: bool = True) -> Grade:
     """Grade `g` tried on the recording's own pixels first (check_grade): a correction that would clip, crush,
     wash out strong colours or band a gradient is eased one step at a time on the setting that causes it (at most
     CHECK_TRIES steps, then left out); a look that would clip, crush or band is eased to 60%, then 30% of its
     strength (never further: it is the owner's choice). The notes say what was eased and why. Without the pixel
-    sample (statistics measured before it existed) the grade is returned unchanged."""
+    sample (statistics measured before it existed) the grade is returned unchanged. `look`: False checks the
+    correction only (the full-video engine does that before matching, and everything again after it)."""
     px = check_pixels(st)
     if px is None or not g.active():
         return g
@@ -1001,9 +1004,9 @@ def guard(g: Grade, st: dict | None) -> Grade:
             g.match_gamma, g.match_cb, g.match_cr = 1.0, 0.0, 0.0
         if first is not None:
             _drop_notes(g)
-            g.notes.append(("Colour correction eased" if g.corrects() else "Colour correction left out")
-                           + f": it would have {_REASONS[first]}")
-    if g.look in LOOKS and g.look != "natural" and g.strength > 1e-3:
+            _note(g, ("Colour correction eased" if g.corrects() else "Colour correction left out")
+                  + f": it would have {_REASONS[first]}")
+    if look and g.look in LOOKS and g.look != "natural" and g.strength > 1e-3:
         chosen = g.strength
         why = _worst(check_grade(px, g, part="look"), "look")
         first = why
@@ -1013,8 +1016,8 @@ def guard(g: Grade, st: dict | None) -> Grade:
             g.strength = chosen * share
             why = _worst(check_grade(px, g, part="look"), "look")
         if first is not None:
-            g.notes.append(f"The {LOOKS[g.look]} look eased to {int(round(g.strength * 100))}%: at "
-                           f"{int(round(chosen * 100))}% it would have {_REASONS[first]}")
+            _note(g, f"The {LOOKS[g.look]} look eased to {int(round(g.strength * 100))}%: at "
+                     f"{int(round(chosen * 100))}% it would have {_REASONS[first]}")
     return g
 
 
@@ -1060,7 +1063,8 @@ def for_footage(path: str, ranges: list[tuple[float, float]], opts: dict, *, cac
     colour = source_colour(path)
     auto, look, strength = choices(opts)
     stats = None
-    if auto or opts.get("clean_picture") is not False:
+    styled = look != "natural" and strength > 1e-3
+    if auto or opts.get("clean_picture") is not False or styled:  # a look alone is tried on the pixels too
         times = sample_times(ranges)
         key = hashlib.sha256(json.dumps([VERSION, str(path), [round(t, 3) for t in times], colour],
                                         sort_keys=True).encode()).hexdigest()[:24]
@@ -1078,7 +1082,9 @@ def for_footage(path: str, ranges: list[tuple[float, float]], opts: dict, *, cac
             if cancelled is not None and cancelled():
                 raise Cancelled()  # what was read so far is not this footage's measurement
             stats = measure(frames, crops, check)
-            if cache is not None and stats is not None:
+            # without its pixel sample (a read that failed or timed out) the measurement is used but not kept, so
+            # the check is not left off for good
+            if cache is not None and stats is not None and check is not None:
                 try:
                     cache.parent.mkdir(parents=True, exist_ok=True)
                     cache.write_text(json.dumps({"key": key, "stats": stats}), encoding="utf-8")

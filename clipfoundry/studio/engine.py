@@ -423,16 +423,20 @@ def grades(plan: dict, assets: dict[str, dict], cache: Path, cancelled=None) -> 
                                      cancelled=cancelled, guarded=False)
         out[aid] = {"grade": g, "stats": stats, "denoise": grade.denoise_for(stats, opts),
                     "seconds": shown.get(aid, 0.0)}
-    people = {aid: r for aid, r in out.items() if (r["stats"] or {}).get("skin", 0) >= grade.MATCH_SKIN}
+    for r in out.values():  # each correction tried on its recording's own pixels before matching aims at it
+        r["grade"] = grade.guard(r["grade"], r["stats"], look=False)
+    # only recordings of people are matched to each other: a screen recording keeps its own colours, and a cartoon
+    # or a slide (skin-coloured drawings) is neither matched nor matched to
+    people = {aid: r for aid, r in out.items()
+              if (r["stats"] or {}).get("skin", 0) >= grade.MATCH_SKIN and not (r["stats"] or {}).get("graphic")}
     if opts["match"] and opts["auto_color"] and len(people) > 1:
-        # only recordings of people are matched to each other: a screen recording keeps its own colours
         ref = max(people, key=lambda aid: people[aid]["seconds"])
         target = grade.corrected_stats(people[ref]["stats"], people[ref]["grade"])
         for aid, r in people.items():
             mine = grade.corrected_stats(r["stats"], r["grade"]) if aid != ref else None
             if target and mine:
                 grade.match(r["grade"], mine, target)
-    for r in out.values():  # each grade tried on its recording's own pixels, matching included
+    for r in out.values():  # and everything again, matching and the look included
         r["grade"] = grade.guard(r["grade"], r["stats"])
     return out
 

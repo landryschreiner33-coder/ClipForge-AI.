@@ -90,8 +90,9 @@ level made again); `tests/test_audio_start_regression.py` (a broken measurement 
 ## 5b: the picture
 
 The code is in `clipfoundry/pipeline/grade.py` (the colour step, see [COLOUR.md](COLOUR.md)). Both renderers use it:
-the clip renderer through `grade.for_footage`, the full-video engine through `engine.grades` (after matching the
-recordings to each other, so the check sees the grade that is really used).
+the clip renderer through `grade.for_footage`, the full-video engine through `engine.grades`: there each recording's
+correction is checked before the recordings are matched to each other (so matching aims at what will really be
+shown), and everything again after it, matching and the look included.
 
 ### What the owner sees
 
@@ -106,10 +107,14 @@ the last render changed) say what this step did:
 ### What happens
 
 - **Flat cartoons and graphics** (the animated shorts, slides, title cards) are left as drawn. A picture counts as
-  flat when its 8 commonest colours (at 32 levels a channel) cover 85% of it, or 95% of it lies within 12 luma codes.
-  Before, a cartoon's dark navy background read as an underexposed picture: the whites were lifted up to +20% and
-  the mid-tones brightened, which raised every drawn colour by up to 27 codes and pushed the orange characters to
-  full scale. A look the owner chose still applies.
+  flat when its 8 commonest exact colours cover 80% of the predicted check's real pixels (below). A camera's noise
+  spreads even a plain wall or a dark night sky over many colours, while a drawing repeats its own exactly; counted
+  on averaged frames, dark camera footage seemed to have few colours and was taken for a drawing (found in review).
+  Measured: drawn cartoons 0.86-0.99 (0.83 for the talk show at 480p and the strongest compression), camera-like
+  pictures 0.01-0.47, a noise-free synthetic gradient darkened to near black 0.72. Before, a cartoon's dark navy
+  background read as an underexposed picture: the whites were lifted up to +20% and the mid-tones brightened, which
+  raised every drawn colour by up to 27 codes and pushed the orange characters to full scale. A look the owner chose
+  still applies. A cartoon or slide is not matched to the recordings of people in a full video, nor they to it.
 - **Dim whites are judged by the brightest channel**, not by brightness: a saturated orange or red is dim in
   brightness but already at full scale in one channel, and lifting it would clip it (and the soft gamut clip then
   washed it toward grey). Deepening washed-out blacks keeps the brightest channel where it was, too.
@@ -132,6 +137,8 @@ the last render changed) say what this step did:
   S-curve, the black level, vibrance, the mid-tones; otherwise everything half way), at most 4 steps, then left out.
   A look is judged only on what it adds to the corrected picture and only for detail and bands, never for being a
   look: it is eased to 60%, then 30% of the owner's strength, never further. `guard` in `grade.py`.
+- A look alone (automatic colour and cleanup off) is measured and checked too. A measurement whose pixel sample
+  could not be read is used for that render but not kept, so the next render measures again.
 - Recordings measured before this (no `check_px`) are measured again: `grade.VERSION` is 2, and it is part of the
   measurement's cache key and of the full-video engine's piece key.
 
@@ -163,4 +170,6 @@ other look and picture untouched.
 Tests: `tests/test_picture_check.py` (flat cartoons at three sizes and backgrounds left as drawn while dim natural
 footage is still brightened, the brightest channel, the pixel sample kept and read back, a correction eased and left
 out with its notes, darker colours not counted as washed out, a look eased only where it loses detail and never
-below 30%, a cartoon recording through FFmpeg unchanged, the engine checking after matching).
+below 30%, a cartoon recording through FFmpeg unchanged, a dark night shot and a plain wall with camera noise not
+taken for drawings, the white balance note after easing, a look alone checked, a failed sample not kept, the engine
+checking corrections before matching and everything after it, cartoons left out of matching).

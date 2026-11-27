@@ -40,8 +40,8 @@ recognisable at 100 % and protects skin tones; the strength mixes it with the co
      already at full scale is not lifted past it), very dark or bright mid-tones (half way), at most half a stop; a
      gentle S-curve on flat (log-like) footage; levels change brightness, not colourfulness; washed-out colour gets
      vibrance with skin tones protected;
-   - flat cartoons and graphics (8 colours cover 85% of the picture, or 95% of it within 12 luma codes) are left as
-     drawn (added 2026-11-27).
+   - flat cartoons and graphics (8 exact colours cover 80% of the real, unaveraged pixels) are left as drawn and are
+     not matched to other recordings (added 2026-11-27).
    A well-exposed, colourful picture is left almost alone (a test checks the lighthouse picture changes under 5
    codes on average).
 4. **Matching** (full videos): recordings with people in them are nudged toward the one that plays longest (mid-tone

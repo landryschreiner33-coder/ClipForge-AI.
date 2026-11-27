@@ -7,10 +7,11 @@ Batch 5b of Landry's "majorly improve the editing" (plan in
 `claude/project-thread-c3hbwh` on top of batch 5a (PR #99). Details:
 [docs/clipforge/QC.md](docs/clipforge/QC.md#5b-the-picture). Not released.
 
-- **Flat cartoons and graphics** are left as drawn by automatic colour (`grade.measure`: `top8`, `span95`,
-  `graphic`; `correction` returns early with "Flat colours (a cartoon or graphics): left as drawn"). Before, a
-  cartoon's dark background read as underexposure: whites lifted 1.2x and mid-tones brightened, drawn colours moved
-  up to 27 codes and orange characters reached full scale.
+- **Flat cartoons and graphics** are left as drawn by automatic colour (`grade.measure`: `top8` = the 8 commonest
+  exact colours of the check's real pixels, `graphic` at 80%; `correction` returns early with "Flat colours (a
+  cartoon or graphics): left as drawn"); they are left out of full-video matching. Before, a cartoon's dark
+  background read as underexposure: whites lifted 1.2x and mid-tones brightened, drawn colours moved up to 27 codes
+  and orange characters reached full scale.
 - **Dim whites by the brightest channel** (`p995_max`): a saturated colour already at full scale in one channel is
   not lifted past it; deepening blacks keeps it there too. The half-stop cap now re-writes the mid-tones note from
   the net change (it could say "darkened" for a picture that got brighter).
@@ -19,8 +20,15 @@ Batch 5b of Landry's "majorly improve the editing" (plan in
   at full scale or black (flat areas made all one level left out), strong colours washed out (saturation as a share
   of the brightest channel, against the white-balanced picture; correction only), and the brightness curve's
   steepest part (banding). A correction is eased step by step on the setting that causes it (4 steps, then left
-  out); a look to 60%, then 30% of its strength. Notes in plain words. The engine checks after matching
-  (`engine.grades`, `for_footage(..., guarded=False)`).
+  out); a look to 60%, then 30% of its strength. Notes in plain words. The engine checks the corrections before
+  matching and everything after it (`engine.grades`, `for_footage(..., guarded=False)`, `guard(..., look=False)`).
+  A look alone is measured too; a measurement without its pixel sample is not kept.
+- **Review (2 reviewers, 6 problems, all fixed with tests):** dark or noisy camera footage taken for a cartoon (the
+  first rule binned averaged frames), cartoons in matching, matching aimed at an unchecked grade, a look unchecked
+  with cleanup off, a failed pixel read cached for good, the white balance note's share after easing.
+- `tests/test_artifact_quality.py::test_an_nvenc_encode_waits_while_the_gpu_is_transcribing` waits for the render to
+  reach the GPU lock instead of a fixed 2.5 s: the steps before the encode (steadying since batch 4d, the colour
+  check now) took longer than that now and then (2 of 6 runs failed on the release line, 6 of 6 pass now).
 - `grade.VERSION` 2 (measurement cache key and the engine's piece key): every recording is measured again once.
 - **Privacy page:** the colour measurements row covers the pixel sample.
 

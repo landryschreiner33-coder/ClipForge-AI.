@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -130,7 +131,13 @@ def test_an_nvenc_encode_waits_while_the_gpu_is_transcribing(data, tmp_path, mon
     worker = threading.Thread(target=lambda: result.update(render.render_clip(
         project, clip, words_every(3.4), {**config.DEFAULT_SETTINGS, **FAST}, ctx)))
     worker.start()
-    worker.join(2.5)
+    # the steps before the encode (framing, colour, shake, captions, sound) take their own time: wait for the
+    # render to reach the encoder's GPU lock, however long that takes on a busy machine, not a fixed 2.5 s
+    deadline = time.monotonic() + 90
+    while worker.is_alive() and time.monotonic() < deadline and \
+            "Waiting for the GPU (transcription: long interview)" not in messages:
+        time.sleep(0.05)
+    time.sleep(0.5)  # it stays waiting
     assert worker.is_alive() and not result, "the encode must not start while the GPU is transcribing"
     assert "Waiting for the GPU (transcription: long interview)" in messages
     release.set()
