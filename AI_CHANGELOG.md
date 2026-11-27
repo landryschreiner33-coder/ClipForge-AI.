@@ -1,5 +1,13 @@
 # AI changelog
 
+## ClipForge AI's app guide follows the editor: speed, freeze frames, cameras — 2026-11-27 (Claude Code)
+
+Two new `brain/appguide.py` sections, in the screen's words: a full video's speed, slow motion, freeze frames and
+camera moves (editing batch 4a, PR #85) and several cameras of one recording with pictures in a corner (batch 4b,
+PR #90). The chat can now answer "how do I slow down a clip?", "how do I freeze a frame?" or "I filmed my podcast
+with two cameras, how do I switch between them?". Details: docs/clipforge/CLIPFORGE_AI.md, "The app guide follows
+the editor".
+
 ## Higgsfield pictures for the animated-short looks — 2026-11-27 (Claude Code)
 
 Landry: "use higgsfield to make the example images for the animated shorts". The eight look pictures
