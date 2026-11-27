@@ -6,7 +6,6 @@ keep-segments so picture and sound stay in sync.
 """
 from __future__ import annotations
 
-import json
 import math
 import os
 import re
@@ -20,7 +19,8 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, audio_timing, captions, cleanup, facecam, grade, loops, moves, reframe, steady, trims
+from . import (artifact, audio_timing, captions, cleanup, facecam, grade, loops, loudness, moves, reframe, steady,
+               trims)
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, FFmpegError, MediaWatchdog, delivery_args, ffmpeg_bin,
@@ -204,7 +204,11 @@ def _decode_size(w: int, h: int) -> tuple[int, int]:
 def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
                   normalization_gain_db: float | None = None, measure: bool = False,
                   input_label: str = "1:a:0", effects_label: str | None = None,
-                  effects_gain_db: float = 0.0) -> str:
+                  effects_gain_db: float = 0.0, trim_db: float = 0.0,
+                  ceiling_dbfs: float = loudness.LIMIT_DBFS) -> str:
+    """The clip's sound: the kept parts joined, downmixed and sped up like the picture; with `measure`, measured
+    (ebur128) instead of finished. `trim_db` moves the whole finished mix (the check after the encode corrects a
+    missed level with it) and `ceiling_dbfs` is the final limiter's ceiling."""
     rel = [(a - start, b - start) for a, b in segs]
     # Input seeking resets the shared source clock, but the first audio packet may still arrive late. Rebuild
     # that clock before any trims: resetting PTS independently would move all speech earlier than the picture.
@@ -231,7 +235,7 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
         post.append(f"atempo={max(SPEED_RANGE[0], min(SPEED_RANGE[1], speed)):.4f}")  # faster, same pitch
     if measure:
         # Discard this output. Only the measurements of the exact edited timeline are used on the encode pass.
-        post.append("loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json")
+        post.append(loudness.FILTER)
         parts.append(chain + ",".join(post) + "[a]")
         return ";".join(parts)
     if opts.get("normalize_audio", True):
@@ -247,13 +251,13 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
         parts.append(f"[{effects_label}]aformat=sample_fmts=dbl:sample_rates=48000:channel_layouts=stereo,"
                      f"volume={effects_gain_db:.2f}dB[fx]")
         chain, post = "[speech][fx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0", [""]
-    gain = float(opts.get("gain_db", 0) or 0)
+    gain = float(opts.get("gain_db", 0) or 0) + trim_db
     if abs(gain) > 0.01:
         post.append(f"volume={gain:.2f}dB")
-    # Gain follows normalization, so even normalized speech can otherwise hard-clip at the allowed +12 dB.
-    # Disable the limiter's default auto-level boost and compensate its lookahead to keep cuts/captions aligned.
-    post += ["aresample=48000", "alimiter=limit=0.841395:attack=5:release=50:level=disabled:latency=1",
-             "asettb=1/48000", "asetpts=N/SR/TB"]
+    # Gain follows normalization, so even normalized speech can otherwise hard-clip at the allowed +12 dB. The
+    # limiter works at 4x the rate (peaks between samples too), with no auto-level boost and its lookahead
+    # compensated, so cuts and captions stay aligned (loudness.limiter).
+    post += [*loudness.limiter(ceiling_dbfs), "asettb=1/48000", "asetpts=N/SR/TB"]
     # Rebuild the final clock from actual output samples, after every rate/cut/limiter operation. Source
     # delays are already represented by samples above; filter buffering must not become MP4 timestamp gaps.
     parts.append(chain + ",".join(post) + "[a]")
@@ -264,7 +268,7 @@ def _measure_audio(audio_in: list[str], segs: list[tuple[float, float]], start: 
                    duration: float, ctx: JobContext, always: bool = False) -> dict:
     """Measure the kept/downmixed/speed-adjusted audio once, without storing samples or touching the GPU. With
     normalization off it is measured only when `always` (the sound effects need the speech's loudness)."""
-    base = {"version": 1, "normalization": "off", "normalization_gain_db": 0.0}
+    base = {"version": 2, "normalization": "off", "normalization_gain_db": 0.0}
     normalize = bool(opts.get("normalize_audio", True))
     if not normalize and not always:
         return base
@@ -277,25 +281,73 @@ def _measure_audio(audio_in: list[str], segs: list[tuple[float, float]], start: 
     if result.returncode:
         raise FFmpegError("Could not measure the clip's audio. Check the source and try rendering again.")
     try:
-        # FFmpeg reports input measurements after processing the whole edited clip, including its last word.
-        blocks = re.findall(r'\{\s*"input_i"\s*:.*?\}', result.stderr.decode("utf-8", "replace"), re.S)
-        measured = json.loads(blocks[-1])
-        integrated, peak = float(measured["input_i"]), float(measured["input_tp"])
-        if math.isnan(integrated) or math.isnan(peak) or integrated == math.inf or peak == math.inf:
-            raise ValueError("invalid loudness")
-        if peak == -math.inf and integrated != -math.inf:
+        # FFmpeg reports the summary after processing the whole edited clip, including its last word.
+        measured = loudness.parse(result.stderr)
+        if measured["tp"] is None and measured["lufs"] is not None:
             raise ValueError("invalid peak")
-    except (IndexError, KeyError, TypeError, ValueError) as exc:
+    except ValueError as exc:
         raise FFmpegError("Audio measurement was incomplete. Try rendering the clip again.") from exc
+    integrated, peak = measured["lufs"], measured["tp"]
     if not normalize:
-        return {**base, "integrated_lufs": integrated if math.isfinite(integrated) else None}
+        return {**base, "integrated_lufs": integrated}
     # Ungated/silent material has no usable integrated loudness; never amplify its background noise blindly.
-    gain = min(-14.0 - integrated, -1.5 - peak, 24.0) if math.isfinite(integrated) else 0.0
-    return {**base, "normalization": "measured_fixed_gain", "target_lufs": -14.0,
-            "integrated_lufs": integrated if math.isfinite(integrated) else None,
-            "true_peak_dbfs": peak if math.isfinite(peak) else None,
-            "normalization_gain_db": gain, "max_boost_db": 24.0,
-            "peak_limited": math.isfinite(integrated) and -1.5 - peak < -14.0 - integrated}
+    gain, held = loudness.gain_for(integrated, peak)
+    return {**base, "normalization": "measured_fixed_gain", "target_lufs": loudness.TARGET_LUFS,
+            "integrated_lufs": integrated, "true_peak_dbfs": peak, "loudness_range_lu": measured["lra"],
+            "normalization_gain_db": gain, "max_boost_db": loudness.MAX_BOOST_DB, "peak_limited": held == "peaks",
+            "boost_capped": held == "cap"}
+
+
+def _check_sound(tmp_out: Path, audio_in: list[str], effects_in: list[str], segs: list[tuple[float, float]],
+                 start: float, opts: dict, ap: dict, fx_gain: float, duration: float, ctx: JobContext) -> dict:
+    """Measure the encoded file's sound (pipeline/loudness.py). When it missed the level the render aimed at by
+    more than loudness.FIX_LU, or the encoder pushed its true peak over loudness.MAX_TP, its sound is made once more
+    with the difference corrected (or a lower limiter ceiling) and the picture copied, so nothing else changes.
+    Returns what was measured, what was fixed and how it sounds ({status, note, lufs, tp, lra, fixed_db})."""
+    ctx.progress(0.96, "Checking the sound")
+    normalized = bool(opts.get("normalize_audio", True))
+    owner = float(opts.get("gain_db", 0) or 0)
+    src = ap.get("integrated_lufs") if normalized else None
+    expected = src + float(ap.get("normalization_gain_db") or 0) + owner if src is not None else None
+    try:
+        out = loudness.measure(tmp_out, ctx.cancelled, max(60.0, duration * 3))
+    except FFmpegError as exc:  # the check never fails a render that made its file
+        log.warning("sound check skipped: %s", exc)
+        return {"status": "unmeasured", "note": "The finished sound could not be measured.", "expected_lufs": expected,
+                "fixed_db": 0.0}
+    held = "cap" if ap.get("boost_capped") else "peaks" if ap.get("peak_limited") else ""
+    verdict = loudness.check(out, expected, normalized=normalized, owner_gain_db=owner, held=held)
+    fixed, ceiling = 0.0, loudness.LIMIT_DBFS
+    if verdict["fix_db"] or verdict["lower_ceiling"]:
+        fixed, ceiling = verdict["fix_db"], verdict["ceiling_dbfs"]
+        graph = _audio_filter(segs, start, opts, normalization_gain_db=ap["normalization_gain_db"],
+                              effects_label="2:a:0" if effects_in else None, effects_gain_db=fx_gain,
+                              trim_db=fixed, ceiling_dbfs=ceiling)
+        again = tmp_out.with_name("render.sound.mp4")
+        try:
+            result = run_process([ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+                                  "-i", str(tmp_out), *audio_in, *effects_in, "-filter_complex", graph,
+                                  "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-profile:a",
+                                  "aac_low", "-b:a", AUDIO_BITRATE, "-ac", "2", "-ar", "48000", "-movflags",
+                                  "+faststart", "-t", f"{duration:.6f}", str(again)],
+                                 timeout=max(120.0, duration * 6), cancel=ctx.cancelled)
+            if result.returncode or not again.exists():
+                raise FFmpegError(result.stderr.decode("utf-8", "replace")[-300:])
+            timing = audio_timing.require_valid(again, ctx.cancelled)
+            second = loudness.measure(again, ctx.cancelled, max(60.0, duration * 3))
+        except FFmpegError as exc:  # the first file stays, with what was measured on it
+            log.warning("sound fix failed: %s", exc)
+            fixed, ceiling = 0.0, loudness.LIMIT_DBFS
+        else:
+            ap["packet_timing"] = timing
+            os.replace(again, tmp_out)
+            out = second
+            verdict = loudness.check(out, expected, normalized=normalized,
+                                     owner_gain_db=owner, held=held)
+        finally:
+            again.unlink(missing_ok=True)
+    return {"status": verdict["status"], "note": verdict["note"], **out, "expected_lufs": expected,
+            "fixed_db": fixed, **({"ceiling_dbfs": ceiling} if ceiling != loudness.LIMIT_DBFS else {})}
 
 
 def _clean_sound(src: str, start: float, end: float, words_all: list[dict], opts: dict,
@@ -692,78 +744,86 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     hold_gpu = gpu.manager.heavy("video encode", project.get("name") or f"clip {clip['id']}",
                                  cancelled=ctx.cancelled, on_wait=lambda m: ctx.progress(0.03, m)) \
         if encoder == "h264_nvenc" else nullcontext()
-    with hold_gpu, open(log_path, "wb") as logf, MediaWatchdog(ctx.cancelled, max(1800.0, tl.duration * 60)) as watch:
-        dec = watch.add(subprocess.Popen(dec_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
-                                         bufsize=frame_bytes, cwd=str(clip_dir)))
-        cam_dec = watch.add(subprocess.Popen(cam_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
-                                             bufsize=cam_bytes, cwd=str(clip_dir))) if cam_cmd else None
-        cam_last = np.zeros((*cam_shape, 3), np.uint8) if cam_cmd else None
-        enc = watch.add(subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=logf,
-                                         cwd=str(out_dir), creationflags=NO_WINDOW))
-        written = 0
-        last = None
-        try:
-            for k in range(n_src_frames):
-                watch.check()
-                buf = dec.stdout.read(frame_bytes)  # type: ignore[union-attr]
-                watch.check()
-                if len(buf) == frame_bytes:
-                    last = np.frombuffer(buf, np.uint8).reshape(dh, dw, 3)
-                    if steadied is not None and steadied.moves(k):  # back onto the smoothed camera path
-                        last = cv2.warpAffine(last, steadied.matrix(k, dw, dh), (dw, dh), flags=cv2.INTER_LINEAR,
-                                              borderMode=cv2.BORDER_REPLICATE)
-                elif last is None:
-                    raise FFmpegError("Could not decode video frames for this clip.")
-                if cam_dec is not None and k >= cam_lead:
-                    got = cam_dec.stdout.read(cam_bytes)  # type: ignore[union-attr]
-                    if len(got) == cam_bytes:  # past the camera's end its last frame stays
-                        cam_last = np.frombuffer(got, np.uint8).reshape(*cam_shape, 3)
-                t_src = start + k / fps
-                if not tl.contains(t_src) or written >= n_out_frames:
-                    continue
-                # With speed > 1 some source frames are skipped; at speed 1 every kept frame is written once.
-                out_t = tl.to_out(t_src)
-                while written < n_out_frames and written <= out_t * fps + 0.5:
-                    z = float(zc[min(written, len(zc) - 1)])
-                    cx, cy = plan.cx[min(k, plan.n - 1)], plan.cy[min(k, plan.n - 1)]
-                    if steadied is not None:  # the framing was found on the picture before it was enlarged
-                        cx, cy = steadied.framed(k, cx, cy)
-                    frame = _compose(last, cx, cy, z, dw, dh, base_w, base_h, layout, fit_scale, split, cam_last)
+    try:  # effects.wav and an unfinished render.tmp.mp4 never outlive a failed or cancelled render
+        with (hold_gpu, open(log_path, "wb") as logf,
+              MediaWatchdog(ctx.cancelled, max(1800.0, tl.duration * 60)) as watch):
+            dec = watch.add(subprocess.Popen(dec_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
+                                             bufsize=frame_bytes, cwd=str(clip_dir)))
+            cam_dec = watch.add(subprocess.Popen(cam_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
+                                                 bufsize=cam_bytes, cwd=str(clip_dir))) if cam_cmd else None
+            cam_last = np.zeros((*cam_shape, 3), np.uint8) if cam_cmd else None
+            enc = watch.add(subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=logf,
+                                             cwd=str(out_dir), creationflags=NO_WINDOW))
+            written = 0
+            last = None
+            try:
+                for k in range(n_src_frames):
+                    watch.check()
+                    buf = dec.stdout.read(frame_bytes)  # type: ignore[union-attr]
+                    watch.check()
+                    if len(buf) == frame_bytes:
+                        last = np.frombuffer(buf, np.uint8).reshape(dh, dw, 3)
+                        if steadied is not None and steadied.moves(k):  # back onto the smoothed camera path
+                            last = cv2.warpAffine(last, steadied.matrix(k, dw, dh), (dw, dh), flags=cv2.INTER_LINEAR,
+                                                  borderMode=cv2.BORDER_REPLICATE)
+                    elif last is None:
+                        raise FFmpegError("Could not decode video frames for this clip.")
+                    if cam_dec is not None and k >= cam_lead:
+                        got = cam_dec.stdout.read(cam_bytes)  # type: ignore[union-attr]
+                        if len(got) == cam_bytes:  # past the camera's end its last frame stays
+                            cam_last = np.frombuffer(got, np.uint8).reshape(*cam_shape, 3)
+                    t_src = start + k / fps
+                    if not tl.contains(t_src) or written >= n_out_frames:
+                        continue
+                    # With speed > 1 some source frames are skipped; at speed 1 every kept frame is written once.
+                    out_t = tl.to_out(t_src)
+                    while written < n_out_frames and written <= out_t * fps + 0.5:
+                        z = float(zc[min(written, len(zc) - 1)])
+                        cx, cy = plan.cx[min(k, plan.n - 1)], plan.cy[min(k, plan.n - 1)]
+                        if steadied is not None:  # the framing was found on the picture before it was enlarged
+                            cx, cy = steadied.framed(k, cx, cy)
+                        frame = _compose(last, cx, cy, z, dw, dh, base_w, base_h, layout, fit_scale, split, cam_last)
+                        enc.stdin.write(frame.data)  # type: ignore[union-attr]
+                        written += 1
+                        if written % 15 == 0:
+                            if ctx.cancelled():
+                                raise Cancelled()
+                            ctx.progress(0.05 + 0.9 * written / max(1, n_out_frames), FRAMES_STEP)
+                # pad if decoding ended early
+                while written < n_out_frames and last is not None:
+                    watch.check()
+                    cx, cy = plan.cx[-1], plan.cy[-1]
+                    if steadied is not None:
+                        cx, cy = steadied.framed(n_src_frames - 1, cx, cy)
+                    frame = _compose(last, cx, cy, float(zc[-1]), dw, dh, base_w, base_h, layout, fit_scale, split,
+                                     cam_last)
                     enc.stdin.write(frame.data)  # type: ignore[union-attr]
                     written += 1
-                    if written % 15 == 0:
-                        if ctx.cancelled():
-                            raise Cancelled()
-                        ctx.progress(0.05 + 0.9 * written / max(1, n_out_frames), FRAMES_STEP)
-            # pad if decoding ended early
-            while written < n_out_frames and last is not None:
-                watch.check()
-                cx, cy = plan.cx[-1], plan.cy[-1]
-                if steadied is not None:
-                    cx, cy = steadied.framed(n_src_frames - 1, cx, cy)
-                frame = _compose(last, cx, cy, float(zc[-1]), dw, dh, base_w, base_h, layout, fit_scale, split,
-                                 cam_last)
-                enc.stdin.write(frame.data)  # type: ignore[union-attr]
-                written += 1
-            enc.stdin.close()  # type: ignore[union-attr]
-            rc = enc.wait()
-        except (BrokenPipeError, OSError) as exc:
-            enc.kill()
-            enc.wait()
-            raise FFmpegError(f"Encoder stopped unexpectedly: {_tail(log_path)}") from exc
-        except BaseException:
-            enc.kill()
-            enc.wait()
-            raise
-        finally:
-            for proc in (dec, cam_dec):
-                if proc is not None:
-                    proc.kill()
-                    proc.wait()
-            fx_path.unlink(missing_ok=True)  # only the encode reads it (and Full Cloud would download it)
-    if rc != 0 or not tmp_out.exists():
-        raise FFmpegError(f"Encoding failed: {_tail(log_path)}")
-    audio_processing["packet_timing"] = audio_timing.require_valid(tmp_out, ctx.cancelled)
+                enc.stdin.close()  # type: ignore[union-attr]
+                rc = enc.wait()
+            except (BrokenPipeError, OSError) as exc:
+                enc.kill()
+                enc.wait()
+                raise FFmpegError(f"Encoder stopped unexpectedly: {_tail(log_path)}") from exc
+            except BaseException:
+                enc.kill()
+                enc.wait()
+                raise
+            finally:
+                for proc in (dec, cam_dec):
+                    if proc is not None:
+                        proc.kill()
+                        proc.wait()
+        if rc != 0 or not tmp_out.exists():
+            raise FFmpegError(f"Encoding failed: {_tail(log_path)}")
+        audio_processing["packet_timing"] = audio_timing.require_valid(tmp_out, ctx.cancelled)
+        sound_check = _check_sound(tmp_out, audio_in, effects_in, segs, start, opts, audio_processing, fx_gain,
+                                   tl.duration, ctx) if info.get("has_audio", True) else None
+    except BaseException:
+        tmp_out.unlink(missing_ok=True)
+        raise
+    finally:
+        fx_path.unlink(missing_ok=True)  # only the encode and the sound check read it (Full Cloud would download it)
     # Versioned names: on Windows a file that the browser is still streaming cannot be replaced.
     stamp = str(int(time.time() * 1000))
     out_path = out_dir / f"clip-{stamp}.mp4"
@@ -819,6 +879,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                         **({"steady": steadied.summary(tl.to_out)} if steadied is not None else {}),
                         "colour": {**look.summary(), "denoise": bool(denoise),
                                    "noise": round(float((look_stats or {}).get("noise") or 0), 2)},
+                        **({"qc": {"version": 1, "sound": sound_check}} if sound_check is not None else {}),
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
                         "snapped_to_cut": snapped, "edit_hash": edit_hash(clip.get("edit") or {}),
                         **({"source_offset": round(float(source_offset), 3)} if source_offset else {}),

@@ -3,7 +3,7 @@ import {
   alignWords, api, AutoTrim, Clip, ClipEdit, ClipVersion, errorText, fmtPrecise, Project, Settings, TrimSuggestion,
   versionVideoUrl, Word,
 } from "../api";
-import { at, plural } from "../format";
+import { at, plural, SoundCheck, soundCheckLine } from "../format";
 import { editHash, TimeField, Timeline } from "../components/editorParts";
 import { ExportDialog, useClipPosts } from "../components/libParts";
 import { SoundCompare } from "../components/SoundCompare";
@@ -583,6 +583,8 @@ export default function ClipEditor({ id }: { id: string }) {
   const gain = num("gain_db");
   const cleanNote = String((ri.audio_processing as { clean_sound?: { summary?: string } } | undefined)
     ?.clean_sound?.summary || "");
+  const soundCheck = (ri.qc as { sound?: SoundCheck } | undefined)?.sound;
+  const levelNote = soundCheckLine(soundCheck);
   const strength = num("look_strength");
   const styled = str("look") !== "natural";
 
@@ -852,6 +854,8 @@ export default function ClipEditor({ id }: { id: string }) {
         </div>
         <SoundCompare clipId={clip.id} mode={str("clean_sound") || "auto"} />
         {cleanNote && <p className="hint">Last render: {cleanNote}</p>}
+        {levelNote && <p className={soundCheck?.status === "warn" ? "hint warn-text" : "hint"}>
+          Loudness of the last render: {levelNote}</p>}
         <div className="field">
           <span className="label" id={`${uid}-sil`}>Silence cleanup</span>
           <Segmented labelledBy={`${uid}-sil`} value={str("silence")} onChange={(v) => set({ silence: v })}

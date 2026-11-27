@@ -25,15 +25,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from ..pipeline import loudness
 from ..pipeline.captions import STYLE_PRESETS
 from ..studio import engine, interchange
 from . import apps
 from .runner import CraftError, EffectCraft, FilmCraft
 
-LOUDNESS_LUFS = -14.0      # the FFmpeg engine's loudnorm target
+LOUDNESS_LUFS = -14.0      # the FFmpeg engine's loudness target (pipeline/loudness.py)
 BLUR = 40.0                # Gaussian Blur blurriness for the background copies (FFmpeg: boxblur 20:2)
 SILENT_DB = -60.0          # where a sound fade starts or ends
 TRACK_MAP = {"Video 1": "V1"}
+
+
+def _sound_check(path: Path, info: dict) -> dict:
+    """The render report's sound check for FilmCraft's export (measured and judged; FilmCraft set its level)."""
+    if not info.get("has_audio"):
+        return {}
+    return {"qc": {"version": 1, "sound": loudness.judge(path, timeout=max(60.0, float(info["duration"]) * 3))}}
 
 
 @dataclass
@@ -376,7 +384,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
     segs = engine.render_timeline(plan, tl.fps)
     return {"engine": "filmcraft", "preview": False, "width": info["width"], "height": info["height"],
             "duration": info["duration"], "expected_duration": round(total_s, 3), "fps": info["fps"],
-            "has_audio": info["has_audio"], "audio_timing": timing, "timeline": segs,
+            "has_audio": info["has_audio"], "audio_timing": timing, "timeline": segs, **_sound_check(out_path, info),
             "audio_timeline": engine.audio_timeline(plan, segs, round(total_s * 1000)),
             "words": engine.output_words(plan, words_by_asset, segs), "captions": bool(tl.counts.get("captions")),
             "frames": tl.frames,
@@ -427,6 +435,7 @@ def render_saved(saved: Path, plan: dict, words_by_asset: dict[str, list[dict]],
     return {"engine": "filmcraft", "preview": preview, "width": info["width"], "height": info["height"],
             "duration": info["duration"], "expected_duration": round(info["duration"] if not same else plan_s, 3),
             "fps": info["fps"], "has_audio": info["has_audio"], "audio_timing": timing, "timeline": segs,
+            **_sound_check(out_path, info),
             "audio_timeline": engine.audio_timeline(plan, segs, round(plan_s * 1000)) if same else [],
             "words": engine.output_words(plan, words_by_asset, segs) if same else [], "frames": frames,
             "filmcraft": {"hand_edited": True, "project": str(saved), "same_length_as_plan": same,

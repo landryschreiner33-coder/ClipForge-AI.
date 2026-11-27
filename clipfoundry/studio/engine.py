@@ -58,16 +58,15 @@ import hashlib
 import json
 import math
 import os
-import re
 import shutil
 from pathlib import Path
 from typing import Callable
 
 from .. import config
-from ..pipeline import audio_timing, cleanup, grade, steady
+from ..pipeline import audio_timing, cleanup, grade, loudness, steady
 from . import multicam, retime, sound_joins
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
-from ..pipeline.common import Cancelled
+from ..pipeline.common import Cancelled, log
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
 
 ENGINE = "ffmpeg-v2"
@@ -1671,15 +1670,17 @@ def combine(total: int, speech: Path, ducked: Path | None, free: Path | None, ga
         del maps
 
 
-def _post(gain_db: float | None, measure: bool) -> str:
+def _post(gain_db: float | None, measure: bool, trim_db: float = 0.0,
+          ceiling_dbfs: float = loudness.LIMIT_DBFS) -> str:
+    """The mix's last steps: measured (ebur128), or its constant gain (plus `trim_db`, the check's correction)
+    and the 4x-oversampled limiter at `ceiling_dbfs` (pipeline/loudness.py)."""
     post = ["aformat=sample_fmts=dbl:sample_rates=48000:channel_layouts=stereo"]
     if measure:
-        post.append("loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json")
+        post.append(loudness.FILTER)
     else:
-        if gain_db is not None:
-            post.append(f"volume={gain_db:.6f}dB:precision=double")
-        post += ["aresample=48000", "alimiter=limit=0.841395:attack=5:release=50:level=disabled:latency=1",
-                 "asettb=1/48000", "asetpts=N/SR/TB"]
+        if gain_db is not None or trim_db:
+            post.append(f"volume={(gain_db or 0.0) + trim_db:.6f}dB:precision=double")
+        post += [*loudness.limiter(ceiling_dbfs), "asettb=1/48000", "asetpts=N/SR/TB"]
     return ",".join(post)
 
 
@@ -1687,7 +1688,10 @@ def _raw_input(path: Path) -> list[str]:
     return ["-f", "f32le", "-ar", str(SR), "-ac", "2", "-i", str(path)]
 
 
-def _measure(mixed: Path, total_s: float, work: Path, cancelled) -> float:
+def _measure(mixed: Path, total_s: float, work: Path, cancelled) -> dict:
+    """The whole mix's loudness and true peak (ebur128) and the constant gain to -14 LUFS that keeps its true peak
+    at -1.5 dBTP or under ({lufs, tp, lra, gain_db, held}: what held the gain short, see loudness.gain_for);
+    silence gets no gain."""
     result = run_process([ffmpeg_bin(), "-nostdin", "-hide_banner", "-nostats", "-loglevel", "info",
                           *_raw_input(mixed), "-filter_complex", f"[0:a]{_post(None, True)}[aout]",
                           "-map", "[aout]", "-f", "null", "-"],
@@ -1695,14 +1699,47 @@ def _measure(mixed: Path, total_s: float, work: Path, cancelled) -> float:
     if result.returncode:
         raise FFmpegError("Could not measure the video's audio: " +
                           result.stderr.decode("utf-8", "replace")[-400:])
-    blocks = re.findall(r'\{\s*"input_i"\s*:.*?\}', result.stderr.decode("utf-8", "replace"), re.S)
-    if not blocks:
-        return 0.0
-    measured = json.loads(blocks[-1])
-    integrated, peak = float(measured["input_i"]), float(measured["input_tp"])
-    if not math.isfinite(integrated):
-        return 0.0  # silence: never amplify background noise blindly
-    return max(-24.0, min(-14.0 - integrated, -1.5 - peak, 24.0))
+    try:
+        got = loudness.parse(result.stderr)
+    except ValueError:
+        got = {"lufs": None, "tp": None, "lra": 0.0}
+    gain, held = loudness.gain_for(got["lufs"], got["tp"], min_db=-24.0)
+    return {**got, "gain_db": gain, "held": held}
+
+
+def _check_sound(tmp_out: Path, level: dict, gain: float, total_s: float, cancelled, remux) -> dict:
+    """The finished file's sound, measured (pipeline/loudness.py). A missed level (over loudness.FIX_LU) or a true
+    peak the encoder pushed over loudness.MAX_TP gets the sound made once more (`remux(target, trim_db, ceiling)`:
+    the picture copied again, the mix still on disk). The check never fails a render that made its file: when it
+    cannot measure or the second try fails, the first file stays."""
+    expected = level["lufs"] + gain if level["lufs"] is not None else None
+    base = {"expected_lufs": expected, "source_lufs": level["lufs"], "source_tp": level["tp"],
+            "peak_limited": level["held"] == "peaks", "boost_capped": level["held"] == "cap"}
+    timeout = max(60.0, total_s * 3)
+    try:
+        out = loudness.measure(tmp_out, cancelled, timeout)
+    except FFmpegError as exc:
+        log.warning("sound check skipped: %s", exc)
+        return {"status": "unmeasured", "note": "The finished sound could not be measured.", "fixed_db": 0.0, **base}
+    verdict = loudness.check(out, expected, normalized=True, held=level["held"])
+    fixed, ceiling = 0.0, loudness.LIMIT_DBFS
+    if verdict["fix_db"] or verdict["lower_ceiling"]:
+        again = tmp_out.with_name(tmp_out.stem + ".sound.mp4")
+        try:
+            remux(again, verdict["fix_db"], verdict["ceiling_dbfs"])
+            audio_timing.require_valid(again, cancelled)  # what is checked on the finished file again later
+            second = loudness.measure(again, cancelled, timeout)
+        except FFmpegError as exc:
+            log.warning("sound fix failed: %s", exc)
+        else:
+            again.replace(tmp_out)
+            fixed, ceiling, out = verdict["fix_db"], verdict["ceiling_dbfs"], second
+            verdict = loudness.check(out, expected, normalized=True,
+                                     held=level["held"])
+        finally:
+            again.unlink(missing_ok=True)
+    return {"status": verdict["status"], "note": verdict["note"], **out, "fixed_db": fixed, **base,
+            **({"ceiling_dbfs": ceiling} if ceiling != loudness.LIMIT_DBFS else {})}
 
 
 def _size(plan: dict, preview: bool) -> tuple[int, int]:
@@ -2031,16 +2068,27 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         combine(total_n, buses["speech"], buses.get("ducked"), buses.get("free"), gains, mixed, cancelled)
         for bus in buses.values():
             bus.unlink(missing_ok=True)
-        gain = _measure(mixed, total_s, tmp, cancelled)
+        level = _measure(mixed, total_s, tmp, cancelled)
+        gain = level["gain_db"]
         report(0.88)
 
         # ---- the file: joined picture (stream copy) and the mixed, normalised sound
         tmp_out = out_path.with_suffix(".tmp.mp4")
-        run(["-f", "h264", "-framerate", str(fps), "-i", str(joined), *_raw_input(mixed), "-filter_complex",
-             f"[1:a]{_post(gain, False)}[aout]", "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac",
-             "-profile:a", "aac_low", "-b:a", "128k" if preview else "256k", "-ac", "2", "-ar", "48000",
-             "-movflags", "+faststart", "-t", f"{total_s:.6f}", str(tmp_out)],
-            duration=total_s, progress=lambda f: report(0.88 + 0.12 * f), cancel=cancelled, cwd=work)
+
+        def mux(target: Path, trim_db: float, ceiling: float, lo: float, hi: float) -> None:
+            run(["-f", "h264", "-framerate", str(fps), "-i", str(joined), *_raw_input(mixed),
+                 "-filter_complex", f"[1:a]{_post(gain, False, trim_db, ceiling)}[aout]", "-map", "0:v",
+                 "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-profile:a", "aac_low",
+                 "-b:a", "128k" if preview else "256k", "-ac", "2", "-ar", "48000", "-movflags", "+faststart",
+                 "-t", f"{total_s:.6f}", str(target)],
+                duration=total_s, progress=lambda f: report(lo + (hi - lo) * f), cancel=cancelled, cwd=work)
+        try:
+            mux(tmp_out, 0.0, loudness.LIMIT_DBFS, 0.88, 0.95)
+            sound = _check_sound(tmp_out, level, gain, total_s, cancelled,
+                                 lambda target, trim, ceiling: mux(target, trim, ceiling, 0.95, 0.99))
+        except BaseException:
+            tmp_out.unlink(missing_ok=True)  # a failed or cancelled render leaves no unchecked file
+            raise
         tmp_out.replace(out_path)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # raw audio and joined copies never outlive the render
@@ -2053,6 +2101,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
     return {"engine": ENGINE, "preview": preview, "width": info["width"], "height": info["height"],
             "duration": info["duration"], "expected_duration": round(total_s, 3), "fps": info["fps"],
             "has_audio": info["has_audio"], "audio_timing": timing, "normalization_gain_db": round(gain, 3),
+            "qc": {"version": 1, "sound": sound},
             "timeline": segs, "audio_timeline": placed, "ducking": ducking, "words": words,
             "sound_joins": {**joins_report, "music_back_timed_s": back_timed},
             "overlays": [{"overlay_id": o["id"], "start_f": o["start_f"], "end_f": o["end_f"]}

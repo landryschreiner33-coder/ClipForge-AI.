@@ -60,7 +60,9 @@ opinion; those are starting values, not rules.
   denoise about 10-12 dB, subtractive EQ, de-ess, compress, presence, phrase levelling, then loudness.
 - **Room tone** under every cut: a jump cut never drops to digital silence. Short crossfades on every speech edit.
 - **Music** set against measured speech loudness (15-20 LU under), ducking built from word timings with lookahead.
-- **Loudness:** two-pass linear loudnorm, −14 LUFS and −1 dBTP for YouTube, checked after the render.
+- **Loudness:** one constant gain from a BS.1770 measurement (FFmpeg `ebur128`), −14 LUFS and −1 dBTP for YouTube,
+  a 4x-oversampled limiter at −2 dBFS before the codec, and the finished file checked after the render
+  ([QC.md](QC.md)).
 
 Much of the sound chain already exists (Clean up the sound, `pipeline/cleanup.py`; measured ducking in
 `studio/engine.py`).
@@ -76,4 +78,6 @@ Much of the sound chain already exists (Clean up the sound, `pipeline/cleanup.py
 | 4b | Several cameras of one recording: lined up by their sound, switching to whoever speaks (or another angle at pauses), one camera or picture small in a corner, from the editor and plain-words requests ([MULTICAM.md](MULTICAM.md)) | built 2026-11-26 |
 | 4c | Loop endings for short clips: a tight seam, the shot size switching on it ([SHORTS_EDITING.md](SHORTS_EDITING.md), "Loop endings") | built 2026-11-27 |
 | 4d | Steadying shaky camera footage in clips and full videos, only footage that shakes ([STEADY.md](STEADY.md)) | built 2026-11-27 |
-| 5 | Automatic quality check after every render (scopes and loudness) with a back-off | planned |
+| 5a | Sound check after every render: true-peak limiter, the finished file measured, a missed level or hot peak fixed once ([QC.md](QC.md)) | built 2026-11-27 |
+| 5b | Picture check: flat cartoons and graphics kept clean by automatic colour, colours kept in the legal range ([QC.md](QC.md)) | planned |
+| 5c | The final quality check before publishing reads the same measurements ([QC.md](QC.md)) | planned |

@@ -91,10 +91,17 @@ def test_silent_or_very_quiet_audio_has_no_unbounded_gain(profile, signal):
     json.dumps(measurement, allow_nan=False)
 
 
-@pytest.mark.parametrize("stderr", [b"", b'{"input_i":"NaN","input_tp":"-1"}',
-                                    b'{"input_i":"-20","input_tp":"inf"}',
-                                    b'{"input_i":"-20","input_tp":"-inf"}',
-                                    b'{"input_i":"-20"}'])
+def _summary(i: str, peak: str | None = "-3.0") -> bytes:
+    """FFmpeg's ebur128 summary as it prints it (pipeline/loudness.parse reads the last one)."""
+    text = (f"[Parsed_ebur128_0 @ 0x1] Summary:\n\n  Integrated loudness:\n    I:         {i} LUFS\n"
+            "    Threshold: -30.0 LUFS\n\n  Loudness range:\n    LRA:         4.0 LU\n")
+    if peak is not None:
+        text += f"\n  True peak:\n    Peak:       {peak} dBFS\n"
+    return text.encode()
+
+
+@pytest.mark.parametrize("stderr", [b"", _summary("nan"), _summary("-20.0", "inf"), _summary("-20.0", "-inf"),
+                                    _summary("-20.0", None)])
 def test_missing_or_invalid_measurements_stop_the_render(profile, monkeypatch, stderr):
     from clipfoundry.pipeline import render
     from clipfoundry.pipeline.common import JobContext

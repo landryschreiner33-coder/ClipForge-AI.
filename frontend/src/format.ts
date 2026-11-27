@@ -56,3 +56,21 @@ export function zoneLine(tz?: string): string {
 
 /** A number the way people read it, or "—" when it was not reported (never estimated). */
 export const num = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n.toLocaleString("en-US"));
+
+/** The sound check after a render (a clip's render_info.qc.sound, a video version's qc.sound): how loud the finished
+ * file plays and why, and what the check corrected (pipeline/loudness.py). Empty without one or for silence; a
+ * measurement that failed says so. */
+export type SoundCheck = { status?: "pass" | "warn" | "skipped" | "unmeasured"; note?: string; lufs?: number | null;
+  tp?: number | null; fixed_db?: number; ceiling_dbfs?: number };
+export function soundCheckLine(s: SoundCheck | null | undefined): string {
+  if (!s?.note || s.status === "skipped") return "";
+  const parts = [s.note];
+  if (s.fixed_db) {
+    parts.push(`Its level was corrected by ${s.fixed_db > 0 ? "+" : "−"}${Math.abs(s.fixed_db).toFixed(1)} dB `
+      + "after the first try.");
+  }
+  if (s.ceiling_dbfs !== undefined) {
+    parts.push("Its sound was made again with the loudest peaks held lower, for the platform's own encoding.");
+  }
+  return parts.join(" ");
+}
