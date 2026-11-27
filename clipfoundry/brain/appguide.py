@@ -189,6 +189,18 @@ SECTIONS: tuple[Section, ...] = (
         ("speed", "slow motion", "slow-mo", "slowmo", "slow down", "speed up", "faster", "slower", "fast forward",
          "speed ramp", "ramp", "freeze", "freeze frame", "hold the frame", "still frame", "zoom in", "zoom out",
          "slow zoom", "pan", "ken burns", "camera move", "2x"), "projects"),
+    Section("video_cameras", "A full video with several cameras, and pictures in a corner", (
+        "Filmed with more than one camera? Put every recording in the video: the Cameras panel lines them up by "
+        "their sound (Line up and switch to whoever speaks, Line up and change angles, Only line them up).",
+        "Switch cameras: To whoever is speaking, Another angle at pauses or Off. In a corner puts one camera small "
+        "in a corner (Corner, Size); Back to one camera undoes it.",
+        "A clip's panel has Camera and From the split point. A picture over the video can sit in a corner. The "
+        "sound and captions come from the main recording.",
+        "On a video you can also tell me: “switch cameras to whoever is talking”, “put camera 2 in the bottom "
+        "right corner”."),
+        ("camera", "cameras", "multicam", "multi-cam", "multi camera", "second camera", "two cameras", "angle",
+         "angles", "camera angle", "podcast", "interview", "switch cameras", "whoever is talking", "speaker",
+         "picture in picture", "pip", "corner", "line up", "sync", "synced"), "projects"),
     Section("video_sound", "A full video's sound and music", (
         "On the video's page, Sound lists the music, voiceovers and effects; Change on each one sets its volume, "
         "the fades, Mute, Dips while people speak and Loop.",
