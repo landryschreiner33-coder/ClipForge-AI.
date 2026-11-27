@@ -436,7 +436,8 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     own click (so also under Low power or a paused feed) and is a still spark with the robot's words under Reduced
     motion (no lightning, no jolt). The Taser is the owner's picture (public/space/taser.png). The setting
     Settings → Appearance → Taser hides it. A zapped robot stands still where it was hit until its reaction ends
-    (OfficeMotion.stun; its job and route are untouched) and then walks on.
+    (OfficeMotion.stun; its job and route are untouched) and then walks on; a robot carrying or receiving a handoff
+    is never held (real work goes first).
     The owner's 2026-11-26 polish (without GSAP): pop-ups (dialogs, menus, the small-window menu, notes) ease in and
     out, rows moved up or down slide to their place (smooth.ts), the ship's camera glides to a picked room and the
     Brain graph's zoom and Fit glide. A closing is played by an inert copy, never by the real element, and all of it

@@ -15,6 +15,9 @@ finished video, and moving a file or scene up or down slides it into place. GSAP
   `getByText` (never through `getByRole`). Pop-ups with an iframe, video, audio, canvas, object or embed skip the
   copy. The Taser's sway must stay on `rotate`/`translate` and the lunge on `transform`, or they fight again.
   Everything checks `data-motion="reduced"` itself because Web Animations ignore the CSS kill switch.
+  Code that asks "is a dialog or menu open?" must skip copies (`.dialog:not(.leaving *)`, `LIVE_ITEM` in ui.tsx).
+- **Captions in the finished video:** a page's first Dialogue line now pops every word (each word's own size,
+  `\fscx{size*pop/100}…\t(0,90,\fscx{size})`, given again after each `{\r}`); later lines are unchanged.
 
 ## ClipForge AI watches and listens — 2026-11-26 (Claude Code, cloud session)
 

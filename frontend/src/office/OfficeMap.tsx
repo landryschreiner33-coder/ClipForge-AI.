@@ -189,7 +189,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       const lowPower = state.officeActivity === "low_power";
       const still = state.reduce || frozen || lowPower;
       // a zapped robot stands still while its reaction plays, then walks on (OfficeMotion.stun)
-      for (const [id, z] of zaps) motion.stun(id, z.start + ZAP_MS[z.kind]);
+      motion.stun(Array.from(zaps, ([id, z]): [string, number] => [id, z.start + ZAP_MS[z.kind]]));
       motion.tick(dt, now, state.reduce || lowPower, frozen, state.officeActivity === "full");
       // pixel crew step at about 12 frames a second; a still picture only needs to follow real changes. A Taser zap
       // plays smoothly, at 30 frames a second, even on a still ship (it is the person's own click).

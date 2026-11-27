@@ -20,12 +20,22 @@ Branch `claude/project-thread-wkj3fp`.
 - **Glides:** picking a room on the ship glides the camera there (450 ms, OfficeMap.tsx; not under Reduced motion or
   Low power). The Brain graph's zoom buttons, arrow keys, 0 and Fit glide the view (260 ms, BrainGraph.tsx); a drag
   stops a glide.
-- **Caption preview** (Brain → Styles) plays the export's pop on each new line (90 ms from the preset's `pop`,
-  captions.py) and High energy's bigger current word; it re-renders 20 times a second instead of every frame.
+- **Caption pop, preview and video:** Brain → Styles' preview pops each new page (90 ms from the preset's `pop`)
+  and shows High energy's bigger current word; it re-renders 20 times a second instead of every frame. The finished
+  video's pop (captions.py `build_ass`) only reached the first word (a word's own look ends with `{\r}`, which also
+  ended the pop) and not at all in High energy (its lit word is drawn bigger): now every word of a page's first line
+  grows in together, each to its own size (`test_a_new_caption_page_pops_every_word_not_only_the_first`).
 - **Reordering slides:** files on Make a YouTube video and scenes of an animated short slide to their new place
   (FLIP, `useSlide`).
 - Everything is instant under Reduced motion and visible to `document.getAnimations()` (the demo recorder and the
   browser checks step it). No new dependency.
+- **Review (3 reviewers, a verifier per finding), all fixed:** the Office's and Studio's Escape now skip a fading
+  dialog copy (`.dialog:not(.leaving *)`); a copy keeps the original's scroll and list choices; a robot carrying or
+  receiving a handoff is never held by a zap, and a stun ends at its time even while the feed is frozen (the list
+  of stuns is replaced every frame); a reorder during a slide measures places without the slide and carries on from
+  where each row is shown; a menu reopened while its copy fades focuses its real first item; the Brain map's glide
+  never steps backwards on its first frame, and a drag or new glide starts from the view last asked for.
+- Video of every change: /mnt/project-files/smooth-polish/smooth-polish.mp4 (record.js beside it).
 
 ## ClipForge AI watches and listens — 2026-11-26 (Claude Code)
 

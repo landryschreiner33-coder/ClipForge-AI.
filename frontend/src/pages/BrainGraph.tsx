@@ -126,6 +126,12 @@ export default function BrainGraph({
   // motion or in a hidden tab.
   const shown = useRef(view);
   shown.current = view;
+  // the view as last asked for: a glide's step or a drag can be a frame ahead of what React has drawn, and a drag or a
+  // new glide must go on from there (or the map would jump back a step)
+  const show = (next: View) => {
+    shown.current = next;
+    setView(next);
+  };
   const glide = useRef<{ frame: number; to: View | null }>({ frame: 0, to: null });
   const stopGlide = () => {
     cancelAnimationFrame(glide.current.frame);
@@ -134,13 +140,14 @@ export default function BrainGraph({
   const glideTo = (next: View) => {
     stopGlide();
     if (reduceMotion || pageHidden || typeof requestAnimationFrame !== "function") {
-      setView(next);
+      show(next);
       return;
     }
     const from = shown.current, began = performance.now();
     const step = (now: number) => {
-      const u = Math.min(1, (now - began) / VIEW_GLIDE_MS), k = 1 - (1 - u) ** 3;
-      setView(u >= 1 ? next : { x: from.x + (next.x - from.x) * k, y: from.y + (next.y - from.y) * k,
+      // a frame's time can be a little before the press (it is when the frame began): never step backwards
+      const u = Math.max(0, Math.min(1, (now - began) / VIEW_GLIDE_MS)), k = 1 - (1 - u) ** 3;
+      show(u >= 1 ? next : { x: from.x + (next.x - from.x) * k, y: from.y + (next.y - from.y) * k,
         width: from.width + (next.width - from.width) * k, height: from.height + (next.height - from.height) * k });
       if (u < 1) glide.current.frame = requestAnimationFrame(step);
       else glide.current = { frame: 0, to: null };
@@ -152,7 +159,7 @@ export default function BrainGraph({
   useEffect(() => () => cancelAnimationFrame(glide.current.frame), []);
   useEffect(() => {
     stopGlide();
-    setView(home);
+    show(home);
   }, [home]);
   // the galaxy follows the map's pan and zoom and otherwise holds still (decoration: the map moves only when used)
   const galaxy = useRef<HTMLDivElement>(null);
@@ -271,7 +278,7 @@ export default function BrainGraph({
     if (!drag.current || !svg.current) return;
     const rect = svg.current.getBoundingClientRect();
     const scale = Math.max(drag.current.view.width / rect.width, drag.current.view.height / rect.height);
-    setView({
+    show({
       ...drag.current.view,
       x: drag.current.view.x - (event.clientX - drag.current.x) * scale,
       y: drag.current.view.y - (event.clientY - drag.current.y) * scale,

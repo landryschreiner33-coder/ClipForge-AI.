@@ -541,6 +541,9 @@ export type MenuItem =
   | { label: ReactNode; onSelect?: () => void; href?: string; external?: boolean; danger?: boolean; icon?: IconName; disabled?: string }
   | "separator";
 
+/** A menu's items, leaving out those of a closed menu's copy that is still fading away (smooth.ts). */
+const LIVE_ITEM = '[role="menuitem"]:not(.leaving *)';
+
 /**
  * Keyboard and pointer behaviour for a menu button: opening focuses the first item, arrows and Home/End move between
  * items, Escape closes and gives focus back to the button, and Tab or a click elsewhere closes.
@@ -552,14 +555,14 @@ export function useMenu(open: boolean, setOpen: (open: boolean) => void) {
   const menu = useLeave<HTMLDivElement>("menu");
   useEffect(() => {
     if (!open) return;
-    wrap.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    wrap.current?.querySelector<HTMLElement>(LIVE_ITEM)?.focus();
     const away = (e: MouseEvent) => wrap.current && !wrap.current.contains(e.target as Node) && setOpen(false);
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
   }, [open, setOpen]);
   const onKey = (e: ReactKeyboardEvent) => {
     if (!open) return;
-    const all = Array.from(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') || []);
+    const all = Array.from(wrap.current?.querySelectorAll<HTMLElement>(LIVE_ITEM) || []);
     const i = all.indexOf(document.activeElement as HTMLElement);
     if (e.key === "Escape") {
       e.preventDefault();

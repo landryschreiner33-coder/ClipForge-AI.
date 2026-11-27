@@ -22,7 +22,7 @@ export function arrive(els: Element[], how: "page" | "tab", settle = true) {
   for (const el of els) {
     if (typeof (el as HTMLElement).animate !== "function") continue;
     // a dialog or panel fixed to the window keeps its place: content holding one only fades
-    const fixed = !!el.querySelector(".dialog-bg, .customize, .drawer-bg");
+    const fixed = !!el.querySelector(".dialog-bg:not(.leaving), .customize, .drawer-bg:not(.leaving)");
     const rise = how === "page" ? 14 : 8;
     (el as HTMLElement).animate(fixed
       ? [{ opacity: 0 }, { opacity: 1 }]

@@ -242,29 +242,38 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
             texts = [_escape(w["w"].strip()) for w in chunk]
             if p["upper"]:
                 texts = [t.upper() for t in texts]
-            if emph:  # key words keep their own color (and a slight size bump) for the whole chunk
-                texts = [f"{{\\c{emph}\\fscx108\\fscy108}}{t}{{\\r}}" if w.get("em") else t
-                         for t, w in zip(texts, chunk)]
-            pop = f"{{\\fscx{p['pop']}\\fscy{p['pop']}\\t(0,90,\\fscx100\\fscy100)}}" if p["pop"] else ""
+            marked = [bool(emph and w.get("em")) for w in chunk]
+
+            def line(lit: int | None, popping: bool) -> str:
+                """One caption line: the word `lit` in the highlight colour (None: none lit), key words in their own
+                colour, and on a page's first line every word pops: it starts at `pop` % of its own size and grows to
+                it in 90 ms, all together (each `{\\r}` ends a word's own look, so the pop is given again after it)."""
+                def size(scale: int) -> str:
+                    if popping and p["pop"]:
+                        first = round(scale * p["pop"] / 100)
+                        return f"\\fscx{first}\\fscy{first}\\t(0,90,\\fscx{scale}\\fscy{scale})"
+                    return f"\\fscx{scale}\\fscy{scale}" if scale != 100 else ""
+                parts, plain = [], size(100)  # what plain words need at the start and after a word with its own look
+                for k, t in enumerate(texts):
+                    if marked[k]:  # a key word keeps its colour and a slight size bump, lit or not
+                        parts.append(f"{{\\c{emph}{size(108)}}}{t}{{\\r}}")
+                    elif k == lit:
+                        parts.append(f"{{\\c{highlight}{size(p['word_scale'])}}}{t}{{\\r}}")
+                    else:
+                        parts.append(f"{{{plain}}}{t}" if plain and (k == 0 or marked[k - 1] or k - 1 == lit) else t)
+                return " ".join(parts)
+
             if not highlight_on:
-                lines.append(f"Dialogue: 1,{_ass_time(c_start)},{_ass_time(c_end)},{caption_at(c_start)}{pop}"
-                             + " ".join(texts))
+                lines.append(f"Dialogue: 1,{_ass_time(c_start)},{_ass_time(c_end)},{caption_at(c_start)}"
+                             + line(None, True))
                 continue
             for wi, w in enumerate(chunk):
                 w_start = c_start if wi == 0 else w["start"]
                 w_end = chunk[wi + 1]["start"] if wi + 1 < len(chunk) else c_end
                 if w_end - w_start < 0.02:
                     continue
-                parts = []
-                for k, t in enumerate(texts):
-                    if k == wi:
-                        grow = (f"\\fscx{p['word_scale']}\\fscy{p['word_scale']}" if p["word_scale"] != 100 else "")
-                        parts.append(f"{{\\c{highlight}{grow}}}{t}{{\\r}}")
-                    else:
-                        parts.append(t)
-                lead = pop if wi == 0 else ""
-                lines.append(f"Dialogue: 1,{_ass_time(w_start)},{_ass_time(w_end)},{caption_at(c_start)}{lead}"
-                             + " ".join(parts))
+                lines.append(f"Dialogue: 1,{_ass_time(w_start)},{_ass_time(w_end)},{caption_at(c_start)}"
+                             + line(wi, wi == 0))
     return "\n".join(lines) + "\n"
 
 
