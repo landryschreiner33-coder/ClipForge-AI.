@@ -47,10 +47,12 @@ def _encode(path: Path, frames, w: int = W, h: int = H, fps: int = FPS) -> Path:
 
 
 def _camera(path: Path, seconds: float = 3.0, shake: float = 0.012, roll: float = 0.4, pan: float = 0.0,
-            seed: int = 1, hud: bool = False, w: int = W, h: int = H, fps: int = FPS, sky: bool = False) -> Path:
+            seed: int = 1, hud: bool = False, w: int = W, h: int = H, fps: int = FPS, sky: bool = False,
+            mark: str = "") -> Path:
     """A camera over a busy scene: hand shake (3 and 7 Hz, `shake` of the width; `roll` degrees), a pan (`pan`
-    widths a second), with `hud`, a game's fixed HUD drawn over it (the same size in pixels at any `w`), and with
-    `sky`, a plain sky over the top half (nothing to follow in the picture's top corners)."""
+    widths a second), with `hud`, a game's fixed HUD drawn over it (the same size in pixels at any `w`), with
+    `sky`, a plain sky over the top half (nothing to follow in the picture's top corners), and with `mark` "date" or
+    "logo", a camcorder's thin date stamp (bottom right) or a half-transparent channel logo (top right)."""
     import cv2
 
     big = _scene(int(w * 1.6), int(h * 1.6), seed)
@@ -76,6 +78,15 @@ def _camera(path: Path, seconds: float = 3.0, shake: float = 0.012, roll: float 
                 cv2.rectangle(f, (w - 110, h - 110), (w - 10, h - 10), (40, 40, 40), -1)
                 for i in range(12):
                     cv2.circle(f, (w - 100 + 8 * i, h - 60 + (i % 3) * 10), 3, (200, 200, 50), -1)
+            s = w / 640
+            if mark == "date":
+                cv2.putText(f, "NOV 27 2026  12:04", (int(w - 200 * s), int(h - 14 * s)), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5 * s, (255, 200, 40), max(1, int(round(s))), cv2.LINE_AA)
+            elif mark == "logo":
+                over = f.copy()
+                cv2.putText(over, "TV1", (int(w - 60 * s), int(28 * s)), cv2.FONT_HERSHEY_DUPLEX, 0.7 * s,
+                            (255, 255, 255), max(1, int(round(2 * s))), cv2.LINE_AA)
+                f = cv2.addWeighted(over, 0.5, f, 0.5, 0)
             yield f
     return _encode(path, frames(), w, h, fps)
 
@@ -172,6 +183,11 @@ def test_a_game_s_hud_or_a_screen_s_toolbar_is_never_steadied(tmp_path):
         src = _camera(tmp_path / f"fast{hud}.mp4", shake=0.005, roll=0.0, hud=hud, w=1280, h=720, fps=60)
         shot = steady.plan(steady.measure(str(src), 0.0, 3.0, 60, (1280, 720))).shots[0]
         assert shot["steadied"] is not hud and (shot.get("why") == "fixed overlay") is hud, (hud, shot)
+    # a camcorder's thin date stamp and a half-transparent channel logo, each alone in a corner of a 720p picture
+    for mark in ("date", "logo"):
+        src = _camera(tmp_path / f"{mark}.mp4", shake=0.008, roll=0.3, w=1280, h=720, mark=mark)
+        shot = steady.plan(steady.measure(str(src), 0.0, 3.0, FPS, (1280, 720))).shots[0]
+        assert shot["why"] == "fixed overlay", (mark, shot)
 
 
 def _track(shake: np.ndarray, t0: float = 10.0, still: float = 0.0) -> steady.Track:
@@ -391,6 +407,105 @@ def test_steadying_is_a_setting_the_editors_full_cloud_and_requests_know():
     for value in (True, False):
         snap = guidance.resolve("full_video", settings={**config.DEFAULT_SETTINGS, "stabilize": value}, context={})
         assert engine.default_color(snap["values"])["steady"] is value
+
+
+def _rules(text: str, steady_on: bool, held: tuple[int, ...] = ()) -> object:
+    """What the plain-words rules make of `text` in a four-clip video (steadying on or off; `held`: clips kept as
+    shot): the changes, "already" (nothing to change), "AI" (not the rules') or the question asked."""
+    from clipfoundry.studio import edit_requests, engine
+
+    clips = [{"id": f"c{i}", "asset_id": "a1", "label": f"Clip {i}", "in_ms": (i - 1) * 3000, "out_ms": i * 3000,
+              "include": True, "kind": "video", **({"steady": False} if i in held else {})} for i in range(1, 5)]
+    plan = {"schema": engine.SCHEMA, "timebase": 1000, "engine": engine.ENGINE, "output": {"aspect": "16:9", "fps": 30},
+            "layout": "fill", "clips": clips, "transition": {"type": "cut", "ms": 0},
+            "title": {"enabled": False, "text": "", "ms": 2500}, "audio": [], "tracks": engine.default_tracks(),
+            "captions": {"enabled": True, "style": "clean", "position": "bottom", "size": "medium"},
+            "word_fixes": {}, "outline": [], "notes": [], "color": {**engine.default_color({}), "steady": steady_on}}
+    got = edit_requests.by_rules(text, plan, edit_requests.clip_rows(plan, {}))
+    if got is None:
+        return "AI"
+    if "explain" in got:
+        return "already" if "already" in got["explain"] else got["explain"]
+    if "question" in got:
+        return "asked"
+    return [(o.get("clip_id"), o["field"], o["value"]) for o in got["operations"]]
+
+
+def test_plain_words_keep_or_steady_the_shake_as_meant():
+    """The second check's phrases: every way of saying no to the steadying keeps the shake; complaints steady it;
+    a camera, a freeze, a look, the sound or a shake effect said with a shake word belongs to another rule."""
+    keep = [(None, "steady_footage", False)]
+    for text in ("I don't want it stabilized", "i do not want the footage stabilised", "I don't need stabilization",
+                 "undo the stabilization", "disable the steadying", "remove stabilisation", "cancel the stabilization",
+                 "revert the stabilization", "take off the stabilization", "stop the stabilization",
+                 "please don't remove the shake", "don't take out the shake", "the shake is intentional",
+                 "the shake is on purpose", "I want it shaky", "leave it shaky", "I like the shake"):
+        assert _rules(text, True) == keep and _rules(text, False) == "already", text
+    for text in ("I don't like the shake", "I don't want it shaky", "keep it from shaking", "make it less shaky",
+                 "don't leave it shaky", "leave nothing shaky", "the camera wobbles too much, steady it",
+                 "the shake isn't intentional", "it's supposed to be steady but it shakes"):
+        assert _rules(text, False) == [(None, "steady_footage", True)] and _rules(text, True) == "already", text
+    for text in ("use camera 2, camera 1 is too shaky", "show the other camera, this one is shaky",
+                 "switch to the wide shot, the close one is shaky", "freeze the frame when it gets shaky",
+                 "hold the frame at the shaky bit", "keep the volume steady, it's shaky", "the music is shaky",
+                 "add camera shake on the drop", "shake the screen on the beat", "add some shake",
+                 "slow down the shaky part"):
+        assert _rules(text, False) == "AI" and _rules(text, True) == "AI", text
+    # a look and the steadying in one breath: both are done (neither eats the other)
+    assert _rules("make it warmer and less shaky", False) == [(None, "look", "warm"), (None, "steady_footage", True)]
+    assert _rules("make captions bigger and steady the footage", False) == [
+        (None, "caption_size", "large"), (None, "steady_footage", True)]
+    # clips kept as shot: steadying the whole video steadies them too; one named is steadied alone
+    both = [("c2", "steady", True), ("c4", "steady", True)]
+    assert _rules("the footage is too shaky", True, (2, 4)) == both
+    assert _rules("stabilize everything", False, (2, 4)) == [(None, "steady_footage", True)] + both
+    assert _rules("steady clip 2", True, (2, 4)) == [("c2", "steady", True)]
+    assert _rules("steady the shaky part", True, (2, 4)) == "AI"  # which one: the AI service picks it
+    assert _rules("steady clip 3 too", True, (2, 4)) == "already"
+
+
+def test_the_full_video_measures_each_file_on_its_own_frame_rate(monkeypatch, tmp_path):
+    """A 60 fps file (or a 24 fps one) in a 30 fps video is measured on its own frames, from one of them: the
+    corrections are given per file frame, before the video's frame rate is applied."""
+    from clipfoundry.studio import engine
+
+    seen = []
+    monkeypatch.setattr(steady, "for_stretch", lambda path, t0, length, fps, size, **kw: seen.append((t0, fps, kw)))
+    for rate in (60.0, 24.0, 30000 / 1001):
+        seen.clear()
+        assets = {"a1": {"path": str(tmp_path / "a.mp4"), "probe": {"width": 1920, "height": 1080, "fps": rate}}}
+        els = [{"kind": "video", "asset_id": "a1", "clip": {"in_ms": 1517, "out_ms": 4517}}]
+        engine.steady_plans({"color": {"steady": True}}, els, assets, 30, tmp_path / "piece", None)
+        (t0, fps, kw), = seen
+        assert fps == rate and kw["exact"] and kw["span"] == (1.517, 4.517)
+        assert abs(t0 * rate - round(t0 * rate)) < 1e-6 and t0 <= 1.517 - engine.STEADY_MARGIN_S + 0.5 / rate
+
+
+@needs_ffmpeg
+def test_a_handheld_follow_shot_at_60_fps_is_steadied(tmp_path):
+    """The camera walks with a person who stays in the middle of the picture while the background slides past: the
+    person stays put on screen apart from the shake, which is not a fixed overlay (judged over a tenth of a second,
+    where the camera's move is large enough to tell, also at 60 fps)."""
+    import cv2
+
+    big, body = _scene(W * 3, int(H * 1.6), 1), _scene(160, 220, 4)
+    mask = np.zeros((220, 160), np.uint8)
+    cv2.ellipse(mask, (80, 110), (77, 107), 0, 0, 360, 255, -1)
+
+    def frames():
+        for k in range(180):
+            t = k / 60
+            jx = 0.004 * W * (0.6 * math.sin(2 * math.pi * 3.1 * t) + 0.4 * math.sin(2 * math.pi * 7.3 * t))
+            jy = 0.004 * W * (0.6 * math.sin(2 * math.pi * 2.7 * t + 1) + 0.4 * math.sin(2 * math.pi * 6.1 * t))
+            f = cv2.warpAffine(big, np.float32([[1, 0, W / 2 - W - 0.2 * W * t - jx],
+                                                [0, 1, H / 2 - big.shape[0] / 2 - jy]]), (W, H))
+            ms = np.float32([[1, 0, W / 2 - 80 - jx], [0, 1, H / 2 - 80 - jy]])
+            on = cv2.warpAffine(mask, ms, (W, H)) > 127
+            f[on] = cv2.warpAffine(body, ms, (W, H))[on]
+            yield f
+    src = _encode(tmp_path / "follow.mp4", frames(), fps=60)
+    shot = steady.plan(steady.measure(str(src), 0.0, 3.0, 60, (W, H))).shots[0]
+    assert shot["steadied"] and shot.get("why") is None, shot
 
 
 def _measure_output(path: Path, seconds: float) -> float:

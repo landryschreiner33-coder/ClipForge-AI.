@@ -13,7 +13,7 @@ clip renderer (`pipeline/render.py`, every short clip, Autopilot clips included)
 | Clip editor → Colour | Steady shaky camera footage, and what the last render did ("steadied 4.2 s of shaky footage, 6 % closer to hide the edges") |
 | Full-video editor → Colour | Steady shaky camera footage (the whole video), and what the last render steadied in each clip |
 | Full-video editor → a clip | Steady this clip when it shakes (off keeps that clip as shot) |
-| Plain words in the full-video editor | "the footage is too shaky", "I don't like how shaky it is", "stop it from shaking", "stabilize it"; "keep the handheld shake", "don't stabilize it", "turn off stabilization" |
+| Plain words in the full-video editor | "the footage is too shaky", "I don't like how shaky it is", "stop it from shaking", "stabilize it" (also steadies the clips kept as shot; "steady clip 2" only that one); "keep the handheld shake", "don't stabilize it", "turn off stabilization", "undo the stabilization", "I don't want it stabilized", "the shake is intentional", "I want it shaky" |
 
 ## What happens
 
@@ -31,8 +31,11 @@ clip renderer (`pipeline/render.py`, every short clip, Autopilot clips included)
 - **Nothing fixed on top.** A shot is left alone when, in a third of its frames or more, some point stays put where
   the camera's move should have shifted it by a pixel or more (a game's HUD, a screen's toolbar, a channel logo:
   steadying would make them shake). A roll moves the edges more than the middle, so this is judged point by point,
-  and a small move between frames (60 fps) is looked at over a few frames. A shaky shot whose picture never moved
-  enough to look for such points is left alone ("cannot tell"). A clip with a face cam layout (split, picture in
+  over about a tenth of a second (every 3rd frame at 30 fps, every 6th at 60: from one frame to the next a person
+  the camera walks with, or a slow move, often shifts too little to tell), with three times as many points, more of
+  them in each corner of the picture (a thin date stamp or a half-transparent logo is outranked by the busy picture
+  elsewhere), followed in smaller windows (a thin letter is not pulled along by the picture moving around it). A
+  shaky shot whose picture never moved enough to look for such points is left alone ("cannot tell"). A clip with a face cam layout (split, picture in
   picture, game) shows a screen and is never steadied.
 - **No edges.** Each shot is enlarged just enough to hide the moving edges (at most 10 %), chosen so 98 % of its
   frames get their whole correction; the few that would need more are corrected as far as the edges allow. A shot
@@ -55,8 +58,9 @@ The face tracking reads the picture before it is steadied, so the framing's cent
 back); punch-ins and captions work on the steadied picture. In full videos a `sendcmd` file drives FFmpeg's `rotate`
 (only when the footage tilts) and `crop` filters frame by frame, right after the file is read and before speed
 changes, so a slowed or sped-up clip is steadied on its own frames. There the measurement reads the file's own
-frames (frame k is the one nearest `t0 + k / fps`, whatever the file's frame rate and wherever the clip starts), as
-the corrections are timed by the file's frame times. A camera of another recording (several
+frames at the file's own frame rate, from one of them (frame k is the one nearest `t0 + k / rate`, wherever the clip
+starts), as the corrections are given per file frame before the video's frame rate is applied: a 60 fps file in a
+30 fps video gets all its frames corrected, and a 24 fps pan is not read as a staircase of repeated frames. A camera of another recording (several
 cameras, or one in a corner) is not steadied with this one's moves.
 
 The render notes keep it: `render_info.steady` (short clips) and the full video's `steady` = `{seconds, zoom,
@@ -69,20 +73,24 @@ render says so.
 
 ## Tests
 
-`tests/test_steady.py` (11 fast, 2 real renders): synthetic footage made of busy shapes, filmed by a camera that
+`tests/test_steady.py` (14 fast, 2 real renders): synthetic footage made of busy shapes, filmed by a camera that
 shakes at 3 and 7 Hz and tilts. Shaky footage is found and steadied to under a fifth of its shake with no edge
 showing, also under a plain sky (hand tremor in the shake); a tripod shot, a smooth pan and a person moving in front
 of a still camera (busy or plain wall, and a close-up filling half a plain-walled picture) are left alone; a HUD over shaky gameplay is never steadied, also when
 the shake is nearly all roll and at 60 fps with a small HUD in a 1280x720 picture (the same footage without it is
-steadied); a pan stays while the shake goes; a violent shake is capped at the largest zoom; a cut splits the shots
+steadied), and a camcorder's thin date stamp or a half-transparent logo alone in a corner of a 720p picture; a
+handheld follow shot at 60 fps (the person stays in the middle while the background slides past) is steadied; a pan
+stays while the shake goes; a violent shake is capped at the largest zoom; a cut splits the shots
 and only the shaky one is steadied; only the part a clip shows decides and is reported (in its own seconds), a jolt
 after its end changes nothing, a shake with nothing to tell a HUD by is left alone, and the framing's centre follows
 the enlargement; the full-video measurement reads the file's own frames at 25 and 30 fps from starts between two
-milliseconds; a clip is measured whole (a shaky insert between tripod shots is found) and a long calm stretch only
+milliseconds, at the file's own frame rate (60, 24 and 29.97 fps files in a 30 fps video); a clip is measured whole (a shaky insert between tripod shots is found) and a long calm stretch only
 sampled and remembered; the full-video filter graph shows the same picture as the clip renderer's warp after a
 seek; the setting everywhere it is read (Settings through the editing choices, clip edits, Full Cloud, plans, the
 editors, plain words: complaints steady, a "no" to steadying keeps the shake, "a steady zoom" or "a handheld look"
-are not this, and each change is listed so it can be applied); a real short clip renders under a third as shaky; a
+are not this, and each change is listed so it can be applied; every way of undoing or refusing the steadying keeps
+the shake; cameras, freeze frames, the sound and shake effects said with a shake word are other rules'; a look and
+the steadying in one request are both done; clips kept as shot are steadied with the whole video); a real short clip renders under a third as shaky; a
 full video steadies its shaky 25 fps clip read from 1.367 s and leaves the steady one as it is.
 
 ## Not verified yet

@@ -344,9 +344,10 @@ def steady_on(plan: dict) -> bool:
 def steady_plans(plan: dict, els: list[dict], assets: dict[str, dict], fps: int, cache: Path,
                  cancelled=None) -> dict[int, "steady.Plan"]:
     """The steadying of each video element that shakes (pipeline/steady.py), measured over its clip's part of the
-    recording (and STEADY_MARGIN_S either side) on the output's frame grid, frame k being the file's frame nearest
-    t0 + k / fps (the sendcmd file times each correction by the file's own frame times); only the clip's own part
-    decides. A clip set to "steady": false, a freeze frame and a photo are left as they are."""
+    recording (and STEADY_MARGIN_S either side) on the file's own frames (its own frame rate, whatever the video's:
+    the sendcmd file gives each file frame its own correction before any change of frame rate, so a 60 fps file in
+    a 30 fps video, or a 24 fps one whose frames the video repeats, is steadied frame by frame); only the clip's own
+    part decides. A clip set to "steady": false, a freeze frame and a photo are left as they are."""
     out: dict[int, steady.Plan] = {}
     if not steady_on(plan):
         return out
@@ -361,14 +362,15 @@ def steady_plans(plan: dict, els: list[dict], assets: dict[str, dict], fps: int,
         size = (int(info.get("width") or 0), int(info.get("height") or 0))
         if min(size) <= 0:
             continue
+        rate = float(info.get("fps") or fps)  # the file's own frames
         t0 = max(0.0, int(clip["in_ms"]) / 1000 - STEADY_MARGIN_S)
-        t0 = round(t0 * fps) / fps  # on the output's frame grid, like the pieces read from it
+        t0 = round(t0 * rate) / rate
         length = int(clip["out_ms"]) / 1000 + STEADY_MARGIN_S - t0
         span = (int(clip["in_ms"]) / 1000, int(clip["out_ms"]) / 1000)
         key = (a["path"], t0, round(length, 3), span)
         if key not in done:
             _check(cancelled)
-            done[key] = steady.for_stretch(a["path"], t0, length, fps, size, cache=folder, cancelled=cancelled,
+            done[key] = steady.for_stretch(a["path"], t0, length, rate, size, cache=folder, cancelled=cancelled,
                                            span=span, exact=True)
         if done[key] is not None:
             out[k] = done[key]

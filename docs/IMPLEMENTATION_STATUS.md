@@ -13,6 +13,8 @@ are ([docs/clipforge/STEADY.md](clipforge/STEADY.md)). Not released. Details: [A
 | 2026-11-27 | `pytest tests/test_steady.py -m slow` | 2 passed (a short clip and a full video, real renders) |
 | 2026-11-27 | review: 2 reviewers with their own probes | 10 problems (HUD with roll or at 60 fps, clips sampled not measured, close-up on a plain wall, margins counted, framing centre, engine a frame off, requests never offered, Settings not reaching full videos, plain words backwards) - all fixed with tests |
 | 2026-11-27 | the reviewers' probes again after the fixes | HUD rolled/60 fps: fixed overlay; shaky insert in a 30 s clip: found; close-up on a plain wall: not the camera; exact grid at 25/30/60 fps and 29.97: 0 shifted starts of 15 |
+| 2026-11-27 | second review: 2 reviewers with their own probes | 10 problems (engine on the video's frame grid for 60/24/25 fps files, 60 fps follow shot taken for an overlay, date stamp and faint logo missed, plain-word refusals, camera/freeze/look/volume requests taken, "warmer and less shaky" half done, shake effects, clips kept as shot) - all fixed with tests |
+| 2026-11-27 | the second review's probes again | engine at 24/25/30/50/60 fps from 4 in points under a 30 fps video: shake left 7-9 % of the raw; 24/25 fps tripod pans left alone; follow shots at 30/60 fps steadied; date stamp, logo and half-transparent logo at 640 and 1280 wide: fixed overlay; plain shaky, sky, person and pan footage unchanged |
 
 Not verified: real handheld phone footage, walking shots and real games (the cloud has only synthetic video).
 

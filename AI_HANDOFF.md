@@ -13,8 +13,11 @@ to hide the edges; a tripod shot, a pan, a game or a screen recording stays exac
 - **Rules to keep:** never steady footage that does not shake, a person moving in front of a still camera, or
   anything with a fixed overlay (HUD, toolbar, logo); never show an edge; old full-video plans (no `color.steady`)
   render as before. Turning `stabilize` off renders exactly as before. The clip renderer's measurement must read
-  frames exactly as its decoder does (`-ss` in ms, plain `fps`); the engine's must read the file's own frame times
-  (`exact=True`). Bump `steady.VERSION` whenever what a cached Track means changes.
+  frames exactly as its decoder does (`-ss` in ms, plain `fps`); the engine's must read the file's own frames at
+  the file's own frame rate (`exact=True`, `rate` from the probe): the sendcmd corrections are per file frame.
+  Whether something stays put is judged over ~0.1 s (`gap`) with `_move(dense=True)` (corner boxes, small windows);
+  a 60 fps follow shot must stay steadied and a date stamp must stay an overlay (tests). Bump `steady.VERSION`
+  whenever what a cached Track means changes (now 3).
 - **For the AI thread:** `stabilize` is a new Settings key and clip edit; full-video requests can set
   `steady_footage` and a clip's `steady`. ClipForge AI's settings summary (`brain/toolbox._SETTINGS_WORDS`) and
   tools do not know them yet.

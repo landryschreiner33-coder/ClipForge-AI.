@@ -38,7 +38,17 @@ Batch 4d of Landry's "majorly improve the editing" (plan in
   (`changes`, `_color_changes`); the Settings switch never reached full videos (`stabilize` is now an editing
   choice in `studio/capabilities.py`); plain words read complaints as "keep the shake", "a handheld look" as
   steadying, and took over "a steady zoom", speed and remove requests (`_steady_rule` rewritten).
-- **Tests:** `tests/test_steady.py` (11 fast, 2 real renders); three colour-choice tests now expect `"steady": True`;
+- **Second review** (2 reviewers with their own probes, 10 problems, all fixed with tests): the full-video engine
+  measured every file on the video's 30 fps grid, so a 60 fps file's corrections landed on the wrong frames and a
+  24/25 fps pan read as a staircase and got judder added (now measured at the file's own frame rate, from one of its
+  frames); a 60 fps handheld follow shot was taken for a fixed overlay, and a thin date stamp or a faint logo was
+  missed (stillness judged over about a tenth of a second with three times the points, more in each corner of the
+  picture, in smaller windows; `steady.VERSION` 3); plain words kept steadying when told to undo, disable, remove or
+  cancel it, or "I don't want it stabilized", "don't remove the shake", "the shake is intentional", "I want it
+  shaky"; took camera, freeze, look and volume requests with a shake word; ate "make it warmer and less shaky"
+  (now split into two asks); "shake the screen on the beat" read as steadying; and clips kept as shot stayed shaky
+  when the whole video was steadied (now steadied with it; "steady clip 2" steadies that one).
+- **Tests:** `tests/test_steady.py` (14 fast, 2 real renders); three colour-choice tests now expect `"steady": True`;
   `tests/test_studio_guidance.py` knows the new editing choice.
 
 ## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)

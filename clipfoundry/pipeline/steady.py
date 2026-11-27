@@ -45,7 +45,7 @@ from .ffmpeg_utils import NO_WINDOW, ffmpeg_bin
 
 log = logging.getLogger("clipfoundry.pipeline.steady")
 
-VERSION = 2
+VERSION = 3
 MEASURE_W = 480        # the width the picture is measured at
 SMOOTH_S = 0.45        # the smoothed camera path (Gaussian sigma, seconds): shake goes, a pan or a walk stays
 SHAKY_MIN = 0.0025     # RMS shake (share of the width) from which a shot counts as shaky (about 5 px at 1920)
@@ -61,6 +61,9 @@ HAND_HZ = 4.0          # wall: a person filling the shot looks the same), the sh
 HAND_SHARE = 0.35      # ... is at least this share of it (hand tremor; a person's own sway and nods are slower)
 STILL_MOVE = 1.0       # a point the camera's move shifts this far (pixels at MEASURE_W) shows whether it stayed put
 MIN_STILL_FRAMES = 5   # fewer frames showing that: whether something stays put cannot be told (left alone)
+OVERLAY_BOX = (0.35, 0.22)  # each corner box of the picture (share of its width, height) where overlays sit
+OVERLAY_POINTS = 80     # more points looked for in each corner box, to tell whether something stays put there
+EIG_FLOOR = 0.002       # corner-box points weaker than this share of the picture's strongest are not followed
 MIN_POINTS = 12        # fewer tracked points: the frame cannot be measured (a new shot starts)
 CUT_JUMP = 0.2         # a move over this share of the width between two frames is a cut or a whip pan
 FULL_S = 120.0         # a stretch up to this long is measured whole
@@ -225,18 +228,26 @@ def _frames(path: str, t0: float, length: float, fps: float, size: tuple[int, in
         proc.wait()
 
 
-def _move(prev: np.ndarray, cur: np.ndarray) -> tuple[float, float, float, float, float, float, int] | None:
+def _move(prev: np.ndarray, cur: np.ndarray,
+          dense: bool = False) -> tuple[float, float, float, float, float, float, int] | None:
     """The camera's move from `prev` to `cur` (dx, dy in pixels, roll in radians, both about the centre), the share
     of tracked points that agree with it, how many of the points it shifts by STILL_MOVE or more stayed put instead
     (nan when it shifts too few: a roll moves the edges, not the middle), the share of the picture the
     agreeing points span (their convex hull) and how many of the picture's corners hold agreeing points. None: it
-    cannot be measured (too few points, or the picture changed completely)."""
+    cannot be measured (too few points, or the picture changed completely). `dense` (to tell whether something
+    stays put): three times as many points, closer together, more in each corner of the picture where a date stamp,
+    a logo or a score sits (see _overlay_points), followed in smaller windows (a thin or faint letter is not pulled
+    along by the picture moving around it)."""
     import cv2
 
-    pts = cv2.goodFeaturesToTrack(prev, maxCorners=200, qualityLevel=0.01, minDistance=10, blockSize=7)
+    pts = cv2.goodFeaturesToTrack(prev, maxCorners=600 if dense else 200, qualityLevel=0.005 if dense else 0.01,
+                                  minDistance=5 if dense else 10, blockSize=7)
     if pts is None or len(pts) < MIN_POINTS:
         return None
-    nxt, status, _err = cv2.calcOpticalFlowPyrLK(prev, cur, pts, None, winSize=(21, 21), maxLevel=3)
+    if dense:
+        pts = np.concatenate([pts.reshape(-1, 2), _overlay_points(prev)]).reshape(-1, 1, 2).astype(np.float32)
+    win = (13, 13) if dense else (21, 21)
+    nxt, status, _err = cv2.calcOpticalFlowPyrLK(prev, cur, pts, None, winSize=win, maxLevel=3)
     if nxt is None:
         return None
     ok = status.ravel() == 1
@@ -261,6 +272,29 @@ def _move(prev: np.ndarray, cur: np.ndarray) -> tuple[float, float, float, float
     return float(moved[0]), float(moved[1]), roll, together, _still(m, p0, p1), float(span), corners
 
 
+def _overlay_points(prev: np.ndarray) -> np.ndarray:
+    """Up to OVERLAY_POINTS more points in each corner box of the picture (OVERLAY_BOX of its width and height),
+    ranked within the box: a small date stamp or a faint logo is outranked by the busy picture elsewhere. Points
+    weaker than EIG_FLOOR of the picture's strongest (a plain sky or wall) are not followed."""
+    import cv2
+
+    h, w = prev.shape
+    eig = cv2.cornerMinEigenVal(prev, 7)
+    floor = EIG_FLOOR * float(eig.max())
+    bw, bh = int(OVERLAY_BOX[0] * w), int(OVERLAY_BOX[1] * h)
+    found = [np.zeros((0, 2), np.float32)]
+    for x0 in (0, w - bw):
+        for y0 in (0, h - bh):
+            mask = np.zeros_like(prev)
+            mask[y0:y0 + bh, x0:x0 + bw] = 255
+            q = cv2.goodFeaturesToTrack(prev, maxCorners=OVERLAY_POINTS, qualityLevel=0.01, minDistance=3,
+                                        blockSize=7, mask=mask)
+            if q is not None:
+                q = q.reshape(-1, 2)
+                found.append(q[eig[q[:, 1].astype(int), q[:, 0].astype(int)] >= floor])
+    return np.concatenate(found)
+
+
 def _still(m: np.ndarray, p0: np.ndarray, p1: np.ndarray) -> float:
     """Of the points the camera's move `m` shifts by STILL_MOVE or more, how many stayed put (a HUD, a toolbar, a
     logo: even a small one holds a point or two); nan when it shifts too few points to tell."""
@@ -276,7 +310,9 @@ def measure(path: str, t0: float, length: float, fps: float, frame_size: tuple[i
     """The camera's move over `length` seconds from `t0`, on the grid `t0 + k / fps` (`exact`: see _frames)."""
     size = _size(*frame_size)
     aw = size[0]
-    gap = max(2, int(round(fps / 10)))  # a small move between frames (a high frame rate) is looked at over this many
+    # whether something stays put is looked at over about a tenth of a second (every `gap` frames, with more points):
+    # from one frame to the next a followed subject or a slow move often shifts too little to tell, at 60 fps above all
+    gap = max(2, int(round(fps / 10)))
     dx, dy, da, together, still, spread, corners, cuts = [], [], [], [], [], [], [], [0]
     recent: deque = deque(maxlen=gap + 1)
     for k, cur in enumerate(_frames(path, t0, length, fps, size, cancelled, exact)):
@@ -297,13 +333,10 @@ def measure(path: str, t0: float, length: float, fps: float, frame_size: tuple[i
         dy.append(got[1] / aw)
         da.append(got[2])
         together.append(got[3])
-        still.append(got[4])
         spread.append(got[5])
         corners.append(got[6])
-        if k % gap == 0 and len(recent) == gap + 1 and not any(math.isfinite(v) for v in still[-gap:]):
-            # the picture moved too little from frame to frame to see whether something stays put: over a few
-            wide = _move(recent[0], cur)
-            still[-1] = wide[4] if wide is not None else math.nan
+        wide = _move(recent[0], cur, dense=True) if k % gap == 0 and len(recent) == gap + 1 else None
+        still.append(wide[4] if wide is not None else math.nan)
     a = lambda v: np.array(v, float)  # noqa: E731
     return Track(t0, fps, size, a(dx), a(dy), a(da), a(together), a(still), a(spread), cuts, a(corners))
 

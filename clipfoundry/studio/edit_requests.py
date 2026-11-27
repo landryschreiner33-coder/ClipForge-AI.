@@ -307,7 +307,9 @@ def _span(phrase: str, rows: list[dict], verb: str, rest: str) -> list[dict]:
 def _clauses(text: str) -> list[str]:
     parts = re.split(r"\s*(?:;|\.\s+|,?\s+and then\s+|,?\s+then\s+|,?\s+and also\s+|,?\s+and\s+(?=(?:make|move|put|"
                      r"remove|cut|lower|raise|turn|use|shorten|trim|delete|drop|switch|add|show|hide|set|slow|speed|"
-                     r"freeze|hold|zoom|pan|play|push|pull)\b|"
+                     r"freeze|hold|zoom|pan|play|push|pull|steady|stabili[sz]e|"
+                     r"fix(?=\s(?:\w+\s){0,3}?(?:shak|wobbl|jitter))|steadier|"
+                     r"(?:less|not so|not as|no longer)\s+(?:shaky|wobbly|jittery))\b|"
                      r"(?:end|finish) (?:it|them|the music|the song|the soundtrack|my music|my song)\b))\s*",
                      text.strip().rstrip("."))
     return [p for p in (x.strip(" ,") for x in parts) if p]
@@ -547,7 +549,7 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str,
         if said:
             raise _Explain("; ".join(said) + ".")
     # steadying shaky camera footage (pipeline/steady.py; before cameras: "fix the camera shake")
-    found = _steady_rule(t, plan)
+    found = _steady_rule(t, plan, rows)
     if found:
         return found
     # several cameras of one recording and the camera in the corner (studio/multicam.py)
@@ -630,53 +632,92 @@ SOUND_NOISE = r"\b(background|wind|hum|hiss|buzz|static|traffic|echo|room|mic|mi
 
 STEADY_WORDS = (r"\b(stabili[sz](e|ed|es|ing|er|ation)|steady|steadier|steadied|steadying|shaky|shakier|shakiness|"
                 r"shak(e|es|ing)|wobbl(y|e|es|ing)|jitter(y|s)?|handheld)\b")
-# "steady" said of something else: a steady zoom, pace or speed, slow and steady
+# "steady" said of something else: a steady zoom, pace or speed, slow and steady, the volume kept steady
 STEADY_OTHER = (r"\bsteady\s+(slow\s+|gentle\s+)?(zoom|push|pan|drift|move|motion|pace|speed|rate|rhythm|beat|"
-                r"tempo|volume|level|half|cuts?)\b|\b(slow|gentle|nice) (and )?steady\b")
+                r"tempo|volume|level|half|cuts?)\b|\b(slow|gentle|nice) (and )?steady\b|"
+                r"\b(pace|pacing|speed|volume|levels?|rhythm|tempo|beat|zoom|music|sound|voice)\b[^,.]{0,20}\bsteady\b")
 # a shake added on purpose (an effect), never camera shake to take out; a handheld look or feel is one too
-SHAKE_EFFECT = (r"\b(add|put|give|make)\b.*\b(a |some |more )?(camera |screen )?shak(e|ing|y)\b|"
-                r"\bhandheld\s+(look|feel|effect|style|vibe)\b|\blooks?\s+(more\s+)?handheld\b")
-# keeping the shake: the steadying itself refused or turned off, or the shake kept, liked or wanted
+SHAKE_EFFECT = (r"\b(add|put|give|make)\b[^,.]*?\b(a |some |more )?(camera |screen )?(?<!less )(?<!not )(?<!no )"
+                r"shak(e|ing|y)\b|\bhandheld\s+(look|feel|effect|style|vibe)\b|\blooks?\s+(more\s+)?handheld\b|"
+                r"\bshake\s+the\s+(screen|picture|frame|video|image)\b|^(please\s+)?shake\b|"
+                r"\bshak(e|ing)\s+(on|to|with)\s+the\s+(beat|bass|drop|music|hits?)\b")
+# keeping the shake: the steadying itself refused, undone or turned off, or the shake kept, liked, wanted or meant
 KEEP_SHAKE = (r"\b(don'?t|do not|never|no need to|stop|quit)\s+(steady|steadying|stabili[sz]\w*|fix(ing)?\s+the\s+"
               r"(camera\s+)?shake|smooth(ing)?\s+(out\s+)?the\s+shake)\b|"
               r"\b(no|without)\s+(more\s+)?(steadying|stabili[sz](ation|ing|er))\b|"
-              r"\b(turn|switch|shut)\s+off\b.*\b(steady|steadying|stabili[sz]\w*)\b|"
+              r"\b(turn|switch|shut)\s+off\b[^,.]*\b(steady|steadying|stabili[sz]\w*)\b|"
               r"\b(steadying|stabili[sz](ation|er))\s+off\b|"
-              r"\b(keep|leave)\b(?!\s+(it|them|this|the\s+\w+)\s+from\b).*\b(shak(e|y|iness)|handheld|wobble|"
-              r"as (it|they) (is|are|was|were) shot)\b|"
-              r"\b(like|love|want|prefer)\s+(the\s+|that\s+|its\s+|a\s+|some\s+)?(handheld|shak(e|y|iness))\b")
-# a request that belongs to another rule: removing a part, its speed, a camera move
-STEADY_ELSEWHERE = (r"\b(remove|delete|drop|trim|cut|cut out|get rid of|lose)\b[^.]*\b(clip|part|bit|section|shot|scene|"
-                    r"moment)\b|\b(speed|slow(er)? (it )?down|slow[- ]?mo(tion)?|faster|half speed|double speed|"
+              r"\b(undo|disable|remove|cancel|revert|take off|get rid of|stop|drop|lose)\s+"
+              r"(the\s+|all\s+the\s+|any\s+)?(steadying|stabili[sz](ation|ing|er))\b|"
+              r"\b(don'?t|do not|never)\s+(really\s+)?(want|need|like)\b[^,.]*\b(steady|steadied|steadying|"
+              r"stabili[sz]\w*)\b|"
+              r"\b(don'?t|do not|never)\s+(remove|take out|fix|smooth( out)?|get rid of|lose)\b[^,.]*\b(shake|shaking|"
+              r"shakiness|wobble)\b|"
+              r"(?<!n't )(?<!not )(?<!never )\b(keep|leave)\b(?!\s+(nothing|no)\b)(?![^,.]*\bfrom\b)[^,.]*\b("
+              r"shak(e|y|iness)|handheld|wobble|as (it|they) (is|are|was|were) shot)\b|"
+              r"\b(like|love|want|prefer)\s+(the\s+|that\s+|its\s+|a\s+|some\s+)?(handheld|shak(e|y|iness))\b|"
+              r"\b(want|like|love|prefer)\s+(it|them|this|the\s+(video|footage|shots?|clips?))\s+"
+              r"(to\s+(be|stay|look)\s+)?(shaky|handheld|wobbly)\b|"
+              r"(?<!not )(?<!n't )(?<!never )\b(intentional(ly)?|on purpose|deliberate(ly)?)\b")
+# a dislike said of the shake itself ("I don't like the shake") wants it steadied
+DISLIKE_SHAKE = (r"\b(don'?t|do not|doesn'?t|not|never)\s+(really\s+)?(like|love|want|prefer)\b[^,.]*\b("
+                 r"shak\w*|wobbl\w*|jitter\w*|handheld)\b")
+# a request that belongs to another rule: removing a part, its speed, a freeze frame, a camera move, the cameras
+STEADY_ELSEWHERE = (r"\b(remove|delete|drop|trim|cut|cut out|get rid of|lose)\b[^.]*\b(clip|part|bit|section|shot|"
+                    r"scene|moment)\b|\b(speed|slow(er)? (it )?down|slow[- ]?mo(tion)?|faster|half speed|double speed|"
                     r"[0-9.]+ ?x)\b|\b(add|put|do|make)\b[^.]*\b(zoom|push|pan)\b|\b(zoom|push|pan)\s+(in|out|into|"
-                    r"across|left|right)\b")
+                    r"across|left|right)\b|\b(freeze|frozen)\b|\bhold (the|this|that) (frame|shot|moment)\b|"
+                    r"\bcam(era)?\s*\d+\b|\b(use|show|switch to|cut to|go to)\s+(the\s+)?(other|main|wide|close|"
+                    r"first|second|third)\b")
 
 
-def _steady_rule(t: str, plan: dict) -> tuple[list[dict], str, str] | None:
-    """A request to steady shaky camera footage (the whole video), or to keep it as shot. A complaint about the
-    shake ("I don't like how shaky it is", "stop it from shaking") wants it steadied; only a "no" that is said of
-    the steadying itself keeps it."""
+def _steady_rule(t: str, plan: dict, rows: list[dict] | None = None) -> tuple[list[dict], str, str] | None:
+    """A request to steady shaky camera footage (the whole video, and any clip kept as shot), or to keep it as shot.
+    A complaint about the shake ("I don't like how shaky it is", "stop it from shaking") wants it steadied; only a
+    "no" said of the steadying itself, or the shake kept, liked or meant, keeps it. A request that is another
+    rule's (cameras, speed, a freeze, removing a part) or asks for a look in the same breath is not this rule's."""
     said = re.sub(STEADY_OTHER, " ", t)
     if not re.search(STEADY_WORDS, said) or re.search(STEADY_ELSEWHERE, said):
         return None
-    if re.search(r"\b(music|sound|audio|voice|captions?|subtitles?|title)\b", said):
+    if any(x.search(said) for x in (_SPEAKER, _ANGLES, _ONE_CAMERA, _CORNER)):
+        return None  # the cameras' rule ("stop switching cameras, it's too shaky")
+    if re.search(r"\b(music|sound|audio|voice|volume|loud\w*|quiet\w*|captions?|subtitles?|title)\b", t):
         return None
-    keep = bool(re.search(KEEP_SHAKE, said)) and not re.search(
-        r"\b(don'?t|do not|doesn'?t|not|never)\s+(really\s+)?(like|love|want|prefer)\b", said)
+    if any(re.search(pat, said) for pat, _look in LOOK_PHRASES) or re.search(r"\b(grain\w*|noise|noisy)\b", said):
+        return None  # a look or the grain asked in the same breath: the colour rule or the AI service reads it whole
+    keep = bool(re.search(KEEP_SHAKE, said)) and not re.search(DISLIKE_SHAKE, said)
     if not keep and (re.search(SHAKE_EFFECT, said) and not re.search(r"\bstabili|\bsteady", said) or
                      not re.search(STEADY_WORDS.replace("|handheld", ""), said)):
         return None  # a shake or a handheld look added on purpose (left to the AI service), or no shake named
     part = re.search(A_PART, re.sub(r"\bas (it|they) (is|are|was|were) shot\b", " ", said))
-    if keep and part and not re.search(r"\b(whole|entire|all|every|everything|video)\b", said):
+    whole = re.search(r"\b(whole|entire|all|every|everything|video)\b", said)
+    if keep and part and not whole:
         return None  # one part kept as shot: the AI service picks the clip ("steady": false)
     on = (plan.get("color") or {}).get("steady") is True
-    want = not keep
-    if on == want:
+    if keep:
+        if not on:
+            raise _Explain("Shaky footage is already left as it was shot.")
+        return ([{"op": "set", "field": "steady_footage", "value": False}],
+                "Leave the footage as it was shot, shake and all.", "")
+    # steadied: the whole video, and the clips kept as shot (those named, or every one when none is)
+    clips = {c["id"]: c for c in plan.get("clips") or []}
+    rows = rows or [{"id": c["id"], "n": k + 1, "included": c.get("include", True), "kind": c.get("kind", "video")}
+                    for k, c in enumerate(plan.get("clips") or [])]
+    numbers = set(re.findall(r"\bclips?\s+(\d+)\b", said))
+    named = [r for r in rows if str(r["n"]) in numbers]
+    held = [r for r in (named or rows) if r.get("included", True) and r.get("kind", "video") == "video" and
+            (clips.get(r["id"]) or {}).get("steady") is False]
+    if part and not named and not whole and held:
+        return None  # which of the clips kept as shot is meant: the AI service picks it
+    ops = ([] if on else [{"op": "set", "field": "steady_footage", "value": True}]) + [
+        {"op": "clip_set", "clip_id": r["id"], "field": "steady", "value": True} for r in held]
+    if not ops:
         raise _Explain("Shaky camera footage is already steadied (only footage that shakes: a tripod shot, a game or "
-                       "a screen stays as it is)." if want else "Shaky footage is already left as it was shot.")
-    return ([{"op": "set", "field": "steady_footage", "value": want}],
-            "Steady shaky camera footage (with a slight zoom to hide the edges)." if want else
-            "Leave the footage as it was shot, shake and all.", "")
+                       "a screen stays as it is).")
+    said_clips = ", ".join(f"clip {r['n']}" for r in held)
+    return ops, " ".join(x for x in (
+        "" if on else "Steady shaky camera footage (with a slight zoom to hide the edges).",
+        f"Steady {said_clips} too when it shakes (it was kept as shot)." if held else "") if x), ""
 
 
 def _color_rule(t: str, plan: dict) -> tuple[list[dict], str, str] | None:
