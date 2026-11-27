@@ -7,12 +7,18 @@ Batch 5c of Landry's "majorly improve the editing", on top of 5b. Details:
 
 - **One pass** (`quality.scan`): `-filter_complex` with the detectors first (the progress still counts every frame
   for the decode check), a `split` keeping 2 frames a second at a quarter size (area average, standing in for EBU
-  R103's low-pass) written to a temporary file, and `silencedetect` then `ebur128` on the sound. `Scan.loudness`,
-  `Scan.levels`. About the same time as before (0.9-1.3 s for an 8 s 1080x1920 clip).
+  R103's low-pass) read from a pipe by a thread as they arrive (`_read_levels`, always drained), and `silencedetect`
+  then `ebur128` on the sound in its own `-af` graph (a complex graph is rebuilt on a mid-file size change, which
+  restarted the measurement). `Scan.loudness`, `Scan.levels`. About the same time as before (0.9-1.3 s for an 8 s
+  1080x1920 clip).
 - **New checks, warnings only** (never block, not in `autopublish.HOLD_ON`): `loudness` (`loudness.check` against
   -14 LUFS ±1 LU and -1 dBTP, the renderers' own rule), `levels` (a sampled frame with over 1% of its luma outside
   codes 14-241 or any of R, G, B outside -5% to 105%; most frames with over 5% under 16 or over 235: "full-range
   picture in a limited-range file?"), `colour_tags` (a tag other than BT.709 / limited range; missing tags pass).
+  The levels use the file's matrix (`level_matrix`: its tag; untagged BT.709 from 720 lines, BT.601 under).
+- Review: a reviewer found the temporary file (a full disk failed the decode check), the shared graph (a stitched
+  file's loudness), a memory map that could block cleanup on Windows, and BT.709 maths on BT.601 video; all fixed,
+  each with a test.
 - `GATE_VERSION` 4: stored reports are checked again once.
 
 ## Editing quality, batch 5b: the picture checked before every render — 2026-11-27 (Claude Code)

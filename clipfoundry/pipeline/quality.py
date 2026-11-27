@@ -24,6 +24,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +53,8 @@ LUMA_SAFE = (14, 241)        # -1% to 103% of the 16-235 range (EBU R103's luma 
 RGB_SAFE = (-0.05, 1.05)     # -5% to 105% for each of R, G and B
 LEVEL_AREA = 0.01            # ... a frame is outside when more than 1% of it is
 WRONG_RANGE = 0.05           # over 5% of the picture under 16 or over 235 in most frames: full-range video
+LEVEL_MATRIX = {"bt709": (0.2126, 0.0722), "smpte170m": (0.299, 0.114), "bt470bg": (0.299, 0.114),
+                "bt2020nc": (0.2627, 0.0593)}  # Kr, Kb of each matrix the levels can be read with
 _DETECT = re.compile(r"(black_start|black_end|freeze_start|freeze_end|silence_start|silence_end):\s*([-\d.]+)")
 _SRT_TIME = re.compile(r"(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)")
 
@@ -89,9 +92,11 @@ def _intervals(events: list[tuple[str, float]], start: str, end: str, until: flo
 
 
 def scan(path: str | Path, has_audio: bool, timeout: float = 600.0,
-         cancelled: Callable[[], bool] | None = None, size: tuple[int, int] | None = None) -> Scan:
+         cancelled: Callable[[], bool] | None = None, size: tuple[int, int] | None = None,
+         matrix: str = "bt709") -> Scan:
     """Decode every frame and sample once, with the black, freeze and silence detectors, the loudness measurement,
-    and (when `size`, the picture's width and height, is given) small frames for the picture levels."""
+    and (when `size`, the picture's width and height, is given) small frames for the picture levels, read with the
+    file's `matrix` (LEVEL_MATRIX)."""
     graph = f"[0:v:0]{BLACK_FILTER},{FREEZE_FILTER}"
     small = None
     if size and size[0] > 0 and size[1] > 0:
@@ -100,30 +105,45 @@ def scan(path: str | Path, has_audio: bool, timeout: float = 600.0,
                   "format=yuv444p[v3]")
     else:
         graph += "[v1]"
-    if has_audio:
-        graph += f";[0:a:0]{SILENCE_FILTER},{loudness.FILTER}[a]"
+    # the sound in a graph of its own: a complex graph is rebuilt (and ebur128 starts again) when the picture's size
+    # or format changes part-way through a file
+    sound = ["-map", "0:a:0", "-af", f"{SILENCE_FILTER},{loudness.FILTER}"] if has_audio else []
+    levels: list[dict] = []
     with tempfile.TemporaryDirectory(prefix="clipforge-scan-") as tmp:
-        raw = Path(tmp) / "levels.yuv"
-        # the detectors' output first: the progress counts its frames, every one of them (the decode check)
-        cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-nostats", "-loglevel", "level+info", "-progress", "pipe:1",
-               "-i", str(path), "-filter_complex", graph, "-map", "[v1]"] + (["-map", "[a]"] if has_audio else []) + \
-            ["-f", "null", "-"] + (["-map", "[v3]", "-f", "rawvideo", str(raw)] if small else [])
-        with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-            proc = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
-            deadline = time.monotonic() + timeout
-            while proc.poll() is None:
-                if (cancelled and cancelled()) or time.monotonic() > deadline:
-                    proc.kill()
-                    proc.wait()
-                    if cancelled and cancelled():
-                        raise Cancelled()
-                    raise FFmpegError("Decoding the clip took too long")
-                time.sleep(0.1)
-            out.seek(0)
+        progress_file = Path(tmp) / "progress.txt"
+        # the detectors' output first: the progress counts its frames, every one of them (the decode check); the
+        # small frames come through a pipe, measured as they arrive, so nothing large is written to the disk
+        cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-nostats", "-loglevel", "level+info",
+               "-progress", str(progress_file), "-i", str(path), "-filter_complex", graph, "-map", "[v1]", *sound,
+               "-f", "null", "-"] + (["-map", "[v3]", "-f", "rawvideo", "pipe:1"] if small else [])
+        with tempfile.TemporaryFile() as err:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE if small else subprocess.DEVNULL, stderr=err,
+                                    stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+            reader = None
+            if small:
+                reader = threading.Thread(target=_read_levels, args=(proc.stdout, small, matrix, levels),
+                                          daemon=True)
+                reader.start()
+            try:
+                deadline = time.monotonic() + timeout
+                while proc.poll() is None:
+                    if (cancelled and cancelled()) or time.monotonic() > deadline:
+                        proc.kill()
+                        proc.wait()
+                        if cancelled and cancelled():
+                            raise Cancelled()
+                        raise FFmpegError("Decoding the clip took too long")
+                    time.sleep(0.1)
+            finally:
+                if reader is not None:
+                    reader.join(timeout=30)
+                    proc.stdout.close()
             err.seek(0)
-            progress = out.read().decode("utf-8", "replace").splitlines()
             text = err.read().decode("utf-8", "replace")
-        levels = _levels(raw, small) if small and raw.is_file() else []
+        try:
+            progress = progress_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            progress = []
     log = text.splitlines()
     res = Scan(returncode=proc.returncode, levels=levels)
     for line in progress:
@@ -152,28 +172,56 @@ def scan(path: str | Path, has_audio: bool, timeout: float = 600.0,
     return res
 
 
-def _levels(raw: Path, size: tuple[int, int]) -> list[dict]:
-    """Each kept frame's levels: the share of the picture outside the luma limits (LUMA_SAFE), with any of R, G, B
-    outside RGB_SAFE (BT.709), and under 16 or over 235 (strict, for full-range video in a limited-range file)."""
+def level_matrix(tags: dict) -> str:
+    """The matrix a player reads the file's colours with: its tag, or for an untagged file BT.709 from 720 lines up
+    and BT.601 under that (what players and FFmpeg assume)."""
+    m = tags.get("matrix") or ""
+    if m in LEVEL_MATRIX:
+        return m
+    return "bt709" if int(tags.get("height") or 0) >= 720 or not tags.get("height") else "smpte170m"
+
+
+def _read_levels(stream, size: tuple[int, int], matrix: str, out: list[dict]) -> None:
+    """Reads the small frames from FFmpeg's pipe until it closes, measuring each (`_frame_levels`). It always reads
+    to the end, even when a measurement fails, so FFmpeg never waits on a full pipe."""
     w, h = size
-    n = raw.stat().st_size // (w * h * 3)
-    out = []
-    data = np.memmap(raw, dtype=np.uint8, mode="r", shape=(n, 3, h, w)) if n else []
-    for i in range(n):
-        y = data[i, 0].astype(np.float32)
-        pb = (data[i, 1].astype(np.float32) - 128.0) / 224.0
-        pr = (data[i, 2].astype(np.float32) - 128.0) / 224.0
-        yn = (y - 16.0) / 219.0
-        rgb = (yn + 1.5748 * pr, yn - 0.1873 * pb - 0.4681 * pr, yn + 1.8556 * pb)
-        outside = np.zeros(y.shape, bool)
-        for c in rgb:
-            outside |= (c < RGB_SAFE[0]) | (c > RGB_SAFE[1])
-        out.append({"t": round(i / LEVEL_FPS, 2),
-                    "luma_out": float(((y < LUMA_SAFE[0]) | (y > LUMA_SAFE[1])).mean()),
-                    "rgb_out": float(outside.mean()), "strict_out": float(((y < 16) | (y > 235)).mean()),
-                    "y_min": int(data[i, 0].min()), "y_max": int(data[i, 0].max())})
-    del data
-    return out
+    frame = w * h * 3
+    i, broken = 0, False
+    while True:
+        try:
+            buf = stream.read(frame)
+        except (OSError, ValueError):
+            return
+        if len(buf) < frame:
+            return
+        if not broken:
+            try:
+                out.append(_frame_levels(np.frombuffer(buf, np.uint8).reshape(3, h, w), i / LEVEL_FPS, matrix))
+            except Exception:  # noqa: BLE001 - no levels (the check skips) rather than a stuck decode
+                out.clear()
+                broken = True
+        i += 1
+
+
+def _frame_levels(data: np.ndarray, t: float, matrix: str) -> dict:
+    """One frame's levels: the share of the picture outside the luma limits (LUMA_SAFE), with any of R, G, B outside
+    RGB_SAFE (read with the file's matrix), and under 16 or over 235 (strict, for full-range video in a
+    limited-range file)."""
+    kr, kb = LEVEL_MATRIX.get(matrix, LEVEL_MATRIX["bt709"])
+    kg = 1.0 - kr - kb
+    y = data[0].astype(np.float32)
+    pb = (data[1].astype(np.float32) - 128.0) / 224.0
+    pr = (data[2].astype(np.float32) - 128.0) / 224.0
+    yn = (y - 16.0) / 219.0
+    r = yn + 2.0 * (1.0 - kr) * pr
+    b = yn + 2.0 * (1.0 - kb) * pb
+    g = (yn - kr * r - kb * b) / kg
+    outside = np.zeros(y.shape, bool)
+    for c in (r, g, b):
+        outside |= (c < RGB_SAFE[0]) | (c > RGB_SAFE[1])
+    return {"t": round(t, 2), "luma_out": float(((y < LUMA_SAFE[0]) | (y > LUMA_SAFE[1])).mean()),
+            "rgb_out": float(outside.mean()), "strict_out": float(((y < 16) | (y > 235)).mean()),
+            "y_min": int(data[0].min()), "y_max": int(data[0].max())}
 
 
 def _total(iv: list[tuple[float, float]]) -> float:
@@ -255,8 +303,9 @@ def media_checks(path: str | Path, expected: dict, cancelled: Callable[[], bool]
     else:
         out.append(check("duration", "Duration", DETERMINISTIC, PASS, f"{duration:.1f} s", seconds=duration))
 
+    tags = grade.source_colour(path)
     sc = scan(path, info["has_audio"], timeout=max(120.0, duration * 10), cancelled=cancelled,
-              size=(info["width"], info["height"]))
+              size=(info["width"], info["height"]), matrix=level_matrix({**tags, "height": info["height"]}))
     decoded = sc.frames / info["fps"] if info["fps"] else sc.decoded_s
     truncated = decoded < duration * 0.97 - 0.3
     if sc.returncode or sc.errors or truncated:
@@ -268,7 +317,7 @@ def media_checks(path: str | Path, expected: dict, cancelled: Callable[[], bool]
         out.append(check("decode", "Decodes completely", DETERMINISTIC, PASS, f"{sc.frames} frames",
                          frames=sc.frames, decoded_s=round(decoded, 2)))
     out += _picture_checks(sc, duration)
-    out += [_levels_check(sc), _colour_tags(path)]
+    out += [_levels_check(sc), _colour_tags(tags, info["height"])]
     out += _sound_checks(sc, duration, info["has_audio"], expected.get("transcript"))
     out.append(_loudness_check(sc, info["has_audio"]))
     out += _caption_checks(expected.get("srt"), duration, expected.get("transcript"))
@@ -361,10 +410,9 @@ def _levels_check(sc: Scan) -> dict:
     return check("levels", label, HEURISTIC, PASS, f"Within the broadcast range ({n} sampled frames).", **values)
 
 
-def _colour_tags(path: str | Path) -> dict:
-    """The file's colour tags: ClipForge makes BT.709 limited range; another tag makes players show other colours.
-    An untagged file is read as BT.709 by players, so it passes."""
-    tags = grade.source_colour(path)
+def _colour_tags(tags: dict, height: int) -> dict:
+    """The file's colour tags (grade.source_colour): ClipForge makes BT.709 limited range; another tag makes players
+    show other colours. An untagged HD file is read as BT.709 by players, so it passes."""
     allowed = {"matrix": ("bt709",), "primaries": ("bt709",), "transfer": ("bt709", "bt1886"), "range": ("tv",)}
     wrong = [f"{k} {tags[k]}" for k, ok in allowed.items() if tags.get(k) and tags[k] not in ok]
     values = {k: tags.get(k) or "" for k in ("matrix", "primaries", "transfer", "range")}
@@ -373,8 +421,9 @@ def _colour_tags(path: str | Path) -> dict:
                      "Tagged " + ", ".join(wrong) + " (ClipForge makes BT.709 limited range): players may show "
                      "other colours.", **values)
     untagged = [k for k in ("matrix", "primaries", "transfer", "range") if not tags.get(k)]
+    assumed = "BT.709" if level_matrix({**tags, "height": height}) == "bt709" else "BT.601"
     return check("colour_tags", "Colour tags", DETERMINISTIC, PASS,
-                 "BT.709, limited range" + (" (partly untagged: players assume BT.709)" if untagged else ""),
+                 "BT.709, limited range" + (f" (partly untagged: players assume {assumed})" if untagged else ""),
                  **values)
 
 

@@ -198,22 +198,27 @@ a level a little outside the broadcast range is clipped by the player, not lost.
 
 - **One pass.** The detectors' chain (black, freeze, silence) runs as before, its frames still all counted for the
   decode check; a `split` keeps 2 frames a second at a quarter of the width and height (an area average, which also
-  stands in for EBU R103's low-pass filter) and writes them to a temporary file; the sound goes through
-  `silencedetect` and then `ebur128` (`loudness.FILTER`). Measured on an 8 s 1080x1920 clip: 0.9-1.3 s for the
-  whole check, as before.
+  stands in for EBU R103's low-pass filter) and sends them through a pipe, measured as they arrive (nothing large is
+  written to the disk, and the pipe is always read to the end); the sound goes through `silencedetect` and then
+  `ebur128` (`loudness.FILTER`) in a graph of its own, so a stitched file whose picture changes size part-way is
+  still measured whole (in one graph with the picture the measurement started again). Measured on an 8 s 1080x1920
+  clip: 0.9-1.3 s for the whole check, as before.
 - **Loudness** is judged by `loudness.check` against -14 LUFS (pass within 1 LU) and -1 dBTP, exactly as the
   renderers judge their own file, without trusting what the renderer said. A silent clip or one without sound skips
   it (the "Sound" check covers silence).
 - **Picture levels** (EBU R103): a sampled frame is outside when more than 1% of it has luma outside codes 14-241
-  (-1% to 103%) or any of R, G, B outside -5% to 105% (BT.709). One such frame is a warning. When most frames have
+  (-1% to 103%) or any of R, G, B outside -5% to 105%, read with the file's matrix as players read it (its tag;
+  untagged: BT.709 from 720 lines up, BT.601 under that). One such frame is a warning. When most frames have
   over 5% of their luma under 16 or over 235, the warning says it looks like a full-range picture in a limited-range
   file. A legal test pattern through ClipForge's path: 0% outside; the same pattern expanded to full range: 96% of
   each frame outside the RGB limits.
 - **Colour tags:** a tag other than BT.709 / limited range warns; a missing tag passes (players read HD video as
-  BT.709).
+  BT.709; the note says BT.601 for an untagged SD file).
 - `GATE_VERSION` is 4: every stored report is checked again once (about a second a clip).
 
 Tests: `tests/test_gate_levels.py` (the one pass still counts every frame and keeps 2 frames a second, the gate's
 loudness equals the renderers' measurement, -14 LUFS passes, hot sound, a full-range picture, oversaturated colours in
-part of a clip, SD tags and an untagged file all only warn, no sound and silence skip it);
+part of a clip, SD tags and an untagged file all only warn, no sound and silence skip it, a picture that changes
+size half way keeps the whole file's loudness, untagged SD read as BT.601, the small frames read to the end even when
+measuring them fails);
 `tests/test_artifact_quality.py` (a clean render passes the new checks too).
