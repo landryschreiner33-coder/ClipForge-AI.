@@ -5,6 +5,7 @@ import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, MastheadTitle,
 import { BlackHole } from "./components/BlackHole";
 import { StarSky } from "./components/StarSky";
 import { afterTabs, arrive } from "./transitions";
+import { useLeave } from "./smooth";
 import { leaveGuard, leaveTo, navigate, setLeaveAsker, useRoute, type Route } from "./router";
 import { autopilotState, StatusProvider, useStatus } from "./status";
 import { MotionProvider } from "./motion";
@@ -252,7 +253,7 @@ function Shell({ me }: { me: Me }) {
               <button ref={makeMenu.button} type="button" className="btn btn-primary make-btn" aria-haspopup="menu"
                 aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
-                <div role="menu" aria-label="Make">
+                <div ref={makeMenu.menu} role="menu" aria-label="Make">
                   <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>The best moments, or each story from start to finish</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>Drop in your files and tell ClipForge AI your idea</span></a>
                   <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
@@ -346,6 +347,8 @@ function ResumeButton({ onDone }: { onDone: () => void }) {
 /** The menu on small windows: a dialog, so focus stays inside and Escape closes it. */
 function Drawer({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  // it slides in over a fading backdrop (space.css) and, once closed, slides back out (smooth.ts)
+  const leaveBack = useLeave<HTMLDivElement>("backdrop"), leave = useLeave("drawer", ref);
   useLayoutEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     ref.current?.querySelector<HTMLElement>('[aria-current="page"], a, button')?.focus();
@@ -371,8 +374,8 @@ function Drawer({ children, onClose }: { children: ReactNode; onClose: () => voi
   };
   return (
     <>
-      <div className="drawer-bg" onMouseDown={onClose} />
-      <div ref={ref} className="drawer" role="dialog" aria-modal="true" aria-label="Menu" onKeyDown={onKey}>
+      <div ref={leaveBack} className="drawer-bg" onMouseDown={onClose} />
+      <div ref={leave} className="drawer" role="dialog" aria-modal="true" aria-label="Menu" onKeyDown={onKey}>
         {children}
       </div>
     </>

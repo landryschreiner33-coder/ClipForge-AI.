@@ -88,7 +88,7 @@ export function OfficeView({ feed, sel, setSel, embedded = false, compact = fals
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && sel && !document.querySelector(".modal-bg, .dialog")) setSel(null);
+      if (e.key === "Escape" && sel && !document.querySelector(".dialog:not(.leaving *)")) setSel(null);
     };
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);

@@ -122,7 +122,11 @@
 .style-caption { position: absolute; left: 8%; right: 8%; text-align: center; color: #fff; line-height: 1.12;
   overflow-wrap: anywhere; }
 .style-caption.at-middle { top: 50%; transform: translateY(-50%); }
-.style-caption .now.pop { display: inline-block; transform: scale(1.12); }
+/* as the burned-in captions do (pipeline/captions.py): each new page grows from the style's pop size to full size in
+   90 ms, and the word being said is bigger in High energy (its word_scale). No pop under Reduced motion. */
+.style-caption.pops { animation: style-pop 90ms linear; }
+@keyframes style-pop { from { scale: var(--pop); } }
+.style-caption .now.grow { display: inline-block; scale: var(--grow); }
 .style-player { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: var(--s3);
   width: 100%; }
 .style-play {

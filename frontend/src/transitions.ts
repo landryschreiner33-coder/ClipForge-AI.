@@ -22,7 +22,7 @@ export function arrive(els: Element[], how: "page" | "tab", settle = true) {
   for (const el of els) {
     if (typeof (el as HTMLElement).animate !== "function") continue;
     // a dialog or panel fixed to the window keeps its place: content holding one only fades
-    const fixed = !!el.querySelector(".dialog-bg, .customize, .drawer-bg");
+    const fixed = !!el.querySelector(".dialog-bg:not(.leaving), .customize, .drawer-bg:not(.leaving)");
     const rise = how === "page" ? 14 : 8;
     (el as HTMLElement).animate(fixed
       ? [{ opacity: 0 }, { opacity: 1 }]
@@ -42,7 +42,9 @@ function settleIn(els: Element[]) {
     if (reduced()) return;
     for (const r of records) {
       for (const n of Array.from(r.addedNodes)) {
-        if (n instanceof HTMLElement && n.isConnected && typeof n.animate === "function") {
+        // a closing pop-up's look-alike (smooth.ts) is on its way out: it never fades in
+        if (n instanceof HTMLElement && n.isConnected && typeof n.animate === "function"
+          && !n.classList.contains("leaving")) {
           n.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: EASE });
         }
       }

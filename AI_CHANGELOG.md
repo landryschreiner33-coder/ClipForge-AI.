@@ -1,5 +1,42 @@
 # AI changelog
 
+## Smoother motion without GSAP: Taser, zapped robots, pop-ups, glides, caption pop, reordering — 2026-11-26 (Claude Code)
+
+Landry asked whether GSAP could improve anything. The answer was no (it can't reach the canvas and WebGL loops or the
+Python-rendered videos, ticks outside `document.getAnimations()` and the Reduced-motion switch, and has a
+proprietary licence), so the six rough spots found on the way were smoothed with the browser's own animations.
+Branch `claude/project-thread-wkj3fp`.
+
+- **Taser:** the held Taser's sway uses `rotate`/`translate` (space.css) and the lunge is a Web Animation on
+  `transform` (TaserItem.tsx), so they add up instead of fighting over one property (it used to snap about 3 degrees).
+  The lunge and the ship's jolt restart without a forced reflow.
+- **A zapped robot stands still** for its reaction (OfficeMotion.stun), so the lightning and words stay on it; its
+  job and route are untouched and it walks on afterwards. Not under Reduced motion (nothing walks then anyway).
+- **Pop-ups ease in and out** (`frontend/src/smooth.ts`, space.css "pop-ups"): dialogs rise in and fade out, menus
+  (Make, More, Brain) scale in and out, the small-window menu slides, notes slide up and fade. Closing never waits:
+  the real element is gone at once (focus, clicks, screen readers move on) and only an inert, aria-hidden copy with no
+  ids or names fades. Pop-ups holding a frame, video or canvas close at once. A note replaced by a new one replays
+  its entrance.
+- **Glides:** picking a room on the ship glides the camera there (450 ms, OfficeMap.tsx; not under Reduced motion or
+  Low power). The Brain graph's zoom buttons, arrow keys, 0 and Fit glide the view (260 ms, BrainGraph.tsx); a drag
+  stops a glide.
+- **Caption pop, preview and video:** Brain → Styles' preview pops each new page (90 ms from the preset's `pop`)
+  and shows High energy's bigger current word; it re-renders 20 times a second instead of every frame. The finished
+  video's pop (captions.py `build_ass`) only reached the first word (a word's own look ends with `{\r}`, which also
+  ended the pop) and not at all in High energy (its lit word is drawn bigger): now every word of a page's first line
+  grows in together, each to its own size (`test_a_new_caption_page_pops_every_word_not_only_the_first`).
+- **Reordering slides:** files on Make a YouTube video and scenes of an animated short slide to their new place
+  (FLIP, `useSlide`).
+- Everything is instant under Reduced motion and visible to `document.getAnimations()` (the demo recorder and the
+  browser checks step it). No new dependency.
+- **Review (3 reviewers, a verifier per finding), all fixed:** the Office's and Studio's Escape now skip a fading
+  dialog copy (`.dialog:not(.leaving *)`); a copy keeps the original's scroll and list choices; a robot carrying or
+  receiving a handoff is never held by a zap, and a stun ends at its time even while the feed is frozen (the list
+  of stuns is replaced every frame); a reorder during a slide measures places without the slide and carries on from
+  where each row is shown; a menu reopened while its copy fades focuses its real first item; the Brain map's glide
+  never steps backwards on its first frame, and a drag or new glide starts from the view last asked for.
+- Video of every change: /mnt/project-files/smooth-polish/smooth-polish.mp4 (record.js beside it).
+
 ## ClipForge's own viral predictor — 2026-11-26 (Claude Code)
 
 Landry: "reverse engineer how their viral predictor works so we can implement it to help the videos go more viral"

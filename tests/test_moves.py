@@ -117,6 +117,26 @@ def test_captions_turn_the_page_on_a_cut_light_words_early_and_stay_clear_of_the
     assert "\\t(0,90" not in minimal
 
 
+def test_a_new_caption_page_pops_every_word_not_only_the_first():
+    # a lit word's own look ends with {\r}, which also ended the pop: only the first word popped (none at all in High
+    # energy, whose lit word is drawn bigger); now every word of a page's first line grows in together, as in the
+    # Brain → Styles preview
+    words = [{"w": w, "start": 0.2 + i * 0.4, "end": 0.5 + i * 0.4, **({"em": True} if w == "simple" else {})}
+             for i, w in enumerate("keep it simple every day".split())]
+    pop = "\\fscx{0}\\fscy{0}\\t(0,90,\\fscx{1}\\fscy{1})"
+    lines = [ln for ln in captions.build_ass(words, {"caption_style": "high_energy"}, 3.0).splitlines()
+             if ln.startswith("Dialogue: 1")]
+    assert pop.format(90, 112) + "}KEEP{\\r} {" + pop.format(80, 100) + "}IT" in lines[0]
+    assert "\\t(" not in lines[1] and "\\fscx112\\fscy112}IT{\\r}" in lines[1]  # later lines of the page: no pop
+    clean = [ln for ln in captions.build_ass(words, {"caption_style": "clean", "caption_emphasis": True}, 3.0)
+             .splitlines() if ln.startswith("Dialogue: 1")]
+    assert clean[0].count("\\t(0,90,") == 4  # the lit word, the words before and after the key word, the key word
+    assert pop.format(99, 108) + "}simple{\\r} {" + pop.format(92, 100) + "}every day" in clean[0]
+    assert "\\t(" not in clean[1]
+    off = captions.build_ass(words, {"caption_style": "bold", "highlight_words": False}, 3.0)
+    assert [ln.count("\\t(0,90,") for ln in off.splitlines() if ln.startswith("Dialogue: 1")] == [1, 1]
+
+
 def test_sound_effects_is_a_setting_the_editor_skills_and_full_cloud_know():
     from clipfoundry import api
     from clipfoundry.fullcloud import worker_api

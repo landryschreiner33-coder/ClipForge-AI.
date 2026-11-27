@@ -18,17 +18,19 @@ const CHOICE_WORDS: Record<string, string> = { clean: "Clean", bold: "Bold", hig
   bottom: "Lower third", middle: "Middle", top: "Top", calm: "Calm", balanced: "Balanced", energetic: "Energetic" };
 const word = (v: unknown) => CHOICE_WORDS[String(v)] || String(v).replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
-/** The caption looks the renderer burns in (pipeline/captions.py STYLE_PRESETS): sizes are for a 1080 × 1920 clip. */
+/** The caption looks the renderer burns in (pipeline/captions.py STYLE_PRESETS): sizes are for a 1080 × 1920 clip.
+ * `pop` is the size (%) each new caption page starts at before growing to full size in 90 ms (0: no pop), `grow` the
+ * size (%) of the word being said. */
 const PRESETS: Record<string, { font: string; weight: number; size: number; upper: boolean; words: number; chars: number;
-  outline: number; shadow: number; highlight: string; pop: boolean; shade: number }> = {
+  outline: number; shadow: number; highlight: string; pop: number; grow: number; shade: number }> = {
   clean: { font: "Caption Poppins", weight: 600, size: 76, upper: false, words: 5, chars: 26, outline: 5, shadow: 1,
-    highlight: "#FFD23F", pop: false, shade: 0.61 },
+    highlight: "#FFD23F", pop: 92, grow: 100, shade: 0.61 },
   bold: { font: "Caption Poppins", weight: 800, size: 92, upper: true, words: 3, chars: 18, outline: 7, shadow: 3,
-    highlight: "#FFE500", pop: false, shade: 0.61 },
+    highlight: "#FFE500", pop: 90, grow: 100, shade: 0.61 },
   high_energy: { font: "Caption Anton", weight: 400, size: 132, upper: true, words: 2, chars: 14, outline: 8, shadow: 4,
-    highlight: "#3CFF6B", pop: true, shade: 0.61 },
+    highlight: "#3CFF6B", pop: 80, grow: 112, shade: 0.61 },
   minimal: { font: "Caption Poppins", weight: 500, size: 62, upper: false, words: 7, chars: 34, outline: 0, shadow: 2,
-    highlight: "#FFFFFF", pop: false, shade: 0.41 },
+    highlight: "#FFFFFF", pop: 0, grow: 100, shade: 0.41 },
 };
 /** Where captions sit (share of the height from the bottom or top): clips (captions.py) and videos (studio/engine.py). */
 const CLIP_PLACE: Record<string, number> = { bottom: 0.36, middle: 0, top: 0.16 };
@@ -298,19 +300,22 @@ function CaptionPreview({ format, look, place }: { format: "9:16" | "16:9"; look
     seen?.observe(el);
     return () => seen?.disconnect();
   }, [format]);
+  // the clock runs every frame, but the preview is drawn again only when what it shows can change: twenty times a
+  // second (the time bar's step), not at the screen's full rate
+  const time = useRef(t);
+  time.current = t;
   useEffect(() => {
     if (!playing || pageHidden) return;
-    let raf = 0, last = performance.now();
+    let raf = 0, last = performance.now(), clock = time.current;
     const step = (now: number) => {
-      const next = (now - last) / 1000;
+      clock += (now - last) / 1000;
       last = now;
-      setT((old) => {
-        if (old + next >= SECONDS) {
-          setPlaying(false);
-          return SECONDS;
-        }
-        return old + next;
-      });
+      if (clock >= SECONDS) {
+        setT(SECONDS);
+        setPlaying(false);
+        return;
+      }
+      setT(Math.floor(clock * 20) / 20);
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
@@ -320,7 +325,11 @@ function CaptionPreview({ format, look, place }: { format: "9:16" | "16:9"; look
   const words = SAMPLE.map((w) => (p.upper ? w.toUpperCase() : w));
   const per = SECONDS / words.length;
   const at = Math.min(words.length - 1, Math.floor(t / per));
-  const shown = groups(words, p.words, p.chars).find((g) => g.includes(at)) || [];
+  const pages = groups(words, p.words, p.chars);
+  const page = Math.max(0, pages.findIndex((g) => g.includes(at)));
+  const shown = pages[page] || [];
+  // clips: each new page pops in from the style's pop size and the word being said is lit (and bigger in High energy)
+  const pops = clip && p.pop > 0;
   const px = clip ? (p.size / 1920) * height : (p.size / 1080) * height * 0.72;
   const outline = clip ? (p.outline / 1920) * height : 4 * (height / 1080);
   const shadow = clip ? (p.shadow / 1920) * height : height / 1080;
@@ -337,15 +346,16 @@ function CaptionPreview({ format, look, place }: { format: "9:16" | "16:9"; look
         <div className="style-scene" aria-hidden="true"><i className="sun" /><i className="hills" /><i className="road" />
           <img key={format} className="style-scene-picture" src={SCENE_PICTURE[clip ? "tall" : "wide"]} alt=""
             decoding="async" onError={(e) => { e.currentTarget.hidden = true; }} /></div>
-        <div className={`style-caption at-${place}`} aria-hidden="true" style={{
-          ...where, fontFamily: `"${p.font}", "Poppins", sans-serif`, fontWeight: p.weight, fontSize: `${px}px`,
+        <div key={page} className={`style-caption at-${place}${pops ? " pops" : ""}`} aria-hidden="true" style={{
+          ...where, ["--pop" as string]: p.pop / 100, ["--grow" as string]: p.grow / 100,
+          fontFamily: `"${p.font}", "Poppins", sans-serif`, fontWeight: p.weight, fontSize: `${px}px`,
           // the renderer's outline sits outside the letters: a stroke twice as wide, painted under the fill
           WebkitTextStroke: (clip ? p.outline : 4) ? `${outline * 2}px #000` : undefined, paintOrder: "stroke fill",
           textShadow: `${shadow}px ${shadow}px 0 rgba(0, 0, 0, ${p.shade})`,
         }}>
           {shown.map((i) => (
             <Fragment key={i}>
-              <span className={i === at && clip ? `now${p.pop ? " pop" : ""}` : ""}
+              <span className={i === at && clip ? `now${p.grow !== 100 ? " grow" : ""}` : ""}
                 style={i === at && clip ? { color: p.highlight } : undefined}>{words[i]}</span>{" "}
             </Fragment>
           ))}

@@ -118,7 +118,7 @@ const MORE_TABS: { id: string; href: string; label: string; detail: string; icon
 /** The Brain's tabs: Memory, Styles, Talk to AI, Agents, Decisions, and More for the rest. */
 function BrainTabs({ current }: { current: string }) {
   const [open, setOpen] = useState(false);
-  const { wrap, button, onKey } = useMenu(open, setOpen);
+  const { wrap, button, menu, onKey } = useMenu(open, setOpen);
   const id = useId();
   const tab = current === "memory" ? "knowledge" : current;
   const more = MORE_TABS.find((t) => t.id === tab);
@@ -131,7 +131,7 @@ function BrainTabs({ current }: { current: string }) {
           {more ? `More: ${more.label}` : "More"}<Icon name="chev" className="brain-more-chev" />
         </button>
         {open && (
-          <div className="menu brain-more-menu" role="menu" id={id} aria-label="More Brain sections">
+          <div ref={menu} className="menu brain-more-menu" role="menu" id={id} aria-label="More Brain sections">
             {MORE_TABS.map((t) => (
               <a key={t.id} role="menuitem" href={t.href} aria-current={t.id === tab ? "page" : undefined}
                 onClick={() => setOpen(false)}>
@@ -154,7 +154,7 @@ function AddKnowledge({ examples, onAdd, onStyle }: {
   examples: boolean; onAdd: (kind: KnowledgeKind, advanced?: boolean) => void; onStyle: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const { wrap, button, onKey } = useMenu(open, setOpen);
+  const { wrap, button, menu, onKey } = useMenu(open, setOpen);
   const id = useId();
   const pick = (run: () => void) => () => { setOpen(false); run(); };
   return (
@@ -164,7 +164,7 @@ function AddKnowledge({ examples, onAdd, onStyle }: {
         <Icon name="plus" />Add knowledge<Icon name="chev" className="brain-more-chev" />
       </button>
       {open && (
-        <div className="menu brain-more-menu brain-add-menu" role="menu" id={id} aria-label="Add knowledge">
+        <div ref={menu} className="menu brain-more-menu brain-add-menu" role="menu" id={id} aria-label="Add knowledge">
           <button type="button" role="menuitem" onClick={pick(() => onAdd(examples ? "example" : "reference"))}>
             <Icon name="plus" className="sm" /><span><b>{examples ? "Add example note" : "Add note"}</b>
               <small>A short note in your own words</small></span>

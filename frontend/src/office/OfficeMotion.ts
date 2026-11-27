@@ -57,6 +57,10 @@ export class OfficeMotion {
   private refOwners = new Map<string, Owner>();
   private cutoff: number;
   private lounge = new LoungeLife();
+  /** Robots stunned by the Taser (office/taser.ts) and until when: they stand still while their reaction plays. */
+  private stunned = new Map<string, number>();
+  /** The frame clock of the latest tick (ms), for the stuns. */
+  private clock = 0;
   private stopped = false;
 
   constructor(snap: Snapshot) {
@@ -104,6 +108,22 @@ export class OfficeMotion {
     this.reconcile(snap, true);
   }
 
+  /** The robots zapped right now, each with the time its reaction ends (ms on the frame clock). A zapped robot stops
+   * where it is while its reaction plays, so its lightning and words stay over it and a toppled robot does not slide
+   * along the floor; then it walks on. The list replaces the last one, so a zap taken away (the Taser switched off)
+   * frees its robot at once. Its job is untouched: the Taser is play, and only where the robot is drawn waits. */
+  stun(zapped: Iterable<[string, number]>) {
+    this.stunned.clear();
+    for (const [id, until] of zapped) if (this.actors.has(id)) this.stunned.set(id, until);
+  }
+
+  /** Whether a zapped robot stands still now. Never one carrying or receiving a handoff: real work goes first (the
+   * reaction still plays over it while it walks), and never past its reaction, even while the feed is frozen. */
+  private held(a: MotionActor) {
+    const until = this.stunned.get(a.id);
+    return until !== undefined && until > this.clock && a.transfer === null;
+  }
+
   react(id: string, pose: Pose, now: number) {
     const a = this.actors.get(id);
     if (a && !this.blocked(id)) a.reaction = { pose, until: now + 2200 };
@@ -148,6 +168,7 @@ export class OfficeMotion {
 
   /** decorative = lounge break activities (Customize studio → Office animation: Calm turns them off) */
   tick(dt: number, now: number, reduced: boolean, frozen: boolean, decorative = true) {
+    this.clock = now;
     if (frozen) return;
     if (!reduced && decorative) this.lounge.tick(dt, this.actors.values());
     else if (!decorative) this.lounge.reset();
@@ -156,7 +177,7 @@ export class OfficeMotion {
       // Individually paused/unavailable workers may finish returning to a reserved resting place,
       // but only eligible workers rotate through decorative activities once they arrive.
       if (a.transfer === null) this.go(a, this.destination(a.id), reduced || this.atWork(a.id));
-      this.walk(a, dt, reduced);
+      if (reduced || !this.held(a)) this.walk(a, dt, reduced);
       this.faceBreak(a);
     }
     for (const tr of [...this.transfers.values()]) {
@@ -185,7 +206,8 @@ export class OfficeMotion {
   pose(a: MotionActor): Pose {
     const state = this.rows.get(a.id)?.state || "unavailable";
     const transfer = a.transfer === null ? null : this.transfers.get(a.transfer);
-    if (a.path.length) return a.card ? "carry" : "walk";
+    // a robot stunned on its way stands (its legs don't keep stepping on the spot)
+    if (a.path.length) return this.held(a) ? "idle" : a.card ? "carry" : "walk";
     if (this.blocked(a.id)) return POSE[state];
     if (transfer) {
       if (transfer.phase === "approach") return a.id === transfer.from ? "carry" : "wait";
