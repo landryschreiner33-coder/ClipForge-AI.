@@ -30,7 +30,7 @@ import time
 
 from .. import config, db
 from ..pipeline import grade
-from . import engine, retime, sound_joins
+from . import engine, multicam, retime, sound_joins
 from . import video_flow as vf
 
 log = logging.getLogger("clipfoundry.studio.edit_requests")
@@ -48,14 +48,16 @@ SETTABLE = {"captions", "caption_size", "caption_position", "transition", "duck_
 CLIP_FIELDS = {"gain_db", "mute", "fade_in_ms", "fade_out_ms", "layout", "zoom", "speed", "speed_ramp", "motion",
                "hold_ms"}
 OPS = {"remove", "restore", "trim", "split", "move", "set", "clip_set", "track_set", "shorten_intro",
-       "audio_back_time", "freeze"}
+       "audio_back_time", "freeze", "cameras", "camera", "camera_corner"}
 RULE_EXAMPLES = ("remove the long silence at the beginning", "shorten the intro by 3 seconds",
                  "move the summit part before lunch", "move clip 4 before clip 2", "remove clip 3",
                  "lower the music while I'm talking", "end the music on the last frame", "make the captions smaller",
                  "move the captions up",
                  "use dissolves", "make it black and white", "fix the colours", "make the look subtler",
                  "put clip 3 in slow motion", "speed up the intro", "freeze the last frame for 2 seconds",
-                 "slowly zoom in on clip 2", "add a speed ramp to the jump")
+                 "slowly zoom in on clip 2", "add a speed ramp to the jump",
+                 "switch cameras to whoever is talking", "use camera 2 for clip 3",
+                 "put camera 2 in the bottom right corner")
 
 _think_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="edit-request")
 _call_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="edit-request-ai")
@@ -544,6 +546,10 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str,
             return ops, "; ".join(said) + ".", "captions"
         if said:
             raise _Explain("; ".join(said) + ".")
+    # several cameras of one recording and the camera in the corner (studio/multicam.py)
+    found = _camera_rule(t, plan, rows)
+    if found:
+        return found
     # speed, slow motion, ramps, freeze frames and camera moves (before removing a part: "remove the slow motion")
     found = _timing_rule(t, plan, rows)
     if found:
@@ -839,6 +845,204 @@ def _undo_test(what: str, by_id: dict[str, dict]):
     return timed
 
 
+# ------------------------------------------------------------------ several cameras, the corner camera
+_SPEAKER = re.compile(
+    r"\b(?:switch|cut|change|jump|go|move)\w*(?: (?:the |my )?(?:cameras?|camera angles?|angles?|shots?))? "
+    r"(?:to|between|on) (?:the )?(?:whoever|whomever|(?:person|one|people|guy) (?:who(?:'s| is| are)? )?"
+    r"(?:speaking|talking)|(?:active )?speakers?|who(?:'s| is| are|ever is) (?:speaking|talking))\b"
+    r"|\bfollow (?:the )?(?:active )?(?:speakers?|(?:person|one) (?:who(?:'s| is) )?(?:speaking|talking)|"
+    r"whoever is (?:speaking|talking))\b|\bshow (?:whoever|the person who|who)(?:'s| is)? (?:speaking|talking)\b"
+    r"|\bactive[- ]speaker\b|\bmulti[- ]?cam(?:era)? edit")
+_ANGLES = re.compile(r"\b(?:switch|cut|change|alternate|mix|vary)\w*(?: (?:up|between|the|different|other|camera|my|"
+                     r"several|many))* angles\b|\b(?:use|show) (?:all|both|every one of) (?:the |my )?cameras\b|"
+                     r"\bmore (?:camera )?angles\b")
+_ONE_CAMERA = re.compile(r"\b(?:stop|no more|don'?t|do not|never)\b (?:\w+ ){0,2}?(?:switch|chang|cut)\w*"
+                         r"(?: (?:between|the|my|of))* (?:cameras?|camera angles?|angles)\b|"
+                         r"\b(?:only|just|back to|go back to) (?:use |show )?(?:one|the main|the first|a single) "
+                         r"(?:camera|angle)\b")
+_CORNER = re.compile(r"\bin (?:a|the|one) corner\b|\bcorner\b|\bpicture[- ]in[- ]picture\b|\bpip\b")
+_PLACE = re.compile(r"\b(?P<v>top|upper|bottom|lower)[- ](?P<h>left|right)\b")
+_NO_CORNER = re.compile(r"\b(?:remove|hide|take (?:away|out|off)|get rid of|no more|turn off|stop showing|drop)\b"
+                        r"(?: (?:the|that|this|my|camera|cam|picture|video|small|little|in|from|at|of))* "
+                        r"(?:corner|picture[- ]in[- ]picture|pip)\b|\bno (?:corner|picture[- ]in[- ]picture|pip)\b"
+                        r"|\b(?:remove|hide|take (?:away|out|off)|get rid of)\b (?:the |that )?(?:little|small) "
+                        r"(?:camera|picture|window)\b")
+_NOT_A_CAMERA = re.compile(r"\b(?:logo|image|picture|photo|overlay|sticker|graphic|title|text|captions?|subtitles?|"
+                           r"watermark|emoji)s?\b")
+_CAM_NAME = re.compile(r"\bcam(?:era)? (?P<n>\d+|" + "|".join(NUMBER_WORDS) + r")\b|\b(?P<wide>wide(?:[- ]?shot| "
+                       r"(?:camera|angle))?|master shot)\b|\b(?P<face>face ?cam|webcam|selfie cam(?:era)?)\b")
+
+
+# a request's polite start ("please", "can you"), before the verb the camera rules look for
+_LEAD = r"^(?:(?:please|can you|could you|now|also|and|then|i want to|i'd like to|let's|lets|just) )*"
+# words of the other rules: speed, freeze frames, camera moves and the look ("put the wide shot in slow motion")
+_NOT_CAMERA_WORK = re.compile(r"\b(?:slow[- ]?mo(?:tion)?|speed\w*|faster|slower|fast[- ]forward|freeze|frozen|ramp|"
+                              r"zoom\w*|pan|black and white|colou?rs?|brighter|darker|vintage|cinematic)\b")
+# words that make "remove the ... corner ..." a part of the video, not the camera in the corner
+_A_PART = r"\b(?:part|bit|section|piece|where|when|while|clip|scene|moment|segment)\b"
+
+
+def _camera_group(t: str, plan: dict, rows: list[dict], clips: list[dict] | None = None) -> tuple[str, dict] | None:
+    """The recording a camera request is about: the only one with cameras, else the one of the clips it names
+    (`clips`, or "in clip 3" at its end); asks "Which recording?" when that cannot tell."""
+    groups = {aid: g for aid, g in multicam.groups(plan).items() if isinstance(g, dict)}
+    if len(groups) < 2:
+        return next(iter(groups.items()), None)
+    if clips is None:
+        m = re.search(r"\b(?:in|for|of|on|during) clip (\d+)$", t)
+        clips = [r for r in rows if m and str(r["n"]) == m.group(1)]
+    have = list(dict.fromkeys(vf._find(plan, r["id"])["asset_id"] for r in clips))
+    if len(have) == 1 and have[0] in groups:
+        return have[0], groups[have[0]]
+    if clips and not any(aid in groups for aid in have):
+        raise _Explain(f"{_describe(clips)} is not from a recording with several cameras.")
+    firsts = [next(r for r in rows if vf._find(plan, r["id"])["asset_id"] == aid) for aid in groups
+              if any(vf._find(plan, r["id"])["asset_id"] == aid for r in rows)]
+    raise _Ask("Which recording? More than one has other cameras.",
+               [{"label": f"The recording of {_describe([r])}"[:120], "request": f"{t} in clip {r['n']}"}
+                for r in firsts[:4]])
+
+
+def _labelled(t: str, plan: dict, whole: bool = False) -> bool:
+    """Whether the words name one of the cameras by the name the owner gave it ("Jake"); `whole`: they are only
+    that name."""
+    for g in multicam.groups(plan).values():
+        for c in multicam.cam_ids(g):
+            label = _norm(multicam.label_of(g, c))
+            if len(label) > 1 and (t == label if whole else re.search(r"\b" + re.escape(label) + r"\b", t)):
+                return True
+    return False
+
+
+def _with_of(op: dict, plan: dict, aid: str) -> dict:
+    """The recording goes with the operation when more than one has cameras."""
+    return {**op, "of": aid} if len(multicam.groups(plan)) > 1 else op
+
+
+def _named_cam(t: str, g: dict, corner: bool = False, lo: int = 0, hi: int | None = None) -> str | None:
+    """The camera a request names ("camera 2", "the wide shot", "the face cam", a camera's own name); None when it
+    names none. `corner`: the camera is for the corner, so the recording's own camera is not offered; `lo`, `hi`: the
+    part of the request that names it."""
+    ids = multicam.cam_ids(g)
+    part = t[lo:hi]
+    for c in ids:  # a camera's own name first, so a renamed camera ("Jake") is found by its name
+        label = _norm(multicam.label_of(g, c))
+        if len(label) > 1 and re.search(r"\b" + re.escape(label) + r"\b", part):
+            return c
+    m = _CAM_NAME.search(part)
+    if not m:
+        return None
+    if m.group("n"):
+        n = NUMBER_WORDS.get(m.group("n")) or int(m.group("n"))
+        if 1 <= n <= len(ids):
+            return ids[n - 1]
+        raise _Explain(f"There is no camera {n}: this recording has {len(ids)} cameras.")
+    shot = "wide" if m.group("wide") else "close"
+    have = [c for c in ids if multicam.shot_of(g, c) == shot]
+    if m.group("face") and len(ids) == 2:
+        return ids[1]  # one other camera: the face cam over the recording
+    if len(have) == 1:
+        return have[0]
+    offer = [c for c in (have or ids) if not (corner and c == multicam.MAIN)] or ids
+    raise _Ask("Which camera?", [{"label": multicam.label_of(g, c),
+                                  "request": (t[:lo + m.start()] + multicam.label_of(g, c) +
+                                              t[lo + m.end():]).strip()}
+                                 for c in offer[:4]])
+
+
+def _camera_rule(t: str, plan: dict, rows: list[dict]) -> tuple[list[dict], str, str] | None:
+    """Switching between a recording's cameras, one camera for a clip, the camera in the corner, in words. A request
+    the other rules know (moving or removing a part, speed, freeze frames, the look) is left to them, even when its
+    words name a camera ("remove the part where I put my camera in the corner")."""
+    talks_cameras = re.search(r"\b(?:cam(?:era)?s?|angles?|multi[- ]?cam|speakers?|speaking|talking|corner|"
+                              r"picture[- ]in[- ]picture|pip|wide[- ]?shot|face ?cam|webcam)\b", t)
+    if not talks_cameras:
+        return None
+    plain = re.sub(r"picture[- ]in[- ]picture", "pip", t)
+    if _NOT_A_CAMERA.search(plain) and not re.search(r"\b(?:cam(?:era)?s?|face ?cam|webcam|pip)\b", plain):
+        return None  # a picture, a logo or the captions in a corner: not a camera
+    some = bool(multicam.groups(plan))
+    says_camera = bool(re.search(r"\b(?:cam(?:era)?s?|multi[- ]?cam|pip)\b", plain))  # not only "the wide shot"
+    rm = REMOVE_RE.fullmatch(t)
+    corner_only = bool(rm and _NO_CORNER.search(t) and not re.search(_A_PART, rm.group("x")))
+    if (rm and not corner_only and not re.match(r"(?:please )?cut (?:to|between|on)\b", t)) or MOVE_RE.fullmatch(t):
+        return None  # moving or removing a part of the video
+    if corner_only or (not rm and _NO_CORNER.search(t)):
+        found = _camera_group(t, plan, rows) if some else None
+        if not found or not (found[1].get("corner") or {}).get("cam"):
+            raise _Explain("No camera is shown in a corner.")
+        return ([_with_of({"op": "camera_corner", "cam": None}, plan, found[0])], "Take the camera out of the corner.",
+                "")
+    if _ONE_CAMERA.search(t):
+        if not some:
+            raise _Explain("This video shows one camera only.")
+        aid, g = _camera_group(t, plan, rows)
+        return ([_with_of({"op": "cameras", "mode": "off"}, plan, aid)],
+                f"Show {multicam.label_of(g, multicam.MAIN)} only.", "")
+    for pattern, mode, said in (
+            (_SPEAKER, "speaker", "Switch cameras to whoever is speaking (cameras lined up by their sound first), "
+                                  "with the wide shot at the start, the end and in long pauses."),
+            (_ANGLES, "angles", "Change camera angle at pauses every few seconds.")):
+        if pattern.search(t):
+            found = _camera_group(t, plan, rows) if some else None
+            op = {"op": "cameras", "mode": mode}
+            return [_with_of(op, plan, found[0]) if found else op], said, ""
+    if _NOT_CAMERA_WORK.search(t):
+        return None  # "put the wide shot in slow motion": speed, freeze frames, camera moves and the look
+    corner = _CORNER.search(t)
+    verb = re.match(_LEAD + r"(?:put|show|place|add|move|use|have|give|make|i want|we want|i'd like)\b", t)
+    if corner and (verb or "pip" in plain):
+        if not (says_camera or _CAM_NAME.search(t) or _labelled(t, plan)):
+            return None  # "put the subscribe button in the corner": not a camera
+        if not some:
+            if not says_camera:
+                return None
+            raise _Explain("Line up the other camera first (Cameras, in the editor), then it can go in a corner.")
+        aid, g = _camera_group(t, plan, rows)
+        now = g.get("corner") or {}
+        place = _PLACE.search(t)
+        where_said = f"{place.group('v')} {place.group('h')} " if place else ""
+        cam = _named_cam(t, g, corner=True) or now.get("cam")
+        if cam is None:
+            others = [c for c in multicam.cam_ids(g) if c != multicam.MAIN]
+            if len(others) != 1:
+                raise _Ask("Which camera in the corner?",
+                           [{"label": multicam.label_of(g, c),
+                             "request": f"put {multicam.label_of(g, c)} in the {where_said}corner"}
+                            for c in others[:4]])
+            cam = others[0]
+        op = {"op": "camera_corner", "cam": cam}
+        if place:
+            op["place"] = ("top" if place.group("v") in ("top", "upper") else "bottom") + "_" + place.group("h")
+        grow = 1.35 if re.search(r"\b(?:bigger|larger)\b", t) else 1 / 1.35 if re.search(r"\bsmaller\b", t) else 0
+        if grow:
+            aspect = (plan.get("output") or {}).get("aspect") or "16:9"
+            size = now.get("size") or multicam.CORNER_DEFAULT.get(aspect, ("", 0.26))[1]
+            op["size"] = round(min(max(size * grow, multicam.CORNER_SIZE[0]), multicam.CORNER_SIZE[1]), 2)
+        where = multicam.CORNER_NAMES.get(op.get("place") or now.get("place") or "", "corner")
+        op = _with_of(op, plan, aid)
+        if grow and cam == now.get("cam"):
+            return [op], f"Make {multicam.label_of(g, cam)} in the {where} {'bigger' if grow > 1 else 'smaller'}.", ""
+        return [op], f"Show {multicam.label_of(g, cam)} small in the {where}.", ""
+    m = re.match(_LEAD + r"(?:use|show|put|switch to|cut to|go to) (?P<what>.+?) (?:for|in|on|during|over) (?P<x>.+)",
+                 t)
+    what = re.sub(r"^(?:the|my|a|our) ", "", m.group("what")) if m else ""
+    if m and (_CAM_NAME.fullmatch(what) or _labelled(what, plan, whole=True)):
+        if not some:
+            if not says_camera:
+                return None
+            raise _Explain("This video has one camera. Line up the other cameras first (Cameras, in the editor).")
+        targets = _targets(m.group("x"), rows, "use camera 2 for", "", kinds=("video", "freeze"))
+        aid, g = _camera_group(t, plan, rows, clips=targets)
+        cam = _named_cam(t, g, lo=m.start("what"), hi=m.end("what"))
+        mine = [r for r in targets if vf._find(plan, r["id"])["asset_id"] == aid]
+        if not mine:
+            raise _Explain(f"{_describe(targets)} is not from the recording with several cameras.")
+        return ([{"op": "camera", "clip_id": r["id"], "cam": cam} for r in mine],
+                f"Show {multicam.label_of(g, cam)} for {_describe(mine)}.", "")
+    return None
+
+
 def _timing_rule(t: str, plan: dict, rows: list[dict]) -> tuple[list[dict], str, str] | None:
     """Speed (slow motion, faster, a ramp), freeze frames and slow camera moves, in words (studio/retime.py)."""
     by_id = {c["id"]: c for c in plan.get("clips") or []}
@@ -998,6 +1202,11 @@ def _int(v: object, what: str) -> int:
     return int(v)
 
 
+def _of(op: dict) -> dict:
+    """The recording a camera operation is about, when it names one."""
+    return {"of": op["of"]} if isinstance(op.get("of"), str) and op["of"] else {}
+
+
 def _translate(p: dict, op: object) -> dict:
     """One proposal operation as the editor's own edit, after checking its shape and the ids it names."""
     if not isinstance(op, dict):
@@ -1018,6 +1227,17 @@ def _translate(p: dict, op: object) -> dict:
         if op.get("length_ms") is not None:
             out["length_ms"] = _int(op.get("length_ms"), "The freeze frame's length")
         return out
+    if kind == "cameras":
+        if op.get("mode") not in ("speaker", "angles", "off"):
+            raise Invalid("“cameras” needs a mode: speaker, angles or off.")
+        return {"op": "cameras_auto", "mode": op["mode"], **_of(op)}
+    if kind == "camera":
+        if "clip_id" not in op:
+            raise Invalid("The “camera” operation needs a clip.")
+        return {"op": "camera_set", "clip_id": op["clip_id"], "cam": op.get("cam")}
+    if kind == "camera_corner":
+        return {"op": "camera_corner", "cam": op.get("cam") or None, **_of(op),
+                **{k: op[k] for k in ("place", "size") if op.get(k) is not None}}
     if kind == "remove":
         return {"op": "remove", "clip_id": op["clip_id"]}
     if kind == "restore":
@@ -1166,10 +1386,77 @@ def changes(old: dict, new: dict, assets: dict[str, dict] | None = None) -> list
     if (old.get("title") or {}) != (new.get("title") or {}):
         t = new.get("title") or {}
         out.append(f"Title card {'“' + _text(t.get('text'), 60) + '”' if t.get('enabled') else 'off'}")
+    if (old.get("multicam") or None) != (new.get("multicam") or None):
+        out += _camera_changes(old, new)
+    oo = {o.get("id"): o for o in old.get("overlays") or []}
+    for o in new.get("overlays") or []:
+        was = oo.get(o.get("id"))
+        if was and (was.get("place"), was.get("size")) != (o.get("place"), o.get("size")):
+            place = o.get("place") or "full"
+            out.append(f"“{_text(o.get('label'), 40)}” " + ("over the whole picture" if place == "full" else
+                       f"in the {multicam.CORNER_NAMES.get(place, 'corner')} corner" +
+                       (f", {float(o['size']):.0%} of the width" if o.get("size") else "")))
     a, b = engine.duration_ms(old), engine.duration_ms(new)
     if a != b:
         out.append(f"Length {_fmt(a)} → {_fmt(b)}")
     return out
+
+
+_SWITCHING_WORDS = {"speaker": "switch to whoever is speaking", "angles": "change angle at pauses",
+                    "hand": "as you chose them", "off": "the recording's own camera only"}
+
+
+def _camera_changes(old: dict, new: dict) -> list[str]:
+    """The camera lines of a proposal (several cameras of a recording, the camera in the corner)."""
+    out: list[str] = []
+    before, after = multicam.groups(old), multicam.groups(new)
+    for main_id in dict.fromkeys([*before, *after]):
+        a, b = before.get(main_id), after.get(main_id)
+        if a == b:
+            continue
+        if not isinstance(b, dict):
+            out.append("Back to one camera (the other recordings stay in your media)")
+            continue
+        if not isinstance(a, dict):
+            out.append("Cameras lined up: " + ", ".join(multicam.label_of(b, cam) for cam in multicam.cam_ids(b)))
+            a = {"cams": [], "cuts": []}
+        if a.get("switching") != b.get("switching") and b.get("switching") in _SWITCHING_WORDS:
+            out.append(f"Cameras: {_SWITCHING_WORDS[b['switching']]}")
+        if (a.get("cuts") or []) != (b.get("cuts") or []):
+            if len(a.get("cuts") or []) != len(b.get("cuts") or []):
+                out.append(f"{len(b.get('cuts') or [])} camera changes (were {len(a.get('cuts') or [])})")
+            shown = []
+            for k, c in enumerate(new.get("clips") or []):
+                if c.get("asset_id") != main_id or not c.get("include", True):
+                    continue
+                was, now = _cams_in(a, c), _cams_in(b, c)
+                if was != now:
+                    shown.append(f"Clip {k + 1} “{_text(c.get('label') or c['id'], 40)}”: " +
+                                 ", then ".join(multicam.label_of(b, cam) for cam in now))
+            out += shown[:6] + ([f"…and {len(shown) - 6} more clips"] if len(shown) > 6 else [])
+        oc, nc = a.get("corner") or {}, b.get("corner") or {}
+        if oc != nc:
+            if not nc.get("cam"):
+                out.append("No camera in the corner")
+            else:
+                where = multicam.CORNER_NAMES.get(nc.get("place") or "", "")
+                out.append(f"{multicam.label_of(b, nc['cam'])} in the {where + ' ' if where else ''}corner" +
+                           (f", {float(nc['size']):.0%} of the width" if nc.get("size") else ""))
+        was_cams = {c.get("id"): c for c in a.get("cams") or [] if isinstance(c, dict)}
+        for c in b.get("cams") or []:
+            o = was_cams.get(c.get("id")) if isinstance(c, dict) else None
+            if o and o.get("offset_ms") != c.get("offset_ms"):
+                off = float(c.get("offset_ms") or 0) / 1000
+                out.append(f"{multicam.label_of(b, c['id'])} lined up at {off:+.2f} s")
+    return out
+
+
+def _cams_in(g: dict, clip: dict) -> list[str]:
+    """The cameras a clip shows, in order (from the recording's camera changes)."""
+    a = float(clip.get("in_ms") or 0)
+    b = a + 1 if retime.is_freeze(clip) else float(clip.get("out_ms") or a)
+    cams = [multicam.camera_at(g, a)] + [str(t[1]) for t in g.get("cuts") or [] if a < float(t[0]) < b]
+    return [cam for k, cam in enumerate(cams) if not k or cams[k - 1] != cam]
 
 
 def _color_changes(old: dict, new: dict) -> list[str]:
@@ -1241,7 +1528,13 @@ inside it; at most 12 operations):
 {"op": "audio_back_time", "audio_id": ID, "value": true|false}   only music listed with "repeats_to_end": true;
      true starts it inside the music so its own ending plays on the video's last frame (it fades in), false
      starts it at its own start
-{"op": "shorten_intro", "seconds": N}                cut the first clip's start at a sentence start"""
+{"op": "shorten_intro", "seconds": N}                cut the first clip's start at a sentence start
+{"op": "cameras", "mode": "speaker"|"angles"|"off"}  other cameras of the same recording, lined up by their sound:
+     speaker = cut to whoever is talking, angles = one person, another angle at pauses, off = its own camera only
+{"op": "camera", "clip_id": ID, "cam": CAM}          one camera (an id under "cameras") for a whole clip
+{"op": "camera_corner", "cam": CAM or null, "place": "top_left"|"top_right"|"bottom_left"|"bottom_right"}
+     a camera small in a corner over the whole recording (picture in picture); null takes it away
+     "cameras" and "camera_corner" take "of": the "recording" under "cameras" when it lists more than one"""
 
 
 def build_prompt(text: str, plan: dict, rows: list[dict], guidance: dict, memories: str = "",
@@ -1260,7 +1553,12 @@ def build_prompt(text: str, plan: dict, rows: list[dict], guidance: dict, memori
                         "ends_on_last_frame": _ends_on_last_frame(i, assets)}
                        for i in plan.get("audio") or [] if i.get("role") == "music"][:6],
              "aspect": (plan.get("output") or {}).get("aspect"), "length_ms": engine.duration_ms(plan),
-             "color": plan.get("color") or "none (only phone HDR converted)"}
+             "color": plan.get("color") or "none (only phone HDR converted)",
+             "cameras": [{"recording": aid,
+                          "cams": [{"id": c, "label": _text(multicam.label_of(g, c), 40),
+                                    "shot": multicam.shot_of(g, c)} for c in multicam.cam_ids(g)],
+                          "switching": g.get("switching") or "off", "corner": (g.get("corner") or {}).get("cam")}
+                         for aid, g in multicam.groups(plan).items()][:3]}
     from ..brain import knowhow as _knowhow_mod
     from ..brain import memories as _memories
 

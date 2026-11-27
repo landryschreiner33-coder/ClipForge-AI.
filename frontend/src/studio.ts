@@ -133,7 +133,22 @@ export type ClipRamp = { preset?: string; points: { at: number; speed: number }[
 export type ClipMotion = { preset?: string; ease?: "smooth" | "linear"; keys: { at: number; zoom: number; x: number; y: number }[] };
 /** A picture (or muted video) shown over a clip while its sound goes on. */
 export type Overlay = { id: string; asset_id: string; clip_id: string; offset_ms: number; length_ms: number;
-  motion: "still" | "zoom"; fit?: "fill" | "fit"; label: string; auto?: boolean; why?: string };
+  motion: "still" | "zoom"; fit?: "fill" | "fit"; label: string; auto?: boolean; why?: string;
+  /** Unset: the whole frame. A corner: small, with a light border (size = share of the frame's width). */
+  place?: CornerPlace; size?: number };
+export type CornerPlace = "top_left" | "top_right" | "bottom_left" | "bottom_right";
+export type CameraShot = "wide" | "close" | "other";
+export type CameraSwitching = "speaker" | "angles" | "hand" | "off";
+/** One camera of a recording filmed with several (engine multicam): "main" is the recording itself. offset_ms and
+ * drift_ppm say how it was lined up by its sound; match is how sure (null when lined up by hand). */
+export type Camera = { id: string; label: string; shot: CameraShot; asset_id: string; filename: string;
+  offset_ms: number | null; drift_ppm: number; match: number | null };
+/** A recording with other cameras: how they switch, how many changes, the camera in the corner. */
+export type CameraGroup = { of: string; filename: string; switching: CameraSwitching; changes: number;
+  corner: { cam: string; place?: CornerPlace; size?: number } | null; cams: Camera[] };
+/** Which camera is on screen when (ms of the video), and which one is in the corner. */
+export type CameraSpan = { clip_id: string; asset_id: string; cam: string; label: string; corner: string | null;
+  out_start_ms: number; out_end_ms: number };
 export type SmartLevel = "off" | "smart" | "tight";
 export type SmartReport = { level: SmartLevel; options: Record<string, unknown>;
   /** True when the cut follows the project's script (script_cut.py) rather than the smart edit's rules. */
@@ -192,9 +207,12 @@ export type Video = { id: string; name: string; status: string; message: string;
   capabilities: { tracks: Record<TrackName, string>; caption_sizes: string[]; caption_positions: string[]; fps: number[];
     duck_depth_db: { default: number; range: [number, number] }; limits: string;
     speed_range?: [number, number]; speed_ramps?: Record<string, string>; motions?: Record<string, string>;
-    freeze?: { min_ms: number; default_ms: number } };
+    freeze?: { min_ms: number; default_ms: number };
+    multicam?: { max_cams: number; corner_size: [number, number]; min_hold_ms: number } };
   sources?: Record<string, AssetSource[]>; credits?: Credit[]; media_rules?: MediaRules;
   overlay_timeline?: { overlay_id: string; asset_id: string; clip_id: string; out_start_ms: number; out_end_ms: number }[];
+  /** Recordings filmed with several cameras, and which camera is on screen when. */
+  cameras?: CameraGroup[]; camera_timeline?: CameraSpan[];
   chapters?: { title: string; ms: number }[]; smart?: SmartReport | null;
   /** The script this video follows (null for none). */
   script?: Script | null;

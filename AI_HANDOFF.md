@@ -21,6 +21,35 @@ shadow, the far side bent over the top and under the bottom, nothing cut off by 
 - **Not verified (needs Landry's computer):** how it looks and how smoothly it runs on a real graphics chip (Mac,
   RTX 3050); only headless Chromium with SwiftShader was used here.
 
+## Editing quality, batch 4b: several cameras, pictures in a corner — 2026-11-26 (Claude Code, cloud session)
+
+**Plain-English summary:** a podcast or interview filmed with several cameras can be edited as one recording:
+ClipForge lines the cameras up by their sound and switches to whoever is speaking (or to another angle at pauses),
+the owner can pick a camera per clip or at a moment, and one camera or a picture can sit small in a corner.
+
+- **Where things are:** `studio/multicam.py` (constants and rules at the top; `groups`/`spans`/`camera_at`/
+  `to_cam_ms`/`coverage`; `problems`; `corner_box`/`border_px`; `sound_profile` (cached), `line_up`, `_drift`,
+  `aligned`; `who_speaks`, `_kmeans`; `plan_cuts`), `studio/camera_edits.py` (`OPS`, `main_recording`,
+  `add_cameras`, `auto`, `apply`), the engine (`camera_timeline`, `cameras_in_use`, `_camera_parts`, `_cam_view`,
+  `_viewed`, `_overlay_box`, `_piece`'s views/corner, `render`'s camera cut points), `video_flow` (`apply_edit`
+  dispatch, `overlay_set` place/size, `_cameras_view`, FilmCraft routing, sound profiles made in `prepare_media`),
+  `edit_requests._camera_rule` and `_translate`, `interchange` (`CAMERAS_TRACK`, `CORNER_TRACK`), frontend
+  `components/Cameras.tsx` (panel, timeline row, clip camera) used by `pages/VideoReview.tsx`.
+- **Storage:** `plan["multicam"][main asset id] = {main: {label, shot}, cams: [{id, asset_id, label, shot, offset_ms,
+  drift_ppm, match}], cuts: [[main file ms, cam]], corner?: {cam, place?, size?}, switching}`; overlays `place`,
+  `size`. Camera time = main + offset_ms + main × drift_ppm / 1e6. Cuts are in the main FILE's time, so trims, splits
+  and speed keep them on their moment. Loudness cache `data/cache/multicam/<sha40>-v1.npy`.
+- **Rules to keep:** sound and captions always come from the main recording; a camera shows only where its file has
+  picture; the corner camera hides while it is the full picture; no multicam = identical cache keys and output; a
+  camera change inside a dissolve or fade moves to its edge (`engine._settle_rows`, used by both the render and
+  `camera_timeline`); each side of a join has its own corner camera (`spec["corners"]`); `plan_cuts` plans each moment
+  of the recording once (`_uncovered`); "Edit it for me" keeps `multicam` (`video_flow._keep_cameras`) and cuts from
+  the footage without the other cameras' files; `camera_edit nudge_ms` keeps drift and match.
+- **For the AI thread:** new editor ops `cameras_add`, `cameras_auto {mode}`, `camera_set`, `camera_cut`,
+  `camera_edit` (field shot, label, offset_ms or nudge_ms), `camera_corner`, `cameras_remove`; request ops
+  `cameras {mode, of?}`, `camera`, `camera_corner {cam, place?, size?, of?}` (brain/operations.py is theirs to expose).
+- **Next:** batch 4c (loop endings for shorts, stabilising), batch 5 (automatic quality check after each render).
+
 ## Smoother motion without GSAP — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** the held Taser no longer twitches when it lunges, a zapped robot stops walking so the

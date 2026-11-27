@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path
-from . import engine, retime
+from . import engine, multicam, retime
 
 FORMAT = "clipforge.otio/v1"
 SR = 48000
@@ -43,6 +43,8 @@ TRACK_NAMES = {"source": "Sound from your videos", "voiceover": "Voiceover", "mu
                "effects": "Sound effects"}
 BACKGROUND_TRACK = "Blurred background"
 OVERLAY_BACKGROUND_TRACK = "Pictures over the video (background)"
+CAMERAS_TRACK = "Other cameras"
+CORNER_TRACK = "In a corner (switched off: set Scale and Position)"
 _UNSAFE = re.compile(r"[^\w\- .()&,'+]+", re.UNICODE)
 
 
@@ -283,6 +285,35 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
         a1.append(item)
     source_gain = float(tracks["source"].get("gain_db") or 0.0)
 
+    # ---- the other cameras of a recording, where one is the picture (over Video 1), and what is in a corner
+    shown = engine._camera_frames(plan, els, fps, assets, False, width, height,  # noqa: SLF001
+                                  lambda _aid: ({}, None))
+    cam_items: list[dict] = []
+    corner_items: list[tuple[int, int, dict]] = []
+    pos = 0
+    for k in sorted(shown):
+        e, c = els[k], clips[els[k]["clip_id"]]
+        g = multicam.group_of(plan, e["asset_id"]) or {}
+        for r in shown[k]:
+            f0, f1 = max(r["f0"], left[k]), min(r["f1"], right[k])  # inside this clip's place on Video 1
+            for view, where in ((r["view"], None), ((r["corner"] or {}).get("view"), (r["corner"] or {}).get("box"))):
+                if not view or f1 <= f0 or (view["cam"] == multicam.MAIN and where is None):
+                    continue
+                asset = assets[view["asset_id"]]
+                start = (e["src_in_ms"] + view["shift_ms"] + retime.src_at(c, (f0 - e["start_f"]) * 1000 / fps)) \
+                    * fps / 1000
+                meta_cf = {"clip_id": c["id"], "asset_id": asset["id"], "camera": view["cam"],
+                           **({"place": "corner", "box": list(where)} if where else {})}
+                item = _clip(f"{c.get('label') or asset['filename']}: {multicam.label_of(g, view['cam'])}",
+                             ref(asset), start, f1 - f0, fps, {"scale_to_frame": True}, meta_cf, _time_effects(c))
+                if where:
+                    corner_items.append((f0, f1, item))
+                    continue
+                if f0 > pos:
+                    cam_items.append(_gap(f0 - pos, fps))
+                cam_items.append(item)
+                pos = f1
+
     # ---- V2: pictures over the video, where the render shows them
     by_overlay = {o["id"]: o for o in plan.get("overlays") or []}
     flat = sorted((o for items in engine._overlay_frames(plan, els, fps, assets).values() for o in items),
@@ -291,6 +322,15 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
     v2_bg: list[dict] = []
     pos = 0
     for o in flat:
+        if o.get("place", "full") != "full":  # a picture in a corner: on the corner track
+            src = by_overlay[o["id"]]
+            asset = assets[src["asset_id"]]
+            corner_items.append((o["start_f"], o["end_f"], _clip(
+                src.get("label") or asset["filename"], ref(asset),
+                o["src_in_ms"] * fps / 1000 if asset["kind"] == "video" else 0, o["end_f"] - o["start_f"], fps,
+                {"scale_to_frame": True}, {"overlay_id": o["id"], "asset_id": asset["id"], "place": o["place"],
+                                           "box": list(engine._overlay_box(o, width, height))})))  # noqa: SLF001
+            continue
         src = by_overlay[o["id"]]
         asset = assets[src["asset_id"]]
         if o["start_f"] > pos:
@@ -359,10 +399,28 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
                for ch in chapter_marks(plan)]
     stack_tracks = [_track(BACKGROUND_TRACK, "Video", background)] if background else []
     stack_tracks.append(_track("Video 1", "Video", v1))
+    if cam_items:
+        stack_tracks.append(_track(CAMERAS_TRACK, "Video", cam_items))
     if v2:
         if any(c["OTIO_SCHEMA"].startswith("Clip") for c in v2_bg):
             stack_tracks.append(_track(OVERLAY_BACKGROUND_TRACK, "Video", v2_bg))
         stack_tracks.append(_track("Pictures over the video", "Video", v2))
+    corner_lanes: list[list[tuple[int, int, dict]]] = []
+    for s, t, item in sorted(corner_items, key=lambda x: x[0]):  # a corner camera and a corner picture may overlap
+        lane = next((ln for ln in corner_lanes if ln[-1][1] <= s), None)
+        if lane is None:
+            corner_lanes.append(lane := [])
+        lane.append((s, t, item))
+    for n, lane in enumerate(corner_lanes):
+        children, at = [], 0
+        for s, t, item in lane:
+            if s > at:
+                children.append(_gap(s - at, fps))
+            children.append(item)
+            at = t
+        track = _track(CORNER_TRACK + (f" {n + 1}" if len(corner_lanes) > 1 else ""), "Video", children)
+        track["enabled"] = False  # full size until it is placed: switched on, it would cover the whole picture
+        stack_tracks.append(track)
     if any(sound_slots):
         stack_tracks.append(_track(TRACK_NAMES["source"], "Audio", a1, {"volume_db": source_gain,
                                                                         "muted": bool(tracks["source"].get("mute"))}))
@@ -445,6 +503,10 @@ def not_carried(plan: dict, title_still: bool) -> list[str]:
                    "pictures that do not fill the frame).")
     if plan.get("overlays"):
         out.append("The slow push-in and the fades of pictures over the video.")
+    if any((g.get("corner") or {}).get("cam") for g in multicam.groups(plan).values()) or \
+            any(o.get("place", "full") != "full" for o in plan.get("overlays") or []):
+        out.append("Pictures and cameras in a corner: they come in full size on a switched-off track; switch it on "
+                   "and set Scale and Position (each clip's ClipForge notes give its box in pixels).")
     if (plan.get("captions") or {}).get("enabled"):
         out.append("The caption look (style, size and position): captions come in with FilmCraft's caption style.")
     if engine._has_title(plan):

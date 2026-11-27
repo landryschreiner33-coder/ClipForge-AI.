@@ -30,6 +30,54 @@ Branch `claude/project-thread-xeb0pd`.
   half precision; the half-size ship was enlarged at 125-200 % screen scaling; one failed picture stopped both;
   the haze ellipse was centred on the box, not the hole.
 
+## Editing quality, batch 4b: several cameras of one recording, pictures in a corner — 2026-11-26 (Claude Code)
+
+Batch 4b of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 4a (PR #85). Details:
+[docs/clipforge/MULTICAM.md](docs/clipforge/MULTICAM.md). Not released.
+
+- **Lining up by sound** (`studio/multicam.py`): each recording's speech-band loudness (cached in
+  `data/cache/multicam/`) is cross-correlated at every shift (FFT, onsets, scored per second of overlap); the peak is
+  refined between frames; recordings overlapping 8 minutes or more get their clock drift measured from seven
+  one-minute stretches. Files without the same sound are named and left out.
+- **Who speaks:** each close camera's level per word, minus the word's mean (gains cancel out), grouped by weighted
+  k-means; people must be 4 dB apart; one shared microphone or no words falls back to changing angles, and says why.
+  The wide camera listens too (it owns no person, so it shows the pauses); a camera guessed wide that hears one person
+  loudest becomes that person's close-up.
+- **Switching rules** (`plan_cuts`): opens and ends on the wide shot, wide in pauses of 2.5 s or more and to break a
+  close-up of 14 s, no shot under 2 s, cuts in the gaps between words (at most 150 ms before the new speaker), another
+  camera at every jump cut; angles mode holds 3.5-12 s and changes at pauses. Cameras are only chosen where their
+  file has picture.
+- **Rendering** (`engine._piece`): pieces split where the camera changes; each camera read at its lined-up moment
+  through the clip's speed, framing and its own colour; a drifting camera is lined up again every minute. One camera
+  in a corner (hidden while it is the full picture) and pictures over the video in a corner (`overlay.place`,
+  `size`), with a light border, inside the 9:16 safe box. Plans without cameras render as before.
+- **Editor** (`studio/camera_edits.py`, `components/Cameras.tsx`): a Cameras panel (line up, switch, corner camera
+  with place and size, each camera's name, shot and ±1 frame), a Cameras row on the timeline, a Camera choice and
+  "Change camera at the split point" in a clip's panel, and Where for pictures over the video.
+- **Plain words** (`edit_requests._camera_rule`): "switch cameras to whoever is talking", "switch between camera
+  angles", "stop switching cameras", "use camera 2 for clip 3", "use the wide shot for the intro", "put camera 2 in
+  the bottom right corner", "picture in picture", "make the corner camera bigger", "remove the corner camera"; the AI
+  may propose `cameras`, `camera` and `camera_corner` and sees each camera's name and shot (no file names).
+- **FilmCraft and export:** with "auto", finals using another camera or a corner stay on the built-in engine
+  (`engine.cameras_in_use`); the export puts other cameras on an "Other cameras" track and corner items on a
+  switched-off track, and says so.
+- **Review** (3 reviewers with probes, 12 problems confirmed, all fixed with tests): "Edit it for me" again kept no
+  cameras (now kept; automatic switching re-planned; the other cameras' files are no longer used as more footage);
+  camera requests were refused as "nothing to change" (proposals now list camera changes); camera changes inside a
+  dissolve were ignored while the Cameras row showed them (moved to the transition's edge in both); a corner picture
+  hid under the corner camera (moves to the other corner on that side, drawn above); who speaks dropped every word
+  a camera that stopped early could not hear (now any two cameras); the ±1 frame nudge erased the clock drift (new
+  `nudge_ms`); moments played twice merged their cuts into flash shots (later parts plan only new moments);
+  malformed setups crashed validate or the editor (named now); camera rules took over speed, move and remove
+  requests (left to their rules); the corner camera popped in over a title in a dissolve (fades with its side); odd
+  edit parameters raised TypeErrors; two recordings with cameras were told "one camera" (now "Which recording?").
+  Also: parts already cut from a camera's own file move to the main recording when that camera is lined up.
+- **Tests:** `tests/test_multicam.py` (52 fast on a made-up conversation, 3 real renders read frame by frame), plus
+  camera tests in `test_studio_edit_requests.py` and `test_studio_smart_edit.py`. Not verified: real podcast footage,
+  real clock drift.
+
 ## Smoother motion without GSAP: Taser, zapped robots, pop-ups, glides, caption pop, reordering — 2026-11-26 (Claude Code)
 
 Landry asked whether GSAP could improve anything. The answer was no (it can't reach the canvas and WebGL loops or the
