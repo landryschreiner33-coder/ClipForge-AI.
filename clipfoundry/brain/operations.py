@@ -22,7 +22,7 @@ import time
 from fastapi import HTTPException
 
 from .. import db
-from .toolbox import _SETTINGS_WORDS, _find_clip, _said_words, find
+from .toolbox import _SETTINGS_WORDS, _find_clip, _said_words, _stem, find
 from .tools import Ctx, Result, Tool, ToolError, TryAgain, one_line, register
 
 PLATFORM_NAMES = {"youtube": "YouTube", "tiktok": "TikTok"}
@@ -1245,12 +1245,19 @@ def _clip_edit(c: dict, p: dict, args: dict) -> tuple[dict, list[str], bool | No
     if args.get("fillers") is not None:
         edit["remove_fillers"] = bool(args["fillers"])
         words.append("“um” and “uh” " + ("cut" if args["fillers"] else "kept"))
+    if args.get("loop_ending") is not None:
+        edit["loop_ending"] = bool(args["loop_ending"])
+        words.append("loop ending on (it runs straight back into its start)" if args["loop_ending"] else
+                     "loop ending off")
+    if args.get("sound_effects") is not None:
+        edit["sound_effects"] = bool(args["sound_effects"])
+        words.append("sound effects " + ("on" if args["sound_effects"] else "off"))
     keep = None if args.get("keep") is None else bool(args["keep"])
     if keep is not None:
         words.append("kept in the project's picks" if keep else "taken out of the project's picks")
     if not edit and keep is None:
         raise ToolError("Say what to change: cut_start, cut_end, captions, caption_style, caption_size, speed, "
-                        "volume_db, pauses, fillers or keep.")
+                        "volume_db, pauses, fillers, loop_ending, sound_effects or keep.")
     return edit, words, keep
 
 
@@ -1647,43 +1654,105 @@ PUBLISHING_WORDS = (
 SETTING_NAMES = dict(_SETTINGS_WORDS) | dict(PUBLISHING_WORDS)
 
 
+# Small words that say nothing about which setting is meant ("make it loop" is about Loop endings, not about the
+# "it" in "Highlight each word as it is spoken").
+_SETTING_FILLER = frozenset(("a", "an", "the", "it", "its", "is", "as", "at", "and", "or", "of", "on", "off", "in",
+                             "to", "my", "me", "make", "turn", "set", "each", "per", "do", "don't", "dont", "please",
+                             "s"))
+
+
+# Words that name a setting besides its label: singulars the plural rule misses, and short names.
+_SETTING_EXTRA = {"loop_ending": "loop looping seamless", "sound_effects": "whoosh sfx effect"}
+# Words that say another thing is meant: a full video's music Loop is not Loop endings, visual effects are not
+# Sound effects. The setting is then not chosen by its other words.
+_SETTING_NOT = {"loop_ending": frozenset(("music", "song", "songs", "soundtrack", "audio", "trim", "trimmed", "cut")),
+                "sound_effects": frozenset(("visual", "visuals", "transition", "transitions", "picture", "video",
+                                            "colour", "color")),
+                "silence": frozenset(("autopilot", "posting", "posts", "post", "upload", "uploads", "mission",
+                                      "missions", "stream", "live"))}
+# Words for the owner's own pages (automatic publishing and its pause, spending, the AI model): a request with one
+# of them is never matched to an editing setting by its other words ("pause publishing" is not Pauses cut).
+_OWNER_ONLY = frozenset(("publish", "publishing", "published", "paused", "spending", "spend", "model"))
+
+
+def _setting_score(said: str, key: str, label: str) -> tuple[int, int, int]:
+    """(words that match the label once plurals are read as their word, words that match it exactly, words of the
+    setting's own name): the first decides, the others only break a tie ("clips" is Clips per video, not Shortest
+    clip; "clean sound" is Sound cleanup, not Sound effects)."""
+    raw = {w for w in _said_words(said) if w not in _SETTING_FILLER}
+    if raw & _SETTING_NOT.get(key, frozenset()):
+        return 0, 0, 0
+    named = {w for w in _said_words(label + " " + _SETTING_EXTRA.get(key, "")) if w not in _SETTING_FILLER}
+    return (len({_stem(w) for w in raw} & {_stem(w) for w in named}), len(raw & named),
+            len(raw & set(key.split("_"))))
+
+
 def _which_setting(text: str) -> str:
     key = str(text or "").strip()
     if key in SETTING_NAMES:
         return key
-    words = set(_said_words(key))
-    scored = sorted(((len(words & set(_said_words(label))), k) for k, label in SETTING_NAMES.items()), reverse=True)
-    if not scored or scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
+    scored = sorted(((_setting_score(key, k, label), k) for k, label in SETTING_NAMES.items()), reverse=True)
+    if (set(_said_words(key)) & _OWNER_ONLY or not scored or scored[0][0][0] == 0
+            or (len(scored) > 1 and scored[1][0] == scored[0][0])):
         raise ToolError("Say which setting: " + ", ".join(SETTING_NAMES.values()) + ". Accounts, spending limits, "
                         "the AI model and automatic publishing are changed by the owner on their own pages.")
     return scored[0][1]
+
+
+# What an on/off setting's value says. A word that negates ("no", "don't loop", "won't loop", "isn't on") is off; an
+# off word with a negation or an on word ("don't turn it off", "on, not off") is unclear, so it asks.
+_NEGATORS = frozenset(("no", "not", "never", "don't", "dont", "without"))
+_OFF_WORDS = frozenset(("off", "false", "0", "disable", "disabled", "stop"))
+_ON_WORDS = frozenset(("on", "true", "yes", "1", "enable", "enabled", "start", "use", "loop", "looping"))
+
+
+def _on_off(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    text = "" if value is None else str(value).strip()
+    said = set(_said_words(text)) | ({text} if text in ("0", "1") else set())
+    negated = bool(said & _NEGATORS) or any(w.endswith("n't") for w in said)
+    off, on = bool(said & _OFF_WORDS), bool(said & _ON_WORDS)
+    if off:
+        return None if negated or on else False
+    return False if negated else True if on else None
+
+
+def _shown(v) -> str:
+    return ("on" if v else "off") if isinstance(v, bool) else str(v)
 
 
 def _setting_preview(ctx: Ctx, args: dict) -> dict:
     from .. import config
 
     key = _which_setting(args.get("setting", ""))
+    value = args.get("value")
+    if isinstance(config.DEFAULT_SETTINGS.get(key), bool):
+        # Only a clear on or off: the settings saver reads any other word as off.
+        value = _on_off(value)
+        if value is None:
+            raise ToolError(f"Say on or off for {SETTING_NAMES[key]}.")
     try:
-        clean = config.validate_settings({key: args.get("value")})
+        clean = config.validate_settings({key: value})
     except (TypeError, ValueError):
         clean = {}
     if key not in clean:
         raise ToolError(f"“{args.get('value')}” is not a choice for {SETTING_NAMES[key]}.")
     now = db.get_settings().get(key)
     if now == clean[key]:
-        raise ToolError(f"{SETTING_NAMES[key]} is already {clean[key]}.")
+        raise ToolError(f"{SETTING_NAMES[key]} is already {_shown(clean[key])}.")
     publishing = key in dict(PUBLISHING_WORDS)
-    return {"label": f"Change {SETTING_NAMES[key]} from {now} to {clean[key]}",
+    return {"label": f"Change {SETTING_NAMES[key]} from {_shown(now)} to {_shown(clean[key])}",
             "detail": ["Posts planned from now on follow it; posts already planned keep their times." if publishing
                        else "New projects use it; a project or clip you changed by hand keeps its own."],
-            "blocked": "", "args": {"setting": key, "value": clean[key]}}
+            "blocked": "", "args": {"setting": key, "value": _shown(clean[key])}}  # text, as the schema says
 
 
 def _setting(ctx: Ctx, args: dict) -> Result:
     out = _api().put_settings({args["setting"]: args["value"]})
     page = ({"label": "Settings → Advanced → Autopilot posting", "href": "#/settings/advanced"} if args["setting"] in
             dict(PUBLISHING_WORDS) else {"label": "Settings → Defaults", "href": "#/settings/defaults"})
-    return Result(f"{SETTING_NAMES.get(args['setting'], args['setting'])} is now {out.get(args['setting'])}.",
+    return Result(f"{SETTING_NAMES.get(args['setting'], args['setting'])} is now {_shown(out.get(args['setting']))}.",
                   "Changed a setting", {"links": [page]})
 
 
@@ -1782,7 +1851,8 @@ CUES = re.compile(r"\b(?:posts?|posting|posted|schedul\w*|upload\w*|publish\w*|t
                   r"caption\w*|post text|metadata|description|clips?|clips per|videos?|youtube|tiktok|crew|robots?|"
                   r"check\w*|review\w*|quality|trim\w*|cut\w*|shorter|longer|seconds?|length|speed\w*|faster|"
                   r"slower|louder|quieter|volume|sound|turn (?:it )?(?:on|off)|switch (?:it )?(?:on|off)|autopilot|"
-                  r"approv\w*|go live|links?|https?://\S+|story|stories|keep|drop|gap|hours?|time ?zone|limit)\b",
+                  r"approv\w*|go live|links?|https?://\S+|story|stories|keep|drop|gap|hours?|time ?zone|limit|"
+                  r"loop\w*|seamless\w*|whoosh\w*|sfx|effects?)\b",
                   re.I)
 
 
@@ -1877,9 +1947,10 @@ register(Tool("pause_mission", "pause (paused true) or resume (paused false) one
               {"type": "object", "properties": {"mission": TEXT, "paused": {"type": "boolean"}},
                "required": ["paused"]}, _pause, "change", "Pause {mission}", preview=_pause_preview, **ALONE))
 register(Tool("change_setting", "change one setting: an editing choice (clips per video, clip lengths, captions, "
-              "framing, pauses, sound) or a posting rule (minutes between posts, earliest and latest posting hour, "
+              "framing, pauses, sound, loop endings, sound effects) or a posting rule (minutes between posts, earliest and latest posting hour, "
               "posts a day, time zone); setting: its name, value: the new value as text (5, on, off, bold)",
-              {"type": "object", "properties": {"setting": TEXT, "value": {"type": "string", "maxLength": 40}},
+              {"type": "object", "properties": {"setting": TEXT, "value": {"type": "string", "maxLength": 40,
+                                                                           "on_off": True}},
                "required": ["setting", "value"]}, _setting, "change", "Change {setting} to {value}",
               preview=_setting_preview, **ALONE))
 
@@ -1906,7 +1977,10 @@ register(Tool("set_clip_text", "use the owner's own title, hashtags or hook for 
 register(Tool("edit_clip", "edit a clip like the clip editor and render it again. cut_start / cut_end: seconds to cut "
               "off its start / end (negative makes it longer); captions: true/false; caption_style: clean, bold, "
               "high_energy or minimal; caption_size: 60 to 160 (%); speed: 0.8 to 1.25; volume_db: -12 to 12; "
-              "pauses: off, light or aggressive; fillers: true cuts “um”; keep: false takes it out of the picks",
+              "pauses: off, light or aggressive; fillers: true cuts “um”; loop_ending: true makes it a seamless "
+              "loop (it stops just after the last word and runs straight back into its start), false a plain "
+              "ending; sound_effects: true adds whooshes and pops, false leaves them out; keep: false takes it out "
+              "of the picks",
               {"type": "object", "properties": {
                   **CLIP, "cut_start": {"type": "number", "minimum": -60, "maximum": 600},
                   "cut_end": {"type": "number", "minimum": -60, "maximum": 600}, "captions": {"type": "boolean"},
@@ -1915,6 +1989,7 @@ register(Tool("edit_clip", "edit a clip like the clip editor and render it again
                   "speed": {"type": "number", "minimum": 0.8, "maximum": 1.25},
                   "volume_db": {"type": "number", "minimum": -12, "maximum": 12},
                   "pauses": {"type": "string", "enum": ["aggressive", "light", "off"]}, "fillers": {"type": "boolean"},
+                  "loop_ending": {"type": "boolean"}, "sound_effects": {"type": "boolean"},
                   "keep": {"type": "boolean"}, "clip_id": {"type": "string", "internal": True},
                   "edit": {"type": "object", "internal": True}}},
               _edit_clip, "change", "Edit {clip}", preview=_edit_clip_preview, **ALONE))

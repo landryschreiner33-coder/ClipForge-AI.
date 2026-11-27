@@ -51,6 +51,28 @@ Batch 4d of Landry's "majorly improve the editing" (plan in
 - **Tests:** `tests/test_steady.py` (14 fast, 2 real renders); three colour-choice tests now expect `"steady": True`;
   `tests/test_studio_guidance.py` knows the new editing choice.
 
+## ClipForge AI sets loop endings and sound effects; on/off settings save again — 2026-11-27 (Claude Code)
+
+Part of Landry's "make the AI way smarter and more useful" (`claude/project-thread-st8tpc`), asked for by the editing
+thread after batch 4c (PR #94). Details: [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "Loop
+endings and sound effects, in words". Not released.
+
+- **One clip:** `edit_clip` takes `loop_ending` and `sound_effects` (true/false), the clip editor's Trim and Audio
+  switches; the clip is rendered again.
+- **Settings:** "Loop endings (seamless loops)" and "Sound effects (whooshes and pops)" join the settings ClipForge
+  AI sees and may change.
+- **Finding a setting by its words** skips small words, reads -s plurals as their word and breaks ties on exact
+  words and the key's name ("make it loop" is Loop endings, "clips" is Clips per video); a word naming another thing
+  keeps a setting out ("loop the music", "visual effects", "pause autopilot" ask); publishing, spending and the model
+  always ask.
+- **On/off settings** take only a clear on or off (a negation such as "won't loop" is off; "don't turn it off" asks),
+  show "on"/"off", and save: before, the OK step refused every on/off setting ("value should be string"). A model's
+  JSON true/false is read as on/off, and true/false arguments take "on"/"off".
+- **Review:** 3 reviewers with probes, 9 problems, all fixed with tests.
+- **Cues and guide:** loop/seamless/whoosh/sfx/effects bring the commands to a small model; the guide's "Changing one
+  clip" names Loop ending and Sound effects.
+- **Tests:** `tests/test_assistant_commands.py`, `tests/test_assistant_acts_alone.py`.
+
 ## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)
 
 Batch 4c of Landry's "majorly improve the editing" (plan in

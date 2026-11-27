@@ -130,6 +130,15 @@ def test_the_owners_own_clip_text_and_a_trim_go_through_the_clip_editor(clip):  
         tool("edit_clip").preview(ctx(), {"project": "running podcast", "clip": "1", "cut_end": length})
     card, done = press("edit_clip", {"project": "running podcast", "clip": "1", "keep": False})
     assert db.get_clip(clip["id"])["selected"] == 0 and not done.data["work"]  # no render for a pick
+    card, done = press("edit_clip", {"project": "running podcast", "clip": "1", "loop_ending": False,
+                                     "sound_effects": False})
+    fresh = db.get_clip(clip["id"])
+    assert fresh["edit"]["loop_ending"] is False and fresh["edit"]["sound_effects"] is False
+    assert card["label"].endswith("loop ending off, sound effects off")  # already queued: rendered from it
+    card, done = press("edit_clip", {"project": "running podcast", "clip": "1", "loop_ending": "on",
+                                     "sound_effects": "on"})  # words from a small model
+    assert db.get_clip(clip["id"])["edit"]["sound_effects"] is True
+    assert db.get_clip(clip["id"])["edit"]["loop_ending"] is True and "runs straight back into its start" in card["label"]
 
 
 def test_clips_from_a_link_a_mission_and_autopilot(data, monkeypatch):
@@ -212,7 +221,8 @@ def test_everyday_words_bring_the_commands_and_a_bigger_model_always_has_them():
     every = tools.available("general")
     for words in ("push the fishing clip to Saturday at 6", "kill the ranked stream project",
                   "trim 2 seconds off the start", "make it louder", "turn autopilot off",
-                  "approve the bass video", "clip https://youtu.be/x", "write a scary story"):
+                  "approve the bass video", "clip https://youtu.be/x", "write a scary story",
+                  "make it a seamless loop", "don't loop", "no whooshes please"):
         assert {t.name for t in operations.offered(every, words)} >= {"edit_clip", "approve_post"}, words
     assert not {t.name for t in operations.offered(every, "how long should my intro be?")} & operations.COMMANDS
     big = operations.offered(every, "hello", {"ai_provider": "anthropic"})
