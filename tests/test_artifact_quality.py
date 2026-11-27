@@ -187,7 +187,7 @@ def test_a_clean_render_passes_every_check(rendered):
     st = _status(rep["checks"])
     assert rep["passed"] and not rep["blockers"], rep["blockers"]
     for name in ("hash", "codecs", "audio_stream", "dimensions", "duration", "decode", "black", "frozen", "silence",
-                 "captions", "cuts"):
+                 "captions", "cuts", "levels", "colour_tags", "loudness"):
         assert st[name] == "pass", (name, rep["checks"])
     assert st["content"] == "skipped"  # no transcript analysis for a hand-made clip: said, not assumed
     assert rep["artifact_sha256"] == rendered["render_info"]["artifact"]["sha256"]
