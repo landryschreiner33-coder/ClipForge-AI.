@@ -84,6 +84,8 @@ function ColourPanel({ v, plan, edit, busy }: { v: Video; plan: Plan; edit: Edit
   const shown = shownVersion(v);
   const reports = Object.entries(shown?.colour || {});
   const name = (id: string) => v.assets.find((a) => a.id === id)?.filename || "A recording";
+  const steadied = Object.entries(shown?.steady || {});
+  const clipName = (id: string) => plan.clips.find((x) => x.id === id)?.label || "A clip";
   const strengths = STRENGTHS.includes(c.strength) ? STRENGTHS : [...STRENGTHS, c.strength].sort((a, b) => a - b);
   return (
     <section className="panel" aria-labelledby="vr-colour">
@@ -108,9 +110,14 @@ function ColourPanel({ v, plan, edit, busy }: { v: Video; plan: Plan; edit: Edit
           Match the recordings of people to the one that plays longest</label>
         <label><input type="checkbox" checked={c.clean} disabled={busy} onChange={(e) => set("clean_picture", e.target.checked)} />{" "}
           Clean up grainy footage (only where grain is visible)</label>
+        <label><input type="checkbox" checked={!!c.steady} disabled={busy} onChange={(e) => set("steady_footage", e.target.checked)} />{" "}
+          Steady shaky camera footage (a tripod shot, a game or a screen stays as it is)</label>
       </div>
       {reports.length > 0 && <ul className="small">{reports.map(([id, r]) =>
         <li key={id}><b>{name(id)}:</b> {colourLine(r)}</li>)}</ul>}
+      {steadied.length > 0 && <ul className="small">{steadied.map(([id, r]) =>
+        <li key={id}><b>{clipName(id)}:</b> steadied {r.seconds.toFixed(1)} s of shaky footage
+          {r.zoom > 1.005 ? `, ${Math.round((r.zoom - 1) * 100)} % closer to hide the edges` : ""}</li>)}</ul>}
     </section>
   );
 }
@@ -238,6 +245,8 @@ function ClipInspector({ c, plan, v, edit, busy }: { c: PlanClip; plan: Plan; v:
             {c.zoom && ![1, 1.1, 1.2, 1.3, 1.5].includes(c.zoom) && <option value={String(c.zoom)}>{Math.round(c.zoom * 100)}%</option>}
           </select></label>
         {move}
+        {plan.color?.steady && <label><input type="checkbox" checked={c.steady !== false} disabled={busy}
+          onChange={(e) => edit({ op: "set", clip_id: c.id, field: "steady", value: e.target.checked })} /> Steady this clip when it shakes</label>}
         {plan.clips[0]?.id !== c.id && <label className="field"><span>Join with the clip before</span>
           <select value={c.join || ""} disabled={busy} onChange={(e) => edit({ op: "set", clip_id: c.id, field: "join", value: e.target.value || null })}>
             <option value="">Like the rest of the video ({plan.transition.type === "cut" ? "straight cut" : plan.transition.type})</option>

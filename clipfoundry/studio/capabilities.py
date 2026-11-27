@@ -76,6 +76,9 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
     Field("look_strength", "Look strength", "number", ALL, minimum=0, maximum=100,
           applies="how strongly the look is applied (100 = as designed)"),
     Field("clean_picture", "Clean up noise", "bool", ALL, applies="grainy, low-light picture cleaned up"),
+    Field("stabilize", "Steady shaky footage", "bool", ALL,
+          applies="shaky handheld camera footage steadied, slightly enlarged to hide the edges (a tripod shot, a "
+                  "game or a screen stays as it is)"),
     Field("sound_effects", "Sound effects", "bool", ALL,
           applies="soft whooshes and pops that follow the edit: with push-ins and coloured key words in clips, at "
                   "scene changes and as pictures appear in full videos"),

@@ -75,5 +75,5 @@ Much of the sound chain already exists (Clean up the sound, `pipeline/cleanup.py
 | 4a | Range in full videos: speed changes and speed ramps (sound keeps its pitch), freeze frames, slow zooms and pans, from the editor and plain-words requests ([RANGE_EDITING.md](RANGE_EDITING.md)) | built 2026-11-26 |
 | 4b | Several cameras of one recording: lined up by their sound, switching to whoever speaks (or another angle at pauses), one camera or picture small in a corner, from the editor and plain-words requests ([MULTICAM.md](MULTICAM.md)) | built 2026-11-26 |
 | 4c | Loop endings for short clips: a tight seam, the shot size switching on it ([SHORTS_EDITING.md](SHORTS_EDITING.md), "Loop endings") | built 2026-11-27 |
-| 4d | Stabilising shaky footage in clips and full videos | planned |
+| 4d | Steadying shaky camera footage in clips and full videos, only footage that shakes ([STEADY.md](STEADY.md)) | built 2026-11-27 |
 | 5 | Automatic quality check after every render (scopes and loudness) with a back-off | planned |

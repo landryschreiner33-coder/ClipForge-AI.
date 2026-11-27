@@ -1,5 +1,29 @@
 # AI handoff
 
+## Editing quality, batch 4d: steadying shaky footage — 2026-11-27 (Claude Code, cloud session)
+
+**Plain-English summary:** handheld camera shake is smoothed out in short clips and full videos, with a slight zoom
+to hide the edges; a tripod shot, a pan, a game or a screen recording stays exactly as it is.
+
+- **Where things are:** `pipeline/steady.py` (`measure`, `plan`, `for_stretch`, `Plan.matrix` for the clip
+  renderer, `Plan.commands` for the engine's sendcmd file, `Plan.framed` for the framing's centre, `Plan.summary`
+  clipped to `span`; thresholds at the top); `render.render_clip` (after the colour step, `steadied`);
+  `engine.steady_plans` (exact grid, `span`), `_steady_filters`, `steadying_in_use`, `steady_on`, `_clip_seconds`;
+  `capabilities.FIELDS["stabilize"]`.
+- **Rules to keep:** never steady footage that does not shake, a person moving in front of a still camera, or
+  anything with a fixed overlay (HUD, toolbar, logo); never show an edge; old full-video plans (no `color.steady`)
+  render as before. Turning `stabilize` off renders exactly as before. The clip renderer's measurement must read
+  frames exactly as its decoder does (`-ss` in ms, plain `fps`); the engine's must read the file's own frames at
+  the file's own frame rate (`exact=True`, `rate` from the probe): the sendcmd corrections are per file frame.
+  Whether something stays put is judged over ~0.1 s (`gap`) with `_move(dense=True)` (corner boxes, small windows);
+  a 60 fps follow shot must stay steadied and a date stamp must stay an overlay (tests). Bump `steady.VERSION`
+  whenever what a cached Track means changes (now 3).
+- **For the AI thread:** `stabilize` is a new Settings key and clip edit; full-video requests can set
+  `steady_footage` and a clip's `steady`. ClipForge AI's settings summary (`brain/toolbox._SETTINGS_WORDS`) and
+  tools do not know them yet.
+- **Not done:** rolling-shutter wobble, real phone footage checks (the cloud has only synthetic video); batch 5 is
+  the automatic quality check after every render.
+
 ## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code, cloud session)
 
 **Plain-English summary:** short clips stop just after their last word and start just before their first, so when

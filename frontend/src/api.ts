@@ -91,6 +91,8 @@ export interface ClipEdit {
   look_strength?: number;
   /** Clean up visible grain (low light) only. */
   clean_picture?: boolean;
+  /** Steady shaky camera footage (pipeline/steady.py); a tripod shot, a game or a screen stays as it is. */
+  stabilize?: boolean;
   /** A soft whoosh with each push-in and a pop with each coloured key word (pipeline/moves.py). */
   sound_effects?: boolean;
   /** Stop just after the last word so the clip runs straight back into its start (pipeline/loops.py). */

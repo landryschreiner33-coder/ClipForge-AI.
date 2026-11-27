@@ -293,7 +293,7 @@ def test_settings_editor_and_engine_check_the_colour_choices():
     from clipfoundry.fullcloud import worker_api  # a Full Cloud job carries the owner's colour choices
     assert {"auto_color", "look", "look_strength", "clean_picture"} <= set(worker_api.SETTING_KEYS)
     assert engine.default_color({"look": "film", "look_strength": 40, "clean_picture": False}) == {
-        "auto": True, "match": True, "look": "film", "strength": 40, "clean": False}
+        "auto": True, "match": True, "look": "film", "strength": 40, "clean": False, "steady": True}
     old = engine.color_options({})  # a plan made before colour existed: only phone HDR is converted
     assert old["auto_color"] is False and old["clean_picture"] is False and old["look"] == "natural"
     bad = engine.validate({"color": {"look": "laser", "strength": 400, "auto": "yes"}}, {})
@@ -302,7 +302,8 @@ def test_settings_editor_and_engine_check_the_colour_choices():
     assert video_flow._set_color(p, "look", "teal_orange") == "Look: Teal and orange"
     assert video_flow._set_color(p, "look_strength", 55) == "Look strength 55 %"
     assert video_flow._set_color(p, "clean_picture", False).endswith("off")
-    assert p["color"] == {"auto": True, "match": True, "look": "teal_orange", "strength": 55, "clean": False}
+    assert p["color"] == {"auto": True, "match": True, "look": "teal_orange", "strength": 55, "clean": False,
+                          "steady": True}
     with pytest.raises(video_flow.VideoError, match="Unknown look"):
         video_flow._set_color(p, "look", "laser")
     legacy = {}

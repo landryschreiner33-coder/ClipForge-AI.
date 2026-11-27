@@ -20,7 +20,7 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, audio_timing, captions, cleanup, facecam, grade, loops, moves, reframe, trims
+from . import artifact, audio_timing, captions, cleanup, facecam, grade, loops, moves, reframe, steady, trims
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, FFmpegError, MediaWatchdog, delivery_args, ffmpeg_bin,
@@ -34,6 +34,7 @@ CAM_FILE = facecam.CAM_FILE  # in the project's folder: the face cam found in th
 CAPTIONS_STEP = "Writing captions"  # progress messages that tell the office which part of the render runs
 FRAMES_STEP = "Rendering"
 COLOUR_STEP = "Checking the colour"
+STEADY_STEP = "Checking for camera shake"
 
 
 # ------------------------------------------------------------ timeline
@@ -325,7 +326,7 @@ def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
     keys = ["caption_style", "caption_position", "highlight_words", "tracking", "layout", "silence", "auto_zoom",
             "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis", "clean_sound",
             "split_view", "split_game", "auto_color", "look", "look_strength", "clean_picture", "sound_effects",
-            "loop_ending"]
+            "loop_ending", "stabilize"]
     opts = {k: settings.get(k) for k in keys}
     opts.update({k: v for k, v in (project_opts or {}).items() if k in keys and v is not None})
     opts.update({k: v for k, v in (edit or {}).items() if v is not None})
@@ -556,6 +557,13 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     dw, dh = _decode_size(src_w, src_h)
     # the grain is measured at full size and cleaned at the decoding size (smaller for 4K sources)
     denoise = grade.denoise_for(look_stats, opts, max(dw, dh) / max(src_w, src_h, 1))
+    # ---- steadying (pipeline/steady.py): only camera footage that shakes, measured once per clip (cached in its
+    # folder) on the frame grid decoded below; a face cam layout shows a screen or a game, which is never steadied
+    steadied = None
+    if opts.get("stabilize", True) and not split and layout != "game":
+        ctx.progress(0.035, STEADY_STEP)
+        steadied = steady.for_stretch(src, start, end - start + 0.5, fps, (dw, dh), cache=clip_dir,
+                                      cancelled=ctx.cancelled, span=(start, end))
 
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
     ctx.progress(0.03, CAPTIONS_STEP)
@@ -701,6 +709,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                 watch.check()
                 if len(buf) == frame_bytes:
                     last = np.frombuffer(buf, np.uint8).reshape(dh, dw, 3)
+                    if steadied is not None and steadied.moves(k):  # back onto the smoothed camera path
+                        last = cv2.warpAffine(last, steadied.matrix(k, dw, dh), (dw, dh), flags=cv2.INTER_LINEAR,
+                                              borderMode=cv2.BORDER_REPLICATE)
                 elif last is None:
                     raise FFmpegError("Could not decode video frames for this clip.")
                 if cam_dec is not None and k >= cam_lead:
@@ -714,8 +725,10 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                 out_t = tl.to_out(t_src)
                 while written < n_out_frames and written <= out_t * fps + 0.5:
                     z = float(zc[min(written, len(zc) - 1)])
-                    frame = _compose(last, plan.cx[min(k, plan.n - 1)], plan.cy[min(k, plan.n - 1)], z, dw, dh,
-                                     base_w, base_h, layout, fit_scale, split, cam_last)
+                    cx, cy = plan.cx[min(k, plan.n - 1)], plan.cy[min(k, plan.n - 1)]
+                    if steadied is not None:  # the framing was found on the picture before it was enlarged
+                        cx, cy = steadied.framed(k, cx, cy)
+                    frame = _compose(last, cx, cy, z, dw, dh, base_w, base_h, layout, fit_scale, split, cam_last)
                     enc.stdin.write(frame.data)  # type: ignore[union-attr]
                     written += 1
                     if written % 15 == 0:
@@ -725,8 +738,11 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
             # pad if decoding ended early
             while written < n_out_frames and last is not None:
                 watch.check()
-                frame = _compose(last, plan.cx[-1], plan.cy[-1], float(zc[-1]), dw, dh, base_w, base_h, layout,
-                                 fit_scale, split, cam_last)
+                cx, cy = plan.cx[-1], plan.cy[-1]
+                if steadied is not None:
+                    cx, cy = steadied.framed(n_src_frames - 1, cx, cy)
+                frame = _compose(last, cx, cy, float(zc[-1]), dw, dh, base_w, base_h, layout, fit_scale, split,
+                                 cam_last)
                 enc.stdin.write(frame.data)  # type: ignore[union-attr]
                 written += 1
             enc.stdin.close()  # type: ignore[union-attr]
@@ -800,6 +816,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                                   "eased": sum(1 for _, c in framing_changes if not c), "pushes": len(pushed),
                                   "effects": [e["kind"] for e in effects]},
                         **({"loop": loop} if loop is not None else {}),
+                        **({"steady": steadied.summary(tl.to_out)} if steadied is not None else {}),
                         "colour": {**look.summary(), "denoise": bool(denoise),
                                    "noise": round(float((look_stats or {}).get("noise") or 0), 2)},
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
