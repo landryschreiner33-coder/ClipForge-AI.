@@ -1,5 +1,35 @@
 # AI changelog
 
+## Landry's ship in front of the black hole, and a cleaner warp — 2026-11-27 (Claude Code)
+
+Landry sent a pixel-art ship: "use this as the tiny ship in the backround and fix the warp around the black whole".
+Branch `claude/project-thread-xeb0pd`.
+
+- **The ship:** the little ship flying in front of the Studio's orbiting black hole is now Landry's picture. The
+  upload already had a see-through background, but the ship itself was only 75-99 % solid (the sky would show
+  through it) and faint specks lay round it. `design/space-studio/tools/flyer.py` keeps the one solid shape, makes it
+  fully solid with a soft 1-2 px edge, crops it and scales it down on premultiplied colour into
+  `public/space/flyer-384.png` and `flyer-192.png` (the original is kept in the project files,
+  `space-studio/flyer/`). `shipArt.ts` draws the smallest copy at least as wide as the ship is shown, stretches and
+  flickers the exhaust (the left 22 % of the picture) on its own, banks with the orbit and lights the hull from the
+  disk. Still under Reduced motion. The hole draws again when the picture has loaded (a still hole draws only once)
+  and on `contextrestored`.
+- **The warp:** the camera sat 30 hole radii away and up to 13° above the disk, so the near side of the disk loomed
+  over the lower half of the shadow like a brown bowl, and the light bent over the top reached past the box and was
+  cut off. Now the camera is 70 radii away and 2-7.5° up (`TILT`): the near side is a thin band across the shadow,
+  the shadow is black above and below it, and the far side shows bent over the top and under the bottom, as in
+  Interstellar. The hole is a little smaller and sits a little low in its box so the bent light fades out inside
+  it; the blue haze fades out in an ellipse inside the box (it showed as a band with edges); the bent stars stop
+  short of the Einstein ring (about 4.5 shadows out), where the bending drew each star into a long arc that looked
+  like a scratch; the grey dust squares that sat on the hole are gone (the sky has its own dust).
+- **Not slower:** each ray now jumps straight from the camera to 25 radii and leaves at 25 radii with the small
+  analytic weak-field bend (`bend`, `[u(3 - u²)/2b]`) instead of being stepped all the way; the picture matches full
+  stepping, and it draws a little faster than the old closer camera (headless SwiftShader: 310-326 ms a frame
+  against 335-346 before).
+- **Review (2 reviewers), all fixed:** the bend on the way out squared 1e4, which overflows a chip that counts in
+  half precision; the half-size ship was enlarged at 125-200 % screen scaling; one failed picture stopped both;
+  the haze ellipse was centred on the box, not the hole.
+
 ## Editing quality, batch 4b: several cameras of one recording, pictures in a corner — 2026-11-26 (Claude Code)
 
 Batch 4b of Landry's "majorly improve the editing" (plan in
