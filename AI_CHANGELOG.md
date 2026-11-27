@@ -1,5 +1,42 @@
 # AI changelog
 
+## Editing quality, batch 5a: the sound checked after every render — 2026-11-27 (Claude Code)
+
+Batch 5a of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 4d (PR #97). Details: [docs/clipforge/QC.md](docs/clipforge/QC.md).
+Not released.
+
+- **Measuring** (`pipeline/loudness.py`, new): FFmpeg's `ebur128` (BS.1770 integrated loudness, loudness range, true
+  peak at 4x) replaces `loudnorm`'s `input_i` in both renderers (`render._measure_audio`, `engine._measure`);
+  `loudnorm` read up to 0.75 LU off on speech with level jumps. `gain_for` keeps the one constant gain to -14 LUFS
+  within -1.5 dBTP (+24/-24 dB) and now says what held it short: the peaks or the 24 dB cap
+  (`audio_processing.peak_limited`, `boost_capped`; `audio_processing.version` 2).
+- **Limiter:** `alimiter` at 192 kHz (inter-sample peaks) with its ceiling at -2 dBFS (EBU Tech 3344), was 48 kHz at
+  -1.5 dBFS: synthetic hot speech reached -0.5 dBTP after AAC 256k and +2.0 dBTP at 128k.
+- **After the encode** the finished file is measured: a missed level (over 0.5 LU, fix at most 6 dB and never into the
+  limiter) or a true peak over -1 dBTP (ceiling lowered 1.5x the overshoot + 0.5 dB, -3 to -6 dBFS) gets its sound
+  made once more with the picture copied; one extra try. Clips: `render._check_sound` (packet timing checked again,
+  the render record and hash follow the fixed file, `effects.wav` kept until then). Full videos: `engine._check_sound`
+  (the mix is still on disk; the second try goes to its own file). The check never fails a render: when it cannot
+  measure or the second try fails, the first file stays with what was measured.
+- **Reports:** `render_info.qc = {version: 1, sound: {status, note, lufs, lra, tp, expected_lufs, fixed_db,
+  ceiling_dbfs?}}`; a full video's version info `qc.sound` also has `source_lufs`, `source_tp`, `peak_limited`,
+  `boost_capped`, and the video view passes `qc` on. Notes in plain words ("Plays 9.3 dB quieter than most videos
+  (-23.3 LUFS): its loudest peaks held it back.").
+- **Editors:** Clip editor → Sound and Full-video editor → Sound show "Loudness of the last render: …" (warnings in
+  the warning colour), `format.soundCheckLine`.
+- **Privacy page:** the audio measurements row covers the finished file's loudness, peaks and corrections.
+- **FilmCraft versions:** measured and judged (`loudness.judge`, `qc.sound` in its report), never changed.
+- **Review** (2 reviewers with their own probes, 8 problems, all fixed with tests): a second try that timed out
+  failed a finished clip and left `render.sound.mp4` (now inside the `try`, the first file stays); `effects.wav`
+  stayed after a failed or cancelled encode, and a cancel during the check left `render.tmp.mp4` / `<name>.tmp.mp4`
+  (one `try` around the encode and the check; the engine's mux and check too); the engine swapped in its second
+  file without checking its audio timing; FilmCraft versions had no sound line; the owner's -0.5 dB was named as the
+  reason for a 10 dB shortfall the peaks caused (named only when the file would be on target without it); a capped
+  quiet recording was "corrected" past the 24 dB cap (no positive fix when capped); the second measurement was
+  judged against the corrected level instead of the aimed-at one; a failed measurement showed nothing ("unmeasured").
+
 ## Editing quality, batch 4d: steadying shaky footage — 2026-11-27 (Claude Code)
 
 Batch 4d of Landry's "majorly improve the editing" (plan in

@@ -69,6 +69,21 @@ def test_a_quiet_file_says_why_it_is_quiet(kwargs, why):
     assert verdict["note"] == f"Plays 7.0 dB quieter than most videos (-21.0 LUFS): {why}."
 
 
+def test_the_owners_volume_is_named_only_when_it_explains_the_miss():
+    def note(lufs, owner, held="peaks", normalized=True):
+        return loudness.check({"lufs": lufs, "lra": 4.0, "tp": -3.0}, lufs, normalized=normalized,
+                              owner_gain_db=owner, held=held)["note"]
+
+    # peaks held it 9 dB short and the owner took 1 dB off: the peaks are the reason
+    assert note(-24.3, -1.0) == ("Plays 10.3 dB quieter than most videos (-24.3 LUFS): its loudest peaks held it "
+                                 "back, and your volume setting takes 1.0 dB off.")
+    assert note(-45.6, -0.5, "cap").endswith("raised by the most allowed (24 dB), and your volume setting takes "
+                                             "0.5 dB off.")
+    assert note(-20.0, -6.0, "") == "Plays 6.0 dB quieter than most videos (-20.0 LUFS): your volume setting."
+    assert note(-9.0, 0.5, "", normalized=False) == ("Louder than most videos (-9.0 LUFS): platforms will turn it "
+                                                     "down (normalization is off).")
+
+
 def test_a_loud_file_or_a_hot_peak_warns_and_a_hot_peak_asks_for_a_lower_ceiling():
     loud = loudness.check({"lufs": -9.5, "lra": 3.0, "tp": -2.0}, -9.5, normalized=True, owner_gain_db=4.5)
     assert loud["status"] == "warn" and not loud["lower_ceiling"]
@@ -90,6 +105,11 @@ def test_a_missed_level_gets_one_bounded_fix_that_never_drives_the_limiter():
     assert fix(-16.0, -2.2) == 0.0  # no room at all: never pushed into the limiter
     assert fix(-11.0, -2.0) == pytest.approx(-3.0)  # too loud comes down
     assert fix(-30.0, -40.0) == loudness.MAX_FIX_DB  # never more than 6 dB in one go
+    # a very quiet recording already raised by the most allowed reads a little under (more of it passes the gate):
+    # never raised past the cap
+    assert loudness.check({"lufs": -40.2, "lra": 4.0, "tp": -30.0}, -39.6, normalized=True, held="cap")["fix_db"] == 0
+    assert loudness.check({"lufs": -38.0, "lra": 4.0, "tp": -30.0}, -39.6, normalized=True,
+                          held="cap")["fix_db"] == pytest.approx(-1.6)  # too loud still comes down
     assert loudness.check({"lufs": -30.0, "lra": 4.0, "tp": -40.0}, None, normalized=False)["fix_db"] == 0.0
     assert loudness.check({"lufs": None, "lra": 0.0, "tp": None}, -14.0, normalized=True)["status"] == "skipped"
 
@@ -218,7 +238,7 @@ def test_a_check_that_cannot_measure_or_fix_keeps_the_rendered_file(data, monkey
     monkeypatch.setattr(loudness, "measure", broken)
     out = _render_clip(data, "unmeasured")
     assert Path(out["output_path"]).exists()
-    assert out["render_info"]["qc"]["sound"]["status"] == "skipped"
+    assert out["render_info"]["qc"]["sound"]["status"] == "unmeasured"
 
     # the second try fails (its file's audio timing is refused): the first file stays, judged as it was measured
     monkeypatch.setattr(loudness, "measure", lambda path, *a, **k: {**real(path, *a, **k), "tp": -0.4})
@@ -234,6 +254,69 @@ def test_a_check_that_cannot_measure_or_fix_keeps_the_rendered_file(data, monkey
     assert sound["status"] == "warn" and sound["fixed_db"] == 0.0 and "ceiling_dbfs" not in sound
     assert "Peaks reach -0.4 dBTP" in sound["note"]
     assert not list(Path(out["output_path"]).parent.glob("render.sound.mp4"))
+
+
+@needs_ffmpeg
+def test_a_sound_fix_that_times_out_keeps_the_first_file(data, monkeypatch):
+    from clipfoundry.pipeline import render
+    from clipfoundry.pipeline.ffmpeg_utils import FFmpegError
+
+    real, real_run = loudness.measure, render.run_process
+    monkeypatch.setattr(loudness, "measure", lambda path, *a, **k: {**real(path, *a, **k), "tp": -0.4})
+
+    def slow_second(cmd, *a, **k):
+        if str(cmd[-1]).endswith("render.sound.mp4"):
+            Path(cmd[-1]).write_bytes(b"half a file")
+            raise FFmpegError("The media process took too long; stopped safely")
+        return real_run(cmd, *a, **k)
+
+    monkeypatch.setattr(render, "run_process", slow_second)
+    out = _render_clip(data, "slow")
+    assert Path(out["output_path"]).exists() and out["render_info"]["qc"]["sound"]["fixed_db"] == 0.0
+    left = sorted(p.name for p in Path(out["output_path"]).parent.iterdir())
+    assert "render.sound.mp4" not in left and "render.tmp.mp4" not in left
+
+
+@needs_ffmpeg
+def test_a_cancelled_render_leaves_no_effects_track_or_unfinished_file(data, monkeypatch):
+    from clipfoundry import config
+    from clipfoundry.pipeline import render
+    from clipfoundry.pipeline.common import Cancelled, JobContext
+    from clipfoundry.pipeline.ffmpeg_utils import probe
+
+    one_pop = [{"at": 1.0, "kind": "pop", "n": 0}]
+    monkeypatch.setattr(render.moves, "effect_events", lambda words, pushes, duration: one_pop)
+    src = make_video(data / "fx.mp4", seconds=6.0)
+    meta = probe(src)
+    project = {"id": "fx", "name": "fx", "source_path": str(src), "dir": str(data / "fx"), "info": meta,
+               "options": {}, **meta}
+    clip = {"id": "c-fx", "start": 0.0, "end": 6.0, "hook": "", "edit": {"tracking": "center"}}
+    for when in ("encoding", "checking"):
+        state = {"p": 0.0, "checking": False}
+
+        def report(p, m):
+            state["checking"] |= m == "Checking the sound"
+            if m == render.FRAMES_STEP:
+                state["p"] = max(state["p"], p)
+
+        stop = (lambda: state["p"] > 0.3) if when == "encoding" else (lambda: state["checking"])
+        with pytest.raises(Cancelled):
+            render.render_clip(project, clip, [], {**config.DEFAULT_SETTINGS, **FAST},
+                               JobContext(report=report, is_cancelled=stop))
+        folder = next(p for p in data.rglob("c-fx") if p.is_dir())
+        left = sorted(p.name for p in folder.iterdir())
+        assert not {"effects.wav", "render.tmp.mp4", "render.sound.mp4"} & set(left), (when, left)
+
+
+@needs_ffmpeg
+def test_a_file_made_elsewhere_is_judged_but_not_changed(tmp_path):
+    """FilmCraft's export sets its own level: its sound is measured and judged, never made again."""
+    src = make_video(tmp_path / "made.mp4", seconds=3.0)
+    before = src.read_bytes()
+    got = loudness.judge(src)
+    assert got["status"] in {"pass", "warn"} and got["fixed_db"] == 0.0 and got["lufs"] is not None
+    assert src.read_bytes() == before
+    assert loudness.judge(tmp_path / "missing.mp4")["status"] == "unmeasured"
 
 
 # ------------------------------------------------------------------ the full-video renderer

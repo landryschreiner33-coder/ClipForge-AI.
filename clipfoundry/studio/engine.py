@@ -1720,20 +1720,21 @@ def _check_sound(tmp_out: Path, level: dict, gain: float, total_s: float, cancel
         out = loudness.measure(tmp_out, cancelled, timeout)
     except FFmpegError as exc:
         log.warning("sound check skipped: %s", exc)
-        return {"status": "skipped", "note": "The finished sound could not be measured.", "fixed_db": 0.0, **base}
+        return {"status": "unmeasured", "note": "The finished sound could not be measured.", "fixed_db": 0.0, **base}
     verdict = loudness.check(out, expected, normalized=True, held=level["held"])
     fixed, ceiling = 0.0, loudness.LIMIT_DBFS
     if verdict["fix_db"] or verdict["lower_ceiling"]:
         again = tmp_out.with_name(tmp_out.stem + ".sound.mp4")
         try:
             remux(again, verdict["fix_db"], verdict["ceiling_dbfs"])
+            audio_timing.require_valid(again, cancelled)  # what is checked on the finished file again later
             second = loudness.measure(again, cancelled, timeout)
         except FFmpegError as exc:
             log.warning("sound fix failed: %s", exc)
         else:
             again.replace(tmp_out)
             fixed, ceiling, out = verdict["fix_db"], verdict["ceiling_dbfs"], second
-            verdict = loudness.check(out, None if expected is None else expected + fixed, normalized=True,
+            verdict = loudness.check(out, expected, normalized=True,
                                      held=level["held"])
         finally:
             again.unlink(missing_ok=True)
@@ -2081,9 +2082,13 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                  "-b:a", "128k" if preview else "256k", "-ac", "2", "-ar", "48000", "-movflags", "+faststart",
                  "-t", f"{total_s:.6f}", str(target)],
                 duration=total_s, progress=lambda f: report(lo + (hi - lo) * f), cancel=cancelled, cwd=work)
-        mux(tmp_out, 0.0, loudness.LIMIT_DBFS, 0.88, 0.95)
-        sound = _check_sound(tmp_out, level, gain, total_s, cancelled,
-                             lambda target, trim, ceiling: mux(target, trim, ceiling, 0.95, 0.99))
+        try:
+            mux(tmp_out, 0.0, loudness.LIMIT_DBFS, 0.88, 0.95)
+            sound = _check_sound(tmp_out, level, gain, total_s, cancelled,
+                                 lambda target, trim, ceiling: mux(target, trim, ceiling, 0.95, 0.99))
+        except BaseException:
+            tmp_out.unlink(missing_ok=True)  # a failed or cancelled render leaves no unchecked file
+            raise
         tmp_out.replace(out_path)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # raw audio and joined copies never outlive the render

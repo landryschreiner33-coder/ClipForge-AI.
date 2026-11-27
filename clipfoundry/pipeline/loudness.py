@@ -93,9 +93,10 @@ def check(out: dict, expected: float | None, *, normalized: bool, owner_gain_db:
           held: str = "") -> dict:
     """Judge a finished file's measurement `out` ({lufs, lra, tp}). `expected`: the level the render aimed at
     (the target, or lower when the peaks held it back); None when its level was left alone (normalization off,
-    or silence). `held`: what kept the gain short of the target (gain_for). Returns {status: pass | warn | skipped,
-    note, fix_db (a correction worth one more try, or 0), lower_ceiling (the true peak is too hot), ceiling_dbfs
-    (the limiter's ceiling for that try)}."""
+    or silence). `held`: what kept the gain short of the target (gain_for). Returns {status: pass | warn |
+    skipped (silence), note, fix_db (a correction worth one more try, or 0), lower_ceiling (the true peak is too
+    hot), ceiling_dbfs (the limiter's ceiling for that try)}. A measurement that failed is "unmeasured" (judge,
+    and both renderers' checks)."""
     lufs, tp = out.get("lufs"), out.get("tp")
     if lufs is None:
         return {"status": "skipped", "note": "Silent: no loudness to check.", "fix_db": 0.0, "lower_ceiling": False,
@@ -108,27 +109,35 @@ def check(out: dict, expected: float | None, *, normalized: bool, owner_gain_db:
             fix = max(-MAX_FIX_DB, min(MAX_FIX_DB, miss))
             if fix > 0 and tp is not None:
                 fix = min(fix, max(0.0, LIMIT_DBFS - tp))  # never into the limiter
+            if fix > 0 and held == "cap":
+                fix = 0.0  # already raised by the most allowed (gating makes it read a little under)
             fix = round(fix, 2) if abs(fix) > FIX_LU else 0.0
     status = "pass"
+    # the owner's own volume is named as the reason only when, without it, the file would be on target
+    owner_made_it = abs(owner_gain_db) > 0.01 and abs(lufs - owner_gain_db - TARGET_LUFS) <= NEAR_LU
     if abs(lufs - TARGET_LUFS) > NEAR_LU:
         status = "warn"
         if lufs < TARGET_LUFS:
             why = ("normalization is off" if not normalized else
-                   "your volume setting" if owner_gain_db < -0.01 else
+                   "your volume setting" if owner_made_it else
                    f"a very quiet recording, raised by the most allowed ({MAX_BOOST_DB:.0f} dB)" if held == "cap"
                    else "its loudest peaks held it back" if held == "peaks" or (
                        expected is not None and expected < TARGET_LUFS - NEAR_LU) else "")
+            if why and why != "your volume setting" and owner_gain_db < -0.01:
+                why += f", and your volume setting takes {-owner_gain_db:.1f} dB off"
             notes.append(f"Plays {TARGET_LUFS - lufs:.1f} dB quieter than most videos ({lufs:.1f} LUFS)"
                          + (f": {why}" if why else "") + ".")
         else:
+            why = ("normalization is off" if not normalized else
+                   "your volume setting" if owner_gain_db > 0.01 else "")
             notes.append(f"Louder than most videos ({lufs:.1f} LUFS): platforms will turn it down"
-                         + (" (your volume setting)" if owner_gain_db > 0.01 else "") + ".")
+                         + (f" ({why})" if why else "") + ".")
     if hot:
         status = "warn"
         notes.append(f"Peaks reach {tp:.1f} dBTP: they may distort after the platform's own encoding.")
     if status == "pass":
-        notes.append(f"As loud as most videos ({lufs:.1f} LUFS" + (f", peaks {tp:.1f} dBTP)." if tp is not None
-                                                                     else ")."))
+        peaks = f", peaks {tp:.1f} dBTP" if tp is not None else ""
+        notes.append(f"As loud as most videos ({lufs:.1f} LUFS{peaks}).")
     return {"status": status, "note": " ".join(notes), "fix_db": fix, "lower_ceiling": hot,
             "ceiling_dbfs": lower_ceiling(tp) if hot else LIMIT_DBFS}
 
@@ -144,3 +153,14 @@ def measure(path: str | Path, cancelled: Callable[[], bool] | None = None, timeo
         return parse(result.stderr)
     except ValueError as exc:
         raise FFmpegError("The finished sound's measurement was incomplete.") from exc
+
+
+def judge(path: str | Path, cancelled: Callable[[], bool] | None = None, timeout: float = 600.0) -> dict:
+    """How a file made elsewhere (FilmCraft's export, normalised to the target by FilmCraft itself) sounds, measured
+    and judged but not changed: {status, note, lufs, lra, tp, fixed_db: 0}; "skipped" when it cannot be measured."""
+    try:
+        out = measure(path, cancelled, timeout)
+    except FFmpegError:
+        return {"status": "unmeasured", "note": "The finished sound could not be measured.", "fixed_db": 0.0}
+    verdict = check(out, TARGET_LUFS, normalized=True)
+    return {"status": verdict["status"], "note": verdict["note"], **out, "fixed_db": 0.0}

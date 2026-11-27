@@ -23,9 +23,11 @@ every short clip, Autopilot clips included) and the full-video engine (`studio/e
 | Full-video editor → Sound | The same line for the version on screen |
 
 The notes say why a file is quieter or louder than most videos: its loudest peaks held it back, a very quiet
-recording was raised by the most allowed (24 dB), normalization is off, or the owner's own volume setting. A peak
-over -1 dBTP says it may distort after the platform's own encoding. When the check corrected something, the line
-says so ("Its level was corrected by +0.8 dB after the first try", or the peaks were held lower).
+recording was raised by the most allowed (24 dB), normalization is off, or the owner's own volume setting (named
+as the reason only when the file would be on target without it; otherwise "…, and your volume setting takes 1.0 dB
+off"). A peak over -1 dBTP says it may distort after the platform's own encoding. When the check corrected
+something, the line says so ("Its level was corrected by +0.8 dB after the first try", or the peaks were held
+lower). A file whose sound could not be measured says so; a silent one shows nothing.
 
 ### What happens
 
@@ -41,14 +43,20 @@ says so ("Its level was corrected by +0.8 dB after the first try", or the peaks 
   ceiling, and synthetic hot speech reached -0.5 dBTP after AAC at 256 kbps and +2.0 dBTP at 128 kbps.
 - **After the encode** the finished file is measured again:
   - when it missed the level the render aimed at by more than 0.5 LU, its sound is made once more with the
-    difference corrected (at most 6 dB, and never more than the room left under the limiter's ceiling);
+    difference corrected (at most 6 dB, never more than the room left under the limiter's ceiling, and never up
+    for a very quiet recording already raised by the most allowed: more of it passes the measurement's gate after
+    the boost, so it reads a little under);
   - when its true peak is over -1 dBTP, its sound is made once more with the limiter's ceiling lowered 1.5 times as
     far as the peak went over, plus half a dB (between -3 and -6 dBFS): the encoder's overshoot shrinks by only
     0.7-1 dB for each dB the ceiling comes down.
 
-  The picture is copied (`-c:v copy`), not encoded again. A clip's new file has its audio timing checked again,
-  and its render record (`edl.json`, the final transcript, the SHA-256) is made from the fixed file. There is one
-  extra try at most; whatever the second measurement says is what the note says.
+  The picture is copied (`-c:v copy`), not encoded again. The new file has its audio timing checked again, and a
+  clip's render record (`edl.json`, the final transcript, the SHA-256) is made from the fixed file. There is one
+  extra try at most; whatever the second measurement says is what the note says. The check never fails a render
+  that made its file: when it cannot measure ("unmeasured") or the second try fails or times out, the first file
+  stays. A failed or cancelled render leaves neither its unfinished file nor its sound effects track behind.
+- **FilmCraft versions** (`craft/finish.py`): FilmCraft sets its own export's level (-14 LUFS); its file is
+  measured and judged the same way (`loudness.judge`) but never changed.
 - **What is kept:** a clip's `render_info.qc = {version: 1, sound: {status, note, lufs, lra, tp, expected_lufs,
   fixed_db, ceiling_dbfs (only when lowered)}}`, and its `render_info.audio_processing` (version 2:
   `integrated_lufs`, `true_peak_dbfs`, `loudness_range_lu`, `normalization_gain_db`, `peak_limited`,

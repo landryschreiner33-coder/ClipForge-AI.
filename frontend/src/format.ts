@@ -58,8 +58,9 @@ export function zoneLine(tz?: string): string {
 export const num = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n.toLocaleString("en-US"));
 
 /** The sound check after a render (a clip's render_info.qc.sound, a video version's qc.sound): how loud the finished
- * file plays and why, and what the check corrected (pipeline/loudness.py). Empty without one or for silence. */
-export type SoundCheck = { status?: "pass" | "warn" | "skipped"; note?: string; lufs?: number | null;
+ * file plays and why, and what the check corrected (pipeline/loudness.py). Empty without one or for silence; a
+ * measurement that failed says so. */
+export type SoundCheck = { status?: "pass" | "warn" | "skipped" | "unmeasured"; note?: string; lufs?: number | null;
   tp?: number | null; fixed_db?: number; ceiling_dbfs?: number };
 export function soundCheckLine(s: SoundCheck | null | undefined): string {
   if (!s?.note || s.status === "skipped") return "";
@@ -69,7 +70,7 @@ export function soundCheckLine(s: SoundCheck | null | undefined): string {
       + "after the first try.");
   }
   if (s.ceiling_dbfs !== undefined) {
-    parts.push("Its sound was made again with the loudest peaks held lower, so they don't distort after upload.");
+    parts.push("Its sound was made again with the loudest peaks held lower, for the platform's own encoding.");
   }
   return parts.join(" ");
 }
