@@ -38,10 +38,15 @@ COLOUR_STEP = "Checking the colour"
 
 # ------------------------------------------------------------ timeline
 def heard(folder: str | Path, words: list[dict], start: float, end: float,
-          settings: dict | None = None) -> list[tuple[float, float]]:
+          settings: dict | None = None, offset: float = 0.0) -> list[tuple[float, float]]:
     """Loud stretches without words in [start, end] (a laugh, a shout, a crowd; virality.wordless_loud), from the
     loudness measured when the project's video was analyzed (`folder`: the project folder). Remove pauses keeps
-    them: they are not silence."""
+    them: they are not silence. `offset`: where the rendered file starts in that recording (a live clip renders from
+    a window of the stream; its words and times are the window's, the loudness is the whole recording's)."""
+    if offset:
+        moved = [{**w, "start": w["start"] + offset, "end": w["end"] + offset} for w in words]
+        return [(round(a - offset, 3), round(b - offset, 3))
+                for a, b in heard(folder, moved, start + offset, end + offset, settings)]
     env = read_json(Path(folder) / "loudness.json", None)
     if not env or not env.get("db"):
         return []
@@ -478,12 +483,21 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     within = [(i.start, i.end) for i in blueprint.intervals] if blueprint is not None else None
     silence = opts.get("silence", "off")
     loop_on = bool(opts.get("loop_ending", True))
-    loud = heard(project["dir"], words_all, start, end) if silence in SILENCE_PRESETS or loop_on else None
+    # reactions without words (a live clip's window is `source_offset` into the recording the loudness is of)
+    loud = heard(project["dir"], words_all, start, end, offset=source_offset) \
+        if silence in SILENCE_PRESETS or loop_on else None
     segs = keep_segments(words, start, end, silence, fps, bool(opts.get("remove_fillers")), within,
                          loud if silence in SILENCE_PRESETS else None)
-    # a loop ending: the clip stops just after its last sound and starts just before its first (loops.py)
-    segs, loop = loops.seam(segs, words, start, fps, float(opts.get("speed", 1.0) or 1.0), loud) if loop_on \
-        else (segs, None)
+    cleaned = sum(b - a for a, b in segs)  # what silence and filler cleanup kept (the loop seam is counted apart)
+    loop = None
+    if loop_on:
+        # a loop ending: the clip stops just after its last sound and starts just before its first (loops.py),
+        # from what is said (the transcript, whatever the captions show), never inside another shot
+        said = [w for w in words_all if w["end"] > start and w["start"] < end]
+        speed = max(SPEED_RANGE[0], min(SPEED_RANGE[1], float(opts.get("speed", 1.0) or 1.0)))
+        segs, loop = loops.seam(segs, said, start, fps, speed, loud, lambda a, b: reframe.precise_cuts(src, a, b))
+        if loop is not None:  # a word the seam left out gets no caption
+            words = loops.within(words, segs)
     tl = Timeline(segs, float(opts.get("speed", 1.0) or 1.0))
     fillers_cut = sum(1 for w in words if FILLER_WORD.match(w["w"].strip()) and not tl.contains(w["start"] + 0.01))
     if blueprint is not None:  # only words that are heard get captions (whole sentences may be cut out)
@@ -586,10 +600,10 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     n_out_frames = int(round(tl.duration * fps))
     # punch-ins on the jump cuts, a change at least every 5 s, a push on rationed stressed words (moves.py)
     punch = moves.punch_strength(src_h) if opts.get("auto_zoom") else 0.0
-    zc = moves.punch_curve(words_out, cuts, n_out_frames, fps, punch, emphasis, loop=loop_on) * base_zoom
-    if loop is not None:  # does the shot size change where the end runs back into the start?
-        loop["switch"] = bool(len(zc) > 1 and abs(float(zc[0]) - float(zc[-1])) > 1e-6)
-    framing_changes = moves.changes(words_out, cuts, tl.duration) if punch else []
+    zc = moves.punch_curve(words_out, cuts, n_out_frames, fps, punch, emphasis, loop=loop is not None) * base_zoom
+    framing_changes = moves.changes(words_out, cuts, tl.duration, loop=loop is not None) if punch else []
+    if loop is not None:  # an odd number of changes: the shot size switches where the end runs back into the start
+        loop["switch"] = len(framing_changes) % 2 == 1
     pushed = moves.pushes(words_out, emphasis, tl.duration) if punch else []
     # sound effects from the edit: a whoosh with each push, a pop with each key word the captions colour (a style
     # without an emphasis colour, like Minimal, shows no key words, so it gets no pops)
@@ -780,7 +794,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                         **({"split_game": view["game"]} if two else {}),
                         **({"pip_corner": view["corner"]} if view.get("game") == "pip" else {}),
                         "fps": fps, "segments": len(segs),
-                        "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),
+                        "removed_s": round((end - start) - cleaned, 2),
                         "fillers_removed": fillers_cut, "speed": tl.speed, "emphasis_words": len(emphasis),
                         "moves": {"punch": punch, "on_cuts": sum(1 for _, c in framing_changes if c),
                                   "eased": sum(1 for _, c in framing_changes if not c), "pushes": len(pushed),

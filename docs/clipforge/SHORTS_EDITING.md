@@ -56,16 +56,26 @@ code is `clipfoundry/pipeline/loops.py`, used by the clip renderer (Autopilot cl
   the last sound, on the clip's frame grid (a little more is kept rather than less, so a word's first and last sounds
   survive). The end and the start then meet with about the pause people leave between two sentences (0.2-0.3 s). A
   laugh, a shout or a cheer right after the last word (or before the first; `render.heard`) counts as the last sound,
-  so a reaction to the punchline stays.
+  so a reaction to the punchline stays. The words are what is said (the transcript), whatever the captions show, so
+  taking a word out of the captions never cuts it off.
+- **No end inside another shot or word.** When a hard scene cut falls between the last word and the new end (or
+  between the new start and the first word), that end goes on the cut, so the loop never shows a frame or two of
+  another shot; if the cut is inside the word, that end stays as it was. A word the clip's own edge cuts through is
+  left out whole instead of clipped, and a word the seam leaves out gets no caption.
 - **Moments of their own stay.** More than 0.8 s of quiet before the first word, or 1.2 s after the last, is
-  something else (a look, an action, a reveal) and is left as it is. A clip never gets shorter than a second.
-- **The shot size changes on the seam.** With punch-ins on, the framing alternates between plain and punched in at
-  every jump cut. The loop back to the start is a jump cut too, so when the clip would end on the size it started with
-  (an even number of changes), it starts punched in instead (`moves.opens_tight`). A clip without any change keeps the
-  plain framing (nothing to alternate with).
+  something else (a look, an action, a reveal) and is left as it is. A clip never gets shorter than a second in its
+  own time (at its speed).
+- **The shot size changes on the seam.** With punch-ins on, every framing change switches between plain and punched
+  in, so an even number of them ends on the size the clip started with. The loop back to the start is a jump cut
+  too, so the number is made odd (`moves.changes(loop=True)`): one more eased change, in the last stretch if it has
+  room (about 1.5 s before the end) or else in the longest stretch that has (held at least 2.5 s before it and 1 s
+  after it); when none has room, one eased change fewer. Jump cuts are never moved or dropped, so a clip of jump cuts
+  close together can stay as it is.
 - **Only what is played changes.** The clip's start and end stay where they are (the editor's trim, the predictor's
   times); the tightening is done on the kept parts like silence cleanup, so the captions, punch-ins and effects follow
-  it. Sound effects already stay out of the first 0.3 s and the last second, so the seam is clean.
+  it. Sound effects already stay out of the first 0.3 s and the last second, so the seam is clean. The Audio tab's
+  "removed ... s of pauses" counts only silence and filler cleanup.
+- **Live clips** render from a window of the stream: the reactions are read at the window's place in the recording.
 
 The render notes keep it: `render_info.loop` = `{head_s, tail_s, seam_s, switch}` (seconds left out at each end, the
 pause at the seam in the clip's own time, and whether the shot size changes there). `loop_ending` is a Setting (on), a
@@ -81,12 +91,14 @@ cuts, effects following the speech level and the clip volume, and a real render 
 pauses (punch-ins counted, effects present, at least 12 dB under the speech at their loudest, only now and then, their
 track removed).
 
-`tests/test_loops.py` (8 fast, 1 real render): the seam keeps 0.10 s before the first word and 0.15 s after the
+`tests/test_loops.py` (12 fast, 1 real render): the seam keeps 0.10 s before the first word and 0.15 s after the
 last, on the frame grid; long quiet ends are left alone; a laugh after the last word stays; only the ends change (a
-jump cut inside stays, a cut filler is not the last word); nothing changes without words or below a second; the seam
-pause at the clip's speed; the shot size switches on the seam (an even number of changes starts tight, an odd one is
-unchanged, none keeps the plain framing); the setting everywhere it is read; and a real render that stops just after
-its last word with the captions moved with it.
+jump cut inside stays, a cut filler is not the last word); nothing changes without words or below a second at the
+clip's speed; the seam pause at the clip's speed; the shot size switches on the seam (even counts made odd, jump cuts
+untouched, a change in the middle when the end is short, one fewer when nothing has room); no end inside an unplayed
+word or a frame of another shot; no caption for a word left out; a live clip's reactions from its own window; the
+setting everywhere it is read; and real renders that stop just after the last word, with the captions moved with it,
+nothing counted as removed pauses, the switch matching the changes, and a caption edit not moving the end.
 
 ## Not verified yet
 

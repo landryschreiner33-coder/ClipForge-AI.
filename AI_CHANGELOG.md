@@ -12,13 +12,20 @@ Batch 4c of Landry's "majorly improve the editing" (plan in
   so the replay runs straight into the start with a sentence-length pause (0.2-0.3 s). More than 0.8 s of quiet
   before the first word or 1.2 s after the last is left alone; a clip never gets shorter than a second. The clip's
   start and end stay; the kept parts are tightened like silence cleanup, so captions, punch-ins and effects follow.
-- **The shot size switches on the seam** (`moves.punch_curve(loop=True)`, `moves.opens_tight`): a clip whose
-  framing would end on the size it started with starts punched in, so the loop seam is a punch-in cut like every
-  other jump cut.
+- **The shot size switches on the seam** (`moves.changes(loop=True)`, `moves._odd`): every framing change switches
+  the size, so the number of changes is made odd (one more eased change where there is room, else one fewer), and the
+  loop seam is a punch-in cut like every other jump cut.
 - **Setting and editor:** `loop_ending` (Settings → Clips → Extras, on), a clip edit (Clip editor → Trim, with what
   the last render did), in Full Cloud's job settings and the artifact's recorded settings. `render_info.loop` =
   `{head_s, tail_s, seam_s, switch}`.
-- **Tests:** `tests/test_loops.py` (8 fast, 1 real render).
+- **Review** (2 reviewers with probes, 8 problems, all fixed with tests): the first version started even-count clips
+  punched in, which never made the seam switch (the count is now made odd); words the seam left out kept captions
+  (now dropped); the seam followed the caption words, so a word taken out of the captions was cut off (it follows
+  the transcript now); an end could land a frame or two into the next scene (it goes on the cut); a sped-up clip could
+  end under a second; the Audio tab counted the seam as removed pauses; a push easing out at the end read as a switch;
+  live clips read reactions from the wrong part of the stream (`render.heard(offset=...)`, also used by silence
+  cleanup).
+- **Tests:** `tests/test_loops.py` (12 fast, 1 real render).
 
 ## Editing quality, batch 4b: several cameras of one recording, pictures in a corner — 2026-11-26 (Claude Code)
 

@@ -85,22 +85,101 @@ def test_the_seam_is_measured_in_the_clip_s_own_time_at_its_speed():
     assert faster["seam_s"] == pytest.approx(at1["seam_s"] / 1.15, abs=1e-3)
 
 
+def _level(events: list[tuple[float, bool]]) -> int:
+    """0 = the plain framing, 1 = punched in, after every change."""
+    return len(events) % 2
+
+
 def test_on_a_loop_the_shot_size_changes_where_the_end_runs_back_into_the_start():
     words = _words(0.2, 14.0)
-    n = int(14.0 * FPS)
-    for cuts in ([(3.0, 0.5), (6.0, 0.5)], [(3.0, 0.5), (6.0, 0.5), (9.0, 0.5)], []):
-        events = moves.changes(words, cuts, 14.0)
-        plain = moves.punch_curve(words, cuts, n, FPS, moves.PUNCH)
-        looped = moves.punch_curve(words, cuts, n, FPS, moves.PUNCH, loop=True)
-        assert plain[0] == 1.0                                   # without a loop ending: as before
-        if events:
-            assert looped[0] != pytest.approx(looped[-1])       # the seam switches the size
-        if len(events) % 2:                                      # it already ended on the other size: unchanged
-            assert np.allclose(plain, looped)
-        elif events:                                             # it started tight instead, then alternated
-            assert looped[0] == pytest.approx(1 + moves.PUNCH)
-            assert np.allclose(looped[looped < 1 + moves.PUNCH - 1e-9].min(), 1.0)
-    assert not moves.opens_tight([], True) and not moves.opens_tight([(1.0, True), (2.0, True)], False)
+    fixed = 0
+    # jump cuts with eased changes after them, jump cuts with short stretches, one cut, none (short and long)
+    for cuts, dur in (([(3.0, 0.5), (6.0, 0.5)], 14.0), ([(3.0, 0.5), (6.0, 0.5)], 7.5),
+                      ([(3.0, 0.5), (6.5, 0.5)], 9.0), ([(3.0, 0.5)], 6.0), ([], 4.6), ([], 12.0)):
+        k = int(dur * FPS)
+        plain = moves.changes(words, cuts, dur)
+        looped = moves.changes(words, cuts, dur, loop=True)
+        if len(plain) % 2:                                   # it already ended on the other size: unchanged
+            assert looped == plain
+        elif all(on for _, on in plain) and all(
+                b - a < 3.5 for a, b in zip([0, *(t for t, _ in plain)], [*(t for t, _ in plain), dur])):
+            assert looped == plain                           # jump cuts close together: nothing can be done
+        else:
+            assert _level(looped) == 1, (cuts, dur, plain, looped)   # now it does
+            fixed += 1
+            assert [e for e in plain if e[1]] == [e for e in looped if e[1]]   # jump cuts are never touched
+            bounds = [0.0, *(t for t, _ in looped), dur]
+            for i, (t, on_cut) in enumerate(looped):
+                if not on_cut and (t, on_cut) not in plain:  # an added change: held 2.5 s before, 1 s after
+                    assert t - bounds[i] >= 2.5 - 1e-9 and bounds[i + 2] - t >= 1.0 - 1e-9
+        z = moves.punch_curve(words, cuts, k, FPS, moves.PUNCH, loop=True)
+        assert z[0] == 1.0                                       # every clip still opens on the plain framing
+        if _level(looped):
+            assert abs(z[-1] - (1 + moves.PUNCH)) < 0.1 * moves.PUNCH                  # and ends punched in
+        assert np.allclose(moves.punch_curve(words, cuts, k, FPS, moves.PUNCH)[:1], 1.0)
+    assert fixed >= 2                                            # the even counts really were tested
+    # no stretch with room for one more change: one eased change fewer
+    assert moves._odd([(1.0, True), (3.0, False)], [], 4.0) == [(1.0, True)]  # noqa: SLF001
+    # two jump cuts and no room anywhere: a jump cut always switches, so nothing can be done
+    tight = moves.changes(words, [(2.0, 0.5), (4.0, 0.5)], 5.0, loop=True)
+    assert tight == [(2.0, True), (4.0, True)]
+    # two jump cuts with a short end but a long middle: the extra change goes in the middle
+    mid = moves.changes(words, [(1.0, 0.5), (6.0, 0.5)], 7.5, loop=True)
+    assert len(mid) == 3 and 3.5 <= mid[1][0] <= 5.0 and not mid[1][1]
+
+
+def test_an_end_never_cuts_into_a_word_or_shows_a_frame_of_another_shot():
+    words = _words(0.6, 4.0)                                 # the last word heard ends at 3.7
+    last = words[-1]["end"]
+    nxt = {"w": "next", "start": last + 0.08, "end": last + 1.5}   # the clip's end (4.4) cuts it, mostly after
+    segs, _ = loops.seam([(0.0, 4.4)], words + [nxt], 0.0, FPS)
+    assert last <= segs[-1][1] <= nxt["start"] + 1e-9          # stops before it, not 0.15 s into it
+    before = {"w": "was", "start": -0.8, "end": 0.55}         # the clip's start cuts through this one
+    segs, _ = loops.seam([(0.0, 4.4)], [before] + words, 0.0, FPS)
+    assert before["end"] - 1e-9 <= segs[0][0] <= words[0]["start"]
+    assert segs[0][0] > words[0]["start"] - loops.HEAD_KEEP     # later than usual: not into "was"
+    # a hard scene cut 0.06 s after the last word: the end goes on it (no 2-3 frames of the next shot)
+    seen = []
+
+    def cuts(a, b):
+        seen.append((a, b))
+        return [c for c in (last + 0.06, 0.55) if a <= c <= b]
+
+    segs, got = loops.seam([(0.0, 4.4)], words, 0.0, FPS, cuts=cuts)
+    assert segs[-1][1] <= last + 0.06 + 1e-9 and segs[-1][1] >= last - 1 / FPS
+    assert segs[0][0] >= 0.55 - 1e-9 and segs[0][0] <= words[0]["start"]      # starts on the new shot
+    assert seen                                                # only asked about the ends it moved
+    # a cut in the middle of the last word: that end is left as it was rather than clip the word
+    segs, _ = loops.seam([(0.0, 4.4)], words, 0.0, FPS, cuts=lambda a, b: [last - 0.2] if a < last - 0.2 < b else
+                         ([last + 0.05] if a <= last + 0.05 <= b else []))
+    assert segs[-1][1] <= last + 0.05 + 1e-9
+
+
+def test_words_the_seam_leaves_out_get_no_caption():
+    words = _words(0.6, 4.0) + [{"w": "next", "start": 4.3, "end": 4.9}]
+    segs, _ = loops.seam([(0.0, 4.6)], words, 0.0, FPS)
+    kept = loops.within(words, segs)
+    assert kept == words[:-1]
+
+
+def test_a_clip_never_gets_under_a_second_at_its_speed():
+    words = [{"w": "no", "start": 0.6, "end": 1.0}, {"w": "way!", "start": 1.05, "end": 1.5}]
+    assert loops.seam([(0.0, 2.4)], words, 0.0, 30.0, 1.0)[1] is not None     # 1.17 s at 1x: fine
+    assert loops.seam([(0.0, 2.4)], words, 0.0, 30.0, 1.25) == ([(0.0, 2.4)], None)   # 0.93 s at 1.25x: not
+
+
+def test_a_live_clip_hears_the_reactions_of_its_own_window(tmp_path):
+    import json
+
+    hop, offset = 0.1, 3600.0
+    db = np.full(int((offset + 20) / hop), -30.0) + np.random.default_rng(1).normal(0, 1.5, int((offset + 20) / hop))
+    db[int(5.2 / hop):int(6.0 / hop)] = -8.0                     # the stream's loud intro, 5.2-6.0 s in
+    db[int((offset + 2.0) / hop):int((offset + 3.0) / hop)] = -8.0   # a cheer 2-3 s into the clip's window
+    (tmp_path / "loudness.json").write_text(json.dumps({"hop": hop, "db": db.round(2).tolist()}))
+    words = [{"w": "go", "start": 0.5, "end": 1.0}, {"w": "now", "start": 6.5, "end": 7.0}]
+    got = render.heard(tmp_path, words, 0.0, 8.0, offset=offset)
+    assert len(got) == 1 and got[0][0] == pytest.approx(2.0, abs=0.15) and got[0][1] == pytest.approx(3.0, abs=0.15)
+    assert render.heard(tmp_path, words, 0.0, 8.0)[0][0] == pytest.approx(5.2, abs=0.15)   # without: the intro
 
 
 def test_loop_ending_is_a_setting_the_editor_and_full_cloud_know():
@@ -142,6 +221,16 @@ def test_a_real_clip_stops_just_after_its_last_word(monkeypatch, tmp_path):
     info = out[True]["render_info"]["loop"]
     assert info["head_s"] == pytest.approx(head, abs=1e-3) and info["tail_s"] == pytest.approx(6.0 - tail, abs=1e-3)
     assert "loop" not in out[False]["render_info"] and out[False]["duration"] == pytest.approx(6.0, abs=0.011)
+    # the seam's seconds are not "pauses removed" (the Audio tab's note is about silence cleanup)
+    assert out[True]["render_info"]["removed_s"] == pytest.approx(0.0, abs=0.05)
+    moved = out[True]["render_info"]["moves"]
+    assert info["switch"] == ((moved["on_cuts"] + moved["eased"]) % 2 == 1)
+    # the owner took the last word out of the captions: it is still said, so the clip still ends after it
+    edited = render.render_clip(project, {"id": "c2", "start": 0.0, "end": 6.0, "hook": "",
+                                          "edit": {"tracking": "center", "silence": "off",
+                                                   "caption_words": words[:-1]}},
+                                words, settings, JobContext())
+    assert edited["duration"] == pytest.approx(out[True]["duration"], abs=0.011)
     # the captions follow: the first word is lit at its new place (0.1 s in), not 0.7 s in
     ass = (tmp_path / "proj" / "clips" / "c1" / "captions.ass").read_text(encoding="utf-8")
     lit = [int(m) * 60 + float(s) for m, s in re.findall(r"^Dialogue: 1,0:(\d\d):(\d\d\.\d\d)", ass, re.M)]
