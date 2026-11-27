@@ -8,7 +8,7 @@ without making the video again. It comes in three parts:
 | --- | --- | --- |
 | 5a | The sound: how loud the finished file plays and how high its peaks go, fixed once when it missed | built 2026-11-27 |
 | 5b | The picture: flat cartoons and graphics left as drawn by automatic colour; every colour change tried on the recording's own pixels first and eased where it would lose detail | built 2026-11-27 |
-| 5c | The final quality check before publishing reads the same measurements | planned |
+| 5c | The final quality check before publishing reads the same measurements: loudness, true peak, picture levels, colour tags | built 2026-11-27 |
 
 ## 5a: the sound
 
@@ -70,7 +70,7 @@ lower). A file whose sound could not be measured says so; a silent one shows not
 - Speech whose peaks are much louder than its average (plosives, a shout) stays quieter than -14 LUFS. "Clean up
   the sound" (on Auto by default) evens such speech out before this step.
 - It measures the file ClipForge made, not what YouTube or TikTok make of it after the upload.
-- The final quality check before publishing (`pipeline/quality.py`) is unchanged until 5c.
+- The final quality check before publishing (`pipeline/quality.py`) measures the file again on its own (5c).
 
 ### Measured (synthetic sources, 10 s, through the clip renderer's chain and AAC at 256 kbps)
 
@@ -173,3 +173,47 @@ out with its notes, darker colours not counted as washed out, a look eased only 
 below 30%, a cartoon recording through FFmpeg unchanged, a dark night shot and a plain wall with camera noise not
 taken for drawings, the white balance note after easing, a look alone checked, a failed sample not kept, the engine
 checking corrections before matching and everything after it, cartoons left out of matching).
+
+## 5c: the final quality check before publishing
+
+The code is in `clipfoundry/pipeline/quality.py` (the final quality gate: Autopilot, Make & upload, the Brain's
+"check this clip", every scheduled post). It decodes the whole file once; that one pass now also measures what 5a and
+5b care about, so the gate and the renderers read the same numbers.
+
+### What the owner sees
+
+Three more lines in the final check's report (Publish Center, the post's checks):
+
+| Check | Passes | Warns |
+| --- | --- | --- |
+| Loudness | "As loud as most videos (-14.0 LUFS, peaks -2.0 dBTP)." | "Plays 1.9 dB quieter than most videos (-15.9 LUFS)." / "Louder than most videos (…): platforms will turn it down." / "Peaks reach 6.9 dBTP: they may distort after the platform's own encoding." |
+| Picture levels | "Within the broadcast range (16 sampled frames)." | "Colours outside the broadcast range in 5 of 16 sampled frames (worst at 5.5 s: 1.2% of the picture); players clip them." / "The blacks and whites go past the video range in most of the clip (full-range picture in a limited-range file?): it will look harsher after upload." |
+| Colour tags | "BT.709, limited range" | "Tagged matrix smpte170m, … (ClipForge makes BT.709 limited range): players may show other colours." |
+
+All three only warn: they never block scheduling or publishing, and they are not among the warnings that hold a clip
+for review instead of publishing it automatically (`autopublish.HOLD_ON`). Platforms publish no loudness target, and
+a level a little outside the broadcast range is clipped by the player, not lost.
+
+### What happens
+
+- **One pass.** The detectors' chain (black, freeze, silence) runs as before, its frames still all counted for the
+  decode check; a `split` keeps 2 frames a second at a quarter of the width and height (an area average, which also
+  stands in for EBU R103's low-pass filter) and writes them to a temporary file; the sound goes through
+  `silencedetect` and then `ebur128` (`loudness.FILTER`). Measured on an 8 s 1080x1920 clip: 0.9-1.3 s for the
+  whole check, as before.
+- **Loudness** is judged by `loudness.check` against -14 LUFS (pass within 1 LU) and -1 dBTP, exactly as the
+  renderers judge their own file, without trusting what the renderer said. A silent clip or one without sound skips
+  it (the "Sound" check covers silence).
+- **Picture levels** (EBU R103): a sampled frame is outside when more than 1% of it has luma outside codes 14-241
+  (-1% to 103%) or any of R, G, B outside -5% to 105% (BT.709). One such frame is a warning. When most frames have
+  over 5% of their luma under 16 or over 235, the warning says it looks like a full-range picture in a limited-range
+  file. A legal test pattern through ClipForge's path: 0% outside; the same pattern expanded to full range: 96% of
+  each frame outside the RGB limits.
+- **Colour tags:** a tag other than BT.709 / limited range warns; a missing tag passes (players read HD video as
+  BT.709).
+- `GATE_VERSION` is 4: every stored report is checked again once (about a second a clip).
+
+Tests: `tests/test_gate_levels.py` (the one pass still counts every frame and keeps 2 frames a second, the gate's
+loudness equals the renderers' measurement, -14 LUFS passes, hot sound, a full-range picture, oversaturated colours in
+part of a clip, SD tags and an untagged file all only warn, no sound and silence skip it);
+`tests/test_artifact_quality.py` (a clean render passes the new checks too).
