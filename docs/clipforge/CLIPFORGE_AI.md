@@ -1263,9 +1263,9 @@ ClipForge AI can now set it, and the sound effects that follow the edit, both wa
   cut ("pause autopilot"). Publish, publishing, paused, spending and model mean the owner's own pages: it always asks.
 - **On or off only** (`_on_off`): a word that negates is off ("no", "don't loop", "won't loop", "isn't on"); an off
   word ("off", "false", "disable", "stop") is off unless a negation or an on word is with it ("don't turn it off",
-  "on, not off"), which asks; "on", "yes", "true", "loop", "use" are on. Anything else is "Say on or off for …",
-  because the settings saver reads every other word as off. The card and the answer say "on"/"off", not
-  True/False. Known: "no, keep it on" reads as off.
+  "on, not off"), which asks; "on", "yes", "true", "use" are on ("loop" too, for Loop endings only). Anything else
+  is "Say on or off for …", because the settings saver reads every other word as off. The card and the answer say
+  "on"/"off", not True/False. Known: "no, keep it on" reads as off.
 - **A fix:** an on/off setting could not be changed at all before: the card handed its value on as true/false, and
   the OK step wanted text ("value should be string"). It hands on "on"/"off" now, which the settings saver reads. A
   model's JSON true/false for the value is read as "on"/"off" too (`tools._coerce`, the value's `on_off` mark), and a
@@ -1279,6 +1279,38 @@ fixed with tests. Each new rule was broken on purpose once to see a test fail.
 
 Tests: `tests/test_assistant_commands.py` (the settings in words, every setting found by its own name, on/off words),
 `tests/test_assistant_acts_alone.py` (the clip edit, the words that bring the commands).
+
+## Steadying shaky footage, in words (2026-11-27)
+
+Batch 4d (PR #97, docs/clipforge/STEADY.md) steadies shaky handheld camera footage. A full video's plain words
+("steady the footage", "keep the handheld shake") came with it in `studio/edit_requests.py` (`steady_footage`, a
+clip's `steady`). ClipForge AI now also reaches the two other places:
+
+- **One clip** (`edit_clip`): `stabilize` true steadies shaky footage, false keeps it as shot (Clip editor → Colour).
+  The card says "shaky footage steadied" or "kept as shot (not steadied)"; then the clip is rendered again.
+- **The setting for new clips and videos** (`change_setting`): "Steady shaky footage" (Settings → Defaults → New
+  clips, on unless turned off) is in the settings list. stabilize, stabilise, stabilization, steadying, shake,
+  shaking and handheld are extra words for it. "Steady" said of a zoom, pace, speed, volume, audio, music, a camera
+  move or posting keeps it out ("steady zoom", "make the camera move steady", "keep the audio steady" ask).
+  "Footage" alone counts for no setting ("captions on footage" asks; "pauses in footage" is Pauses cut).
+- **A setting's own name as its value** (`_on_off(value, key)`, `_NAME_WORDS`): "loop" for Loop endings and
+  "steady"/"stabilize" for Steady shaky footage are on by themselves ("keep it steady"), off when negated ("don't
+  stabilize", "don't loop"), and only the name beside an on or off ("steady off", "loop off", "turn stabilize off").
+  They are never on words for another setting ("keep the frame steady" for Punch-ins asks).
+- **The shake itself says neither:** for Steady shaky footage, a value with shaky, shake, wobbly, jittery or handheld
+  asks ("not shaky" and "leave it shaky" mean opposite things).
+- **Cues and guide:** steady, stabilize, shaky, shake, handheld, wobbly, jittery and footage bring the commands to a
+  small model. A guide section, "Steadying shaky camera footage", names the setting, the clip editor's switch, a full
+  video's Colour panel and its per-clip "Steady this clip when it shakes", and the words to say; "Changing one clip"
+  names the Colour tab. Its title and words leave "footage" out, so "where do I upload footage" still finds Making a
+  YouTube video.
+
+Review: one reviewer with probes found 4 problems (shake words read as off, "camera move steady" and "captions on
+footage" picking the setting, any "footage" question finding the steadying section, "steady" an on word for every
+setting); all fixed with tests, each fix broken on purpose once to see a test fail.
+
+Tests: `tests/test_assistant_commands.py`, `tests/test_assistant_acts_alone.py`, `tests/test_assistant_library.py`
+(the questions that pick the new section first, and the loop and music questions that must not).
 
 ## API
 

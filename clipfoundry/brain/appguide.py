@@ -148,7 +148,7 @@ SECTIONS: tuple[Section, ...] = (
         "choose), Fill (crop) or Fit (blurred background), and Zoom.",
         "Audio: Normalize loudness, cutting “um” and “uh”, and Sound effects (whooshes and pops). Post text: the "
         "title, the post text and the hashtags.",
-        "Save and render makes the new file; nothing changes until then."),
+        "Colour: automatic colour, a look, grain cleanup, steadying shaky footage. Save and render renders it."),
         ("editor", "clip editor", "trim", "caption style", "layout", "crop", "zoom", "fit", "fill", "blurred",
          "render", "re-render", "fix a clip", "change a clip", "edit a clip", "save and render", "loop ending",
          "loop endings", "seamless loop", "sound effects", "whooshes"), "projects"),
@@ -216,6 +216,17 @@ SECTIONS: tuple[Section, ...] = (
         ("music", "song", "songs", "soundtrack", "background music", "fade", "fade in", "fade out", "loop",
          "looping", "last frame", "end on the last frame", "music ends", "cut off", "ending", "room tone",
          "room sound", "click", "clicks", "dips", "ducking", "voiceover track", "sound panel"), "projects"),
+    Section("steady", "Steadying a shaky camera", (
+        "Shaky handheld camera footage is smoothed out in clips and full videos, a little closer to hide the edges. "
+        "Only footage that shakes: a tripod shot, a pan, a game or a screen recording stays as it is.",
+        "For new clips and videos: Settings → Defaults → New clips → Steady shaky footage (on unless you turn it "
+        "off). One clip: Clip editor → Colour → Steady shaky camera footage, with what the last render steadied.",
+        "A full video: its Colour panel → Steady shaky camera footage, and on each clip Steady this clip when it "
+        "shakes (untick it to keep that clip as shot).",
+        "Or tell me: “steady the footage”, “it's too shaky”, “keep the handheld shake”, “don't stabilize”."),
+        ("steady", "steadying", "stabilize", "stabilise", "stabilization", "stabilisation", "stabilizer", "shaky",
+         "shake", "shaking", "camera shake", "handheld", "wobbly", "jittery", "keep the shake", "as shot"),
+        "projects"),
     Section("make_short", "Making an animated short", (
         "Make → Make an animated short. Paste my script or Write it for me (a topic, a tone and a length).",
         "Choose the look, the voice (Hear it plays a sample), the speed, the music and the captions, and camera "
