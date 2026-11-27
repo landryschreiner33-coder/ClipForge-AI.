@@ -1,5 +1,24 @@
 # Implementation status
 
+## Editing quality, batches 5b and 5c: the picture checked before every render, the final check reads it all — 2026-11-27 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 5a (PR #99). 5b: flat cartoons and graphics are left as drawn by
+automatic colour, and every colour change is tried on the recording's own pixels first and eased where it would lose
+detail. 5c: the final quality check before publishing also reads the loudness, the picture's levels (EBU R103) and
+the colour tags, as warnings only. Text Stories now keep their exact colours. Details:
+[docs/clipforge/QC.md](clipforge/QC.md), [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not released.
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-27 | `pytest tests/test_picture_check.py tests/test_grade.py tests/test_grade_render.py tests/test_artifact_quality.py` and the gate tests | 73 passed |
+| 2026-11-27 | `pytest tests/test_artifact_quality.py -k nvenc` 6 times (wait loop) | 6 passed |
+| 2026-11-27 | `pytest tests/test_gate_levels.py tests/test_gate_upgrade.py tests/test_text_story_colour.py` | 13 passed |
+| 2026-11-27 | `pytest` on the publishing, review, gate and quality tests (19 files) | 350 passed |
+| 2026-11-27 | `pytest tests/test_chat_stories.py tests/test_text_stories.py tests/test_text_story_footage.py -m "slow or not slow"` | 67 passed |
+| 2026-11-27 | review: 5b 2 reviewers, 5c 2 reviewers | 5b: 6 problems, 5c: 9 problems (a temp file that failed the decode check on a full disk, a stitched file's loudness, BT.601 video, waiting posts never re-checked after the upgrade, warning order, the loudness reason, text story colours, ...) - all fixed with tests |
+
+Not verified: real phone footage and real camera footage with super-whites (synthetic pictures only).
+
 ## Editing quality, batch 5a: the sound checked after every render — 2026-11-27 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on top of batch 4d (PR #97). Every short clip and full video is measured after
@@ -13,6 +32,7 @@ its level or its peaks are too hot ([docs/clipforge/QC.md](clipforge/QC.md)). No
 | 2026-11-27 | `pytest tests/test_loudness.py -m "slow or not slow"` | 24 passed |
 | 2026-11-27 | `pytest` on the render, engine, FilmCraft and audio tests | 75 passed, 1 failed (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`: a timing test, passes on its own at this commit and before it) |
 | 2026-11-27 | review: 2 reviewers | 8 problems (a timed-out second try left files, sound effects and the unfinished file left after a cancel, the engine's second file not timing-checked, FilmCraft versions unchecked, the owner's volume blamed wrongly, a fix past the 24 dB cap, the second check's level) - all fixed with tests |
+| 2026-11-27 | `pytest -m "slow or not slow" tests` at 61f3bb7 | 3847 passed, 3 skipped (1 h 34 min); merged as PR #99 (136823a) |
 
 Not verified: real recordings and what YouTube or TikTok measure after the upload (the cloud has synthetic sound
 only).
