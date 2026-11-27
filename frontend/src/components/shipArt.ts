@@ -12,41 +12,59 @@ import { OrbitPose, TILT } from "./blackHoleOrbit";
 const FLAME = 0.22;
 /** The ship's width, flame included, as a share of the box's height. */
 const SIZE = 0.62;
-/** From this many canvas pixels wide the full-size copy is drawn; below it the half-size one, which shrinks cleaner. */
-const BIG_FROM = 260;
+/** A picture that did not load is asked for again after this many milliseconds, when the ship is next drawn. */
+const RETRY = 10_000;
 
-let big: HTMLImageElement | null = null, small: HTMLImageElement | null = null;
-let loading: Promise<void> | null = null;
+/** The full-size copy and the half-size one: the ship is always drawn from the smallest copy at least as wide. */
+type Copy = { name: string; img: HTMLImageElement | null; asking: Promise<void> | null; failed: number };
+const COPIES: Copy[] = [
+  { name: "flyer-192.png", img: null, asking: null, failed: -Infinity },
+  { name: "flyer-384.png", img: null, asking: null, failed: -Infinity },
+];
 
-function picture(name: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
+function ask(copy: Copy): Promise<void> {
+  if (copy.img || copy.asking || performance.now() - copy.failed < RETRY) return copy.asking || Promise.resolve();
+  copy.asking = new Promise<void>((resolve) => {
     const img = new Image();
     img.decoding = "async";
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Could not load ${name}`));
-    img.src = `/space/${name}`;
+    img.onload = () => {
+      copy.img = img;
+      copy.asking = null;
+      resolve();
+    };
+    img.onerror = () => {
+      copy.failed = performance.now();
+      copy.asking = null;
+      resolve();
+    };
+    img.src = `/space/${copy.name}`;
   });
+  return copy.asking;
 }
 
-/** Loads the ship's two pictures once (again after a failed try); resolves when they can be drawn. */
+/**
+ * Loads the ship's pictures (each on its own, so one that loaded is used even if the other did not); resolves when
+ * they have loaded or failed. Never rejects.
+ */
 export function loadShip(): Promise<void> {
-  loading ||= Promise.all([picture("flyer-384.png"), picture("flyer-192.png")]).then(([b, s]) => {
-    big = b;
-    small = s;
-  }, () => {
-    loading = null;
-  });
-  return loading;
+  return Promise.all(COPIES.map(ask)).then(() => undefined);
+}
+
+/** The copy to draw `width` canvas pixels wide: the smallest that is not enlarged, else the biggest there is. */
+function copyFor(width: number): HTMLImageElement | null {
+  const have = COPIES.filter((c) => c.img).map((c) => c.img as HTMLImageElement);
+  if (have.length < COPIES.length) loadShip();
+  return have.find((img) => img.naturalWidth >= width) || have[have.length - 1] || null;
 }
 
 /**
  * One picture of the ship on `g` (w × h canvas pixels) for the orbit pose, `t` seconds of flying (for the engine's
- * flicker and the gentle bob; pass null for a still picture). Draws nothing until loadShip() has finished.
+ * flicker and the gentle bob; pass null for a still picture). Draws no ship until one of its pictures has loaded.
  */
 export function paintShip(g: CanvasRenderingContext2D, w: number, h: number, pose: OrbitPose, t: number | null) {
   g.clearRect(0, 0, w, h);
   const width = h * SIZE;
-  const art = (width >= BIG_FROM ? big : small) || big || small;
+  const art = copyFor(width);
   if (!art) return;
   const sw = width, sh = width * art.naturalHeight / art.naturalWidth;
   const split = Math.round(art.naturalWidth * FLAME);
@@ -56,7 +74,8 @@ export function paintShip(g: CanvasRenderingContext2D, w: number, h: number, pos
   g.translate(w * 0.2, h * 0.76 + bob);
   // banks with the orbit, and dips its nose a little as the camera climbs
   g.rotate(-pose.roll * 1.6 + (pose.incl - TILT) * 0.3);
-  // the picture is drawn smaller than it is: smoothing keeps its hard pixel edges even instead of dropping pixels
+  // the picture is drawn smaller than it is (the big copy is as wide as the ship gets on a 2x screen): smoothing keeps
+  // its hard pixel edges even instead of dropping pixels
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = "high";
   // the flame, stretched back from the engines: longer and shorter as it flickers, exactly as painted when still

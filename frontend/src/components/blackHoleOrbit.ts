@@ -85,11 +85,10 @@ float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 
 // Far from the hole light runs almost straight: the pull the steps below add up falls off as 1/r⁴. Between s1 and s2
 // along a straight line that passes the hole at b (s = 0 nearest the hole, r = √(b² + s²)) it turns the light
-// towards the hole by ∫ 1.5 b³ / r⁵ ds = [u (3 - u²) / 2b] with u = s / r; this is that sum.
-float bend(float b, float s1, float s2) {
-  if (b < 0.5) return 0.0;
-  float u1 = s1 / sqrt(b * b + s1 * s1), u2 = s2 / sqrt(b * b + s2 * s2);
-  return (u2 * (3.0 - u2 * u2) - u1 * (3.0 - u1 * u1)) / (2.0 * b);
+// towards the hole by ∫ 1.5 b³ / r⁵ ds = [u (3 - u²) / 2b] with u = s / r. This is that sum from u1 to u2 (u = 1
+// is the far end): no large s is ever squared, which a chip counting in half precision could not hold.
+float bend(float b, float u1, float u2) {
+  return b < 0.5 ? 0.0 : (u2 * (3.0 - u2 * u2) - u1 * (3.0 - u1 * u1)) / (2.0 * b);
 }
 
 // turns the ray at pos going along vel (unit) towards the hole by the angle a
@@ -167,7 +166,7 @@ void main() {
   // spent where the light really bends; the same on the way out. It draws faster than the closer camera did.
   float s1 = dot(pos, vel), s2 = b < NEAR ? -sqrt(NEAR * NEAR - h2) : 0.0;
   if (s1 < s2) {
-    vel = turned(pos, vel, bend(b, s1, s2));
+    vel = turned(pos, vel, bend(b, s1 / length(pos), s2 / NEAR));
     pos += dir * (s2 - s1);
   }
   vec3 col = vec3(0.0);
@@ -194,8 +193,7 @@ void main() {
     if (r > NEAR && dot(pos, vel) > 0.0) {
       // on its way out past NEAR: the rest of its bending in one go, as on the way in
       vec3 v = normalize(vel);
-      float bOut = length(pos - dot(pos, v) * v), sOut = dot(pos, v);
-      vel = turned(pos, v, bend(bOut, sOut, 1e4));
+      vel = turned(pos, v, bend(length(pos - dot(pos, v) * v), dot(pos, v) / length(pos), 1.0));
       left = true;
       break;
     }
@@ -215,11 +213,11 @@ void main() {
     col += (1.0 - alpha) * light;
     alpha += (1.0 - alpha) * a;
   }
-  // a faint blue haze well round the hole, the studio's colour, so the scene sits in the blue sky; it is gone well
-  // before the edges of the box, so the box never shows as a band or a rectangle
+  // a faint blue haze either side of the hole along the disk, the studio's colour, so the scene sits in the blue sky.
+  // It fades out in a wide ellipse well inside the box, so the box never shows as a band or a rectangle (above and
+  // below the hole the bent light fills the box's height, and the haze is all but gone there).
   float far = length(px) * uTan * ${DIST.toFixed(1)};
-  vec2 e2 = (gl_FragCoord.xy / uRes - 0.5) * 2.0;
-  float glow = smoothstep(3.0, 6.0, far) * (1.0 - smoothstep(0.35, 0.9, length(e2))) * 0.07;
+  float glow = smoothstep(3.0, 6.0, far) * (1.0 - smoothstep(0.35, 0.9, length(px / (uRes * 0.5)))) * 0.07;
   col += (1.0 - alpha) * vec3(0.32, 0.6, 0.95) * glow;
   alpha += (1.0 - alpha) * glow;
   // bright light rolls off instead of clipping to flat white
