@@ -116,6 +116,8 @@ export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: stri
 export type PlanClip = { id: string; asset_id: string; kind: string; in_ms: number; out_ms: number; label: string;
   gain_db: number; include: boolean; must_keep?: string[]; mute?: boolean; fade_in_ms?: number; fade_out_ms?: number;
   layout?: string | null; join?: "cut"; zoom?: number;
+  /** false: this clip stays as shot even when it shakes. */
+  steady?: false;
   /** Speed (0.25 to 4, the voice keeps its pitch); a speed ramp instead (points: share of the clip 0..1, speed). */
   speed?: number; speed_ramp?: ClipRamp | null;
   /** A slow eased camera move over the clip (video, photo or freeze frame). */
@@ -168,7 +170,11 @@ export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: 
   back_time?: boolean };
 export type TrackName = "source" | "voiceover" | "music" | "effects";
 /** A video's colour choices (engine plan "color"); a plan made before colour existed has none. */
-export type PlanColour = { auto: boolean; match: boolean; look: string; strength: number; clean: boolean };
+export type PlanColour = { auto: boolean; match: boolean; look: string; strength: number; clean: boolean;
+  /** Shaky camera footage is steadied (pipeline/steady.py); unset on plans made before steadying existed. */
+  steady?: boolean };
+/** What a render steadied in one clip (engine info "steady", by clip id). */
+export type SteadyReport = { seconds: number; zoom: number; shake_pct: number };
 export type Plan = { schema: number; output: { aspect: string; fps: number }; layout: string; clean_sound?: string; clips: PlanClip[];
   color?: PlanColour;
   transition: { type: string; ms: number }; title: { enabled: boolean; text: string; ms: number };
@@ -199,7 +205,9 @@ export type Video = { id: string; name: string; status: string; message: string;
     /** What the render did to each recording's colour, by asset id. */
     colour?: Record<string, ColourReport>;
     /** How the render joined the sound (engine sound_joins): split edits, room tone, back-timed music. */
-    sound_joins?: SoundJoins } & MadeWith)[];
+    sound_joins?: SoundJoins;
+    /** What the render steadied, by clip id. */
+    steady?: Record<string, SteadyReport> } & MadeWith)[];
   preview: { revision: number; stale: boolean } | null;
   jobs: { id: string; kind: string; revision: number; status: string; progress: number; message: string; error: string }[];
   revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];

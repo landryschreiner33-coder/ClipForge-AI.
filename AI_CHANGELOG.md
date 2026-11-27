@@ -1,5 +1,31 @@
 # AI changelog
 
+## Editing quality, batch 4d: steadying shaky footage — 2026-11-27 (Claude Code)
+
+Batch 4d of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 4c (PR #94). Details:
+[docs/clipforge/STEADY.md](docs/clipforge/STEADY.md). Not released.
+
+- **Measuring** (`pipeline/steady.py`): corners followed from frame to frame on a small grey copy (OpenCV
+  goodFeaturesToTrack, calcOpticalFlowPyrLK, estimateAffinePartial2D with RANSAC); the camera's path smoothed per shot
+  (Gaussian 0.45 s), so shake goes and pans stay. Steadied only when it shakes (0.25 % of the width or 0.25° RMS), the
+  points move together over at least 40 % of the picture (not a person in front of a still camera), and none stay
+  put (a game's HUD, a toolbar, a logo). Each shot enlarged just enough to hide the edges (at most 10 %). A long calm
+  stretch is only sampled; measurements are cached.
+- **Short clips** (`render.render_clip`): one `cv2.warpAffine` per decoded frame before the framing; never with a
+  face cam layout (a screen). `render_info.steady` = `{seconds, zoom, shake_pct, shots}`.
+- **Full videos** (`studio/engine.py`): `steady_plans` per clip (its range plus 1 s), a `sendcmd` file driving
+  `rotate` (only when the footage tilts) and `crop` right after the input seek, before speed changes; the piece cache
+  key includes the corrections; other cameras and corners are not steadied; the render report's `steady` by clip; a
+  final that steadies stays on the built-in engine (`steadying_in_use`), and a FilmCraft render says so.
+- **Settings and editors:** `stabilize` (Settings → New clips, on; clip edit in Clip editor → Colour; Full Cloud and
+  artifact settings); full videos keep `color.steady` (new plans from Settings; older plans have none and render as
+  before) and a clip's `steady: false` (Full-video editor → Colour, and each clip); plain words ("too shaky", "keep
+  the handheld shake") in `studio/edit_requests.py` (`steady_footage`, clip `steady`).
+- **Privacy page:** a row for the camera shake measurements (numbers only, kept with the clip or video).
+- **Tests:** `tests/test_steady.py` (9 fast, 2 real renders); three colour-choice tests now expect `"steady": True`.
+
 ## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)
 
 Batch 4c of Landry's "majorly improve the editing" (plan in

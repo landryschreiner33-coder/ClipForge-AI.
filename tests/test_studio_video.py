@@ -129,7 +129,8 @@ def test_cf09_mixed_media_assembly_edits_reopen_and_server_render(env):
     assert bad.status_code == 422 and "not supported" in bad.json()["detail"]
     unknown_look = edit({"op": "color_grade", "look": "laser"})
     assert unknown_look.status_code == 422 and "Unknown look" in unknown_look.json()["detail"]
-    assert plan["color"] == {"auto": True, "match": True, "look": "natural", "strength": 100, "clean": True}
+    assert plan["color"] == {"auto": True, "match": True, "look": "natural", "strength": 100, "clean": True,
+                             "steady": True}
     vague = edit({"op": "request", "text": "add a laser effect"})
     assert vague.status_code == 422 and "cannot do that" in vague.json()["detail"]
     stale = edit({"op": "remove", "clip_id": plan["clips"][2]["id"]}, base=rev1)

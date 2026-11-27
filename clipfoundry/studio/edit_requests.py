@@ -44,9 +44,9 @@ KNOWHOW_CHARS = 900       # ClipForge AI's built-in know-how for the request (br
 CLIP_WORDS_CHARS = 900    # at most this much of what is said in one clip before the budget is shared out
 OPEN = ("thinking",)
 SETTABLE = {"captions", "caption_size", "caption_position", "transition", "duck_depth_db", "music_level_db", "title",
-            "title_card", "look", "look_strength", "auto_color", "match_color", "clean_picture"}
+            "title_card", "look", "look_strength", "auto_color", "match_color", "clean_picture", "steady_footage"}
 CLIP_FIELDS = {"gain_db", "mute", "fade_in_ms", "fade_out_ms", "layout", "zoom", "speed", "speed_ramp", "motion",
-               "hold_ms"}
+               "hold_ms", "steady"}
 OPS = {"remove", "restore", "trim", "split", "move", "set", "clip_set", "track_set", "shorten_intro",
        "audio_back_time", "freeze", "cameras", "camera", "camera_corner"}
 RULE_EXAMPLES = ("remove the long silence at the beginning", "shorten the intro by 3 seconds",
@@ -546,6 +546,10 @@ def _rule(clause: str, plan: dict, rows: list[dict], subject: str,
             return ops, "; ".join(said) + ".", "captions"
         if said:
             raise _Explain("; ".join(said) + ".")
+    # steadying shaky camera footage (pipeline/steady.py; before cameras: "fix the camera shake")
+    found = _steady_rule(t, plan)
+    if found:
+        return found
     # several cameras of one recording and the camera in the corner (studio/multicam.py)
     found = _camera_rule(t, plan, rows)
     if found:
@@ -622,6 +626,32 @@ NEGATED = (r"\b(don'?t|do not|never|stop|undo|turn off|switch off|disable|withou
 # a part of the video: a look is for the whole video, so "make the ending cooler" is left to the AI service
 A_PART = r"\b(ending|intro|outro|opening|beginning|start|end|middle|first|last|clip|part|shot|scene|section|moment)\b"
 SOUND_NOISE = r"\b(background|wind|hum|hiss|buzz|static|traffic|echo|room|mic|microphone|crowd|fan)\b"
+
+
+STEADY_WORDS = (r"\b(stabili[sz](e|ed|es|ing|er|ation)|steady|steadier|steadied|steadying|shaky|shakier|shakiness|"
+                r"shaking|camera shake|the shake|wobbl(y|e|es|ing)|jitter(y|s)?|handheld)\b")
+# a shake added on purpose (an effect), never camera shake to take out
+SHAKE_EFFECT = r"\b(add|put|give|make)\b.*\b(a |some |more )?(camera |screen )?shak(e|ing|y)\b"
+
+
+def _steady_rule(t: str, plan: dict) -> tuple[list[dict], str, str] | None:
+    """A request to steady shaky camera footage (the whole video), or to keep it as shot."""
+    if not re.search(STEADY_WORDS, t) or re.search(SHAKE_EFFECT, t) and not re.search(r"\bstabili|\bsteady", t):
+        return None
+    if re.search(r"\b(music|sound|audio|voice|captions?|subtitles?|title)\b", t):
+        return None
+    kept = r"\b(keep|leave)\b.*\b(shak(e|y|iness)|handheld|wobble|as (it|they) (is|are|was|were) shot)\b"
+    keep = re.search(NEGATED, t) or re.search(kept, t)
+    if keep and re.search(A_PART, t) and not re.search(r"\b(whole|entire|all|every|everything|video)\b", t):
+        return None  # one part kept as shot: the AI service picks the clip ("steady": false)
+    on = (plan.get("color") or {}).get("steady") is True
+    want = not keep
+    if on == want:
+        raise _Explain("Shaky camera footage is already steadied (only footage that shakes: a tripod shot, a game or "
+                       "a screen stays as it is)." if want else "Shaky footage is already left as it was shot.")
+    return ([{"op": "set", "field": "steady_footage", "value": want}],
+            "Steady shaky camera footage (with a slight zoom to hide the edges)." if want else
+            "Leave the footage as it was shot, shake and all.", "")
 
 
 def _color_rule(t: str, plan: dict) -> tuple[list[dict], str, str] | None:
@@ -1515,13 +1545,15 @@ inside it; at most 12 operations):
      title (text, up to 120 characters), title_card (true/false),
      look (natural|bright|warm|cool|film|teal_orange|moody|vintage|mono), look_strength (0 to 100),
      auto_color (true/false: correct white balance, exposure and contrast), match_color (true/false: recordings
-     matched to each other), clean_picture (true/false: remove picture noise)
+     matched to each other), clean_picture (true/false: remove picture noise), steady_footage (true/false:
+     steady shaky camera footage; a tripod shot, a game or a screen stays as it is)
 {"op": "clip_set", "clip_id": ID, "field": F, "value": V}  F: gain_db (-12 to 12), mute (true/false),
      fade_in_ms, fade_out_ms, layout (fit|fill|follow), zoom (1 to 1.5: a still punch-in on the centre),
      speed (0.25 to 4; 0.5 = slow motion, 1 = normal; video clips; the voice keeps its pitch),
      speed_ramp (slow_middle|fast_slow_fast|slow_down|speed_up, or null for one speed),
      motion (zoom_in|zoom_out|pan_left|pan_right|pan_up|pan_down, or null: a slow eased camera move; also photos),
-     hold_ms (a freeze frame's length, 200 to 60000)
+     hold_ms (a freeze frame's length, 200 to 60000), steady (true/false: false keeps this clip as shot when the
+     video steadies shaky footage)
 {"op": "freeze", "clip_id": ID, "at_ms": N, "length_ms": N}  hold one frame of a video clip (at_ms: a source time,
      default its last frame; length default 2000); it gets the room's sound
 {"op": "track_set", "track": "source"|"voiceover"|"music"|"effects", "field": "gain_db"|"mute", "value": V}

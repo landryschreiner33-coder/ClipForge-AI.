@@ -40,7 +40,7 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
   captions: ["captions_enabled", "caption_style", "caption_position", "caption_size", "caption_emphasis",
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
   layout: ["tracking", "crop_x", "layout", "split_game", "cam_box", "pip_corner", "zoom", "auto_zoom"],
-  colour: ["auto_color", "look", "look_strength", "clean_picture"],
+  colour: ["auto_color", "look", "look_strength", "clean_picture", "stabilize"],
   audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed", "sound_effects"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
@@ -54,6 +54,15 @@ function loopNote(l: unknown): string {
   return `the end runs back into the start ${v.seam_s.toFixed(2)} s after the last word` +
     (v.switch ? ", with a change of shot size like the other cuts" : "") +
     (cut >= 0.05 ? ` (${cut.toFixed(1)} s of quiet left out at the ends)` : "");
+}
+
+/** What the last render's steadying did (pipeline/steady.py), in words. */
+function steadyNote(s: unknown): string {
+  if (!s || typeof s !== "object") return "";
+  const v = s as { seconds?: number; zoom?: number };
+  if (!v.seconds) return "";
+  const zoom = Math.round(((v.zoom || 1) - 1) * 100);
+  return `steadied ${v.seconds.toFixed(1)} s of shaky footage` + (zoom > 0 ? `, ${zoom} % closer to hide the edges` : "");
 }
 
 /** What the last render's editing moves did (pipeline/moves.py), in words. */
@@ -77,6 +86,7 @@ const FALLBACK: Partial<Record<Key, unknown>> = {
   highlight_words: true, highlight_color: "", hook_overlay: true, hook_seconds: 3,
   gain_db: 0, normalize_audio: true, clean_sound: "auto", silence: "light", remove_fillers: true, speed: 1,
   auto_color: true, look: "natural", look_strength: 100, clean_picture: true, sound_effects: true, loop_ending: true,
+  stabilize: true,
 };
 const TITLE_MAX = 100;
 const CAPTION_MAX = 2200;
@@ -809,6 +819,11 @@ export default function ClipEditor({ id }: { id: string }) {
         <Check label="Clean up grainy footage (low light)" on={bool("clean_picture")}
           onChange={(v) => set({ clean_picture: v })} />
         <p className="hint">Only a picture with visible grain is cleaned; a clean picture is left as it is.</p>
+        <Check label="Steady shaky camera footage" on={bool("stabilize")} onChange={(v) => set({ stabilize: v })} />
+        <p className="hint">
+          {steadyNote(ri.steady) ? `Last render: ${steadyNote(ri.steady)}.`
+            : "Only footage that shakes, with a slight zoom; a tripod shot, a game or a screen stays as it is."}
+        </p>
         {ri.colour ? <p className="hint">Last render: {colourLine(ri.colour as ColourReport)}</p> : null}
       </>
     ),

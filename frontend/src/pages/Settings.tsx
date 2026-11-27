@@ -592,6 +592,11 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
           hint="Only a picture with visible grain (low light) is cleaned; a clean picture is left as it is.">
           <Switch k="clean_picture" c={c} />
         </SettingRow>
+        <SettingRow k="stabilize" label="Steady shaky footage"
+          hint={"Handheld camera shake is smoothed out in clips and full videos, with a slight zoom to hide the "
+            + "edges. Only footage that shakes: a tripod shot, a pan, a game or a screen recording stays as it is."}>
+          <Switch k="stabilize" c={c} />
+        </SettingRow>
         <SettingRow k="silence" label="Silence cleanup" hint="Removes long pauses" group>
           <Seg k="silence" c={c}
             options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" },

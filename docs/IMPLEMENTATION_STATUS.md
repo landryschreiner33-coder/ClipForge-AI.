@@ -1,5 +1,19 @@
 # Implementation status
 
+## Editing quality, batch 4d: steadying shaky footage — 2026-11-27 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 4c (PR #94). Shaky camera footage is steadied in short clips and
+full videos; footage that does not shake, people moving in front of a still camera, games and screens stay as they
+are ([docs/clipforge/STEADY.md](clipforge/STEADY.md)). Not released. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-27 | `npx tsc --noEmit -p frontend` | passed |
+| 2026-11-27 | `pytest tests/test_steady.py -m "not slow"` | 9 passed |
+| 2026-11-27 | `pytest tests/test_steady.py -m slow` | 2 passed (a short clip and a full video, real renders) |
+
+Not verified: real handheld phone footage, walking shots and real games (the cloud has only synthetic video).
+
 ## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on top of batch 4b (PR #90). Short clips stop 0.15 s after their last sound and

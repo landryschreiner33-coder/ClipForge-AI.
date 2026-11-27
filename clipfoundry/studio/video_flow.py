@@ -1178,6 +1178,12 @@ def _clip_set(p: dict, edit: dict, field: str, value) -> str:
         c["gain_db"] = _number(value, -12, 12, "A clip's volume")
     elif field == "mute" and type(value) is bool:
         c["mute"] = value
+    elif field == "steady" and type(value) is bool:  # false: this clip stays as shot, even when it shakes
+        if value:
+            c.pop("steady", None)
+        else:
+            c["steady"] = False
+        return f"Steadying {'on' if value else 'off'} for {c['label']}"
     elif field in ("fade_in_ms", "fade_out_ms"):
         c[field] = _ms(value, "A fade")
     elif field == "layout" and value in (None, *engine.LAYOUTS):
@@ -1530,7 +1536,7 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
 
 
 COLOR_FIELDS = {"look": "look", "look_strength": "strength", "auto_color": "auto", "match_color": "match",
-                "clean_picture": "clean"}
+                "clean_picture": "clean", "steady_footage": "steady"}
 
 
 def _set_color(p: dict, field: str, value) -> str:
@@ -1548,7 +1554,8 @@ def _set_color(p: dict, field: str, value) -> str:
     elif type(value) is bool:
         c[COLOR_FIELDS[field]] = value
         said = {"auto_color": "Automatic colour", "match_color": "Matching the recordings' colour",
-                "clean_picture": "Cleaning up picture noise"}[field] + (" on" if value else " off")
+                "clean_picture": "Cleaning up picture noise",
+                "steady_footage": "Steadying shaky footage"}[field] + (" on" if value else " off")
     else:
         raise VideoError(f"“{field}” is either on or off.")
     p["color"] = c
@@ -1887,6 +1894,9 @@ def _colour_skipped(info: dict, plan: dict, assets: dict, project: dict, words: 
         skipped.append("FilmCraft played speed ramps at their average speed, freeze frames without room sound and "
                        "no slow zooms or pans, so it may differ from the preview. Choose the built-in editor in "
                        "Settings, Editing apps, to use them.")
+    if engine.steadying_in_use(plan, assets, _pieces(project, False)):
+        skipped.append("FilmCraft played shaky footage as it was shot, without ClipForge's steadying, so it may "
+                       "differ from the preview. Choose the built-in editor in Settings, Editing apps, to use it.")
     if engine.cameras_in_use(plan):
         skipped.append("FilmCraft played the other cameras from their own track without ClipForge's framing and "
                        "colour, and left out pictures and cameras in a corner, so it may differ from the preview. "
@@ -1930,6 +1940,10 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         return None, ""
     if not hand and choice == "auto" and engine.cameras_in_use(plan):
         # nor other cameras of a recording or pictures in a corner (studio/multicam.py)
+        return None, ""
+    if not hand and choice == "auto" and engine.steadying_in_use(plan, assets, _pieces(project, preview),
+                                                                 lease.canceled):
+        # nor steadying shaky footage (pipeline/steady.py)
         return None, ""
     if not apps.find_cli("filmcraft"):
         if hand:
@@ -2102,6 +2116,7 @@ def view(project: dict) -> dict:
                            "audio_ok": ((a.get("info") or {}).get("audio_timing") or {}).get("valid"),
                            "colour": (a.get("info") or {}).get("colour") or {},
                            "sound_joins": (a.get("info") or {}).get("sound_joins") or {},
+                           "steady": (a.get("info") or {}).get("steady") or {},
                            **_made_with(a.get("info") or {})}
                           for a in arts],
             "preview": {"revision": shown["revision"], "stale": stale} if shown else None,

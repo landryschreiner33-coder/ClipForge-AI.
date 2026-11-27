@@ -1,5 +1,22 @@
 # AI handoff
 
+## Editing quality, batch 4d: steadying shaky footage — 2026-11-27 (Claude Code, cloud session)
+
+**Plain-English summary:** handheld camera shake is smoothed out in short clips and full videos, with a slight zoom
+to hide the edges; a tripod shot, a pan, a game or a screen recording stays exactly as it is.
+
+- **Where things are:** `pipeline/steady.py` (`measure`, `plan`, `for_stretch`, `Plan.matrix` for the clip
+  renderer, `Plan.commands` for the engine's sendcmd file; thresholds at the top); `render.render_clip` (after the
+  colour step, `steadied`); `engine.steady_plans`, `_steady_filters`, `steadying_in_use`, `steady_on`.
+- **Rules to keep:** never steady footage that does not shake, a person moving in front of a still camera, or
+  anything with a fixed overlay (HUD, toolbar, logo); never show an edge; old full-video plans (no `color.steady`)
+  render as before. Turning `stabilize` off renders exactly as before.
+- **For the AI thread:** `stabilize` is a new Settings key and clip edit; full-video requests can set
+  `steady_footage` and a clip's `steady`. ClipForge AI's settings summary (`brain/toolbox._SETTINGS_WORDS`) and
+  tools do not know them yet.
+- **Not done:** rolling-shutter wobble, real phone footage checks (the cloud has only synthetic video); batch 5 is
+  the automatic quality check after every render.
+
 ## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code, cloud session)
 
 **Plain-English summary:** short clips stop just after their last word and start just before their first, so when

@@ -32,6 +32,7 @@ add("defaults", {
   auto_zoom: "Punch-ins", sound_effects: "Sound effects", loop_ending: "Loop endings", remove_fillers: "Cut filler words", caption_emphasis: "Emphasize key words",
   hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", clean_sound: "Clean up the sound",
   auto_color: "Automatic colour", look: "Look", look_strength: "Look strength", clean_picture: "Clean up grainy footage",
+  stabilize: "Steady shaky footage",
   autopilot_daily_target: "Daily clip cap",
   autopilot_active_start: "Posting hours (from)", autopilot_active_end: "Posting hours (to)", trend_topics: "Topics",
   auto_trims: "Start on the first real word", post_always_hashtags: "Hashtags on every post",

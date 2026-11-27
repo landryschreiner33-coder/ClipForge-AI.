@@ -64,7 +64,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import config
-from ..pipeline import audio_timing, cleanup, grade
+from ..pipeline import audio_timing, cleanup, grade, steady
 from . import multicam, retime, sound_joins
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
 from ..pipeline.common import Cancelled
@@ -80,6 +80,7 @@ SR = 48000
 PREVIEW_HEIGHT = 360
 RETIME_PRE_MS = 100   # a sped-up or slowed piece is read from this far before its first moment (one frame or more)
 FREEZE_PRE_S = 0.2    # a freeze frame is found among the frames this far before its moment
+STEADY_MARGIN_S = 1.0  # camera shake is measured this far either side of a clip (its smoothed path runs on)
 TRANSITIONS = {"cut": None, "dissolve": "fade", "fade": "fadeblack"}
 LAYOUTS = ("fit", "fill")
 ROLES = ("voiceover", "music", "effect")
@@ -96,7 +97,7 @@ DUCK_ATTACK_S, DUCK_HOLD_S, DUCK_RELEASE_S = 0.06, 0.25, 0.45
 SUPPORTED = {"clips", "trim", "reorder", "include", "image", "transition", "title", "captions", "audio_tracks",
              "voiceover", "music", "effects", "gain", "mute", "fades", "ducking", "aspect", "layout", "insert",
              "replace", "split", "word_fixes", "joins", "zoom", "overlays", "clean_sound", "color", "speed",
-             "speed_ramp", "freeze", "motion", "multicam", "pip"}
+             "speed_ramp", "freeze", "motion", "multicam", "pip", "steady"}
 ZOOM_RANGE = (1.0, 1.5)       # a clip's punch-in
 LEAD_MAX_MS = 10000           # how far a sound may start before (or after) the moment it is attached to
 OVERLAY_KINDS = ("image", "video")
@@ -131,7 +132,9 @@ def capabilities() -> dict:
             "freeze": {"min_ms": retime.FREEZE_MIN_MS, "default_ms": retime.FREEZE_DEFAULT_MS},
             "color": {"looks": {k: grade.LOOKS[k] for k in config.LOOKS}, "strength": [0, 100],
                       "auto": "white balance, exposure and contrast once per recording; phone HDR always converted",
-                      "match": "recordings matched to the one that plays longest"},
+                      "match": "recordings matched to the one that plays longest",
+                      "steady": "shaky camera footage steadied (never a tripod shot, a game or a screen); "
+                                "a clip's \"steady\": false keeps it as shot"},
             "limits": "No fixed number of files, clips or audio items. Free disk space is checked before a "
                       "render; each step opens at most two media files.",
             "notes": "Renders from the full original files on the server; previews use the same plan at 360p and "
@@ -312,9 +315,9 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
             strength = color.get("strength", 100)
             if isinstance(strength, bool) or not isinstance(strength, (int, float)) or not 0 <= strength <= 100:
                 out.append("The look's strength must be between 0 and 100.")
-            for key in ("auto", "match", "clean"):
+            for key in ("auto", "match", "clean", "steady"):
                 if color.get(key, True) not in (True, False):
-                    out.append("Automatic colour, matching and noise cleanup are each either on or off.")
+                    out.append("Automatic colour, matching, noise cleanup and steadying are each either on or off.")
                     break
     return out + _validate_audio(plan, assets) + _validate_overlays(plan, assets) + multicam.problems(plan, assets)
 
@@ -328,7 +331,45 @@ def default_color(values: dict | None = None) -> dict:
     except (TypeError, ValueError):
         strength = 100
     return {"auto": v.get("auto_color", True) is not False, "match": True, "look": look, "strength": strength,
-            "clean": v.get("clean_picture", True) is not False}
+            "clean": v.get("clean_picture", True) is not False, "steady": v.get("stabilize", True) is not False}
+
+
+def steady_on(plan: dict) -> bool:
+    """Whether shaky camera footage is steadied (plan "color" "steady"). A plan made before steadying existed has no
+    such choice and renders as it always did."""
+    c = plan.get("color")
+    return isinstance(c, dict) and c.get("steady") is True
+
+
+def steady_plans(plan: dict, els: list[dict], assets: dict[str, dict], fps: int, cache: Path,
+                 cancelled=None) -> dict[int, "steady.Plan"]:
+    """The steadying of each video element that shakes (pipeline/steady.py), measured over its clip's part of the
+    recording (and STEADY_MARGIN_S either side) on the output's frame grid; a clip set to "steady": false, a freeze
+    frame and a photo are left as they are."""
+    out: dict[int, steady.Plan] = {}
+    if not steady_on(plan):
+        return out
+    folder = cache.parent / "steady"  # shared by previews and finals (their pieces are kept apart)
+    done: dict[tuple, steady.Plan | None] = {}
+    for k, e in enumerate(els):
+        clip = e.get("clip") or {}
+        if e["kind"] != "video" or clip.get("steady") is False or retime.is_freeze(clip):
+            continue
+        a = assets[e["asset_id"]]
+        info = a.get("probe") or {}
+        size = (int(info.get("width") or 0), int(info.get("height") or 0))
+        if min(size) <= 0:
+            continue
+        t0 = max(0.0, int(clip["in_ms"]) / 1000 - STEADY_MARGIN_S)
+        t0 = round(t0 * fps) / fps  # on the output's frame grid, like the pieces read from it
+        length = int(clip["out_ms"]) / 1000 + STEADY_MARGIN_S - t0
+        key = (a["path"], t0, round(length, 3))
+        if key not in done:
+            _check(cancelled)
+            done[key] = steady.for_stretch(a["path"], t0, length, fps, size, cache=folder, cancelled=cancelled)
+        if done[key] is not None:
+            out[k] = done[key]
+    return out
 
 
 def color_options(plan: dict) -> dict:
@@ -841,7 +882,8 @@ def _viewed(e: dict, view: dict | None) -> dict:
     if not view:
         return e
     return {**e, "asset_id": view["asset_id"], "path": view["path"], "sha256": view["sha256"], "src": view["src"],
-            "src_in_ms": e["src_in_ms"] + view["shift_ms"], "colour": view["colour"], "grade": view["grade"]}
+            "src_in_ms": e["src_in_ms"] + view["shift_ms"], "colour": view["colour"], "grade": view["grade"],
+            "steady": None}  # another camera of the recording: its own picture, not steadied with this one's
 
 
 def output_words(plan: dict, words_by_asset: dict[str, list[dict]], segs: list[dict] | None = None) -> list[dict]:
@@ -1014,20 +1056,20 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
         # the source moment at this piece's first frame, and as much file as its frames show at this speed
         u0 = retime.src_at(clip, rel_frame * 1000 / fps)
         span = retime.src_at(clip, (rel_frame + frames) * 1000 / fps) - u0
+        # read from a little before the piece's first moment when it is retimed: an accurate seek drops the frame
+        # already on screen there, and at slow speeds one source frame lasts several output frames; the frames
+        # before get negative times and the first output frame shows the source frame the time map says
+        pre = min(e["src_in_ms"] + u0, RETIME_PRE_MS) if retime.retimed(clip) else 0
+        seek, length = (e["src_in_ms"] + u0 - pre) / 1000, (span + pre) / 1000 + 0.5
+        args = ["-ss", f"{seek:.6f}", "-t", f"{length:.3f}", "-i", path]
+        if e.get("steady") is not None:  # shaky camera footage, steadied on the file's own times (before retiming)
+            src = _steady_filters(e["steady"], seek, length, idx, src, lines, cwd)
         if retime.retimed(clip):
-            # read from a little before the piece's first moment: an accurate seek drops the frame already on
-            # screen there, and at slow speeds one source frame lasts several output frames; the frames before get
-            # negative times and the first output frame shows the source frame the time map says
-            pre = min(e["src_in_ms"] + u0, RETIME_PRE_MS)
-            args = ["-ss", f"{(e['src_in_ms'] + u0 - pre) / 1000:.6f}", "-t", f"{(span + pre) / 1000 + 0.5:.3f}",
-                    "-i", path]
             lines.append(f"{src}{retime.setpts(clip, u0, u0 - pre)},fps={fps}:start_time=0:round=up[sp{idx}]")
             src = f"[sp{idx}]"
-        else:
-            args = ["-ss", f"{(e['src_in_ms'] + u0) / 1000:.6f}", "-t", f"{span / 1000 + 0.5:.3f}", "-i", path]
-            if retime.motion_keys(clip):  # the move is timed by frame count: count output frames, not the file's
-                lines.append(f"{src}fps={fps}[fp{idx}]")
-                src = f"[fp{idx}]"
+        elif retime.motion_keys(clip):  # the move is timed by frame count: count output frames, not the file's
+            lines.append(f"{src}fps={fps}[fp{idx}]")
+            src = f"[fp{idx}]"
     # (the whole element's length: a move runs over the clip, not over each piece of it)
     move = retime.motion_filter(clip, rel_frame, e.get("frames", rel_frame + frames), width, height)
     if move:  # a slow camera move: the framing window, per frame and by fractions of a pixel
@@ -1055,6 +1097,23 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
     lines.append(f"{chain},{colour},fps={fps},format=yuv420p,setsar=1,settb=AVTB,setpts=PTS-STARTPTS,"
                  f"tpad=stop=-1:stop_mode=clone{label}")
     return args, lines
+
+
+def _steady_filters(sp: "steady.Plan", seek: float, length: float, idx: int, src: str, lines: list[str],
+                    cwd: Path) -> str:
+    """Steadying in the filter graph: a sendcmd file (written next to the piece) moves a crop window of the plan's
+    largest zoom onto the smoothed camera path frame by frame, after a rotate filter takes out the roll (only when
+    the footage rolls). Returns the steadied stream's label."""
+    roll = sp.rolls()
+    name = f"steady{idx}.cmd"
+    (cwd / name).write_text(sp.commands(f"crop@sc{idx}", seek, length, f"rotate@sr{idx}" if roll else None),
+                            encoding="utf-8")
+    z = sp.crop_zoom()
+    chain = f"{src}sendcmd=f={name},"
+    if roll:
+        chain += f"rotate@sr{idx}=angle=0:ow=iw:oh=ih:c=black,"
+    lines.append(f"{chain}crop@sc{idx}=w=trunc(iw/{z:.4f}/2)*2:h=trunc(ih/{z:.4f}/2)*2:exact=1[sd{idx}]")
+    return f"[sd{idx}]"
 
 
 def _overlay_input(ov: dict, frames: int, fps: int, width: int, height: int, idx: int,
@@ -1126,6 +1185,16 @@ def _shown_at(look: dict | None, colour: dict, width: int, height: int) -> dict 
     big = max(int(colour.get("width") or 0), int(colour.get("height") or 0))
     scale = min(1.0, max(width, height) / big) if big else 1.0
     return {**look, "denoise": grade.denoise_for(look.get("stats"), {}, scale)}
+
+
+def steadying_in_use(plan: dict, assets: dict[str, dict], cache: Path, cancelled=None) -> bool:
+    """Whether the render steadies a clip (measured, cached with the pieces). FilmCraft cannot, so with the editing
+    app on "auto" such a final is rendered by the built-in engine, like the preview."""
+    if not steady_on(plan):
+        return False
+    fps = int((plan.get("output") or {}).get("fps") or 30)
+    els, _overlap = frame_map(plan, fps)
+    return bool(steady_plans(plan, els, assets, fps, cache, cancelled))
 
 
 def retiming_in_use(plan: dict) -> bool:
@@ -1205,6 +1274,7 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
                            **({"zoom": (e.get("clip") or {}).get("zoom")}
                               if float((e.get("clip") or {}).get("zoom") or 1.0) > 1.001 else {}),
                            **_timing_key(e),
+                           **({"steady": e["steady"].key()} if e.get("steady") is not None else {}),
                            # a piece read from a proxy is never reused for the original, or the other way round
                            **({"src": "proxy"} if e.get("src") == "proxy" else {}),
                            **_grade_key(e)}
@@ -1223,7 +1293,7 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
 
     def corner_el(corner: dict) -> dict:
         base = els[corner["k"]]
-        return {**_viewed(base, corner["view"]),
+        return {**_viewed(base, corner["view"]), "steady": None,
                 "clip": {**(base.get("clip") or {}), "layout": "fill", "zoom": 1.0, "motion": None}}
 
     def corner_key(corner: dict, rel: int) -> dict:
@@ -1693,6 +1763,9 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         # transfer (its range is limited whatever the original's: the filters read the range from each frame)
         item["colour"] = grade.source_colour(assets[item["asset_id"]]["path"])
         item["grade"] = _shown_at(looks.get(item["asset_id"]), item["colour"], width, height)
+    steadied = steady_plans(plan, els, assets, fps, cache, cancelled)
+    for k, sp in steadied.items():
+        els[k]["steady"] = sp
     colours: dict[str, tuple[dict, dict | None]] = {}
 
     def look_of(aid: str) -> tuple[dict, dict | None]:
@@ -1976,4 +2049,5 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                          for k in sorted(overlays) for o in overlays[k]],
             "captions": bool(events), "clean_sound": {aid: r.report for aid, r in cleaned.items()},
             "colour": {aid: {**r["grade"].summary(), "denoise": bool(r["denoise"])} for aid, r in looks.items()},
+            "steady": {els[k]["clip_id"]: sp.summary() for k, sp in steadied.items()},
             "pieces": len(used), "frames": total_f, "proxied": proxied}
