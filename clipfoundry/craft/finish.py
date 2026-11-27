@@ -30,7 +30,7 @@ from ..studio import engine, interchange
 from . import apps
 from .runner import CraftError, EffectCraft, FilmCraft
 
-LOUDNESS_LUFS = -14.0      # the FFmpeg engine's loudnorm target
+LOUDNESS_LUFS = -14.0      # the FFmpeg engine's loudness target (pipeline/loudness.py)
 BLUR = 40.0                # Gaussian Blur blurriness for the background copies (FFmpeg: boxblur 20:2)
 SILENT_DB = -60.0          # where a sound fade starts or ends
 TRACK_MAP = {"Video 1": "V1"}

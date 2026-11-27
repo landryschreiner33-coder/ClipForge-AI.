@@ -2117,6 +2117,7 @@ def view(project: dict) -> dict:
                            "colour": (a.get("info") or {}).get("colour") or {},
                            "sound_joins": (a.get("info") or {}).get("sound_joins") or {},
                            "steady": (a.get("info") or {}).get("steady") or {},
+                           "qc": (a.get("info") or {}).get("qc") or {},
                            **_made_with(a.get("info") or {})}
                           for a in arts],
             "preview": {"revision": shown["revision"], "stale": stale} if shown else None,

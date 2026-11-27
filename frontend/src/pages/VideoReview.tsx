@@ -11,6 +11,7 @@ import { PlanPanel } from "../components/VideoPlan";
 import { ShortScenes } from "../components/ShortScenes";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
+import { soundCheckLine } from "../format";
 import { redirect } from "../router";
 import { colourLine, LOOKS, lookOf } from "../looks";
 import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, SoundJoins, studio, TrackName, uploadIds, Video } from "../studio";
@@ -674,6 +675,9 @@ export default function VideoReview({ id }: { id: string }) {
                 onCommit={(x) => edit({ op: "set", field: "duck_depth_db", value: -x })} />}
               {soundLine(shownVersion(v)?.sound_joins)
                 && <p className="small muted">Last render: {soundLine(shownVersion(v)?.sound_joins)}</p>}
+              {soundCheckLine(shownVersion(v)?.qc?.sound)
+                && <p className={`small ${shownVersion(v)?.qc?.sound?.status === "warn" ? "warn-text" : "muted"}`}>
+                  Loudness of the last render: {soundCheckLine(shownVersion(v)?.qc?.sound)}</p>}
             </section>
             <section className="panel" aria-labelledby="vr-media">
               <h2 id="vr-media">Your media ({bin.length})</h2>

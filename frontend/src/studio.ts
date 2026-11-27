@@ -2,6 +2,7 @@
 import { req, responseError } from "./api";
 import type { ColourReport } from "./looks";
 import type { ShortView } from "./shorts";
+import type { SoundCheck } from "./format";
 
 export type Asset = { id: string; kind: "video" | "audio" | "image"; filename: string; sha256: string; size: number;
   duration?: number; width?: number; height?: number; fps?: number; has_audio?: boolean; has_thumbnail: boolean;
@@ -207,7 +208,9 @@ export type Video = { id: string; name: string; status: string; message: string;
     /** How the render joined the sound (engine sound_joins): split edits, room tone, back-timed music. */
     sound_joins?: SoundJoins;
     /** What the render steadied, by clip id. */
-    steady?: Record<string, SteadyReport> } & MadeWith)[];
+    steady?: Record<string, SteadyReport>;
+    /** The checks on the finished file: how loud it plays (pipeline/loudness.py). */
+    qc?: { version?: number; sound?: SoundCheck } } & MadeWith)[];
   preview: { revision: number; stale: boolean } | null;
   jobs: { id: string; kind: string; revision: number; status: string; progress: number; message: string; error: string }[];
   revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];
