@@ -140,16 +140,18 @@ SECTIONS: tuple[Section, ...] = (
         ("length", "long", "longer", "short", "shorter", "seconds", "duration", "too short", "too long", "how many "
          "clips", "number of clips", "clip count", "minimum", "maximum"), "defaults"),
     Section("clip_editor", "Changing one clip", (
-        "Open a clip from its project to reach the clip editor. Trim sets the start and the end.",
+        "Open a clip from its project to reach the clip editor. Trim sets the start and the end; Loop ending "
+        "stops the clip just after its last word so it runs straight back into its start.",
         "Captions: the caption style, position and size, Highlight each word as it is spoken, key words in their "
         "own colour, Burn captions into the video, and the On-screen hook with how long it shows.",
         "Layout: what the framing follows (Auto, Center, Face, Active speaker, Screen content or a position you "
         "choose), Fill (crop) or Fit (blurred background), and Zoom.",
-        "Audio: Normalize loudness and cutting “um” and “uh”. Post text: the title, the post text and the "
-        "hashtags.",
+        "Audio: Normalize loudness, cutting “um” and “uh”, and Sound effects (whooshes and pops). Post text: the "
+        "title, the post text and the hashtags.",
         "Save and render makes the new file; nothing changes until then."),
         ("editor", "clip editor", "trim", "caption style", "layout", "crop", "zoom", "fit", "fill", "blurred",
-         "render", "re-render", "fix a clip", "change a clip", "edit a clip", "save and render"), "projects"),
+         "render", "re-render", "fix a clip", "change a clip", "edit a clip", "save and render", "loop ending",
+         "loop endings", "seamless loop", "sound effects", "whooshes"), "projects"),
     Section("framing", "Framing and what the picture follows", (
         "Each clip's framing follows Auto unless you choose: Auto looks for the speaker, a face, the screen or "
         "the moving action and keeps it in the vertical frame.",

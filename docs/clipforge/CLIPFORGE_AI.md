@@ -1241,6 +1241,30 @@ Each names the plain-word requests the editor understands (`studio/edit_requests
 `brain/operations.py`). Checked with the library: the questions about them pick their section first, and questions
 about short clips still go to the clip editor and Framing.
 
+## Loop endings and sound effects, in words (2026-11-27)
+
+Batch 4c (PR #94) added Loop endings: a clip stops just after its last word and runs straight back into its start.
+ClipForge AI can now set it, and the sound effects that follow the edit, both ways the owner can:
+
+- **One clip** (`edit_clip`, the clip editor's change): `loop_ending` true or false (Clip editor → Trim) and
+  `sound_effects` true or false (Clip editor → Audio). The card says "loop ending on (it runs straight back into its
+  start)" or "loop ending off", and "sound effects on/off"; then the clip is rendered again.
+- **The setting for new projects** (`change_setting`): "Loop endings (seamless loops)" and "Sound effects (whooshes
+  and pops)" are in the settings list (`toolbox._SETTINGS_WORDS`), so the settings look shows them too.
+- **Which setting:** small words no longer count when a setting is found by its words, and a plural counts as its
+  word: "make it loop" is Loop endings, not the "it" in "Highlight each word as it is spoken". "Sound" alone still
+  asks which one (Sound cleanup or Sound effects).
+- **On or off only:** an on/off setting takes only a clear on or off ("off", "no", "don't loop", "stop" are off;
+  "on", "yes", "loop", "use" are on; an off word wins). Any other word is "Say on or off for …", because the
+  settings saver reads every other word as off. The card and the answer say "on"/"off", not True/False.
+- **A fix:** an on/off setting could not be changed at all before: the card handed its value on as true/false, and
+  the OK step wanted text ("value should be string"). It hands on "on"/"off" now, which the settings saver reads.
+- The words "loop", "seamless", "whoosh", "sfx" and "effects" bring the commands to a small model (`CUES`), and the
+  app guide's "Changing one clip" names Loop ending and Sound effects.
+
+Tests: `tests/test_assistant_commands.py` (the settings in words, every setting found by its own name),
+`tests/test_assistant_acts_alone.py` (the clip edit, the words that bring the commands).
+
 ## API
 
 - `GET /api/brain/memories?q=&kind=&project_id=&limit=` (`project_id`: the memories kept for that video or for every video, by their scope) · `POST /api/brain/memories` `{text, kind?, scope?, project_id?, platform?, tags?}` · `PATCH /api/brain/memories/{memory_id}` · `DELETE /api/brain/memories/{memory_id}` · `POST /api/brain/memories/{memory_id}/confirm` · `POST /api/brain/memories/{memory_id}/undo` `{words}` (a chat chip's Undo: forgets the memory only while it is as that answer added it, revision 1 and the same words; 404 when it is gone, 409 when it changed since) · `GET /api/brain/memories/{memory_id}/uses`

@@ -259,7 +259,8 @@ _SETTINGS_WORDS = (
     ("hook_overlay", "On-screen hook"), ("hook_seconds", "Seconds the hook shows"),
     ("tracking", "Framing follows"), ("layout", "Layout"), ("auto_zoom", "Punch-ins on cuts"),
     ("silence", "Pauses cut"), ("remove_fillers", "“um” and “uh” cut"), ("normalize_audio", "Loudness evened out"),
-    ("clean_sound", "Sound cleanup"))
+    ("clean_sound", "Sound cleanup"), ("loop_ending", "Loop endings (seamless loops)"),
+    ("sound_effects", "Sound effects (whooshes and pops)"))
 
 
 def _settings(ctx: Ctx, args: dict) -> Result:
