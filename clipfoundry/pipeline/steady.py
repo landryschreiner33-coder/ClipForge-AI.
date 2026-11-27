@@ -12,11 +12,13 @@ recording is left exactly as it is. For footage that shakes:
 2. **Smooth** (`plan`): per shot, the camera's path is smoothed (a Gaussian of `SMOOTH_S`), so hand shake (2-12 Hz)
    goes while a pan, a tilt or a walk stays. What is left (the path minus its smoothed self) is the shake.
 3. **Decide**: a shot is steadied when it shakes (`SHAKY_MIN` of the width, or `SHAKY_ROLL` degrees, as RMS), when
-   most tracked points move together and all over the picture, into its corners (the camera moved, not a person
-   in a still shot: `MIN_TOGETHER`, `MIN_SPREAD`, `MIN_CORNERS`), and when no point keeps staying put where the
-   camera's move says it should have moved (a game's HUD, a screen's toolbar or a logo, which steadying would make
-   shake: `STILL_FRAMES`; footage without one has none). A shot whose picture never moved enough to look for such
-   points is left alone. Only the frames the clip shows (`span`) count: the measured stretch runs on either side.
+   most tracked points move together and all over the picture (the camera moved, not a person in a still shot:
+   `MIN_TOGETHER`, `MIN_SPREAD`; when they reach fewer than `MIN_CORNERS` corners of the picture, a person filling a
+   plain-walled shot looks the same, so the shake must also hold hand tremor, `HAND_HZ` and up: `HAND_SHARE`), and
+   when no point keeps staying put where the camera's move says it should have moved (a game's HUD, a screen's
+   toolbar or a logo, which steadying would make shake: `STILL_FRAMES`; footage without one has none). A shot whose
+   picture never moved enough to look for such points is left alone. Only the frames the clip shows (`span`) count:
+   the measured stretch runs on either side.
 4. **Correct**: each frame is moved back onto the smoothed path and the shot is enlarged just enough (at most
    `MAX_ZOOM`) to hide the moving edges; a frame that would need more is corrected only as far as the edges allow.
 
@@ -54,7 +56,9 @@ MIN_TOGETHER = 0.5     # median share of tracked points that move with the camer
 STILL_FRAMES = 1 / 3   # a point stays put while the picture moves in this share of frames: a HUD, a toolbar, a logo
 MIN_SPREAD = 0.4       # median share of the picture the points moving with the camera span (convex hull)
 CORNER = 0.2           # the corners of the picture (this share of its width and height) ...
-MIN_CORNERS = 3        # ... of which this many hold points moving with the camera (a close-up on a plain wall does not)
+MIN_CORNERS = 3        # ... of which this many hold points moving with the camera; when fewer do (plain sky, a plain
+HAND_HZ = 4.0          # wall: a person filling the shot looks the same), the shake above this frequency ...
+HAND_SHARE = 0.35      # ... is at least this share of it (hand tremor; a person's own sway and nods are slower)
 STILL_MOVE = 1.0       # a point the camera's move shifts this far (pixels at MEASURE_W) shows whether it stayed put
 MIN_STILL_FRAMES = 5   # fewer frames showing that: whether something stays put cannot be told (left alone)
 MIN_POINTS = 12        # fewer tracked points: the frame cannot be measured (a new shot starts)
@@ -396,12 +400,20 @@ def plan(track: Track, max_zoom: float = MAX_ZOOM, span: tuple[float, float] | N
         moves = slice(max(a + 1, u0), u1)  # (the shot's first frame has no move of its own)
         together, spread, corner = (_median(v[moves]) for v in (track.together, track.spread, corners))
         stills = track.still[moves][np.isfinite(track.still[moves])]
-        if together < MIN_TOGETHER or spread < MIN_SPREAD or corner < MIN_CORNERS:
+        if together < MIN_TOGETHER or spread < MIN_SPREAD:
             shot["why"] = "not the camera"  # a person moving in a still shot, or on a plain wall: the frame is still
             continue
         if shake < SHAKY_MIN and roll < SHAKY_ROLL:
             shot["why"] = "steady"
             continue
+        if corner < MIN_CORNERS:
+            # one thing moves on a plain background: a camera's shake holds hand tremor, a person's sway does not
+            fine = [p - _smooth(p, 0.187 / HAND_HZ * track.fps) for p in path[:2]]  # (the Gaussian's half power)
+            hand = float(np.sqrt(np.mean(fine[0][seen] ** 2 + fine[1][seen] ** 2))) / max(shake, 1e-9)
+            shot["hand_share"] = round(hand, 2)
+            if shake < SHAKY_MIN or hand < HAND_SHARE:
+                shot["why"] = "not the camera"
+                continue
         if len(stills) < MIN_STILL_FRAMES:
             shot["why"] = "cannot tell"     # too little moved to see whether a HUD or a logo stays put
             continue

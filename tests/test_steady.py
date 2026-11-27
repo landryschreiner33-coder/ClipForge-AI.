@@ -47,12 +47,15 @@ def _encode(path: Path, frames, w: int = W, h: int = H, fps: int = FPS) -> Path:
 
 
 def _camera(path: Path, seconds: float = 3.0, shake: float = 0.012, roll: float = 0.4, pan: float = 0.0,
-            seed: int = 1, hud: bool = False, w: int = W, h: int = H, fps: int = FPS) -> Path:
+            seed: int = 1, hud: bool = False, w: int = W, h: int = H, fps: int = FPS, sky: bool = False) -> Path:
     """A camera over a busy scene: hand shake (3 and 7 Hz, `shake` of the width; `roll` degrees), a pan (`pan`
-    widths a second) and, with `hud`, a game's fixed HUD drawn over it (the same size in pixels at any `w`)."""
+    widths a second), with `hud`, a game's fixed HUD drawn over it (the same size in pixels at any `w`), and with
+    `sky`, a plain sky over the top half (nothing to follow in the picture's top corners)."""
     import cv2
 
     big = _scene(int(w * 1.6), int(h * 1.6), seed)
+    if sky:
+        big[: big.shape[0] // 2] = (210, 170, 120)
     bh, bw = big.shape[:2]
     ph = np.random.default_rng(seed + 7).uniform(0, 6.28, 6)
 
@@ -135,6 +138,10 @@ def test_shaky_camera_footage_is_found_and_steadied_without_showing_an_edge(tmp_
     assert after["shake_pct"] < 0.2 * shot["shake_pct"] and after["roll_deg"] < 0.1, after
     s = p.summary()
     assert s["seconds"] == pytest.approx(3.0, abs=0.05) and s["zoom"] == shot["zoom"] and s["shots"]
+    # with a plain sky over the top half the shake is still the camera's: it holds hand tremor (a person's sway
+    # in front of a plain wall does not, see below)
+    sky = _shake(_camera(tmp_path / "sky.mp4", sky=True), 3.0)
+    assert sky["steadied"] and sky["hand_share"] >= steady.HAND_SHARE, sky
 
 
 @needs_ffmpeg

@@ -22,11 +22,12 @@ clip renderer (`pipeline/render.py`, every short clip, Autopilot clips included)
   and a tilt). Its path is smoothed (a Gaussian of 0.45 s), so hand shake (2-12 Hz) goes while a pan, a tilt or a
   walk stays. A shot is steadied when what is left shakes by at least 0.25 % of the width (about 5 pixels at 1920)
   or tilts by 0.25° (both as RMS).
-- **Only the camera.** A shot is left alone when most of the followed points do not move together, when they span
-  less than 40 % of the picture, or when they do not reach at least 3 of its 4 corners (a person moving in front of
-  a still camera or a plain wall, even a close-up filling half the picture: steadying would pin the person and
-  float the frame). A shot with plain sky or wall along a whole side is left alone too, because the camera's move
-  cannot be told from the person's there.
+- **Only the camera.** A shot is left alone when most of the followed points do not move together or they span
+  less than 40 % of the picture (a person moving in front of a still camera or a plain wall: steadying would pin the
+  person and float the frame). When they do not reach at least 3 of the picture's 4 corners (plain sky, a plain
+  wall, a flat cartoon background), a person filling a plain-walled shot looks just like a camera moving, so the
+  shake must also hold hand tremor: at least 35 % of it above 4 Hz. A person's own sway and nods are slower; a
+  camera held by hand shakes faster too.
 - **Nothing fixed on top.** A shot is left alone when, in a third of its frames or more, some point stays put where
   the camera's move should have shifted it by a pixel or more (a game's HUD, a screen's toolbar, a channel logo:
   steadying would make them shake). A roll moves the edges more than the middle, so this is judged point by point,
@@ -70,8 +71,8 @@ render says so.
 
 `tests/test_steady.py` (11 fast, 2 real renders): synthetic footage made of busy shapes, filmed by a camera that
 shakes at 3 and 7 Hz and tilts. Shaky footage is found and steadied to under a fifth of its shake with no edge
-showing; a tripod shot, a smooth pan and a person moving in front of a still camera (busy or plain wall, and a
-close-up filling half a plain-walled picture) are left alone; a HUD over shaky gameplay is never steadied, also when
+showing, also under a plain sky (hand tremor in the shake); a tripod shot, a smooth pan and a person moving in front
+of a still camera (busy or plain wall, and a close-up filling half a plain-walled picture) are left alone; a HUD over shaky gameplay is never steadied, also when
 the shake is nearly all roll and at 60 fps with a small HUD in a 1280x720 picture (the same footage without it is
 steadied); a pan stays while the shake goes; a violent shake is capped at the largest zoom; a cut splits the shots
 and only the shaky one is steadied; only the part a clip shows decides and is reported (in its own seconds), a jolt
@@ -87,6 +88,7 @@ full video steadies its shaky 25 fps clip read from 1.367 s and leaves the stead
 ## Not verified yet
 
 Real handheld phone footage (rolling shutter wobble is not corrected), walking shots and real games: the cloud has
-only synthetic video. The thresholds are constants at the top of `steady.py`. A follow shot where the subject moves
-with the camera against a plain background, and outdoor shots with plain sky over the top corners, are left alone
-by the corner rule; whether that is too careful needs real footage.
+only synthetic video. The thresholds are constants at the top of `steady.py`. A shot with plain sky or wall in two
+corners is steadied only when its shake holds hand tremor (above 4 Hz); a slow handheld wobble under a plain sky is
+left alone, and a person whose rigid moves are that fast in front of a plain wall would be steadied. Whether 35 % is
+right needs real footage.
