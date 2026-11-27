@@ -846,3 +846,42 @@ def test_ai_advice_has_a_time_budget_a_story_so_far_a_hook_and_skips_what_the_ru
     assert len(slow) == 1 and tight["read"] == len(ai_editor.windows(sentences)[0])
     assert tight["skipped_sentences"] == 80 - tight["read"] and any("time budget" in p for p in tight["problems"])
     assert ai_editor.budget_for({"ai_edit_timeout_s": 60}) == 900 and ai_editor.budget_for({"ai_edit_timeout_s": 2}) == 120
+
+
+@pytest.mark.parametrize("switching", ["hand", "angles"])
+def test_edit_it_for_me_again_keeps_the_cameras_you_lined_up(env, monkeypatch, switching):
+    """Several cameras (studio/multicam.py) stay on a rebuild: their line-up, names, shots and the corner camera;
+    cameras chosen by hand stay on their moments, automatic switching is worked out again for the new cut."""
+    from clipfoundry.studio import engine, multicam, video_flow
+
+    v = _asset(env, "talk.mp4", "video", 30)
+    cam = _asset(env, "cam2.mp4", "video", 30)
+    script = _say(1.0, "This is the first thing I say.") + _say(6.0, "And this comes after a long pause.") + \
+        _say(14.0, "Then a third thing, said slowly and clearly for everyone here.")
+    for a in (v, cam):
+        (Path(a["path"]).parent / "transcript.json").write_text(json.dumps({"segments": [{"words": _words(script)}]}))
+    project = _project([v, cam], {"music": "none"})
+    plan = video_flow.rough_cut(project, video_flow._assets(project), {v["id"]: _words(script)})
+    plan["clips"] = [c for c in plan["clips"] if c["asset_id"] == v["id"]]
+    video_flow.save_revision(project["id"], plan, "Rough cut", None, {"action": "build", "prev": None, "redo": None})
+    group = {"main": {"label": "Wide", "shot": "wide"},
+             "cams": [{"id": "c2", "asset_id": cam["id"], "label": "Jake", "shot": "close", "offset_ms": 1530.0,
+                       "drift_ppm": 0.0, "match": 0.8}],
+             "cuts": [[2000, "c2"]], "corner": {"cam": "c2", "place": "top_left"}, "switching": switching}
+    with_cams = dict(plan, multicam={v["id"]: group})
+    assert engine.validate(with_cams, video_flow._assets(project, with_cams)) == []
+    video_flow.save_revision(project["id"], with_cams, "Cameras", 1, {})
+    monkeypatch.setattr(video_flow, "enqueue", lambda ws, kind, target, rev=0: {"id": f"job-{kind}-{rev}"})
+    video_flow.smart_again(project["id"], 2, {"smart_edit": "smart"})
+    video_flow.smart_job({"target_id": project["id"], "revision": 2}, _Lease())
+    p, new = _settle(project["id"])
+    assert p["plan_revision"] == 3
+    kept = new["multicam"][v["id"]]
+    assert {c["asset_id"] for c in new["clips"]} == {v["id"]}  # the other camera is an angle, not more footage
+    assert kept["cams"] == group["cams"] and kept["main"] == group["main"] and kept["corner"] == group["corner"]
+    if switching == "hand":
+        assert kept["cuts"] == [[2000, "c2"]] and "Your cameras stay as you set them." in new["notes"]
+    else:
+        assert kept["switching"] == "angles"
+        assert any(n.startswith("Your cameras stay. Cameras change angle at pauses") for n in new["notes"])
+        assert {c for _, c in kept["cuts"]} <= {multicam.MAIN, "c2"}

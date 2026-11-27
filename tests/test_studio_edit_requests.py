@@ -760,3 +760,31 @@ def test_a_level_and_the_music_ending_in_one_part_is_never_half_done():
     for text in ("duck the music at the end so my last words finish clearly", "lower the music at the end"):
         ops = er.by_rules(text, plan, [])["operations"]           # the level, as before
         assert ops and all(o["op"] != "audio_back_time" for o in ops), text
+
+
+def test_camera_requests_are_proposed_with_their_changes_and_applied(env, monkeypatch):
+    """Several cameras (studio/multicam.py): a camera request changes only the plan's camera setup, so the proposal
+    lists those changes (never "nothing to change") and Apply makes them a new version."""
+    from clipfoundry.studio import edit_requests as er
+    from clipfoundry.studio import video_flow
+
+    _no_ai(monkeypatch)
+    project = _project(env)
+    plan = _plan(project["id"])
+    main = plan["clips"][0]["asset_id"]
+    other = next(c["asset_id"] for c in plan["clips"] if c["asset_id"] != main)
+    plan["multicam"] = {main: {"main": {"label": "Camera 1", "shot": "wide"},
+                               "cams": [{"id": "c2", "asset_id": other, "label": "Camera 2", "shot": "close",
+                                         "offset_ms": 0.0, "drift_ppm": 0, "match": 0.6}],
+                               "cuts": [], "switching": "off"}}
+    video_flow.save_revision(project["id"], plan, "Cameras", 1, {"action": "edit", "prev": None, "redo": None})
+    r = er.ask(project["id"], "local", "put camera 2 in the bottom right corner")
+    assert r["status"] == "ready" and r["proposal"]["operations"] == [
+        {"op": "camera_corner", "cam": "c2", "place": "bottom_right"}]
+    assert r["proposal"]["changes"] == ["Camera 2 in the bottom right corner"]
+    er.apply(r["id"], "local")
+    assert _plan(project["id"])["multicam"][main]["corner"] == {"cam": "c2", "place": "bottom_right"}
+    r = er.ask(project["id"], "local", "use camera 2 for clip 1")
+    assert r["status"] == "ready" and "Clip 1 “morning.mp4”: Camera 2" in r["proposal"]["changes"]
+    er.apply(r["id"], "local")
+    assert _plan(project["id"])["multicam"][main]["switching"] == "hand"

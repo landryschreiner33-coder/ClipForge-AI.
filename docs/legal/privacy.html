@@ -128,6 +128,11 @@
       recordings to each other, a noise estimate, and the colour tables made from them. Worked out where the video is
       rendered (this computer, or your own ClipForge worker with Full Cloud) and not sent anywhere else</td><td>The statistics: until you delete the video. The colour tables are kept in the data
       folder's cache and shared by renders that need the same table, until you delete the data folder</td></tr>
+    <tr><td>Camera line-up measurements</td><td>When you line up several cameras of one recording (added 2026-11-26):
+      the loudness of each recording's speech, 100 values a second, used to find where the recordings match and who
+      is speaking. Worked out on this computer (or your own ClipForge worker with Full Cloud) and not sent anywhere
+      else. It holds no words or recording, only loudness levels</td><td>Kept in the data folder's cache (one small
+      file per recording), until you delete the data folder</td></tr>
     <tr><td>Temporary recovery copies</td><td>When an automatic clip needs a fresh render: local copies of its
       completed video, captions, edit decisions, final transcript, render plan and thumbnail, with a recovery
       checkpoint</td><td>Deleted after the new render or restoration finishes successfully. If recovery cannot

@@ -1023,6 +1023,9 @@ def used_assets(plan: dict | None) -> list[str]:
     ids = [c["asset_id"] for c in plan.get("clips") or [] if c.get("include", True)]
     ids += [i["asset_id"] for i in plan.get("audio") or [] if not i.get("mute")]
     ids += [o["asset_id"] for o in plan.get("overlays") or []]
+    from .multicam import shown_assets
+
+    ids += shown_assets(plan)  # other cameras of a recording that the video shows
     return list(dict.fromkeys(ids))
 
 
