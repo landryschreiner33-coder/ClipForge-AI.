@@ -843,6 +843,8 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     if report and report.get("artifact_sha256") != sha:  # same size and time, other bytes: check these ones
         gate.request(clip, sha=sha)
         report = None
+    elif report is None:  # never checked, or checked by an older gate (GATE_VERSION): nothing else asks for it
+        gate.request(clip)
     if report and not gate.context_valid(report, clip, settings):
         gate._request_terms_check(clip, priority=100)
         _note(item, "Waiting for the final check of current reuse terms and source credit")

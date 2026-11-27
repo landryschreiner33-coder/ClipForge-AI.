@@ -198,8 +198,8 @@ def run(clip: dict, settings: dict, cancelled=None) -> dict:
     reuse_warning = (quality.check("reuse_review", "Reuse permission needs review", quality.HEURISTIC, quality.WARN,
                                   evaluation["basis"] + ". A local schedule does not authorize uploading.")
                      if missing_reuse and rights.review_before_publish(settings) else None)
-    checks = [c for c in media["checks"] if c["name"] not in ("sound_rights", "reuse_review")] + \
-        ([sound] if sound else []) + ([reuse_warning] if reuse_warning else [])
+    checks = quality.informing_last([c for c in media["checks"] if c["name"] not in ("sound_rights", "reuse_review")]
+                                    + ([sound] if sound else []) + ([reuse_warning] if reuse_warning else []))
     media = {**media, "checks": checks,
              "blockers": [f"{c['label']}: {c['detail']}" for c in checks if c["status"] == quality.FAIL],
              "warnings": [f"{c['label']}: {c['detail']}" for c in checks if c["status"] == quality.WARN]}

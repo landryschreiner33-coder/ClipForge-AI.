@@ -1,5 +1,25 @@
 # AI handoff
 
+## Editing quality, batches 5b and 5c: the picture checked, the final check reads it all — 2026-11-27 (Claude Code, cloud session)
+
+**Plain-English summary:** automatic colour no longer brightens cartoons and graphics (they keep the colours they
+were drawn with), and every colour change is tried on the recording's own pixels before the render, so a correction
+or look that would blow out highlights, crush shadows or wash out colours is eased. The check before publishing now
+also says how loud the clip plays, whether its colours stay in the broadcast range and whether its colour tags are
+right (warnings only). Text Stories keep their exact colours.
+
+- **Where things are:** `grade.measure` (`top8`, `graphic`, `check_px`), `grade.check_grade`, `grade.guard`,
+  `engine.grades` (guard before and after matching); `quality.scan` (levels through a pipe, sound in its own graph),
+  `_levels_check`, `_colour_tags`, `_loudness_check`, `sound_intent`, `informing_last`, `level_matrix`;
+  `scheduler.auto_approve`, `submissions.auto_approve` and `bulk_review._inspect` request the check of a waiting
+  post with no current report; `textstory.TO_VIDEO`, `textstory._read`.
+- **Rules to keep:** the new gate checks only warn and stay out of `autopublish.HOLD_ON`; they come last in a report;
+  a GATE_VERSION bump must leave no planned post waiting without a check; never compress dynamics to fix loudness.
+- **For the AI thread:** a report's checks now include `loudness` (values lufs, lra, tp), `levels` (frames,
+  frames_outside, worst_at_s, worst_luma, worst_rgb) and `colour_tags`; a render's `colour.notes` say what the
+  picture check eased and why.
+- **Next:** nothing planned in this batch; real footage checks on Landry's Mac.
+
 ## Editing quality, batch 5a: the sound checked after every render — 2026-11-27 (Claude Code, cloud session)
 
 **Plain-English summary:** every clip and full video is measured after it is made, the way YouTube and TikTok

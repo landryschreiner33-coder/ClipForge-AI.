@@ -5,6 +5,11 @@ truncated MP4 with its index at the front still reports its whole length, so onl
 and one pass through ffmpeg's detectors finds black, frozen and silent stretches. The results are judged in context:
 a still picture over speech (a podcast with a cover image) is a warning, a still picture over silence is a failure.
 
+The same pass measures the sound's loudness and true peak (``ebur128``, as the renderers do: loudness.py) and keeps
+two small frames a second, from which the picture's levels are judged against EBU R103 (added 2026-11-27, batch 5c).
+These are warnings only: platforms publish no loudness target, and a level a little outside the broadcast range is
+clipped by the player, not lost.
+
 Every check says what kind it is:
 
 * deterministic  measured on the file (hash, streams, dimensions, duration, decode errors, caption timing)
@@ -19,17 +24,20 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
+
 from .. import config
-from . import artifact, audio_timing
+from . import artifact, audio_timing, grade, loudness
 from .common import Cancelled, read_json
 from .ffmpeg_utils import NO_WINDOW, FFmpegError, ffmpeg_bin, probe
 
-GATE_VERSION = 3
+GATE_VERSION = 4             # 4: loudness, true peak, picture levels and colour tags (2026-11-27)
 PASS, WARN, FAIL, SKIP = "pass", "warn", "fail", "skipped"
 DETERMINISTIC, HEURISTIC = "deterministic", "heuristic"
 MIN_SECONDS = 1.0
@@ -38,6 +46,17 @@ SHORTS_MAX_SECONDS = 180.0
 BLACK_FILTER = "blackdetect=d=0.5:pix_th=0.10"
 FREEZE_FILTER = "freezedetect=n=-60dB:d=2"
 SILENCE_FILTER = "silencedetect=noise=-50dB:d=1"
+# picture levels (EBU R103, measured on 8-bit codes after a low-pass: here a quarter-size area average)
+LEVEL_FPS = 2                # frames a second kept for the levels
+LEVEL_SCALE = 4              # ... at a quarter of the width and height
+LUMA_SAFE = (14, 241)        # -1% to 103% of the 16-235 range (EBU R103's luma limits, Telestream's defaults)
+RGB_SAFE = (-0.05, 1.05)     # -5% to 105% for each of R, G and B
+LEVEL_AREA = 0.01            # ... a frame is outside when more than 1% of it is
+WRONG_RANGE = 0.05           # over 5% of the picture under 16 or over 235 in most frames: full-range video
+LEVEL_MAX_FRAMES = 600       # ... fewer a second for a long file (a one-hour master: one every 6 s)
+# checks that only inform (never hold a clip): listed after the others, so a short list of warnings shows those first
+LAST_CHECKS = ("levels", "colour_tags", "loudness")
+LEVEL_MATRIX = {"bt709": (0.2126, 0.0722), "bt601": (0.299, 0.114), "bt2020": (0.2627, 0.0593)}  # Kr, Kb
 _DETECT = re.compile(r"(black_start|black_end|freeze_start|freeze_end|silence_start|silence_end):\s*([-\d.]+)")
 _SRT_TIME = re.compile(r"(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)")
 
@@ -57,6 +76,8 @@ class Scan:
     black: list[tuple[float, float]] = field(default_factory=list)
     frozen: list[tuple[float, float]] = field(default_factory=list)
     silent: list[tuple[float, float]] = field(default_factory=list)
+    loudness: dict | None = None      # {lufs, lra, tp} of the whole sound (loudness.parse), None when not measured
+    levels: list[dict] = field(default_factory=list)  # per kept frame: t, luma_out, rgb_out, strict_out
 
 
 def _intervals(events: list[tuple[str, float]], start: str, end: str, until: float) -> list[tuple[float, float]]:
@@ -73,29 +94,62 @@ def _intervals(events: list[tuple[str, float]], start: str, end: str, until: flo
 
 
 def scan(path: str | Path, has_audio: bool, timeout: float = 600.0,
-         cancelled: Callable[[], bool] | None = None) -> Scan:
-    """Decode every frame and sample once, with the black, freeze and silence detectors."""
-    cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-nostats", "-loglevel", "level+info", "-progress", "pipe:1",
-           "-i", str(path), "-map", "0:v:0", "-vf", f"{BLACK_FILTER},{FREEZE_FILTER}"]
-    if has_audio:
-        cmd += ["-map", "0:a:0", "-af", SILENCE_FILTER]
-    cmd += ["-f", "null", "-"]
-    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        proc = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
-        deadline = time.monotonic() + timeout
-        while proc.poll() is None:
-            if (cancelled and cancelled()) or time.monotonic() > deadline:
-                proc.kill()
-                proc.wait()
-                if cancelled and cancelled():
-                    raise Cancelled()
-                raise FFmpegError("Decoding the clip took too long")
-            time.sleep(0.1)
-        out.seek(0)
-        err.seek(0)
-        progress = out.read().decode("utf-8", "replace").splitlines()
-        log = err.read().decode("utf-8", "replace").splitlines()
-    res = Scan(returncode=proc.returncode)
+         cancelled: Callable[[], bool] | None = None, size: tuple[int, int] | None = None,
+         matrix: str = "bt709", seconds: float = 0.0) -> Scan:
+    """Decode every frame and sample once, with the black, freeze and silence detectors, the loudness measurement,
+    and (when `size`, the picture's width and height, is given) small frames for the picture levels, read with the
+    file's `matrix` (LEVEL_MATRIX), LEVEL_FPS a second or, when the file's `seconds` would give more than
+    LEVEL_MAX_FRAMES, that many spread over it."""
+    graph = f"[0:v:0]{BLACK_FILTER},{FREEZE_FILTER}"
+    small = None
+    rate = min(float(LEVEL_FPS), LEVEL_MAX_FRAMES / seconds) if seconds > 0 else float(LEVEL_FPS)
+    if size and size[0] > 0 and size[1] > 0:
+        small = (max(2, round(size[0] / LEVEL_SCALE)), max(2, round(size[1] / LEVEL_SCALE)))
+        graph += (f",split[v1][v2];[v2]fps={rate:.6g},scale={small[0]}:{small[1]}:flags=area,"
+                  "format=yuv444p[v3]")
+    else:
+        graph += "[v1]"
+    # the sound in a graph of its own: a complex graph is rebuilt (and ebur128 starts again) when the picture's size
+    # or format changes part-way through a file
+    sound = ["-map", "0:a:0", "-af", f"{SILENCE_FILTER},{loudness.FILTER}"] if has_audio else []
+    levels: list[dict] = []
+    with tempfile.TemporaryDirectory(prefix="clipforge-scan-") as tmp:
+        progress_file = Path(tmp) / "progress.txt"
+        # the detectors' output first: the progress counts its frames, every one of them (the decode check); the
+        # small frames come through a pipe, measured as they arrive, so nothing large is written to the disk
+        cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-nostats", "-loglevel", "level+info",
+               "-progress", str(progress_file), "-i", str(path), "-filter_complex", graph, "-map", "[v1]", *sound,
+               "-f", "null", "-"] + (["-map", "[v3]", "-f", "rawvideo", "pipe:1"] if small else [])
+        with tempfile.TemporaryFile() as err:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE if small else subprocess.DEVNULL, stderr=err,
+                                    stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+            reader = None
+            if small:
+                reader = threading.Thread(target=_read_levels, args=(proc.stdout, small, matrix, rate, levels),
+                                          daemon=True)
+                reader.start()
+            try:
+                deadline = time.monotonic() + timeout
+                while proc.poll() is None:
+                    if (cancelled and cancelled()) or time.monotonic() > deadline:
+                        proc.kill()
+                        proc.wait()
+                        if cancelled and cancelled():
+                            raise Cancelled()
+                        raise FFmpegError("Decoding the clip took too long")
+                    time.sleep(0.1)
+            finally:
+                if reader is not None:
+                    reader.join(timeout=30)
+                    proc.stdout.close()
+            err.seek(0)
+            text = err.read().decode("utf-8", "replace")
+        try:
+            progress = progress_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            progress = []
+    log = text.splitlines()
+    res = Scan(returncode=proc.returncode, levels=levels)
     for line in progress:
         key, _, value = line.partition("=")
         try:
@@ -114,7 +168,62 @@ def scan(path: str | Path, has_audio: bool, timeout: float = 600.0,
     res.black = _intervals(events, "black_start", "black_end", res.decoded_s)
     res.frozen = _intervals(events, "freeze_start", "freeze_end", res.decoded_s)
     res.silent = _intervals(events, "silence_start", "silence_end", res.decoded_s)
+    if has_audio:
+        try:
+            res.loudness = loudness.parse(text)
+        except ValueError:
+            res.loudness = None
     return res
+
+
+def level_matrix(tags: dict) -> str:
+    """The matrix a player reads the file's colours with (grade.input_matrix, as the renderers read files): its tag,
+    or for an untagged file BT.709 from 720 lines up and BT.601 under that."""
+    m = grade.input_matrix(tags, int(tags.get("height") or 0))
+    return m if m in LEVEL_MATRIX else "bt709"
+
+
+def _read_levels(stream, size: tuple[int, int], matrix: str, rate: float, out: list[dict]) -> None:
+    """Reads the small frames from FFmpeg's pipe until it closes, measuring each (`_frame_levels`). It always reads
+    to the end, even when a measurement fails, so FFmpeg never waits on a full pipe."""
+    w, h = size
+    frame = w * h * 3
+    i, broken = 0, False
+    while True:
+        try:
+            buf = stream.read(frame)
+        except (OSError, ValueError):
+            return
+        if len(buf) < frame:
+            return
+        if not broken:
+            try:
+                out.append(_frame_levels(np.frombuffer(buf, np.uint8).reshape(3, h, w), i / rate, matrix))
+            except Exception:  # noqa: BLE001 - no levels (the check skips) rather than a stuck decode
+                out.clear()
+                broken = True
+        i += 1
+
+
+def _frame_levels(data: np.ndarray, t: float, matrix: str) -> dict:
+    """One frame's levels: the share of the picture outside the luma limits (LUMA_SAFE), with any of R, G, B outside
+    RGB_SAFE (read with the file's matrix), and under 16 or over 235 (strict, for full-range video in a
+    limited-range file)."""
+    kr, kb = LEVEL_MATRIX.get(matrix, LEVEL_MATRIX["bt709"])
+    kg = 1.0 - kr - kb
+    y = data[0].astype(np.float32)
+    pb = (data[1].astype(np.float32) - 128.0) / 224.0
+    pr = (data[2].astype(np.float32) - 128.0) / 224.0
+    yn = (y - 16.0) / 219.0
+    r = yn + 2.0 * (1.0 - kr) * pr
+    b = yn + 2.0 * (1.0 - kb) * pb
+    g = (yn - kr * r - kb * b) / kg
+    outside = np.zeros(y.shape, bool)
+    for c in (r, g, b):
+        outside |= (c < RGB_SAFE[0]) | (c > RGB_SAFE[1])
+    return {"t": round(t, 2), "luma_out": float(((y < LUMA_SAFE[0]) | (y > LUMA_SAFE[1])).mean()),
+            "rgb_out": float(outside.mean()), "strict_out": float(((y < 16) | (y > 235)).mean()),
+            "y_min": int(data[0].min()), "y_max": int(data[0].max())}
 
 
 def _total(iv: list[tuple[float, float]]) -> float:
@@ -196,7 +305,10 @@ def media_checks(path: str | Path, expected: dict, cancelled: Callable[[], bool]
     else:
         out.append(check("duration", "Duration", DETERMINISTIC, PASS, f"{duration:.1f} s", seconds=duration))
 
-    sc = scan(path, info["has_audio"], timeout=max(120.0, duration * 10), cancelled=cancelled)
+    tags = grade.source_colour(path)
+    sc = scan(path, info["has_audio"], timeout=max(120.0, duration * 10), cancelled=cancelled,
+              size=(info["width"], info["height"]), matrix=level_matrix({**tags, "height": info["height"]}),
+              seconds=duration)
     decoded = sc.frames / info["fps"] if info["fps"] else sc.decoded_s
     truncated = decoded < duration * 0.97 - 0.3
     if sc.returncode or sc.errors or truncated:
@@ -211,7 +323,27 @@ def media_checks(path: str | Path, expected: dict, cancelled: Callable[[], bool]
     out += _sound_checks(sc, duration, info["has_audio"], expected.get("transcript"))
     out += _caption_checks(expected.get("srt"), duration, expected.get("transcript"))
     out += _cut_checks(expected.get("transcript"), expected.get("edl"))
+    out += [_levels_check(sc), _colour_tags(tags, info["height"]),
+            _loudness_check(sc, info["has_audio"], expected.get("sound"))]
     return out
+
+
+def informing_last(checks: list[dict]) -> list[dict]:
+    """The checks with those that only inform (LAST_CHECKS) moved to the end, in their order."""
+    return [c for c in checks if c["name"] not in LAST_CHECKS] + [c for c in checks if c["name"] in LAST_CHECKS]
+
+
+def sound_intent(render_info: dict | None) -> dict:
+    """What the render asked of the sound (normalization on or off, the owner's volume, what held the level back,
+    the level it aimed at), so the final check explains the loudness as the renderer did (loudness.check)."""
+    info = render_info or {}
+    settings = (artifact.of(info) or {}).get("settings") or {}
+    plan = info.get("audio_processing") or {}
+    qc = (info.get("qc") or {}).get("sound") or {}
+    capped, peaks = qc.get("boost_capped", plan.get("boost_capped")), qc.get("peak_limited", plan.get("peak_limited"))
+    return {"normalized": settings.get("normalize_audio", True) is not False,
+            "owner_gain_db": float(settings.get("gain_db") or 0), "held": "cap" if capped else "peaks" if peaks else "",
+            "expected_lufs": qc.get("expected_lufs")}
 
 
 def _audio_packet_timing(path: str | Path, cancelled: Callable[[], bool] | None = None) -> dict:
@@ -273,6 +405,68 @@ def _picture_checks(sc: Scan, duration: float) -> list[dict]:
     else:
         out.append(check("frozen", "Moving picture", HEURISTIC, PASS))
     return out
+
+
+def _levels_check(sc: Scan) -> dict:
+    """The picture's levels against EBU R103: more than 1% of a frame outside the luma or RGB limits."""
+    label = "Picture levels"
+    if not sc.levels:
+        return check("levels", label, HEURISTIC, SKIP, "The picture's levels were not measured.")
+    n = len(sc.levels)
+    wrong = sum(1 for f in sc.levels if f["strict_out"] > WRONG_RANGE)
+    bad = [f for f in sc.levels if f["luma_out"] > LEVEL_AREA or f["rgb_out"] > LEVEL_AREA]
+    worst = max(sc.levels, key=lambda f: max(f["luma_out"], f["rgb_out"]))
+    values = {"frames": n, "frames_outside": len(bad), "worst_at_s": worst["t"],
+              "worst_luma": round(worst["luma_out"], 4), "worst_rgb": round(worst["rgb_out"], 4),
+              "y_min": min(f["y_min"] for f in sc.levels), "y_max": max(f["y_max"] for f in sc.levels)}
+    if wrong >= max(1, n / 2):
+        return check("levels", label, HEURISTIC, WARN,
+                     "The blacks and whites go past the video range in most of the clip (full-range picture in a "
+                     "limited-range file?): it will look harsher after upload.", **values)
+    if bad:
+        share = max(worst["luma_out"], worst["rgb_out"]) * 100
+        return check("levels", label, HEURISTIC, WARN,
+                     f"Colours outside the broadcast range in {len(bad)} of {n} sampled frames (worst at "
+                     f"{worst['t']:.1f} s: {share:.1f}% of the picture); players clip them.", **values)
+    return check("levels", label, HEURISTIC, PASS, f"Within the broadcast range ({n} sampled frames).", **values)
+
+
+def _colour_tags(tags: dict, height: int) -> dict:
+    """The file's colour tags (grade.source_colour): ClipForge makes BT.709 limited range; another tag makes players
+    show other colours. An untagged HD file is read as BT.709 by players, so it passes."""
+    allowed = {"matrix": ("bt709",), "primaries": ("bt709",), "transfer": ("bt709", "bt1886"), "range": ("tv",)}
+    wrong = [f"{k} {tags[k]}" for k, ok in allowed.items() if tags.get(k) and tags[k] not in ok]
+    values = {k: tags.get(k) or "" for k in ("matrix", "primaries", "transfer", "range")}
+    if wrong:
+        return check("colour_tags", "Colour tags", DETERMINISTIC, WARN,
+                     "Tagged " + ", ".join(wrong) + " (ClipForge makes BT.709 limited range): players may show "
+                     "other colours.", **values)
+    untagged = [k for k in ("matrix", "primaries", "transfer", "range") if not tags.get(k)]
+    assumed = "BT.709" if level_matrix({**tags, "height": height}) == "bt709" else "BT.601"
+    return check("colour_tags", "Colour tags", DETERMINISTIC, PASS,
+                 "BT.709, limited range" + (f" (partly untagged: players assume {assumed})" if untagged else ""),
+                 **values)
+
+
+def _loudness_check(sc: Scan, has_audio: bool, intent: dict | None = None) -> dict:
+    """How loud the file plays, judged as the renderers judge it (loudness.check): within 1 LU of -14 LUFS, peaks at
+    or under -1 dBTP. `intent` (sound_intent): what the render asked of the sound, which explains a level off target
+    (normalization off, the owner's volume, peaks that held it back)."""
+    label = "Loudness"
+    if not has_audio:
+        return check("loudness", label, HEURISTIC, SKIP, "No audio track to check.")
+    if sc.loudness is None:
+        return check("loudness", label, HEURISTIC, SKIP, "The loudness could not be measured.")
+    if sc.loudness.get("lufs") is None:
+        return check("loudness", label, HEURISTIC, SKIP, "Silent: no loudness to check.", **sc.loudness)
+    intent = intent or {}
+    normalized = intent.get("normalized", True)
+    aimed = intent.get("expected_lufs")
+    verdict = loudness.check(sc.loudness, aimed if aimed is not None else loudness.TARGET_LUFS if normalized else None,
+                             normalized=normalized, owner_gain_db=float(intent.get("owner_gain_db") or 0),
+                             held=intent.get("held") or "")
+    return check("loudness", label, HEURISTIC, PASS if verdict["status"] == "pass" else WARN, verdict["note"],
+                 **sc.loudness)
 
 
 def _sound_checks(sc: Scan, duration: float, has_audio: bool, transcript: dict | None) -> list[dict]:
@@ -417,8 +611,9 @@ def evaluate(path: str | Path, render_info: dict, clip: dict, has_audio: bool = 
     edl = read_json(Path(art["edl"]), None) if art.get("edl") else None
     expected = {"duration": art.get("duration") or render_info.get("duration") or clip.get("duration"),
                 "has_audio": has_audio, "sha256": art.get("sha256"), "transcript": transcript, "edl": edl,
-                "srt": (art.get("captions") or {}).get("srt") or _default_srt(path)}
-    checks = media_checks(path, expected, cancelled) + framing_checks(render_info) + content_checks(clip)
+                "srt": (art.get("captions") or {}).get("srt") or _default_srt(path), "sound": sound_intent(render_info)}
+    checks = informing_last(media_checks(path, expected, cancelled) + framing_checks(render_info) +
+                            content_checks(clip))
     sha = next((c["values"]["sha256"] for c in checks if c["name"] == "hash"), None) or ""
     st = os.stat(path) if Path(path).exists() else None
     return {

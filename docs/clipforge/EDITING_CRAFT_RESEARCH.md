@@ -79,5 +79,5 @@ Much of the sound chain already exists (Clean up the sound, `pipeline/cleanup.py
 | 4c | Loop endings for short clips: a tight seam, the shot size switching on it ([SHORTS_EDITING.md](SHORTS_EDITING.md), "Loop endings") | built 2026-11-27 |
 | 4d | Steadying shaky camera footage in clips and full videos, only footage that shakes ([STEADY.md](STEADY.md)) | built 2026-11-27 |
 | 5a | Sound check after every render: true-peak limiter, the finished file measured, a missed level or hot peak fixed once ([QC.md](QC.md)) | built 2026-11-27 |
-| 5b | Picture check: flat cartoons and graphics kept clean by automatic colour, colours kept in the legal range ([QC.md](QC.md)) | planned |
-| 5c | The final quality check before publishing reads the same measurements ([QC.md](QC.md)) | planned |
+| 5b | Picture check: flat cartoons and graphics left as drawn by automatic colour, every colour change tried on the recording's own pixels first and eased where it would lose detail ([QC.md](QC.md)) | built 2026-11-27 |
+| 5c | The final quality check before publishing reads the same measurements: loudness, true peak, picture levels against EBU R103, colour tags; warnings only ([QC.md](QC.md)) | built 2026-11-27 |

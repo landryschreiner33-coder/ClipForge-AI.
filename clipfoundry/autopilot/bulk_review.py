@@ -91,6 +91,10 @@ def _inspect(item: dict, settings: dict, *, sha: str | None = None) -> tuple[dic
         raise ValueError("The rendered video file is missing or cannot be read.")
     report = gate.report_for(clip)
     if not report or report.get("artifact_sha256") != sha:
+        if not supplied_sha:  # the preview (not the approval's own guard, inside its write): start the check now
+            gate.request(clip, priority=100, sha=sha if report else "")
+            raise ValueError("The exact video needs a final quality check before it can be approved. The check has "
+                             "started: preview the selection again in a minute.")
         raise ValueError("The exact video needs a final quality check before it can be approved.")
     if not gate.context_valid(report, clip, settings):
         raise ValueError("The source's reuse terms changed. Wait for a fresh final check, then review again.")

@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 
 from .. import config, db
-from ..pipeline import ffmpeg_utils
+from ..pipeline import ffmpeg_utils, grade
 from ..pipeline.common import Cancelled
 from ..studio import engine, uploads
 from ..studio.jobs import Canceled, Lease, cancel as cancel_job, enqueue, handler, on_stop
@@ -907,16 +907,32 @@ def _source_args(piece: dict, size: tuple[int, int], loop_file: Path | None = No
     return ["-ss", f"{float(piece['in_s']):.3f}", "-t", f"{piece['length']:.3f}", "-i", str(_video_path(piece))]
 
 
+def _read(path: Path) -> str:
+    """The `scale` option that reads a background video's colours with its own matrix (grade.input_matrix: FFmpeg
+    would read untagged HD video as BT.601)."""
+    return f"in_color_matrix={grade.input_matrix(grade.source_colour(path))}"
+
+
+# every picture is put together in RGB and turned into BT.709 limited range once, at the end: the chat card and the
+# captions keep their exact colours, and the file's BT.709 tags are true (FFmpeg's default conversion is BT.601,
+# which made reds up to 10 codes off and the card's blue 6)
+TO_VIDEO = "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p"
+BT709_TAGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
+
+
 def _loop_part(piece: dict, size: tuple[int, int], dest: Path, cancel=None) -> Path:
     """The looping clip's trimmed part at the frame size (cropped where the owner placed it), without sound: FFmpeg
-    can loop a whole file but not a part of one, so the part is made once and looped."""
+    can loop a whole file but not a part of one, so the part is made once and looped. It is made BT.709 and tagged
+    so, whatever the clip was."""
     w, h = size
     fx, fy = float(piece.get("focus_x", 0.5)), float(piece.get("focus_y", 0.5))
+    src = _video_path(piece)
     ffmpeg_utils.run(["-ss", f"{float(piece['in_s']):.3f}", "-t", f"{piece['play']:.3f}", "-i",
-                      str(_video_path(piece)), "-an", "-vf",
-                      f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:(in_w-{w})*{fx:.3f}:"
-                      f"(in_h-{h})*{fy:.3f},setsar=1,fps={FPS},format=yuv420p", "-c:v", "libx264", "-preset",
-                      "ultrafast", "-crf", "12", "-pix_fmt", "yuv420p", str(dest)], cancel=cancel)
+                      str(src), "-an", "-vf",
+                      f"scale={w}:{h}:force_original_aspect_ratio=increase:{_read(src)},crop={w}:{h}:"
+                      f"(in_w-{w})*{fx:.3f}:(in_h-{h})*{fy:.3f},setsar=1,fps={FPS},format=gbrp,{TO_VIDEO}",
+                      "-c:v", "libx264", "-preset", "ultrafast", "-crf", "12", "-pix_fmt", "yuv420p", *BT709_TAGS,
+                      str(dest)], cancel=cancel)
     return dest
 
 
@@ -957,8 +973,9 @@ def render(story: dict, what: str, lease: Lease | None = None) -> dict:
                 _loop_part(p, size, part, cancel=lease.canceled if lease else None)
             args += _source_args(p, size, part)
             fx, fy = float(p.get("focus_x", 0.5)), float(p.get("focus_y", 0.5))
-            chains.append(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
-                          f"crop={w}:{h}:(in_w-{w})*{fx:.3f}:(in_h-{h})*{fy:.3f},setsar=1,fps={FPS},format=yuv420p,"
+            read = "" if p.get("builtin") else ":" + _read(part if part is not None else _video_path(p))
+            chains.append(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=increase{read},"
+                          f"crop={w}:{h}:(in_w-{w})*{fx:.3f}:(in_h-{h})*{fy:.3f},setsar=1,fps={FPS},format=gbrp,"
                           f"trim=duration={p['length']:.3f},setpts=PTS-STARTPTS[v{i}]")
         args += ["-i", str(voice_file)]
         joined = "".join(f"[v{i}]" for i in range(len(plays)))
@@ -973,14 +990,14 @@ def render(story: dict, what: str, lease: Lease | None = None) -> dict:
             x, y = chatstory.card_box(size)
             chains.append(f"{background}[bg]")
             chains.append(f"[{len(plays) + 1}:v]fps={FPS},format=rgba[cards]")
-            chains.append(f"[bg][cards]overlay=x={x}:y={y}:eof_action=repeat:format=auto,format=yuv420p[vout]")
+            chains.append(f"[bg][cards]overlay=x={x}:y={y}:eof_action=repeat:format=gbrp,{TO_VIDEO}[vout]")
         else:
             ass.write_text(story_ass(story, narration, w, h), encoding="utf-8")
             chains.append(f"{background},ass={ffmpeg_utils.filter_path(ass, d)}:"
-                          f"fontsdir={ffmpeg_utils.filter_path(config.FONTS_DIR, d)},format=yuv420p[vout]")
+                          f"fontsdir={ffmpeg_utils.filter_path(config.FONTS_DIR, d)},{TO_VIDEO}[vout]")
         chains.append(f"[{len(plays)}:a]aresample=48000,apad[aout]")
         if what == "preview":
-            video = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p"]
+            video = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p", *BT709_TAGS]
         else:
             video, _ = ffmpeg_utils.video_encoder_args(db.get_settings())
             video += ffmpeg_utils.delivery_args(FPS)

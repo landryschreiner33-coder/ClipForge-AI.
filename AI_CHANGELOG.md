@@ -1,5 +1,63 @@
 # AI changelog
 
+## Editing quality, batch 5c: the final check reads loudness, picture levels and colour tags — 2026-11-27 (Claude Code)
+
+Batch 5c of Landry's "majorly improve the editing", on top of 5b. Details:
+[docs/clipforge/QC.md](docs/clipforge/QC.md#5c-the-final-quality-check-before-publishing). Not released.
+
+- **One pass** (`quality.scan`): `-filter_complex` with the detectors first (the progress still counts every frame
+  for the decode check), a `split` keeping 2 frames a second at a quarter size (area average, standing in for EBU
+  R103's low-pass) read from a pipe by a thread as they arrive (`_read_levels`, always drained), and `silencedetect`
+  then `ebur128` on the sound in its own `-af` graph (a complex graph is rebuilt on a mid-file size change, which
+  restarted the measurement). `Scan.loudness`, `Scan.levels`. About the same time as before (0.9-1.3 s for an 8 s
+  1080x1920 clip).
+- **New checks, warnings only** (never block, not in `autopublish.HOLD_ON`): `loudness` (`loudness.check` against
+  -14 LUFS ±1 LU and -1 dBTP, the renderers' own rule), `levels` (a sampled frame with over 1% of its luma outside
+  codes 14-241 or any of R, G, B outside -5% to 105%; most frames with over 5% under 16 or over 235: "full-range
+  picture in a limited-range file?"), `colour_tags` (a tag other than BT.709 / limited range; missing tags pass).
+  The levels use the file's matrix (`level_matrix`: its tag; untagged BT.709 from 720 lines, BT.601 under).
+- Review: a reviewer found the temporary file (a full disk failed the decode check), the shared graph (a stitched
+  file's loudness), a memory map that could block cleanup on Windows, and BT.709 maths on BT.601 video; all fixed,
+  each with a test.
+- Second review: a post already planned and waiting for (automatic) approval never asked for the new gate's check
+  after the version bump (`scheduler.auto_approve`, `submissions.auto_approve` and the batch review now request it);
+  the informing checks come last (`informing_last`); the loudness is explained by what the render asked
+  (`sound_intent`); at most 600 small frames (`LEVEL_MAX_FRAMES`). Text Stories are put together in RGB and turned
+  into BT.709 once (`textstory.TO_VIDEO`): before, BT.601 conversions under BT.709 tags made reds 10 codes off.
+- `GATE_VERSION` 4: stored reports are checked again once.
+
+## Editing quality, batch 5b: the picture checked before every render — 2026-11-27 (Claude Code)
+
+Batch 5b of Landry's "majorly improve the editing" (plan in
+[docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
+`claude/project-thread-c3hbwh` on top of batch 5a (PR #99). Details:
+[docs/clipforge/QC.md](docs/clipforge/QC.md#5b-the-picture). Not released.
+
+- **Flat cartoons and graphics** are left as drawn by automatic colour (`grade.measure`: `top8` = the 8 commonest
+  exact colours of the check's real pixels, `graphic` at 80%; `correction` returns early with "Flat colours (a
+  cartoon or graphics): left as drawn"); they are left out of full-video matching. Before, a cartoon's dark
+  background read as underexposure: whites lifted 1.2x and mid-tones brightened, drawn colours moved up to 27 codes
+  and orange characters reached full scale.
+- **Dim whites by the brightest channel** (`p995_max`): a saturated colour already at full scale in one channel is
+  not lifted past it; deepening blacks keeps it there too. The half-stop cap now re-writes the mid-tones note from
+  the net change (it could say "darkened" for a picture that got brighter).
+- **The predicted check** (`check_sample`, `check_grade`, `guard`): 4 frames at 320 wide, nearest-neighbour, up to
+  16,384 pixels kept with the statistics (`check_px`). Before a table is made the grade is tried on them: detail lost
+  at full scale or black (flat areas made all one level left out), strong colours washed out (saturation as a share
+  of the brightest channel, against the white-balanced picture; correction only), and the brightness curve's
+  steepest part (banding). A correction is eased step by step on the setting that causes it (4 steps, then left
+  out); a look to 60%, then 30% of its strength. Notes in plain words. The engine checks the corrections before
+  matching and everything after it (`engine.grades`, `for_footage(..., guarded=False)`, `guard(..., look=False)`).
+  A look alone is measured too; a measurement without its pixel sample is not kept.
+- **Review (2 reviewers, 6 problems, all fixed with tests):** dark or noisy camera footage taken for a cartoon (the
+  first rule binned averaged frames), cartoons in matching, matching aimed at an unchecked grade, a look unchecked
+  with cleanup off, a failed pixel read cached for good, the white balance note's share after easing.
+- `tests/test_artifact_quality.py::test_an_nvenc_encode_waits_while_the_gpu_is_transcribing` waits for the render to
+  reach the GPU lock instead of a fixed 2.5 s: the steps before the encode (steadying since batch 4d, the colour
+  check now) took longer than that now and then (2 of 6 runs failed on the release line, 6 of 6 pass now).
+- `grade.VERSION` 2 (measurement cache key and the engine's piece key): every recording is measured again once.
+- **Privacy page:** the colour measurements row covers the pixel sample.
+
 ## ClipForge AI reads what the last render did — 2026-11-27 (Claude Code)
 
 Part of Landry's "make the AI way smarter and more useful" (`claude/project-thread-st8tpc`), after the editing
