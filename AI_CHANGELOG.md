@@ -1,5 +1,16 @@
 # AI changelog
 
+## Higgsfield pictures for the animated-short looks — 2026-11-27 (Claude Code)
+
+Landry: "use higgsfield to make the example images for the animated shorts". The eight look pictures
+(`frontend/public/looks/<look>.jpg`, 720 x 1280) are now Higgsfield's, made from the same scene (the yellow robot on a
+hill, a lighthouse behind), and this time the robot itself is drawn in each look. They replace the ChatGPT pictures of
+Nov 26 at the same names and size, cropped to 9:16 from 1024 x 1536 (centred; 3D cartoon a little right and Comic
+book a little left so the robot and the lighthouse both stay in). The robot sits low in every picture, so a look card
+now shows 2:3 of the picture anchored low (it was 3:4 from the middle): the robot's boots and the lighthouse's lamp
+both stay in view. Tests: `tests/test_look_pictures.py` (new card check), `tests/test_grade.py` still passes on the
+new 3D cartoon picture.
+
 ## Editing quality, batch 4b: several cameras of one recording, pictures in a corner — 2026-11-26 (Claude Code)
 
 Batch 4b of Landry's "majorly improve the editing" (plan in

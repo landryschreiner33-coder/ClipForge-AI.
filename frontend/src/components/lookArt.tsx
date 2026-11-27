@@ -1,7 +1,8 @@
 /**
  * An example of each look of an animated short (makers/looks.py). Each look has a picture of the same small scene
- * (a robot on a hill, a lighthouse behind) made in that look (public/looks/<look>.jpg, made by the owner with
- * ChatGPT on 2026-11-26), so the cards show the difference at a glance. The drawings below are what a look shows if
+ * (a robot on a hill, a lighthouse behind) made in that look (public/looks/<look>.jpg, made with Higgsfield on
+ * 2026-11-27 at the owner's request, replacing their ChatGPT pictures of 2026-11-26), so the cards show the
+ * difference at a glance. The drawings below are what a look shows if
  * its picture can't load. LookExample shows the picture maker's own example instead when the owner made one (Make
  * examples with my picture maker).
  */
