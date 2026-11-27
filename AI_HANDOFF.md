@@ -1,5 +1,23 @@
 # AI handoff
 
+## Editing quality, batch 5a: the sound checked after every render — 2026-11-27 (Claude Code, cloud session)
+
+**Plain-English summary:** every clip and full video is measured after it is made, the way YouTube and TikTok
+measure loudness; when it came out too quiet, too loud or with peaks that could distort, its sound is made once
+more (the picture is not touched), and the editor says how loud the last render plays and why.
+
+- **Where things are:** `pipeline/loudness.py` (`parse`, `gain_for`, `check`, `lower_ceiling`, `measure`, `judge`,
+  `limiter`; limits at the top); `render._measure_audio` (version 2), `render._check_sound`; `engine._measure`,
+  `engine._check_sound`; `craft/finish._sound_check`; `format.soundCheckLine` in the frontend.
+- **Rules to keep:** one constant gain, never squashing the sound to make it louder; the check never fails a render
+  that made its file (it keeps the first file when it cannot measure or the second try fails); one extra try at
+  most; a second try copies the picture and has its audio timing checked again; a clip's render record and hash
+  follow the file that is kept; a cancelled or failed render leaves no unfinished file or `effects.wav`.
+- **For the AI thread:** `render_info.qc.sound` (`status` pass/warn/skipped/unmeasured, `note`, `lufs`, `tp`,
+  `fixed_db`) and a full video's version `info.qc.sound` are there to read; ClipForge AI does not read them yet.
+- **Next:** 5b (picture: flat cartoons left as drawn, the grade tried on the recording's own pixels first), 5c (the
+  final quality check before publishing reads the same measurements).
+
 ## Editing quality, batch 4d: steadying shaky footage — 2026-11-27 (Claude Code, cloud session)
 
 **Plain-English summary:** handheld camera shake is smoothed out in short clips and full videos, with a slight zoom

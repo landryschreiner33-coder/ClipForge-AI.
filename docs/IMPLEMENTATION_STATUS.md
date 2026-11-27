@@ -1,5 +1,22 @@
 # Implementation status
 
+## Editing quality, batch 5a: the sound checked after every render — 2026-11-27 (Claude Code)
+
+From `claude/project-thread-c3hbwh` on top of batch 4d (PR #97). Every short clip and full video is measured after
+its encode (EBU R128 loudness and true peak) and its sound is made once more, with the picture copied, when it missed
+its level or its peaks are too hot ([docs/clipforge/QC.md](clipforge/QC.md)). Not released. Details:
+[AI_CHANGELOG.md](../AI_CHANGELOG.md).
+
+| When | Command | Result |
+| --- | --- | --- |
+| 2026-11-27 | `npx tsc --noEmit -p frontend` and `npm run build` | passed |
+| 2026-11-27 | `pytest tests/test_loudness.py -m "slow or not slow"` | 24 passed |
+| 2026-11-27 | `pytest` on the render, engine, FilmCraft and audio tests | 75 passed, 1 failed (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`: a timing test, passes on its own at this commit and before it) |
+| 2026-11-27 | review: 2 reviewers | 8 problems (a timed-out second try left files, sound effects and the unfinished file left after a cancel, the engine's second file not timing-checked, FilmCraft versions unchecked, the owner's volume blamed wrongly, a fix past the 24 dB cap, the second check's level) - all fixed with tests |
+
+Not verified: real recordings and what YouTube or TikTok measure after the upload (the cloud has synthetic sound
+only).
+
 ## Editing quality, batch 4d: steadying shaky footage — 2026-11-27 (Claude Code)
 
 From `claude/project-thread-c3hbwh` on top of batch 4c (PR #94). Shaky camera footage is steadied in short clips and
