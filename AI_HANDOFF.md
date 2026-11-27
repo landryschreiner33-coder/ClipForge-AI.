@@ -18,6 +18,27 @@ that seam like on every other cut.
 - **Not done:** choosing an end whose last line flows into the first line (that is the clip picker's choice of
   words, in brain/); stabilising shaky footage is the next batch (4d).
 
+## Landry's ship and a cleaner black hole warp — 2026-11-27 (Claude Code, cloud session)
+
+**Plain-English summary:** the little ship in front of the Studio's black hole is now Landry's own pixel-art ship,
+cut out cleanly, and the bent light round the hole looks like Interstellar's: a thin disk across the middle of the
+shadow, the far side bent over the top and under the bottom, nothing cut off by its box and no specks on it.
+
+- **Where things are:** `components/shipArt.ts` (the ship, `FLAME`, `SIZE`, `loadShip`), `public/space/flyer-384.png`
+  and `flyer-192.png` (made by `design/space-studio/tools/flyer.py`; original picture in the project files,
+  `space-studio/flyer/`), `components/blackHoleOrbit.ts` (`DIST` 70, `TILT`, `NEAR`, `bend`/`turned`, `uMid`), the
+  ship's repaint in `BlackHole.tsx` `OrbitingHole`.
+- **Worth knowing:** the camera's distance decides how thick the near side of the disk looks: from close up it
+  covers the lower shadow. Keep the bent light inside the box (it reaches about 2.2 shadows above the centre); the
+  box edge fade must not cut it. The bent stars stop before the Einstein ring (√(2·DIST)/2.598 ≈ 4.5 shadows), where
+  stars stretch into arcs. In the shader never square a large distance (half-precision chips overflow above 65,504):
+  `bend` takes u = s / r. To see the orbit view in the cloud's browser, let it start without a graphics chip (patch
+  `getContext` to drop `failIfMajorPerformanceCaveat`) and pause Playwright's clock before the page loads, or the
+  too-slow rule switches to the lighter hole within seconds; the lab page and recorder are in the project files,
+  `space-studio/flyer/`.
+- **Not verified (needs Landry's computer):** how it looks and how smoothly it runs on a real graphics chip (Mac,
+  RTX 3050); only headless Chromium with SwiftShader was used here.
+
 ## Editing quality, batch 4b: several cameras, pictures in a corner — 2026-11-26 (Claude Code, cloud session)
 
 **Plain-English summary:** a podcast or interview filmed with several cameras can be edited as one recording:
