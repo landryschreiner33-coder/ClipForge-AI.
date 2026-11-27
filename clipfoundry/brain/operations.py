@@ -1252,12 +1252,15 @@ def _clip_edit(c: dict, p: dict, args: dict) -> tuple[dict, list[str], bool | No
     if args.get("sound_effects") is not None:
         edit["sound_effects"] = bool(args["sound_effects"])
         words.append("sound effects " + ("on" if args["sound_effects"] else "off"))
+    if args.get("stabilize") is not None:
+        edit["stabilize"] = bool(args["stabilize"])
+        words.append("shaky footage steadied" if args["stabilize"] else "kept as shot (not steadied)")
     keep = None if args.get("keep") is None else bool(args["keep"])
     if keep is not None:
         words.append("kept in the project's picks" if keep else "taken out of the project's picks")
     if not edit and keep is None:
         raise ToolError("Say what to change: cut_start, cut_end, captions, caption_style, caption_size, speed, "
-                        "volume_db, pauses, fillers, loop_ending, sound_effects or keep.")
+                        "volume_db, pauses, fillers, loop_ending, sound_effects, stabilize or keep.")
     return edit, words, keep
 
 
@@ -1662,14 +1665,20 @@ _SETTING_FILLER = frozenset(("a", "an", "the", "it", "its", "is", "as", "at", "a
 
 
 # Words that name a setting besides its label: singulars the plural rule misses, and short names.
-_SETTING_EXTRA = {"loop_ending": "loop looping seamless", "sound_effects": "whoosh sfx effect"}
+_SETTING_EXTRA = {"loop_ending": "loop looping seamless", "sound_effects": "whoosh sfx effect",
+                  "stabilize": "stabilize stabilise stabilizing stabilising stabilization stabilisation stabilized "
+                               "stabilised steadying steadied steadier shake shakes shaking shakiness handheld"}
 # Words that say another thing is meant: a full video's music Loop is not Loop endings, visual effects are not
 # Sound effects. The setting is then not chosen by its other words.
 _SETTING_NOT = {"loop_ending": frozenset(("music", "song", "songs", "soundtrack", "audio", "trim", "trimmed", "cut")),
                 "sound_effects": frozenset(("visual", "visuals", "transition", "transitions", "picture", "video",
                                             "colour", "color")),
                 "silence": frozenset(("autopilot", "posting", "posts", "post", "upload", "uploads", "mission",
-                                      "missions", "stream", "live"))}
+                                      "missions", "stream", "live")),
+                # "steady" said of something else: a steady zoom, pace or volume
+                "stabilize": frozenset(("pace", "pacing", "speed", "volume", "level", "levels", "loudness", "music",
+                                        "sound", "voice", "rhythm", "tempo", "beat", "cuts", "zoom", "push", "pan",
+                                        "posting", "posts"))}
 # Words for the owner's own pages (automatic publishing and its pause, spending, the AI model): a request with one
 # of them is never matched to an editing setting by its other words ("pause publishing" is not Pauses cut).
 _OWNER_ONLY = frozenset(("publish", "publishing", "published", "paused", "spending", "spend", "model"))
@@ -1703,7 +1712,8 @@ def _which_setting(text: str) -> str:
 # off word with a negation or an on word ("don't turn it off", "on, not off") is unclear, so it asks.
 _NEGATORS = frozenset(("no", "not", "never", "don't", "dont", "without"))
 _OFF_WORDS = frozenset(("off", "false", "0", "disable", "disabled", "stop"))
-_ON_WORDS = frozenset(("on", "true", "yes", "1", "enable", "enabled", "start", "use", "loop", "looping"))
+_ON_WORDS = frozenset(("on", "true", "yes", "1", "enable", "enabled", "start", "use", "loop", "looping", "steady",
+                       "stabilize", "stabilise"))
 
 
 def _on_off(value: object) -> bool | None:
@@ -1852,7 +1862,8 @@ CUES = re.compile(r"\b(?:posts?|posting|posted|schedul\w*|upload\w*|publish\w*|t
                   r"check\w*|review\w*|quality|trim\w*|cut\w*|shorter|longer|seconds?|length|speed\w*|faster|"
                   r"slower|louder|quieter|volume|sound|turn (?:it )?(?:on|off)|switch (?:it )?(?:on|off)|autopilot|"
                   r"approv\w*|go live|links?|https?://\S+|story|stories|keep|drop|gap|hours?|time ?zone|limit|"
-                  r"loop\w*|seamless\w*|whoosh\w*|sfx|effects?)\b",
+                  r"loop\w*|seamless\w*|whoosh\w*|sfx|effects?|steady|steadier|steadied|steadying|stabili[sz]\w*|"
+                  r"shak\w*|handheld|wobbl\w*|jitter\w*|footage)\b",
                   re.I)
 
 
@@ -1947,7 +1958,7 @@ register(Tool("pause_mission", "pause (paused true) or resume (paused false) one
               {"type": "object", "properties": {"mission": TEXT, "paused": {"type": "boolean"}},
                "required": ["paused"]}, _pause, "change", "Pause {mission}", preview=_pause_preview, **ALONE))
 register(Tool("change_setting", "change one setting: an editing choice (clips per video, clip lengths, captions, "
-              "framing, pauses, sound, loop endings, sound effects) or a posting rule (minutes between posts, earliest and latest posting hour, "
+              "framing, pauses, sound, loop endings, sound effects, steadying shaky footage) or a posting rule (minutes between posts, earliest and latest posting hour, "
               "posts a day, time zone); setting: its name, value: the new value as text (5, on, off, bold)",
               {"type": "object", "properties": {"setting": TEXT, "value": {"type": "string", "maxLength": 40,
                                                                            "on_off": True}},
@@ -1979,8 +1990,9 @@ register(Tool("edit_clip", "edit a clip like the clip editor and render it again
               "high_energy or minimal; caption_size: 60 to 160 (%); speed: 0.8 to 1.25; volume_db: -12 to 12; "
               "pauses: off, light or aggressive; fillers: true cuts “um”; loop_ending: true makes it a seamless "
               "loop (it stops just after the last word and runs straight back into its start), false a plain "
-              "ending; sound_effects: true adds whooshes and pops, false leaves them out; keep: false takes it out "
-              "of the picks",
+              "ending; sound_effects: true adds whooshes and pops, false leaves them out; stabilize: true steadies "
+              "shaky camera footage (a tripod shot, a game or a screen stays as it is), false keeps it as shot; "
+              "keep: false takes it out of the picks",
               {"type": "object", "properties": {
                   **CLIP, "cut_start": {"type": "number", "minimum": -60, "maximum": 600},
                   "cut_end": {"type": "number", "minimum": -60, "maximum": 600}, "captions": {"type": "boolean"},
@@ -1990,6 +2002,7 @@ register(Tool("edit_clip", "edit a clip like the clip editor and render it again
                   "volume_db": {"type": "number", "minimum": -12, "maximum": 12},
                   "pauses": {"type": "string", "enum": ["aggressive", "light", "off"]}, "fillers": {"type": "boolean"},
                   "loop_ending": {"type": "boolean"}, "sound_effects": {"type": "boolean"},
+                  "stabilize": {"type": "boolean"},
                   "keep": {"type": "boolean"}, "clip_id": {"type": "string", "internal": True},
                   "edit": {"type": "object", "internal": True}}},
               _edit_clip, "change", "Edit {clip}", preview=_edit_clip_preview, **ALONE))

@@ -1280,6 +1280,27 @@ fixed with tests. Each new rule was broken on purpose once to see a test fail.
 Tests: `tests/test_assistant_commands.py` (the settings in words, every setting found by its own name, on/off words),
 `tests/test_assistant_acts_alone.py` (the clip edit, the words that bring the commands).
 
+## Steadying shaky footage, in words (2026-11-27)
+
+Batch 4d (PR #97, docs/clipforge/STEADY.md) steadies shaky handheld camera footage. A full video's plain words
+("steady the footage", "keep the handheld shake") came with it in `studio/edit_requests.py` (`steady_footage`, a
+clip's `steady`). ClipForge AI now also reaches the two other places:
+
+- **One clip** (`edit_clip`): `stabilize` true steadies shaky footage, false keeps it as shot (Clip editor → Colour).
+  The card says "shaky footage steadied" or "kept as shot (not steadied)"; then the clip is rendered again.
+- **The setting for new clips and videos** (`change_setting`): "Steady shaky footage" (Settings → Defaults → New
+  clips, on unless turned off) is in the settings list. stabilize, stabilise, stabilization, steadying, shake,
+  shaking and handheld are extra words for it. "Steady" said of a zoom, pace, speed, volume, music or posting keeps it
+  out ("steady zoom", "keep the volume steady" ask). "steady" and "stabilize" are on words; "don't stabilize" and
+  "no steadying" are off; "keep the handheld shake" and "remove the shake" ask, since "shake" alone says neither.
+- **Cues and guide:** steady, stabilize, shaky, shake, handheld, wobbly, jittery and footage bring the commands to a
+  small model. A guide section, "Steadying shaky camera footage", names the setting, the clip editor's switch, a full
+  video's Colour panel and its per-clip "Steady this clip when it shakes", and the words to say; "Changing one clip"
+  names the Colour tab.
+
+Tests: `tests/test_assistant_commands.py`, `tests/test_assistant_acts_alone.py`, `tests/test_assistant_library.py`
+(the questions that pick the new section first, and the loop and music questions that must not).
+
 ## API
 
 - `GET /api/brain/memories?q=&kind=&project_id=&limit=` (`project_id`: the memories kept for that video or for every video, by their scope) · `POST /api/brain/memories` `{text, kind?, scope?, project_id?, platform?, tags?}` · `PATCH /api/brain/memories/{memory_id}` · `DELETE /api/brain/memories/{memory_id}` · `POST /api/brain/memories/{memory_id}/confirm` · `POST /api/brain/memories/{memory_id}/undo` `{words}` (a chat chip's Undo: forgets the memory only while it is as that answer added it, revision 1 and the same words; 404 when it is gone, 409 when it changed since) · `GET /api/brain/memories/{memory_id}/uses`

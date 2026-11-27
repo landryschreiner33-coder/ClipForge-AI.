@@ -75,6 +75,12 @@ def test_a_question_finds_the_craft_the_page_or_both(env):
     assert top("best captions to use")[0] == "captions"
     assert top("how loud should my video be?")[0] == "sound"
     assert top("how do I get the face cam and gameplay both in the clip")[:2] == ["guide:framing", "gaming"]
+    # the editor's newer switches: steadying, loop endings, a full video's music
+    for q in ("my footage is too shaky", "how do I stabilize a video", "keep the handheld shake",
+              "turn off steady footage"):
+        assert top(q)[0] == "guide:steady", q
+    assert top("how do I make my clips loop seamlessly")[0] == "guide:clip_editor"
+    assert top("make the music loop to the end")[0] == "guide:video_sound"
     # words every question uses decide nothing, and nonsense finds nothing
     assert top("what about penguins flying") == [] and top("") == [] and top("hello") == []
     assert top("look at everything") == [] and top("what is the best way to make a good one") == []

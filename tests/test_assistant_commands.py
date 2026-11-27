@@ -357,11 +357,13 @@ def test_every_setting_is_found_by_its_own_name():
                       ("zoom on cuts", "auto_zoom"), ("word by word", "highlight_words"),
                       ("show hook on screen", "hook_overlay"), ("clean sound", "clean_sound"),
                       ("autopilot tiktok", "autopilot_tiktok_daily_limit"), ("pause", "silence"),
-                      ("whoosh", "sound_effects"), ("sfx", "sound_effects"), ("looping", "loop_ending")):
+                      ("whoosh", "sound_effects"), ("sfx", "sound_effects"), ("looping", "loop_ending"),
+                      ("steady", "stabilize"), ("stabilise", "stabilize"), ("camera shake", "stabilize"),
+                      ("shaky footage", "stabilize"), ("handheld", "stabilize")):
         assert operations._which_setting(said) == key, said
     # another thing, or the owner's own pages: it asks, never changes a setting that only shares a word
     for said in ("sound", "pause publishing", "pause autopilot", "loop the music", "music loop", "visual effects",
-                 "trim endings", "ai model"):
+                 "trim endings", "ai model", "steady zoom", "keep the volume steady", "steady pace"):
         with pytest.raises(ToolError, match="Say which setting"):
             operations._which_setting(said)
 
@@ -371,7 +373,9 @@ def test_every_setting_is_found_by_its_own_name():
     (True, True), (False, False), ("loop", True), ("don't loop", False), ("won't loop", False),
     ("shouldn't loop", False), ("isn't on", False), ("didn't want it on", False), ("stop", False),
     ("don't turn it off", None), ("not off", None), ("on, not off", None), ("don't stop", None),
-    ("keep it as is", None), ("seamless", None), ("", None), (None, None)])
+    ("keep it as is", None), ("seamless", None), ("", None), (None, None), ("steady", True), ("stabilize", True),
+    ("don't stabilize", False), ("no steadying", False), ("keep the handheld shake", None),
+    ("remove the shake", None)])
 def test_an_on_off_setting_reads_only_a_clear_on_or_off(value, means):
     from clipfoundry.brain import operations
 
@@ -385,3 +389,14 @@ def test_a_setting_sent_as_true_or_false_still_changes(data):
     assert card["label"].endswith("from on to off") and db.get_settings()["loop_ending"] is False
     card, done = press("change_setting", {"setting": "clips per video", "value": 6})
     assert db.get_settings()["clip_count"] == 6 and done.text == "Clips per video is now 6."
+
+
+def test_steadying_shaky_footage_is_a_setting_clipforge_ai_can_change(data):
+    from clipfoundry import db
+
+    assert db.get_settings()["stabilize"] is True
+    card, done = press("change_setting", {"setting": "stabilization", "value": "don't stabilize"})
+    assert card["label"] == "Change Steady shaky footage from on to off" and db.get_settings()["stabilize"] is False
+    card, done = press("change_setting", {"setting": "camera shake", "value": "steady"})
+    assert done.text == "Steady shaky footage is now on." and db.get_settings()["stabilize"] is True
+    assert "- Steady shaky footage: on" in tool("settings").run(ctx(), {}).text

@@ -1,5 +1,18 @@
 # AI changelog
 
+## ClipForge AI steadies shaky footage — 2026-11-27 (Claude Code)
+
+Part of Landry's "make the AI way smarter and more useful" (`claude/project-thread-st8tpc`), asked for by the editing
+thread after batch 4d (PR #97). Details: [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md),
+"Steadying shaky footage, in words". Not released.
+
+- **One clip:** `edit_clip` takes `stabilize` (true/false), the clip editor's Colour switch.
+- **Setting:** "Steady shaky footage" joins the settings ClipForge AI sees and may change, with its own words
+  (stabilize, shake, handheld) and "steady" of a zoom, pace or volume kept out.
+- **Cues and guide:** steadying words bring the commands to a small model; a new guide section says where steadying
+  is and what to say.
+- **Tests:** `tests/test_assistant_commands.py`, `tests/test_assistant_acts_alone.py`, `tests/test_assistant_library.py`.
+
 ## Editing quality, batch 4d: steadying shaky footage — 2026-11-27 (Claude Code)
 
 Batch 4d of Landry's "majorly improve the editing" (plan in
