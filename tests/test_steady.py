@@ -35,9 +35,9 @@ def _scene(w: int, h: int, seed: int) -> np.ndarray:
     return cv2.GaussianBlur(img, (3, 3), 0)
 
 
-def _encode(path: Path, frames, w: int = W, h: int = H) -> Path:
+def _encode(path: Path, frames, w: int = W, h: int = H, fps: int = FPS) -> Path:
     enc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s",
-                            f"{w}x{h}", "-r", str(FPS), "-i", "pipe:0", "-c:v", "libx264", "-preset", "ultrafast",
+                            f"{w}x{h}", "-r", str(fps), "-i", "pipe:0", "-c:v", "libx264", "-preset", "ultrafast",
                             "-crf", "16", "-pix_fmt", "yuv420p", str(path)], stdin=subprocess.PIPE)
     for f in frames:
         enc.stdin.write(np.ascontiguousarray(f).tobytes())  # type: ignore[union-attr]
@@ -47,9 +47,9 @@ def _encode(path: Path, frames, w: int = W, h: int = H) -> Path:
 
 
 def _camera(path: Path, seconds: float = 3.0, shake: float = 0.012, roll: float = 0.4, pan: float = 0.0,
-            seed: int = 1, hud: bool = False, w: int = W, h: int = H) -> Path:
+            seed: int = 1, hud: bool = False, w: int = W, h: int = H, fps: int = FPS) -> Path:
     """A camera over a busy scene: hand shake (3 and 7 Hz, `shake` of the width; `roll` degrees), a pan (`pan`
-    widths a second) and, with `hud`, a game's fixed HUD drawn over it."""
+    widths a second) and, with `hud`, a game's fixed HUD drawn over it (the same size in pixels at any `w`)."""
     import cv2
 
     big = _scene(int(w * 1.6), int(h * 1.6), seed)
@@ -57,8 +57,8 @@ def _camera(path: Path, seconds: float = 3.0, shake: float = 0.012, roll: float 
     ph = np.random.default_rng(seed + 7).uniform(0, 6.28, 6)
 
     def frames():
-        for k in range(int(seconds * FPS)):
-            t = k / FPS
+        for k in range(int(seconds * fps)):
+            t = k / fps
             jx = shake * w * (0.6 * math.sin(2 * math.pi * 3.1 * t + ph[0]) + 0.4 * math.sin(2 * math.pi * 7.3 * t))
             jy = shake * w * (0.6 * math.sin(2 * math.pi * 2.7 * t + ph[2]) + 0.4 * math.sin(2 * math.pi * 6.1 * t))
             ja = roll * math.sin(2 * math.pi * 2.3 * t + ph[4]) if shake else 0.0
@@ -74,25 +74,28 @@ def _camera(path: Path, seconds: float = 3.0, shake: float = 0.012, roll: float 
                 for i in range(12):
                     cv2.circle(f, (w - 100 + 8 * i, h - 60 + (i % 3) * 10), 3, (200, 200, 50), -1)
             yield f
-    return _encode(path, frames(), w, h)
+    return _encode(path, frames(), w, h, fps)
 
 
-def _person(path: Path, plain: bool, seconds: float = 3.0) -> Path:
-    """A still camera; a busy 'person' sways and nods in front of a busy (or a plain) wall."""
+def _person(path: Path, plain: bool, seconds: float = 3.0, bw: int = 210, bh: int = 280,
+            top: float | None = None) -> Path:
+    """A still camera; a busy 'person' (bw x bh, from `top`) sways and nods in front of a busy (or a plain) wall. A
+    large one from near the top is a close-up: head and shoulders, cut off by the bottom of the picture."""
     import cv2
 
     wall = np.full((H, W, 3), 90, np.uint8) if plain else _scene(W, H, 3)
-    body = _scene(210, 280, 4)
-    mask = np.zeros((280, 210), np.uint8)
-    cv2.ellipse(mask, (105, 140), (100, 135), 0, 0, 360, 255, -1)
+    body = _scene(bw, bh, 4)
+    mask = np.zeros((bh, bw), np.uint8)
+    cv2.ellipse(mask, (bw // 2, bh // 2), (bw // 2 - 5, bh // 2 - 5), 0, 0, 360, 255, -1)
+    top = H / 2 - bh / 2 if top is None else top
 
     def frames():
         for k in range(int(seconds * FPS)):
             t = k / FPS
-            x = int(W / 2 - 105 + 20 * math.sin(2 * math.pi * 1.7 * t))
-            y = int(H / 2 - 140 + 8 * math.sin(2 * math.pi * 3.3 * t))
+            x = int(W / 2 - bw / 2 + 20 * math.sin(2 * math.pi * 1.7 * t))
+            y = int(top + 8 * math.sin(2 * math.pi * 3.3 * t))
             f = wall.copy()
-            roi = f[y:y + 280, x:x + 210]
+            roi = f[y:y + bh, x:x + bw]
             m = mask[:roi.shape[0], :roi.shape[1]] > 0
             roi[m] = body[:roi.shape[0], :roi.shape[1]][m]
             yield f
@@ -139,11 +142,13 @@ def test_footage_that_does_not_shake_is_left_exactly_as_it_is(tmp_path):
     cases = {"tripod": _camera(tmp_path / "tripod.mp4", shake=0.0, roll=0.0),
              "pan": _camera(tmp_path / "pan.mp4", shake=0.0, roll=0.0, pan=0.08),
              "person": _person(tmp_path / "person.mp4", plain=False),
-             "person on a plain wall": _person(tmp_path / "plain.mp4", plain=True)}
+             "person on a plain wall": _person(tmp_path / "plain.mp4", plain=True),
+             "close-up on a plain wall": _person(tmp_path / "close.mp4", plain=True, bw=500, bh=640, top=30)}
     whys = {name: _shake(path, 3.0).get("why") for name, path in cases.items()}
-    # the person on a plain wall is the only thing that moves: that is them, not the camera
+    # on a plain wall the person is the only thing that moves: that is them, not the camera, even when they fill
+    # half the picture (nothing moves with them in its corners)
     assert whys == {"tripod": "steady", "pan": "steady", "person": "steady",
-                    "person on a plain wall": "not the camera"}, whys
+                    "person on a plain wall": "not the camera", "close-up on a plain wall": "not the camera"}, whys
     for path in cases.values():
         assert steady.for_stretch(str(path), 0.0, 3.0, FPS, (W, H)) is None
 
@@ -152,6 +157,70 @@ def test_footage_that_does_not_shake_is_left_exactly_as_it_is(tmp_path):
 def test_a_game_s_hud_or_a_screen_s_toolbar_is_never_steadied(tmp_path):
     shot = _shake(_camera(tmp_path / "game.mp4", hud=True), 3.0)
     assert shot["shake_pct"] > 0.5 and not shot["steadied"] and shot["why"] == "fixed overlay"
+    # a shake that is nearly all roll (the middle of the picture hardly moves; the HUD in its corners would)
+    rolled = _shake(_camera(tmp_path / "rolled.mp4", shake=0.0001, roll=1.0, hud=True), 3.0)
+    assert rolled["roll_deg"] > steady.SHAKY_ROLL and rolled["why"] == "fixed overlay", rolled
+    # 60 fps (half the move from frame to frame) and a small HUD in a big picture (a point or two of 200)
+    for hud in (False, True):
+        src = _camera(tmp_path / f"fast{hud}.mp4", shake=0.005, roll=0.0, hud=hud, w=1280, h=720, fps=60)
+        shot = steady.plan(steady.measure(str(src), 0.0, 3.0, 60, (1280, 720))).shots[0]
+        assert shot["steadied"] is not hud and (shot.get("why") == "fixed overlay") is hud, (hud, shot)
+
+
+def _track(shake: np.ndarray, t0: float = 10.0, still: float = 0.0) -> steady.Track:
+    """A measured stretch whose camera moves by `shake` (its position, share of the width) and nothing stays put."""
+    n = len(shake)
+    move = np.diff(shake, prepend=shake[0])
+    return steady.Track(t0, FPS, (480, 270), move, np.zeros(n), np.zeros(n), np.ones(n), np.full(n, still),
+                        np.full(n, 0.9), [0], np.full(n, 4.0))
+
+
+def test_only_the_part_the_clip_shows_decides_and_is_reported():
+    t = np.arange(150) / FPS  # 10.0-15.0 s of the file
+    hand = 0.006 * np.sin(2 * np.pi * 5 * t)
+    p = steady.plan(_track(hand))
+    assert p.active and p.summary()["seconds"] == pytest.approx(5.0, abs=0.05)
+    shown = steady.plan(_track(hand), span=(10.5, 12.5))
+    s = shown.summary()
+    assert s["seconds"] == pytest.approx(2.0, abs=0.05) and s["shots"][0]["start_s"] == 10.5
+    assert s["shots"][0]["end_s"] == 12.5
+    # in the clip's own seconds: here it plays at double speed
+    assert shown.summary(lambda x: (x - 10.5) / 2)["seconds"] == pytest.approx(1.0, abs=0.05)
+    # a jolt after the clip's end neither steadies a calm clip nor enlarges it
+    jolt = np.where(t > 4.0, 0.03 * np.sin(2 * np.pi * 6 * t), 0.0)  # (t: seconds from 10.0)
+    assert steady.plan(_track(jolt)).active
+    calm = steady.plan(_track(jolt), span=(10.0, 13.5))
+    assert not calm.active and calm.shots[0]["why"] == "steady" and calm.crop_zoom() == 1.0
+    # a shake with nothing measured to tell whether something stays put is left alone
+    unknown = steady.plan(_track(hand, still=np.nan))
+    assert not unknown.active and unknown.shots[0]["why"] == "cannot tell"
+    # the framing found on the picture before it was enlarged lands where the enlargement put it
+    z = float(p.zoom[40])
+    assert p.framed(40, 0.8, 0.3) == pytest.approx((0.5 + 0.3 * z, 0.5 - 0.2 * z))
+
+
+@needs_ffmpeg
+def test_the_full_video_s_frames_are_the_file_s_own_at_any_start(tmp_path):
+    """Frame k of an exact measurement is the file's frame nearest t0 + k / fps, also when t0 falls between two
+    milliseconds (a seek rounded up drops a frame) and when the file has another frame rate."""
+    for rate in (30, 25):
+        src = tmp_path / f"count{rate}.mp4"
+        enc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "gray", "-s",
+                                "64x36", "-r", str(rate), "-i", "pipe:0", "-c:v", "libx264", "-preset", "ultrafast",
+                                "-qp", "0", str(src)], stdin=subprocess.PIPE)
+        for k in range(70):
+            enc.stdin.write(np.full((36, 64), 20 + 3 * k, np.uint8).tobytes())  # type: ignore[union-attr]
+        enc.stdin.close()  # type: ignore[union-attr]
+        assert enc.wait() == 0
+        raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(src), "-vf", "format=gray", "-f", "rawvideo",
+                              "-vsync", "passthrough", "pipe:1"], capture_output=True, check=True).stdout
+        table = np.frombuffer(raw, np.uint8).reshape(-1, 36 * 64).mean(axis=1)  # each frame's own brightness
+        for m in range(30, 45):
+            t0 = m / FPS
+            got = [int(np.argmin(np.abs(table - f.mean()))) for f in steady._frames(  # noqa: SLF001
+                str(src), t0, 0.5, FPS, (64, 36), None, exact=True)]
+            want = [int(round((t0 + k / FPS) * rate - 1e-6)) for k in range(len(got))]
+            assert len(got) >= 14 and got == want, (rate, m, got, want)
 
 
 @needs_ffmpeg
@@ -191,21 +260,34 @@ def test_a_cut_starts_a_new_shot_and_only_the_shaky_one_is_steadied(tmp_path):
 
 
 @needs_ffmpeg
-def test_a_long_calm_stretch_is_only_sampled_and_the_answer_is_kept(tmp_path, monkeypatch):
+def test_a_clip_is_measured_whole_and_a_long_calm_stretch_only_sampled(tmp_path, monkeypatch):
+    # a clip: a shaky insert between two tripod shots is found wherever it falls
+    w, h = 320, 180
+    parts = [_camera(tmp_path / "a.mp4", seconds=7.0, shake=0.0, roll=0.0, seed=21, w=w, h=h),
+             _camera(tmp_path / "b.mp4", seconds=7.0, seed=22, w=w, h=h),
+             _camera(tmp_path / "c.mp4", seconds=16.5, shake=0.0, roll=0.0, seed=23, w=w, h=h)]
+    joined = tmp_path / "joined.mp4"
+    (tmp_path / "list.txt").write_text("".join(f"file '{p}'\n" for p in parts))
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i",
+                    str(tmp_path / "list.txt"), "-c", "copy", str(joined)], check=True)
+    p = steady.for_stretch(str(joined), 0.0, 30.5, FPS, (w, h))
+    assert p is not None and [s["steadied"] for s in p.shots] == [False, True, False]
+    # a stretch longer than FULL_S (a long recording in a full video) is sampled first: PROBE_S every PROBE_EVERY_S
+    monkeypatch.setattr(steady, "FULL_S", 20.0)
     src = tmp_path / "long.mp4"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc2=s=320x180:r={FPS}:d=45",
                     "-c:v", "libx264", "-preset", "ultrafast", str(src)], check=True)
     read = []
     real = steady.measure
 
-    def counted(path, t0, length, fps, size, cancelled=None):
+    def counted(path, t0, length, fps, size, cancelled=None, exact=False):
         read.append(length)
-        return real(path, t0, length, fps, size, cancelled)
+        return real(path, t0, length, fps, size, cancelled, exact)
     monkeypatch.setattr(steady, "measure", counted)
     assert steady.for_stretch(str(src), 0.0, 45.0, FPS, (320, 180), cache=tmp_path / "cache") is None
-    assert read == [steady.PROBE_S] * 3  # three 2 s samples, not 45 s of picture
+    assert read == [steady.PROBE_S] * math.ceil(45 / steady.PROBE_EVERY_S)  # samples, not 45 s of picture
     assert steady.for_stretch(str(src), 0.0, 45.0, FPS, (320, 180), cache=tmp_path / "cache") is None
-    assert len(read) == 3  # the second time from the cache
+    assert len(read) == math.ceil(45 / steady.PROBE_EVERY_S)  # the second time from the cache
 
 
 @needs_ffmpeg
@@ -275,6 +357,33 @@ def test_steadying_is_a_setting_the_editors_full_cloud_and_requests_know():
         {"op": "set", "field": "steady_footage", "value": False}]
     assert edit_requests._steady_rule("add a camera shake on the punchline", off) is None  # noqa: SLF001
     assert "steady_footage" in edit_requests.SETTABLE and "steady" in edit_requests.CLIP_FIELDS
+    # a complaint about the shake wants it steadied; only a "no" said of the steadying itself keeps it
+    wanted = {"i don't like how shaky the video is": True, "stop it from shaking": True,
+              "don't let it wobble": True, "it's too shaky, never mind the zoom": True, "remove the shake": True,
+              "turn off stabilization": False, "don't stabilize it": False, "i like the handheld shake": False,
+              "keep the footage as it was shot, shaky": False}
+    for text, want in wanted.items():
+        assert edit_requests._steady_rule(text, off if want else on)[0] == [  # noqa: SLF001
+            {"op": "set", "field": "steady_footage", "value": want}], text
+    # "steady" said of something else, a handheld look, and requests that belong to other rules
+    for text in ("add a slow steady zoom in on clip 2", "keep a steady pace", "give it a handheld look",
+                 "make it look handheld", "slow down clip 2 to a steady half speed", "cut the shaky part at the start",
+                 "remove the shaky clip 2"):
+        assert edit_requests._steady_rule(text, on) is None and edit_requests._steady_rule(text, off) is None, text
+    # the change is shown, so it can be applied (a proposal that changes nothing is never offered)
+    clip = {"id": "c2", "asset_id": "a1", "label": "Clip 2", "in_ms": 0, "out_ms": 2000, "include": True}
+    lines = edit_requests.changes({"color": {"steady": False}, "clips": [clip]},
+                                  {"color": {"steady": True}, "clips": [{**clip, "steady": False}]})
+    assert lines == ["Clip 1 “Clip 2”: kept as shot (not steadied)", "Steadying shaky footage on"], lines
+    assert edit_requests.changes({"color": {}, "clips": []}, {"color": {"steady": True}, "clips": []}) == [
+        "Steadying shaky footage on"]  # a plan made before steadying existed had it off
+    # Settings reach new full videos through the editing choices (guidance), like the other colour switches
+    from clipfoundry.studio import capabilities, guidance
+
+    assert capabilities.FIELDS["stabilize"].kind == "bool"
+    for value in (True, False):
+        snap = guidance.resolve("full_video", settings={**config.DEFAULT_SETTINGS, "stabilize": value}, context={})
+        assert engine.default_color(snap["values"])["steady"] is value
 
 
 def _measure_output(path: Path, seconds: float) -> float:
@@ -304,7 +413,7 @@ def test_a_real_shaky_clip_renders_steady(monkeypatch, tmp_path):
                          "captions_enabled": False, "stabilize": on}}
         out[on] = render.render_clip(project, clip, [], settings, JobContext())
     info = out[True]["render_info"]["steady"]
-    assert info["seconds"] > 3.0 and 1.0 < info["zoom"] <= steady.MAX_ZOOM
+    assert info["seconds"] == pytest.approx(3.5, abs=0.05) and 1.0 < info["zoom"] <= steady.MAX_ZOOM  # the clip's
     assert "steady" not in out[False]["render_info"]
     shaky, steadied = _measure_output(Path(out[False]["output_path"]), 3.3), \
         _measure_output(Path(out[True]["output_path"]), 3.3)
@@ -318,13 +427,15 @@ def test_a_full_video_steadies_its_shaky_clip_and_leaves_the_steady_one(tmp_path
     from clipfoundry.pipeline.ffmpeg_utils import probe
     from clipfoundry.studio import engine
 
-    shaky = _camera(tmp_path / "shaky.mp4", seconds=5.0, w=1280, h=720)
+    # 25 fps under a 30 fps video, read from a moment between two milliseconds (1.3667 s): every correction must
+    # still land on its own frame
+    shaky = _camera(tmp_path / "shaky.mp4", seconds=5.0, w=1280, h=720, fps=25)
     tripod = _camera(tmp_path / "tripod.mp4", seconds=4.0, shake=0.0, roll=0.0, seed=5, w=1280, h=720)
     assets = {p.stem: {"id": p.stem, "kind": "video", "filename": p.name, "path": str(p), "sha256": p.stem,
                        "probe": probe(p)} for p in (shaky, tripod)}
 
     def plan(color):
-        clips = [{"id": "c1", "asset_id": "shaky", "label": "c1", "in_ms": 1000, "out_ms": 4000, "include": True,
+        clips = [{"id": "c1", "asset_id": "shaky", "label": "c1", "in_ms": 1367, "out_ms": 4367, "include": True,
                   "kind": "video"},
                  {"id": "c2", "asset_id": "tripod", "label": "c2", "in_ms": 500, "out_ms": 2500, "include": True,
                   "kind": "video"}]
@@ -339,7 +450,7 @@ def test_a_full_video_steadies_its_shaky_clip_and_leaves_the_steady_one(tmp_path
     on = engine.render(plan({**still, "steady": True}), assets, {}, tmp_path / "on" / "out.mp4")
     off = engine.render(plan({**still, "steady": False}), assets, {}, tmp_path / "off" / "out.mp4")
     old = engine.render(plan(None), assets, {}, tmp_path / "old" / "out.mp4")
-    assert set(on["steady"]) == {"c1"} and on["steady"]["c1"]["seconds"] > 4.0
+    assert set(on["steady"]) == {"c1"} and on["steady"]["c1"]["seconds"] == pytest.approx(3.0, abs=0.05)
     assert off["steady"] == {} and old["steady"] == {}
     shaky_part = _measure_output(tmp_path / "off" / "out.mp4", 2.9)
     steadied_part = _measure_output(tmp_path / "on" / "out.mp4", 2.9)

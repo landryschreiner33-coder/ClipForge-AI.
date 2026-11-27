@@ -344,8 +344,9 @@ def steady_on(plan: dict) -> bool:
 def steady_plans(plan: dict, els: list[dict], assets: dict[str, dict], fps: int, cache: Path,
                  cancelled=None) -> dict[int, "steady.Plan"]:
     """The steadying of each video element that shakes (pipeline/steady.py), measured over its clip's part of the
-    recording (and STEADY_MARGIN_S either side) on the output's frame grid; a clip set to "steady": false, a freeze
-    frame and a photo are left as they are."""
+    recording (and STEADY_MARGIN_S either side) on the output's frame grid, frame k being the file's frame nearest
+    t0 + k / fps (the sendcmd file times each correction by the file's own frame times); only the clip's own part
+    decides. A clip set to "steady": false, a freeze frame and a photo are left as they are."""
     out: dict[int, steady.Plan] = {}
     if not steady_on(plan):
         return out
@@ -363,13 +364,20 @@ def steady_plans(plan: dict, els: list[dict], assets: dict[str, dict], fps: int,
         t0 = max(0.0, int(clip["in_ms"]) / 1000 - STEADY_MARGIN_S)
         t0 = round(t0 * fps) / fps  # on the output's frame grid, like the pieces read from it
         length = int(clip["out_ms"]) / 1000 + STEADY_MARGIN_S - t0
-        key = (a["path"], t0, round(length, 3))
+        span = (int(clip["in_ms"]) / 1000, int(clip["out_ms"]) / 1000)
+        key = (a["path"], t0, round(length, 3), span)
         if key not in done:
             _check(cancelled)
-            done[key] = steady.for_stretch(a["path"], t0, length, fps, size, cache=folder, cancelled=cancelled)
+            done[key] = steady.for_stretch(a["path"], t0, length, fps, size, cache=folder, cancelled=cancelled,
+                                           span=span, exact=True)
         if done[key] is not None:
             out[k] = done[key]
     return out
+
+
+def _clip_seconds(clip: dict):
+    """A file second of this clip to its own output seconds (its speed changes included)."""
+    return lambda t: retime.out_at(clip, t * 1000 - int(clip.get("in_ms") or 0)) / 1000
 
 
 def color_options(plan: dict) -> dict:
@@ -2049,5 +2057,6 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                          for k in sorted(overlays) for o in overlays[k]],
             "captions": bool(events), "clean_sound": {aid: r.report for aid, r in cleaned.items()},
             "colour": {aid: {**r["grade"].summary(), "denoise": bool(r["denoise"])} for aid, r in looks.items()},
-            "steady": {els[k]["clip_id"]: sp.summary() for k, sp in steadied.items()},
+            "steady": {els[k]["clip_id"]: sp.summary(_clip_seconds(els[k].get("clip") or {}))
+                       for k, sp in steadied.items()},
             "pieces": len(used), "frames": total_f, "proxied": proxied}

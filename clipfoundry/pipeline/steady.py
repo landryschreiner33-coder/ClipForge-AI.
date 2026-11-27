@@ -7,14 +7,16 @@ recording is left exactly as it is. For footage that shakes:
 1. **Measure** (`measure`): the picture is read small (MEASURE_W wide, grey) on the clip's own frame grid; corners are
    tracked from frame to frame (OpenCV: goodFeaturesToTrack, calcOpticalFlowPyrLK) and the camera's move between two
    frames is the similarity that most of them agree on (estimateAffinePartial2D with RANSAC): a shift and a roll. A
-   frame where tracking fails or the picture jumps starts a new shot. A long stretch is first sampled (`PROBE_S`
-   every `PROBE_EVERY_S`): when every sample is calm, nothing more is read.
+   frame where tracking fails or the picture jumps starts a new shot. A stretch longer than `FULL_S` is first
+   sampled (`PROBE_S` every `PROBE_EVERY_S`): when every sample is calm, nothing more is read.
 2. **Smooth** (`plan`): per shot, the camera's path is smoothed (a Gaussian of `SMOOTH_S`), so hand shake (2-12 Hz)
    goes while a pan, a tilt or a walk stays. What is left (the path minus its smoothed self) is the shake.
 3. **Decide**: a shot is steadied when it shakes (`SHAKY_MIN` of the width, or `SHAKY_ROLL` degrees, as RMS), when
-   most tracked points move together and all over the picture (the camera moved, not a person in a still shot:
-   `MIN_TOGETHER`, `MIN_SPREAD`), and when hardly any point stays put while the picture moves (a game's HUD, a
-   screen's toolbar or a logo, which steadying would make shake: `MAX_STILL`).
+   most tracked points move together and all over the picture, into its corners (the camera moved, not a person
+   in a still shot: `MIN_TOGETHER`, `MIN_SPREAD`, `MIN_CORNERS`), and when no point keeps staying put where the
+   camera's move says it should have moved (a game's HUD, a screen's toolbar or a logo, which steadying would make
+   shake: `STILL_FRAMES`; footage without one has none). A shot whose picture never moved enough to look for such
+   points is left alone. Only the frames the clip shows (`span`) count: the measured stretch runs on either side.
 4. **Correct**: each frame is moved back onto the smoothed path and the shot is enlarged just enough (at most
    `MAX_ZOOM`) to hide the moving edges; a frame that would need more is corrected only as far as the edges allow.
 
@@ -29,6 +31,7 @@ import json
 import logging
 import math
 import subprocess
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -40,7 +43,7 @@ from .ffmpeg_utils import NO_WINDOW, ffmpeg_bin
 
 log = logging.getLogger("clipfoundry.pipeline.steady")
 
-VERSION = 1
+VERSION = 2
 MEASURE_W = 480        # the width the picture is measured at
 SMOOTH_S = 0.45        # the smoothed camera path (Gaussian sigma, seconds): shake goes, a pan or a walk stays
 SHAKY_MIN = 0.0025     # RMS shake (share of the width) from which a shot counts as shaky (about 5 px at 1920)
@@ -48,12 +51,17 @@ SHAKY_ROLL = 0.25      # or RMS roll, degrees
 MAX_ZOOM = 1.10        # the most a shot is enlarged to hide the moving edges
 MIN_SHOT_S = 1.0       # shorter shots are left alone
 MIN_TOGETHER = 0.5     # median share of tracked points that move with the camera's move
-MAX_STILL = 0.03       # median share of points that stay put while the picture moves (a HUD, a toolbar, a logo)
+STILL_FRAMES = 1 / 3   # a point stays put while the picture moves in this share of frames: a HUD, a toolbar, a logo
 MIN_SPREAD = 0.4       # median share of the picture the points moving with the camera span (convex hull)
+CORNER = 0.2           # the corners of the picture (this share of its width and height) ...
+MIN_CORNERS = 3        # ... of which this many hold points moving with the camera (a close-up on a plain wall does not)
+STILL_MOVE = 1.0       # a point the camera's move shifts this far (pixels at MEASURE_W) shows whether it stayed put
+MIN_STILL_FRAMES = 5   # fewer frames showing that: whether something stays put cannot be told (left alone)
 MIN_POINTS = 12        # fewer tracked points: the frame cannot be measured (a new shot starts)
 CUT_JUMP = 0.2         # a move over this share of the width between two frames is a cut or a whip pan
-PROBE_S = 2.0          # a long stretch is sampled first: this long ...
-PROBE_EVERY_S = 20.0   # ... every this many seconds (at least 3 samples)
+FULL_S = 120.0         # a stretch up to this long is measured whole
+PROBE_S = 2.0          # a longer one is sampled first: this long ...
+PROBE_EVERY_S = 6.0    # ... every this many seconds (a shaky shot of 7 s or more always holds a whole sample)
 ROLL_MIN_DEG = 0.05    # the full-video engine adds a rotate filter only when some frame rolls more than this
 
 
@@ -67,29 +75,32 @@ class Track:
     dy: np.ndarray
     da: np.ndarray                  # roll since the previous frame, radians (clockwise on screen)
     together: np.ndarray            # share of tracked points that moved with the camera (nan: not measured)
-    still: np.ndarray               # share of points that stayed put while the picture moved (nan: it did not)
+    still: np.ndarray               # how many points stayed put where the camera's move shifted them (nan: it
+    #                                 shifted too few points to tell)
     spread: np.ndarray              # share of the picture spanned by the points that moved with the camera
     cuts: list[int] = field(default_factory=lambda: [0])   # first frame of each shot
+    corners: np.ndarray | None = None   # how many of the picture's 4 corners hold points moving with the camera
 
     def to_json(self) -> dict:
         def r(a):
             return [None if not math.isfinite(float(v)) else round(float(v), 6) for v in a]
         return {"v": VERSION, "t0": self.t0, "fps": self.fps, "size": list(self.size), "dx": r(self.dx),
                 "dy": r(self.dy), "da": r(self.da), "together": r(self.together), "still": r(self.still),
-                "spread": r(self.spread), "cuts": self.cuts}
+                "spread": r(self.spread), "cuts": self.cuts,
+                "corners": r(self.corners if self.corners is not None else np.full(len(self.dx), np.nan))}
 
     @classmethod
     def from_json(cls, d: dict) -> "Track":
         def a(v):
             return np.array([np.nan if x is None else x for x in v], float)
         return cls(float(d["t0"]), float(d["fps"]), tuple(d["size"]), a(d["dx"]), a(d["dy"]), a(d["da"]),
-                   a(d["together"]), a(d["still"]), a(d["spread"]), [int(c) for c in d["cuts"]])
+                   a(d["together"]), a(d["still"]), a(d["spread"]), [int(c) for c in d["cuts"]], a(d["corners"]))
 
 
 @dataclass
 class Plan:
     """Per frame of the grid `t0 + k / fps`: the correction (tx, ty: share of the width; ta: radians) and the zoom;
-    `shots` says what was decided for each shot and why."""
+    `shots` says what was decided for each shot and why; `span` is the part of the file the clip shows."""
     t0: float
     fps: float
     aspect: float                   # height / width of the picture
@@ -98,6 +109,7 @@ class Plan:
     ta: np.ndarray
     zoom: np.ndarray
     shots: list[dict]
+    span: tuple[float, float] | None = None
 
     @property
     def active(self) -> bool:
@@ -120,16 +132,31 @@ class Plan:
         shift = centre + z * np.array([self.tx[k] * w, self.ty[k] * w]) - rot @ centre
         return np.hstack([rot, shift[:, None]])
 
+    def framed(self, k: int, cx: float, cy: float) -> tuple[float, float]:
+        """Where a point found on frame k before steadying (cx, cy: shares of the width and height, such as the
+        framing's centre) is on the steadied frame. Only the enlargement moves it: the shake taken out is the
+        framing's own smoothing, so following it would bring the shake back."""
+        z = float(self.zoom[max(0, min(len(self.zoom) - 1, k))])
+        return 0.5 + z * (float(cx) - 0.5), 0.5 + z * (float(cy) - 0.5)
+
     def key(self) -> str:
         """Changes whenever any correction does (cache keys of rendered pieces)."""
         data = np.round(np.stack([self.tx, self.ty, self.ta, self.zoom - 1.0]) * 1e5).astype(np.int64)
         return hashlib.sha256(json.dumps([VERSION, self.t0, self.fps, data.tolist()]).encode()).hexdigest()[:20]
 
-    def summary(self) -> dict:
+    def summary(self, to_out: Callable[[float], float] | None = None) -> dict:
         """What the render notes keep: seconds steadied, the largest zoom, the strongest shake (share of the width,
-        in %) and each steadied shot."""
-        done = [s for s in self.shots if s.get("steadied")]
-        return {"seconds": round(sum(s["end_s"] - s["start_s"] for s in done), 2),
+        in %) and each steadied shot, all inside the part the clip shows (`span`, file seconds). `to_out` maps a
+        file second to the clip's output seconds (cuts and speed), so `seconds` is what plays."""
+        s0, s1 = self.span or (self.t0, self.t0 + len(self.tx) / self.fps)
+        out = to_out or (lambda t: t)
+        done, seconds = [], 0.0
+        for s in self.shots:
+            a, b = max(s["start_s"], s0), min(s["end_s"], s1)
+            if s.get("steadied") and b > a:
+                done.append({**s, "start_s": round(a, 3), "end_s": round(b, 3)})
+                seconds += max(0.0, out(b) - out(a))
+        return {"seconds": round(seconds, 2),
                 "zoom": round(max([s["zoom"] for s in done] or [1.0]), 3),
                 "shake_pct": round(max([s["shake_pct"] for s in done] or [0.0]), 2),
                 "shots": [{k: s[k] for k in ("start_s", "end_s", "zoom", "shake_pct")} for s in done]}
@@ -165,11 +192,20 @@ def _size(w: int, h: int) -> tuple[int, int]:
 
 
 def _frames(path: str, t0: float, length: float, fps: float, size: tuple[int, int],
-            cancelled: Callable[[], bool] | None):
+            cancelled: Callable[[], bool] | None, exact: bool = False):
+    """The picture, small and grey, on the grid from `t0`. Not `exact`: read exactly as the clip renderer decodes
+    (an input seek to `t0` in milliseconds, then `fps`), so frame k is the frame the renderer shows as its frame k.
+    `exact`: frame k is the file's frame nearest `t0 + k / fps` (the full-video engine times its corrections by the
+    file's own frame times): the seek starts a frame early and the grid is anchored at `t0` itself."""
     aw, ah = size
-    cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", f"{t0:.3f}", "-i", str(path),
-           "-t", f"{length:.3f}", "-map", "0:v:0", "-an", "-sn",
-           "-vf", f"fps={fps},scale={aw}:{ah}:flags=area,format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]
+    if exact:
+        seek = max(0.0, t0 - 1.0 / fps)
+        timing = ["-ss", f"{seek:.6f}", "-i", str(path), "-t", f"{length + t0 - seek:.6f}"]
+        rate = f"fps=fps={fps}:start_time={t0 - seek:.6f}"
+    else:
+        timing, rate = ["-ss", f"{t0:.3f}", "-i", str(path), "-t", f"{length:.3f}"], f"fps={fps}"
+    cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", *timing, "-map", "0:v:0", "-an", "-sn",
+           "-vf", f"{rate},scale={aw}:{ah}:flags=area,format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW,
                             bufsize=aw * ah)
     try:
@@ -185,11 +221,12 @@ def _frames(path: str, t0: float, length: float, fps: float, size: tuple[int, in
         proc.wait()
 
 
-def _move(prev: np.ndarray, cur: np.ndarray) -> tuple[float, float, float, float, float, float] | None:
+def _move(prev: np.ndarray, cur: np.ndarray) -> tuple[float, float, float, float, float, float, int] | None:
     """The camera's move from `prev` to `cur` (dx, dy in pixels, roll in radians, both about the centre), the share
-    of tracked points that agree with it, the share that stayed put while the picture moved (nan when it did not
-    move) and the share of the picture the agreeing points span (their convex hull). None: it cannot be measured
-    (too few points, or the picture changed completely)."""
+    of tracked points that agree with it, how many of the points it shifts by STILL_MOVE or more stayed put instead
+    (nan when it shifts too few: a roll moves the edges, not the middle), the share of the picture the
+    agreeing points span (their convex hull) and how many of the picture's corners hold agreeing points. None: it
+    cannot be measured (too few points, or the picture changed completely)."""
     import cv2
 
     pts = cv2.goodFeaturesToTrack(prev, maxCorners=200, qualityLevel=0.01, minDistance=10, blockSize=7)
@@ -209,44 +246,62 @@ def _move(prev: np.ndarray, cur: np.ndarray) -> tuple[float, float, float, float
     agree = inliers.ravel().astype(bool)
     together = float(agree.mean())
     h, w = prev.shape
-    span = cv2.contourArea(cv2.convexHull(p0[agree].astype(np.float32))) / float(w * h) if agree.sum() >= 3 else 0.0
+    good = p0[agree]
+    span = cv2.contourArea(cv2.convexHull(good.astype(np.float32))) / float(w * h) if len(good) >= 3 else 0.0
+    left, top = good[:, 0] < CORNER * w, good[:, 1] < CORNER * h
+    right, bottom = good[:, 0] > (1 - CORNER) * w, good[:, 1] > (1 - CORNER) * h
+    corners = sum(int(np.count_nonzero(sx & sy) >= 2) for sx in (left, right) for sy in (top, bottom))
     centre = np.array([w / 2.0, h / 2.0])
     moved = m[:, :2] @ centre + m[:, 2] - centre
     roll = math.atan2(float(m[1, 0]), float(m[0, 0]))
-    flow = np.linalg.norm(p1 - p0, axis=1)
-    still = float((flow < 0.3).mean()) if math.hypot(*moved) > 1.5 else math.nan
-    return float(moved[0]), float(moved[1]), roll, together, still, float(span)
+    return float(moved[0]), float(moved[1]), roll, together, _still(m, p0, p1), float(span), corners
+
+
+def _still(m: np.ndarray, p0: np.ndarray, p1: np.ndarray) -> float:
+    """Of the points the camera's move `m` shifts by STILL_MOVE or more, how many stayed put (a HUD, a toolbar, a
+    logo: even a small one holds a point or two); nan when it shifts too few points to tell."""
+    shift = np.linalg.norm(p0 @ m[:, :2].T + m[:, 2] - p0, axis=1)
+    should = shift >= STILL_MOVE
+    if np.count_nonzero(should) < MIN_POINTS:
+        return math.nan
+    return float(np.count_nonzero(np.linalg.norm(p1 - p0, axis=1)[should] < 0.3))
 
 
 def measure(path: str, t0: float, length: float, fps: float, frame_size: tuple[int, int],
-            cancelled: Callable[[], bool] | None = None) -> Track:
-    """The camera's move over `length` seconds from `t0`, on the grid `t0 + k / fps` (the clip renderer's own)."""
+            cancelled: Callable[[], bool] | None = None, exact: bool = False) -> Track:
+    """The camera's move over `length` seconds from `t0`, on the grid `t0 + k / fps` (`exact`: see _frames)."""
     size = _size(*frame_size)
     aw = size[0]
-    dx, dy, da, together, still, spread, cuts = [], [], [], [], [], [], [0]
-    prev = None
-    for k, cur in enumerate(_frames(path, t0, length, fps, size, cancelled)):
+    gap = max(2, int(round(fps / 10)))  # a small move between frames (a high frame rate) is looked at over this many
+    dx, dy, da, together, still, spread, corners, cuts = [], [], [], [], [], [], [], [0]
+    recent: deque = deque(maxlen=gap + 1)
+    for k, cur in enumerate(_frames(path, t0, length, fps, size, cancelled, exact)):
+        prev = recent[-1] if recent else None
         got = _move(prev, cur) if prev is not None else None
         if prev is not None and (got is None or math.hypot(got[0], got[1]) > CUT_JUMP * aw or got[3] < 0.25):
             cuts.append(k)  # a cut, a whip pan or a picture that cannot be followed: a new shot from here
             got = None
+            recent.clear()
+        recent.append(cur)
         if got is None:
-            dx.append(0.0)
-            dy.append(0.0)
-            da.append(0.0)
-            together.append(math.nan)
-            still.append(math.nan)
-            spread.append(math.nan)
-        else:
-            dx.append(got[0] / aw)
-            dy.append(got[1] / aw)
-            da.append(got[2])
-            together.append(got[3])
-            still.append(got[4])
-            spread.append(got[5])
-        prev = cur
+            for v in (dx, dy, da):
+                v.append(0.0)
+            for v in (together, still, spread, corners):
+                v.append(math.nan)
+            continue
+        dx.append(got[0] / aw)
+        dy.append(got[1] / aw)
+        da.append(got[2])
+        together.append(got[3])
+        still.append(got[4])
+        spread.append(got[5])
+        corners.append(got[6])
+        if k % gap == 0 and len(recent) == gap + 1 and not any(math.isfinite(v) for v in still[-gap:]):
+            # the picture moved too little from frame to frame to see whether something stays put: over a few
+            wide = _move(recent[0], cur)
+            still[-1] = wide[4] if wide is not None else math.nan
     a = lambda v: np.array(v, float)  # noqa: E731
-    return Track(t0, fps, size, a(dx), a(dy), a(da), a(together), a(still), a(spread), cuts)
+    return Track(t0, fps, size, a(dx), a(dy), a(da), a(together), a(still), a(spread), cuts, a(corners))
 
 
 def _smooth(x: np.ndarray, sigma: float) -> np.ndarray:
@@ -262,7 +317,17 @@ def _smooth(x: np.ndarray, sigma: float) -> np.ndarray:
 
 
 def _median(v: np.ndarray) -> float:
+    """The median of the measured values (0 when none was measured)."""
     return float(np.nanmedian(v)) if np.any(np.isfinite(v)) else 0.0
+
+
+def _shown(track: Track, n: int, span: tuple[float, float] | None) -> tuple[int, int]:
+    """The frames [i0, i1) of the grid inside `span` (file seconds): the ones the clip shows."""
+    if span is None:
+        return 0, n
+    i0 = int(math.ceil((span[0] - track.t0) * track.fps - 1e-6))
+    i1 = int(math.floor((span[1] - track.t0) * track.fps + 1e-6)) + 1
+    return max(0, min(n, i0)), max(0, min(n, i1))
 
 
 def _inside(tx, ty, ta, z, aspect: float) -> np.ndarray:
@@ -298,17 +363,24 @@ def _fit(tx, ty, ta, z: float, aspect: float) -> np.ndarray:
     return np.where(whole, 1.0, lo)
 
 
-def plan(track: Track, max_zoom: float = MAX_ZOOM) -> Plan:
-    """The corrections for a measured stretch: only shots that shake, of camera footage, are steadied."""
+def plan(track: Track, max_zoom: float = MAX_ZOOM, span: tuple[float, float] | None = None) -> Plan:
+    """The corrections for a measured stretch: only shots that shake, of camera footage, are steadied. `span` (file
+    seconds): the part the clip shows; only its frames decide (the stretch runs on either side for the smoothing)."""
     n = len(track.dx)
     aspect = track.size[1] / max(1, track.size[0])
     tx, ty, ta, zoom = np.zeros(n), np.zeros(n), np.zeros(n), np.ones(n)
+    corners = track.corners if track.corners is not None else np.full(n, 4.0)
+    i0, i1 = _shown(track, n, span)
     shots = []
     edges = sorted({c for c in track.cuts if 0 <= c < n} | {0})
     for a, b in zip(edges, edges[1:] + [n]):
         shot = {"start_s": round(track.t0 + a / track.fps, 3), "end_s": round(track.t0 + b / track.fps, 3),
                 "steadied": False, "zoom": 1.0, "shake_pct": 0.0}
         shots.append(shot)
+        u0, u1 = max(a, i0), min(b, i1)
+        if u1 - u0 < 2:
+            shot["why"] = "not shown"
+            continue
         if b - a < MIN_SHOT_S * track.fps:
             shot["why"] = "short"
             continue
@@ -317,50 +389,60 @@ def plan(track: Track, max_zoom: float = MAX_ZOOM) -> Plan:
         path = [np.cumsum(v) for v in (mx, my, ma)]
         smooth = [_smooth(v, SMOOTH_S * track.fps) for v in path]
         rx, ry, ra = (p - s for p, s in zip(path, smooth))
-        shake = float(np.sqrt(np.mean(rx ** 2 + ry ** 2)))
-        roll = math.degrees(float(np.sqrt(np.mean(ra ** 2))))
+        seen = slice(u0 - a, u1 - a)  # the shot's frames the clip shows
+        shake = float(np.sqrt(np.mean(rx[seen] ** 2 + ry[seen] ** 2)))
+        roll = math.degrees(float(np.sqrt(np.mean(ra[seen] ** 2))))
         shot.update(shake_pct=round(100 * shake, 3), roll_deg=round(roll, 3))
-        together, still, spread = (_median(v[a + 1:b]) for v in (track.together, track.still, track.spread))
-        if together < MIN_TOGETHER or spread < MIN_SPREAD:
-            shot["why"] = "not the camera"  # a person moving in a still shot (or nothing else to follow)
-            continue
-        if still > MAX_STILL:
-            shot["why"] = "fixed overlay"   # a game's HUD, a screen's toolbar, a logo: steadying would make it shake
+        moves = slice(max(a + 1, u0), u1)  # (the shot's first frame has no move of its own)
+        together, spread, corner = (_median(v[moves]) for v in (track.together, track.spread, corners))
+        stills = track.still[moves][np.isfinite(track.still[moves])]
+        if together < MIN_TOGETHER or spread < MIN_SPREAD or corner < MIN_CORNERS:
+            shot["why"] = "not the camera"  # a person moving in a still shot, or on a plain wall: the frame is still
             continue
         if shake < SHAKY_MIN and roll < SHAKY_ROLL:
             shot["why"] = "steady"
             continue
+        if len(stills) < MIN_STILL_FRAMES:
+            shot["why"] = "cannot tell"     # too little moved to see whether a HUD or a logo stays put
+            continue
+        if float(np.mean(stills >= 1)) >= STILL_FRAMES:
+            shot["why"] = "fixed overlay"   # a game's HUD, a screen's toolbar, a logo: steadying would make it shake
+            continue
         cx, cy, ca = -rx, -ry, -ra
-        need = _zoom_needed(cx, cy, ca, aspect)
+        need = _zoom_needed(cx[seen], cy[seen], ca[seen], aspect)
         z = min(max_zoom, float(np.quantile(need, 0.98)))
         z = max(1.0, math.ceil(z * 200 - 1e-6) / 200)
         k = _fit(cx, cy, ca, z, aspect)
         tx[a:b], ty[a:b], ta[a:b], zoom[a:b] = k * cx, k * cy, k * ca, z
         shot.update(steadied=True, zoom=round(z, 3))
-    return Plan(track.t0, track.fps, aspect, tx, ty, ta, zoom, shots)
+    return Plan(track.t0, track.fps, aspect, tx, ty, ta, zoom, shots, span)
 
 
 def _calm(path: str, t0: float, length: float, fps: float, frame_size: tuple[int, int],
           cancelled: Callable[[], bool] | None) -> bool:
-    """A long stretch is sampled first: True when every sample is calm (nothing to steady, nothing more to read)."""
-    count = max(3, int(length // PROBE_EVERY_S))
-    if length < count * PROBE_S * 2:
+    """A stretch over FULL_S is sampled first (PROBE_S every PROBE_EVERY_S): True when every sample is calm (nothing
+    to steady, nothing more to read). A shorter one is always measured whole."""
+    if length <= FULL_S:
         return False
+    count = int(math.ceil(length / PROBE_EVERY_S))
     for i in range(count):
-        at = t0 + (length - PROBE_S) * (i + 0.5) / count
+        at = t0 + min(length - PROBE_S, i * PROBE_EVERY_S + (PROBE_EVERY_S - PROBE_S) / 2)
         if plan(measure(path, at, PROBE_S, fps, frame_size, cancelled)).active:
             return False
     return True
 
 
 def for_stretch(path: str, t0: float, length: float, fps: float, frame_size: tuple[int, int],
-                cache: Path | None = None, cancelled: Callable[[], bool] | None = None) -> Plan | None:
+                cache: Path | None = None, cancelled: Callable[[], bool] | None = None,
+                span: tuple[float, float] | None = None, exact: bool = False) -> Plan | None:
     """The steadying plan for `length` seconds of `path` from `t0` on the grid `t0 + k / fps`, or None when nothing
-    in it needs steadying. The measurement is cached (`cache`: a folder) by the file, the stretch and the grid."""
+    in it needs steadying. `span`: the part the clip shows (file seconds; the whole stretch when None); `exact`: the
+    grid of the file's own frame times (see _frames). The measurement is cached (`cache`: a folder) by the file, the
+    stretch and the grid."""
     try:
         st = Path(path).stat()
         name = hashlib.sha256(json.dumps([VERSION, str(Path(path).resolve()), st.st_size, int(st.st_mtime),
-                                          round(t0, 3), round(length, 3), fps, list(frame_size)]).encode())
+                                          round(t0, 6), round(length, 3), fps, list(frame_size), exact]).encode())
         cached = cache / f"steady-{name.hexdigest()[:24]}.json" if cache is not None else None
         track = None
         if cached is not None and cached.is_file():
@@ -377,7 +459,7 @@ def for_stretch(path: str, t0: float, length: float, fps: float, frame_size: tup
                     cached.parent.mkdir(parents=True, exist_ok=True)
                     cached.write_text(json.dumps({"v": VERSION, "calm": True}), encoding="utf-8")
                 return None
-            track = measure(path, t0, length, fps, frame_size, cancelled)
+            track = measure(path, t0, length, fps, frame_size, cancelled, exact)
             if cached is not None:
                 cached.parent.mkdir(parents=True, exist_ok=True)
                 cached.write_text(json.dumps(track.to_json()), encoding="utf-8")
@@ -386,5 +468,5 @@ def for_stretch(path: str, t0: float, length: float, fps: float, frame_size: tup
     except Exception as exc:  # noqa: BLE001 - steadying is an extra: the clip renders as shot without it
         log.warning("could not measure camera shake in %s: %s", Path(path).name, exc)
         return None
-    p = plan(track)
+    p = plan(track, span=span)
     return p if p.active else None

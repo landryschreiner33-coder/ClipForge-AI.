@@ -10,9 +10,10 @@ Batch 4d of Landry's "majorly improve the editing" (plan in
 - **Measuring** (`pipeline/steady.py`): corners followed from frame to frame on a small grey copy (OpenCV
   goodFeaturesToTrack, calcOpticalFlowPyrLK, estimateAffinePartial2D with RANSAC); the camera's path smoothed per shot
   (Gaussian 0.45 s), so shake goes and pans stay. Steadied only when it shakes (0.25 % of the width or 0.25° RMS), the
-  points move together over at least 40 % of the picture (not a person in front of a still camera), and none stay
-  put (a game's HUD, a toolbar, a logo). Each shot enlarged just enough to hide the edges (at most 10 %). A long calm
-  stretch is only sampled; measurements are cached.
+  points move together over at least 40 % of the picture and into 3 of its 4 corners (not a person in front of a
+  still camera, even a close-up), and no point keeps staying put where the camera's move should shift it (a game's
+  HUD, a toolbar, a logo). Each shot enlarged just enough to hide the edges (at most 10 %). Only the frames the clip
+  shows decide. Stretches up to 2 minutes are measured whole, longer ones sampled first; measurements are cached.
 - **Short clips** (`render.render_clip`): one `cv2.warpAffine` per decoded frame before the framing; never with a
   face cam layout (a screen). `render_info.steady` = `{seconds, zoom, shake_pct, shots}`.
 - **Full videos** (`studio/engine.py`): `steady_plans` per clip (its range plus 1 s), a `sendcmd` file driving
@@ -24,7 +25,20 @@ Batch 4d of Landry's "majorly improve the editing" (plan in
   before) and a clip's `steady: false` (Full-video editor → Colour, and each clip); plain words ("too shaky", "keep
   the handheld shake") in `studio/edit_requests.py` (`steady_footage`, clip `steady`).
 - **Privacy page:** a row for the camera shake measurements (numbers only, kept with the clip or video).
-- **Tests:** `tests/test_steady.py` (9 fast, 2 real renders); three colour-choice tests now expect `"steady": True`.
+- **Review** (2 reviewers with their own probes, 10 problems, all fixed with tests): a HUD was steadied when the
+  shake was mostly roll or at 60 fps (now judged point by point from the camera's move, over a few frames when
+  frames move little, by count instead of share; never measured = "cannot tell", left alone); a shaky insert
+  between sample points of a 12-60 s clip was missed and cached as calm (clip-length stretches measured whole,
+  longer ones sampled every 6 s; `steady.VERSION` 2 drops old caches); a close-up on a plain wall was steadied
+  (corner rule); the notes and the zoom counted frames after the clip's end and a full video's 1 s margins
+  (`span`, output seconds through cuts and speed); the framing's centre ignored the enlargement (`Plan.framed`);
+  the full-video measurement was a frame off for many start times and 25 fps files (`_frames(exact=True)`: seek a
+  frame early, `fps=...:start_time`); steadying requests had no change lines, so they were never offered
+  (`changes`, `_color_changes`); the Settings switch never reached full videos (`stabilize` is now an editing
+  choice in `studio/capabilities.py`); plain words read complaints as "keep the shake", "a handheld look" as
+  steadying, and took over "a steady zoom", speed and remove requests (`_steady_rule` rewritten).
+- **Tests:** `tests/test_steady.py` (11 fast, 2 real renders); three colour-choice tests now expect `"steady": True`;
+  `tests/test_studio_guidance.py` knows the new editing choice.
 
 ## Editing quality, batch 4c: loop endings for short clips — 2026-11-27 (Claude Code)
 

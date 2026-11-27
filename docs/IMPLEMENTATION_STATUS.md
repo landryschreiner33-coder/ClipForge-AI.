@@ -11,6 +11,8 @@ are ([docs/clipforge/STEADY.md](clipforge/STEADY.md)). Not released. Details: [A
 | 2026-11-27 | `npx tsc --noEmit -p frontend` | passed |
 | 2026-11-27 | `pytest tests/test_steady.py -m "not slow"` | 9 passed |
 | 2026-11-27 | `pytest tests/test_steady.py -m slow` | 2 passed (a short clip and a full video, real renders) |
+| 2026-11-27 | review: 2 reviewers with their own probes | 10 problems (HUD with roll or at 60 fps, clips sampled not measured, close-up on a plain wall, margins counted, framing centre, engine a frame off, requests never offered, Settings not reaching full videos, plain words backwards) - all fixed with tests |
+| 2026-11-27 | the reviewers' probes again after the fixes | HUD rolled/60 fps: fixed overlay; shaky insert in a 30 s clip: found; close-up on a plain wall: not the camera; exact grid at 25/30/60 fps and 29.97: 0 shifted starts of 15 |
 
 Not verified: real handheld phone footage, walking shots and real games (the cloud has only synthetic video).
 

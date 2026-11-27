@@ -563,7 +563,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     if opts.get("stabilize", True) and not split and layout != "game":
         ctx.progress(0.035, STEADY_STEP)
         steadied = steady.for_stretch(src, start, end - start + 0.5, fps, (dw, dh), cache=clip_dir,
-                                      cancelled=ctx.cancelled)
+                                      cancelled=ctx.cancelled, span=(start, end))
 
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
     ctx.progress(0.03, CAPTIONS_STEP)
@@ -725,8 +725,10 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                 out_t = tl.to_out(t_src)
                 while written < n_out_frames and written <= out_t * fps + 0.5:
                     z = float(zc[min(written, len(zc) - 1)])
-                    frame = _compose(last, plan.cx[min(k, plan.n - 1)], plan.cy[min(k, plan.n - 1)], z, dw, dh,
-                                     base_w, base_h, layout, fit_scale, split, cam_last)
+                    cx, cy = plan.cx[min(k, plan.n - 1)], plan.cy[min(k, plan.n - 1)]
+                    if steadied is not None:  # the framing was found on the picture before it was enlarged
+                        cx, cy = steadied.framed(k, cx, cy)
+                    frame = _compose(last, cx, cy, z, dw, dh, base_w, base_h, layout, fit_scale, split, cam_last)
                     enc.stdin.write(frame.data)  # type: ignore[union-attr]
                     written += 1
                     if written % 15 == 0:
@@ -736,8 +738,11 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
             # pad if decoding ended early
             while written < n_out_frames and last is not None:
                 watch.check()
-                frame = _compose(last, plan.cx[-1], plan.cy[-1], float(zc[-1]), dw, dh, base_w, base_h, layout,
-                                 fit_scale, split, cam_last)
+                cx, cy = plan.cx[-1], plan.cy[-1]
+                if steadied is not None:
+                    cx, cy = steadied.framed(n_src_frames - 1, cx, cy)
+                frame = _compose(last, cx, cy, float(zc[-1]), dw, dh, base_w, base_h, layout, fit_scale, split,
+                                 cam_last)
                 enc.stdin.write(frame.data)  # type: ignore[union-attr]
                 written += 1
             enc.stdin.close()  # type: ignore[union-attr]
@@ -811,7 +816,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                                   "eased": sum(1 for _, c in framing_changes if not c), "pushes": len(pushed),
                                   "effects": [e["kind"] for e in effects]},
                         **({"loop": loop} if loop is not None else {}),
-                        **({"steady": steadied.summary()} if steadied is not None else {}),
+                        **({"steady": steadied.summary(tl.to_out)} if steadied is not None else {}),
                         "colour": {**look.summary(), "denoise": bool(denoise),
                                    "noise": round(float((look_stats or {}).get("noise") or 0), 2)},
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
