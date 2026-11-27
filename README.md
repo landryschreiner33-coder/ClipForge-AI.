@@ -7,14 +7,13 @@ Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge wind
 keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
 needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `4f52676d4ba9b7d76eb1085fd047bb6fb5feafb8`: the 2026.11.20 release plus
+It installs ClipForge from source commit `3cffdb3b2fbe6c3ec5e5fdf289cdaf5eef623f1f`: the 2026.11.20 release plus
 everything merged since (PRs #68 to #101: much better editing, clips picked by watching and listening, a viral
 predictor, text stories, a ClipForge AI that acts on what you ask and learns from your edits, Cancel upload, Full Cloud,
-the gold icon and the Taser), with the Mac release notes and privacy page for 2026.11.27 (PR #102). The 77 setup tests
+the gold icon and the Taser), with the Mac release notes and privacy page for 2026.11.27, corrected after a second check (PR #102). The 77 setup tests
 passed, and all 1,143 app files were compared with that commit (six `.bat` files differ only by the declared CRLF
 export). The Windows setup check (pending) installs the previous release (72af02d) with a synthetic setting on a GitHub
-Windows Server 2025 runner, then this ZIP over it. The app is tested by the Native Mac desktop app run
-[46082020196](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46082020196) on the same commit
+Windows Server 2025 runner, then this ZIP over it. The app is tested by the Native Mac desktop app run on the same commit
 (pending). FFmpeg is not installed on the Windows runner, so no video is processed on Windows.
 
 The Mac download is published as a GitHub release; the download page is

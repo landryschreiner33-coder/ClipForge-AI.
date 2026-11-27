@@ -2,10 +2,12 @@
 
 ## 2026-11-27: the biggest update so far (ClipForge 2026.11.27)
 
-The setup ZIP now installs source commit `4f52676d4ba9b7d76eb1085fd047bb6fb5feafb8`: the release line at `5052851`
+The setup ZIP now installs source commit `3cffdb3b2fbe6c3ec5e5fdf289cdaf5eef623f1f`: the release line at `5052851`
 (everything merged since 2026.11.20, PRs #68 to #101: editing quality, watching and listening, the viral predictor,
 text stories, a ClipForge AI that acts on what you ask, Cancel upload, Full Cloud, the gold icon and the Taser) plus the
-Mac release notes and privacy page for 2026.11.27 (PR #102). start.bat is unchanged, so its pin and upgrade fixtures are
+Mac release notes and privacy page for 2026.11.27, corrected after a second check (PR #102). The first build, from
+`4f52676` (ede42fd, Windows setup check 46082101220 passed), is not listed: its privacy page and Mac notes had
+claims the second check corrected. start.bat is unchanged, so its pin and upgrade fixtures are
 the same. 77 launcher tests passed. All 1,143 app files equal the Git tree except the six declared BAT CRLF exports; the
 source archive downloaded twice with the same SHA-256. The ZIP is larger (68.5 MB) mostly because the app now ships the
 sound model for listening (7.5 MB), the gold icon and the look example pictures. The Windows install check now installs the 2026.11.20 release (72af02d, raw/2322e29) first, then

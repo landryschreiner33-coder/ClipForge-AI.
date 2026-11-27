@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
-$Commit = '4f52676d4ba9b7d76eb1085fd047bb6fb5feafb8'
-$ArchiveHash = 'dccf09089fdd1756eeab032e9accc0a3a38d824433ea677687b4895d6d42081b'
+$Commit = '3cffdb3b2fbe6c3ec5e5fdf289cdaf5eef623f1f'
+$ArchiveHash = '8837184e17980b8c0986a57984e4cff82a7c6793f2440c61e2e799647e7b0d8a'
 $StartHash = 'bef75a1f2e64dc0c8a1f342f8cf7f79239c90d5e907117a016729714c18fdfe5'
 $ArchiveUrl = "https://github.com/landryschreiner33-coder/ClipForge-AI./archive/$Commit.zip"
 $ArchivePrefix = "ClipForge-AI.-$Commit/"

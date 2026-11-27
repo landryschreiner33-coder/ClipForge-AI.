@@ -1,12 +1,12 @@
 {
-  "source_commit": "4f52676d4ba9b7d76eb1085fd047bb6fb5feafb8",
-  "app_archive_sha256": "dccf09089fdd1756eeab032e9accc0a3a38d824433ea677687b4895d6d42081b",
-  "zip_bytes": 68529868,
-  "zip_sha256": "c39d4f38295e39e7ecb064c86defd1b4cb3a7656c68b6ed070f24cf9f67fe76f",
+  "source_commit": "3cffdb3b2fbe6c3ec5e5fdf289cdaf5eef623f1f",
+  "app_archive_sha256": "8837184e17980b8c0986a57984e4cff82a7c6793f2440c61e2e799647e7b0d8a",
+  "zip_bytes": 68530297,
+  "zip_sha256": "ef4517dede1a65e3d091a093c21f6b6cd11304547480ce319e36d76f12d771c8",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
-    "setup.py": "6b09411b5cdface15c69666067c6b7e527ebb08a7ea26ddd1e29e2a61df45b12",
-    "app.zip": "dccf09089fdd1756eeab032e9accc0a3a38d824433ea677687b4895d6d42081b",
+    "setup.py": "b9c0ad24e63d8e15882a79e87064fe3a5d5562a33b660a701293ebb32f9de23b",
+    "app.zip": "8837184e17980b8c0986a57984e4cff82a7c6793f2440c61e2e799647e7b0d8a",
     "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
   "app_files": 1143,
@@ -32,9 +32,10 @@
     "note": "runs on this push; the result is recorded here once it has passed"
   },
   "app_tests": {
-    "branch": "claude/project-thread-don0k7 at 4f52676 (PR #102): the release line at 5052851 (everything merged since 2026.11.20, PRs #68 to #101) plus the Mac release notes and privacy page for 2026.11.27",
-    "github_run": "pending: the Native Mac desktop app run 46082020196 on 4f52676 is recorded here once it has passed",
+    "branch": "claude/project-thread-don0k7 at 3cffdb3 (PR #102): the release line at 5052851 (everything merged since 2026.11.20, PRs #68 to #101) plus the Mac release notes and privacy page for 2026.11.27, corrected after a second check",
+    "github_run": "pending: the Native Mac desktop app run on 3cffdb3 is recorded here once it has passed",
     "trial_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46079758065",
-    "trial_run_result": "on 5052851 (the release line before the notes): native Mac build and bundled-app smoke, Keychain test included, passed"
+    "trial_run_result": "on 5052851 (the release line before the notes): native Mac build and bundled-app smoke, Keychain test included, passed",
+    "first_build": "4f52676 (downloads commit ede42fd, Windows setup check https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46082101220 passed) is not listed"
   }
 }
