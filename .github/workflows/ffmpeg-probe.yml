@@ -1,5 +1,5 @@
 name: FFmpeg probe (temporary)
-# Temporary: finds why colour and camera tests fail on GitHub's Linux runner but pass with FFmpeg 6.1.
+# Temporary: checks the colour and camera fix on GitHub's Linux runner (FFmpeg 8); removed before merging.
 on:
   push:
     branches: [claude/project-thread-don0k7]
@@ -35,7 +35,8 @@ jobs:
           ffmpeg -y -v error -f lavfi -i testsrc2=size=320x180:rate=10:d=1 -vf scale=out_color_matrix=bt709:out_range=tv,format=yuv420p -c:v libx264 -crf 10 -color_primaries bt709 -color_trc bt709 -colorspace bt709 /tmp/d.mp4
           $P /tmp/d.mp4
           ffprobe -v error -select_streams v:0 -show_entries stream=color_transfer,color_primaries,color_space -of compact=p=0 /tmp/a.mp4 -show_entries frame=color_transfer,color_primaries,color_space -read_intervals %+#1
-      - name: The failing tests, in detail
+      - name: The colour, camera and text story tests after the fix
         run: |
+          set -o pipefail
           python -m pip install -q -r requirements-dev.txt
-          python -m pytest -q -p no:cacheprovider -vv tests/test_gate_levels.py "tests/test_grade.py::test_hlg_file_through_ffmpeg_matches_the_colour_math" "tests/test_grade.py::test_filmcraft_keeps_finals_whose_colour_step_does_something_on_the_built_in_engine" "tests/test_text_story_colour.py" "tests/test_grade_render.py::test_full_video_colour_hdr_cast_old_plans_and_looks" "tests/test_multicam.py::test_every_frame_shows_the_chosen_camera_at_the_synced_moment_with_the_corner_camera" -m "slow or not slow" 2>&1 | tail -150 || true
+          python -m pytest -q -p no:cacheprovider tests/test_gate_levels.py tests/test_grade.py tests/test_grade_render.py tests/test_multicam.py tests/test_text_story_colour.py tests/test_text_stories.py tests/test_chat_stories.py tests/test_moves.py tests/test_clipforge_ai_knowhow.py -m "slow or not slow" 2>&1 | tail -80
