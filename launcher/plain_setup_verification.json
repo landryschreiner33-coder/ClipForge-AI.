@@ -12,7 +12,7 @@
   "app_files": 1143,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
-  "native_windows_verified": false,
+  "native_windows_verified": true,
   "file": "ClipForge-Windows-Setup.zip",
   "date": "2026-11-28",
   "timezone": "UTC",
@@ -28,12 +28,30 @@
   "payload_review": "All 1,143 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
-    "status": "pending",
-    "note": "runs on this push; the result is recorded here once it has passed"
+    "status": "passed",
+    "run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46088176255",
+    "commit": "5686dd25ef1f4b1b52d65c7d7821380d680c6a6b",
+    "runner": "GitHub windows-2025 (Windows Server 2025), CPython 3.12 64-bit",
+    "downloaded_from": "this branch's public raw URL; SHA-256 matched",
+    "steps": [
+      "previous release (72af02d, raw/2322e29) installed with a synthetic setting, then closed",
+      "this ZIP installed over it, keeping the previous data folder and the setting",
+      "marker records source commit 7fbc4b4; all 1,143 installed app files equal app.zip",
+      "the running app served this commit's index.html and app-icon.png byte for byte",
+      "closed and reopened: same folder, no second extraction, setting still there"
+    ],
+    "not_covered": [
+      "FFmpeg is not installed on the runner, so no video was processed on Windows",
+      "Windows 10/11 desktop, Defender/SmartScreen acceptance, GPUs, the space look on a Windows screen, the built-in model, ComfyUI and its models, YAMNet listening and frame watching on a PC, a real live stream and face cam, a real rented cloud computer and a real Full Cloud worker, the built-in voice and real AI keys on a PC, real accounts and uploads to one or more channels"
+    ]
   },
   "app_tests": {
     "branch": "claude/project-thread-don0k7 at 7fbc4b4 (PR #102): the release line at 5052851 (everything merged since 2026.11.20, PRs #68 to #101) plus the Mac release notes, privacy page, home page and Terms for 2026.11.27, corrected after fact-checks, and finished videos tagged BT.709 on FFmpeg 8 and later",
-    "github_run": "pending: the Native Mac desktop app run on 7fbc4b4 is recorded here once it has passed",
+    "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46088100968",
+    "github_run_result": "native Mac build and bundled-app smoke passed (Keychain, WebView and process cleanup included); fast suite 3,834 passed (2 skipped); slow suite 55 passed (1 skipped)",
+    "github_fast": 3834,
+    "github_slow": 55,
+    "fact_check": "Mac notes, download page text, privacy page, home page and Terms checked against this release claim by claim (checkers and a skeptic per finding); the home page and Terms were corrected for Full Cloud before 7fbc4b4",
     "trial_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46079758065",
     "trial_run_result": "on 5052851 (the release line before the notes): native Mac build and bundled-app smoke, Keychain test included, passed",
     "first_build": "4f52676 (downloads commit ede42fd, Windows setup check https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46082101220 passed), 3cffdb3 (7e3066b) and c142afb (8def495) are not listed",

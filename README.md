@@ -13,9 +13,16 @@ predictor, text stories, a ClipForge AI that acts on what you ask and learns fro
 the gold icon and the Taser), with the Mac release notes, privacy page, home page and Terms for 2026.11.27 and finished
 videos tagged BT.709 on newer FFmpeg (PR #102). The 77 setup tests
 passed, and all 1,143 app files were compared with that commit (six `.bat` files differ only by the declared CRLF
-export). The Windows setup check (pending) installs the previous release (72af02d) with a synthetic setting on a GitHub
-Windows Server 2025 runner, then this ZIP over it. The app is tested by the Native Mac desktop app run on the same commit
-(pending). FFmpeg is not installed on the Windows runner, so no video is processed on Windows.
+export). [Windows setup check run
+46088176255](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46088176255) installed the previous
+release (72af02d) with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over it: the new folder
+kept the same data folder and setting, served this commit's page and icon, all 1,143 installed files matched, and it
+closed and reopened without a second copy. See `verification-windows.json`. The app passed the Native Mac desktop app
+run 46088100968 on the same commit (fast suite 3,834 passed, slow suite 55 passed). FFmpeg is not installed on the
+Windows runner, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs, the
+space look on a Windows screen, the built-in model, ComfyUI and its models, listening and frame watching on a PC, a real
+live stream and face cam, a real rented cloud computer and Full Cloud worker, the built-in voice, real AI keys on a PC
+and real uploads to one or more channels are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
