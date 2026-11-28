@@ -6,20 +6,34 @@
 <!-- generated:title --><title>ClipForge 2026.11.27 downloads</title><!-- /generated:title -->
 <meta name="description" content="Download ClipForge for Windows or Mac: make captioned vertical clips from a long video or a video link, plan and edit a whole YouTube video with ClipForge AI, or make an animated short or a text story, on your own computer.">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0B0D14">
+<meta name="theme-color" content="#05070F">
 <link rel="icon" href="../favicon.ico">
 <link rel="apple-touch-icon" href="../app-icon.png">
-<link rel="preload" href="fonts/poppins-semibold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/courier-prime-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/courier-prime-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
+<script>
+// Before the first picture: the visitor's system (its download button comes first) and whether the page may move.
+(function (r) {
+  var ua = navigator.userAgent || "", pf = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  var os = /iPhone|iPad|iPod|Android/i.test(ua) || (/Mac/i.test(pf) && navigator.maxTouchPoints > 1) ? "mobile"
+    : /Mac/i.test(pf) || /Macintosh/i.test(ua) ? "mac" : /Win/i.test(pf) || /Windows/i.test(ua) ? "windows" : "";
+  r.classList.add("js");
+  if (os) r.setAttribute("data-os", os);
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches && "IntersectionObserver" in window) r.classList.add("motion");
+})(document.documentElement);
+</script>
 <script src="app.js" defer></script>
+<script src="space.js" defer></script>
 </head>
 <body>
+<div class="sky" aria-hidden="true"><div class="tiles far"></div><div class="tiles near"></div><canvas class="sky-canvas"></canvas></div>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <div class="wrap top-in">
-    <a class="brand" href="./"><img src="../app-icon.png" alt="" width="36" height="36">ClipForge</a>
+    <a class="brand" href="../"><img src="../app-icon.png" alt="" width="36" height="36">ClipForge</a>
     <nav aria-label="Page">
-      <a href="#get">Download</a>
+      <a class="nav-get" href="#get">Download</a>
       <a href="#new">What&rsquo;s new</a>
       <a href="#install">Install</a>
       <a href="#check">Check a download</a>
@@ -30,7 +44,14 @@
 </header>
 
 <main id="main">
-  <section class="hero wrap" id="get" aria-labelledby="hero-title">
+  <section class="hero" id="get" aria-labelledby="hero-title">
+    <div class="hero-scene" aria-hidden="true">
+      <img class="hole-still" src="img/space/black-hole.webp" alt="" width="1200" height="900">
+      <canvas class="hole"></canvas>
+      <canvas class="ship"></canvas>
+      <img class="ship-still" src="img/space/flyer-384.png" alt="" width="384" height="108">
+    </div>
+    <div class="wrap hero-in">
     <div class="hero-copy">
       <!-- generated:release -->
 <a class="release" href="#new"><span class="release-tag">Version 2026.11.27</span><span class="release-text">The biggest update so far: much better editing (colour, steadier and punchier clips, speed, freeze frames and several cameras), clips picked by watching and listening, a viral predictor, text-message stories, a ClipForge AI that acts on what you ask and learns from your edits, Cancel upload, the new gold icon, and ClipForge’s name in the Mac’s Finder and Dock. <span aria-hidden="true">→</span></span></a>
@@ -47,13 +68,17 @@
       <p class="small hero-small">ClipForge is a desktop app. There is no online version or sign-in; your videos stay
         on your computer unless you choose Full Cloud, which makes clips on your own ClipForge worker.</p>
     </div>
+    </div>
+  </section>
+
+  <section class="wrap showcase" aria-label="The Studio">
     <figure class="screen hero-shot">
-      <img src="img/studio.webp" width="1440" height="800" fetchpriority="high"
+      <img src="img/studio.webp" width="1440" height="800"
         alt="The Studio: the black hole above a cutaway ship with its robot crew and a name on every room, and beside it Working on: what is being made now, what’s going on, the queue and Talk to ClipForge AI.">
     </figure>
   </section>
 
-  <section class="wrap block" aria-labelledby="ways-title">
+  <section class="wrap block" id="ways" aria-labelledby="ways-title">
     <h2 id="ways-title">Four ways to make something</h2>
     <div class="ways">
       <article>

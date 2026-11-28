@@ -21,9 +21,11 @@ always come from that same entry.
 | `index.html` | The page | Edit text outside the `<!-- generated:… -->` markers by hand; `build.py` writes what is inside them |
 | `build.py` | Writes the generated parts from `releases.json`, checks them and can download and hash every file | Run it; standard library only |
 | `../.github/workflows/download-page.yml` | Rebuilds and checks the page on GitHub after every push that touches these files | Leave as is |
-| `site.css`, `app.js` | Look and the small optional script (puts the visitor's system first, Copy buttons) | Edit by hand; every link must still work without the script |
+| `site.css`, `app.js` | Look and the small optional script (puts the visitor's system first, Copy buttons, the typed headline, the four tabs, smooth answers, screens that light up) | Edit by hand; every link and every word must still work without the script |
+| `space.js` | The moving sky and the black hole the ship orbits, drawn like the app's Studio; holds still when the visitor asks for less motion, off screen, in a hidden tab and on a computer that draws it too slowly | Edit by hand; it is decoration, nothing may depend on it |
 | `img/` | Screenshots and robot portraits from a throwaway sandbox copy of the app with made-up media (no owner data) | Replace with new sandbox captures only |
-| `fonts/` | Poppins SemiBold (SIL Open Font License, `OFL-Poppins.txt`) and the project's own Foundry Pixel, subset to WOFF2 | Leave as is |
+| `img/space/` | The ship, the star tiles (copies of the app's `frontend/public/space/` pictures) and `black-hole.webp`, the still picture shown before the black hole is drawn and wherever it cannot be | Paint `black-hole.webp` again only after changing the black hole: open the page with `?still` in a 1200×900 box and save the canvas |
+| `fonts/` | Courier Prime (SIL Open Font License, `OFL-CourierPrime.txt`), the app's own type, as WOFF2 | Leave as is |
 
 Leave the rest of the branch alone unless the owner asks: `index.html`, `privacy.html`, `terms.html`, `site.css`,
 `app-icon.png`, `favicon.ico` and the `tiktok….txt` file at the branch root are the pages that the TikTok and Google
