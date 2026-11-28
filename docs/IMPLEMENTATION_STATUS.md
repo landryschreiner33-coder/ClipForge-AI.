@@ -6,7 +6,7 @@ From `claude/project-thread-c3hbwh` on top of batch 5a (PR #99). 5b: flat cartoo
 automatic colour, and every colour change is tried on the recording's own pixels first and eased where it would lose
 detail. 5c: the final quality check before publishing also reads the loudness, the picture's levels (EBU R103) and
 the colour tags, as warnings only. Text Stories now keep their exact colours. Details:
-[docs/clipforge/QC.md](clipforge/QC.md), [AI_CHANGELOG.md](../AI_CHANGELOG.md). Not released.
+[docs/clipforge/QC.md](clipforge/QC.md), [AI_CHANGELOG.md](../AI_CHANGELOG.md). Released as 2026.11.27.
 
 | When | Command | Result |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ Not verified: real phone footage and real camera footage with super-whites (synt
 
 From `claude/project-thread-c3hbwh` on top of batch 4d (PR #97). Every short clip and full video is measured after
 its encode (EBU R128 loudness and true peak) and its sound is made once more, with the picture copied, when it missed
-its level or its peaks are too hot ([docs/clipforge/QC.md](clipforge/QC.md)). Not released. Details:
+its level or its peaks are too hot ([docs/clipforge/QC.md](clipforge/QC.md)). Released as 2026.11.27. Details:
 [AI_CHANGELOG.md](../AI_CHANGELOG.md).
 
 | When | Command | Result |
@@ -41,7 +41,7 @@ only).
 
 From `claude/project-thread-c3hbwh` on top of batch 4c (PR #94). Shaky camera footage is steadied in short clips and
 full videos; footage that does not shake, people moving in front of a still camera, games and screens stay as they
-are ([docs/clipforge/STEADY.md](clipforge/STEADY.md)). Not released. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+are ([docs/clipforge/STEADY.md](clipforge/STEADY.md)). Released as 2026.11.27. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
 
 | When | Command | Result |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ Not verified: real handheld phone footage, walking shots and real games (the clo
 
 From `claude/project-thread-c3hbwh` on top of batch 4b (PR #90). Short clips stop 0.15 s after their last sound and
 start 0.10 s before their first, and the shot size switches on the loop seam
-([docs/clipforge/SHORTS_EDITING.md](clipforge/SHORTS_EDITING.md), "Loop endings"). Not released. Details:
+([docs/clipforge/SHORTS_EDITING.md](clipforge/SHORTS_EDITING.md), "Loop endings"). Released as 2026.11.27. Details:
 [AI_CHANGELOG.md](../AI_CHANGELOG.md).
 
 | When | Command | Result |
@@ -96,7 +96,7 @@ Not verified: a real GPU (Mac, Windows, phone); the cloud has only the SwiftShad
 From `claude/project-thread-c3hbwh` on top of batch 4a (PR #85). Full videos can use several cameras of one
 recording: lined up by their sound, switching to whoever speaks or to another angle at pauses, by hand per clip or at
 a moment, and one camera or picture small in a corner
-([docs/clipforge/MULTICAM.md](clipforge/MULTICAM.md)). Not released. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+([docs/clipforge/MULTICAM.md](clipforge/MULTICAM.md)). Released as 2026.11.27. Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
 
 | When | Command | Result |
 | --- | --- | --- |
@@ -151,8 +151,8 @@ field in a browser (type-checked and built).
 
 From `claude/project-thread-gjc836` (PR #86). Text Stories gains the kind "Text-message story": a phone chat card over
 the background, a bubble at a time, each message read aloud in its sender's voice; pasted or written by ClipForge AI;
-chats and narrated stories up to ten minutes. Not released (Landry: "don't release anything yet only merge what's
-done"). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
+chats and narrated stories up to ten minutes. Released as 2026.11.27 (Landry first said "don't release anything yet only merge
+what's done", then OKed the release on November 27). Details: [AI_CHANGELOG.md](../AI_CHANGELOG.md).
 
 | When | Command | Result |
 | --- | --- | --- |

@@ -434,3 +434,33 @@ downloads are built from and name as their source commit.
   deleted changed.
 
 Rollback: revert `e0c197c` on `gh-pages` with a normal commit. The 2026.11.19.2 files stay under All versions.
+
+## The biggest update so far — ClipForge 2026.11.27, November 27-28, 2026 (Claude Code)
+
+Landry asked on November 27 (4:52 PM Chicago time): "When done realese all the new changes and update the website",
+and chose "rename the whole website" for the site's own pages. PR #102 (Mac notes, privacy page, home page, Terms and
+the FFmpeg 8 colour tag fix) was merged as `7ad6fe9`, whose tree equals that of its head
+`7fbc4b4ba16064bc176282bee62b683e77f4522e`, which both downloads are built from and name as their source commit.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-27-7fbc4b4/ClipForge-Mac-Apple-Silicon.dmg
+  (245,927,529 bytes, SHA-256 `f55ae5301187a1041b083506371c1bdcd5d4ce609b99b645621173d1d2e41296`). Unsigned personal
+  preview, published unchanged from [build and test run 46088100968](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46088100968)
+  (native build and bundled-app smoke passed; 3,834 fast tests passed, 2 skipped; 55 slow tests passed, 1 skipped)
+  by [publish run 46091808935](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46091808935).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/5686dd25ef1f4b1b52d65c7d7821380d680c6a6b/ClipForge-Windows-Setup.zip
+  (68,531,384 bytes, SHA-256 `01d576b0f135433bda22488ea9dc77a6f0db59f5c2bb0345be6d6dca0b0a5e3b`).
+  [Windows setup check run 46088176255](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46088176255) installed 2026.11.20 (72af02d, raw/2322e29, now the check's
+  previous release) with a synthetic setting on a Windows Server 2025 runner, then this ZIP over it: same data folder
+  and setting, this commit's page and icon, all 1,143 files, close and reopen. No FFmpeg on the runner, so no video
+  was processed. Record commit `182845d` on `claude/clipforge-downloads`.
+- **Website:** `gh-pages` commit `00a4e29` (previous `e0c197c`), pushed directly: sixteen changes with the checked /
+  not checked lists, "Four ways" with a Make a text story picture, pictures retaken from this version, and the root
+  `index.html`, `privacy.html`, `terms.html`, `app-icon.png` and `favicon.ico` copied from `docs/legal` at `7fbc4b4`
+  (the ClipForge name and gold icon; privacy and Terms effective November 27). `build.py --check` and `--verify`
+  passed here.
+- **Fact-check:** the Mac notes, the download page text, the privacy page, the home page and the Terms were checked
+  claim by claim against the code at this version by area checkers with a skeptic for each finding; every confirmed
+  finding was fixed before `7fbc4b4`.
+
+Rollback: revert `00a4e29` on `gh-pages` with a normal commit. The 2026.11.20 files stay under All versions.
+
