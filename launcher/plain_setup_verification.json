@@ -1,12 +1,12 @@
 {
-  "source_commit": "3cffdb3b2fbe6c3ec5e5fdf289cdaf5eef623f1f",
-  "app_archive_sha256": "8837184e17980b8c0986a57984e4cff82a7c6793f2440c61e2e799647e7b0d8a",
-  "zip_bytes": 68530297,
-  "zip_sha256": "ef4517dede1a65e3d091a093c21f6b6cd11304547480ce319e36d76f12d771c8",
+  "source_commit": "c142afb17ddc40477f639b9f24e594e2b067277e",
+  "app_archive_sha256": "e47e409d60442fc8dc6f165e12e44bcced4460501b6e1723027f5dd91fcf05d4",
+  "zip_bytes": 68531140,
+  "zip_sha256": "9365d23dbfde0a643c122d2fd96e66acd413e2ec62ec08da8016f611ec78c1da",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
-    "setup.py": "b9c0ad24e63d8e15882a79e87064fe3a5d5562a33b660a701293ebb32f9de23b",
-    "app.zip": "8837184e17980b8c0986a57984e4cff82a7c6793f2440c61e2e799647e7b0d8a",
+    "setup.py": "7d0ff7a9abd3e76864822cdc195a7314e8553abd2bc112e22ab28bd10002ac01",
+    "app.zip": "e47e409d60442fc8dc6f165e12e44bcced4460501b6e1723027f5dd91fcf05d4",
     "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
   "app_files": 1143,
@@ -14,7 +14,7 @@
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
   "file": "ClipForge-Windows-Setup.zip",
-  "date": "2026-11-27",
+  "date": "2026-11-28",
   "timezone": "UTC",
   "product": "ClipForge",
   "launcher_tests": {
@@ -32,10 +32,11 @@
     "note": "runs on this push; the result is recorded here once it has passed"
   },
   "app_tests": {
-    "branch": "claude/project-thread-don0k7 at 3cffdb3 (PR #102): the release line at 5052851 (everything merged since 2026.11.20, PRs #68 to #101) plus the Mac release notes and privacy page for 2026.11.27, corrected after a second check",
-    "github_run": "pending: the Native Mac desktop app run on 3cffdb3 is recorded here once it has passed",
+    "branch": "claude/project-thread-don0k7 at c142afb (PR #102): the release line at 5052851 (everything merged since 2026.11.20, PRs #68 to #101) plus the Mac release notes and privacy page for 2026.11.27, corrected after a second check, and finished videos tagged BT.709 on FFmpeg 8 and later",
+    "github_run": "pending: the Native Mac desktop app run on c142afb is recorded here once it has passed",
     "trial_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46079758065",
     "trial_run_result": "on 5052851 (the release line before the notes): native Mac build and bundled-app smoke, Keychain test included, passed",
-    "first_build": "4f52676 (downloads commit ede42fd, Windows setup check https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46082101220 passed) is not listed"
+    "first_build": "4f52676 (downloads commit ede42fd, Windows setup check https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46082101220 passed) and 3cffdb3 (downloads commit 7e3066b) are not listed",
+    "ffmpeg8_check": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46086199817: on GitHub's FFmpeg 8.0.1 the 184 colour, camera and text story tests passed with the fix"
   }
 }

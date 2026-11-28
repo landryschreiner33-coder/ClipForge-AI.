@@ -18,8 +18,8 @@ exit /b 1
 # CF_POWERSHELL_BEGIN
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
-$Commit = '3cffdb3b2fbe6c3ec5e5fdf289cdaf5eef623f1f'
-$ArchiveHash = '8837184e17980b8c0986a57984e4cff82a7c6793f2440c61e2e799647e7b0d8a'
+$Commit = 'c142afb17ddc40477f639b9f24e594e2b067277e'
+$ArchiveHash = 'e47e409d60442fc8dc6f165e12e44bcced4460501b6e1723027f5dd91fcf05d4'
 $StartHash = 'bef75a1f2e64dc0c8a1f342f8cf7f79239c90d5e907117a016729714c18fdfe5'
 $ArchiveUrl = "https://github.com/landryschreiner33-coder/ClipForge-AI./archive/$Commit.zip"
 $ArchivePrefix = "ClipForge-AI.-$Commit/"
