@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ClipFoundry · Short clips from long videos, on your own computer</title>
-<meta name="description" content="ClipFoundry is a desktop app for Windows and Apple-silicon Macs that turns long videos into captioned vertical clips for YouTube Shorts, TikTok and Reels, on your own computer.">
-<link rel="icon" type="image/png" sizes="1024x1024" href="app-icon.png?v=b4dae127e333">
-<link rel="shortcut icon" href="favicon.ico?v=b4dae127e333">
+<title>ClipForge · Short clips from long videos, on your own computer</title>
+<meta name="description" content="ClipForge is a desktop app for Windows and Apple-silicon Macs that turns long videos into captioned vertical clips for YouTube Shorts, TikTok and Reels, on your own computer.">
+<link rel="icon" type="image/png" sizes="1024x1024" href="app-icon.png?v=gold20261125">
+<link rel="shortcut icon" href="favicon.ico?v=gold20261125">
 <link rel="stylesheet" href="site.css">
 </head>
 <body>
 <header class="top">
   <div class="wrap top-in">
-    <a class="brand" href="index.html" aria-current="page"><img src="app-icon.png" alt="" width="40" height="40" aria-hidden="true">ClipFoundry</a>
+    <a class="brand" href="index.html" aria-current="page"><img src="app-icon.png" alt="" width="40" height="40" aria-hidden="true">ClipForge</a>
     <nav class="links" aria-label="Site">
       <a href="#how">How it works</a>
       <a href="privacy.html">Privacy Policy</a>
@@ -24,13 +24,15 @@
 <main class="wrap">
 <section class="hero" aria-labelledby="title">
   <h1 id="title">Turn long videos into short clips, on your own computer</h1>
-  <p class="lead">ClipFoundry is a desktop app for Windows and for Macs with Apple silicon. It finds the best moments in a long video and turns them
-    into vertical clips with captions for YouTube Shorts, TikTok and Reels. Your videos stay on your computer. Only the clips you post are uploaded.</p>
+  <p class="lead">ClipForge is a desktop app for Windows and for Macs with Apple silicon. It finds the best moments in a long video and turns them
+    into vertical clips with captions for YouTube Shorts, TikTok and Reels. Your videos stay on your computer, unless you choose
+    Full Cloud: then Make clips sends the video, or its link, to your own ClipForge worker on another computer and brings
+    the clips back. Only the clips you post are uploaded.</p>
   <div class="buttons">
-    <a class="btn primary" href="https://landryschreiner33-coder.github.io/ClipForge-AI./download/">Download ClipFoundry</a>
+    <a class="btn primary" href="https://landryschreiner33-coder.github.io/ClipForge-AI./download/">Download ClipForge</a>
     <a class="btn" href="#how">How it works</a>
   </div>
-  <p class="note">There is no ClipFoundry account and no ClipFoundry cloud service: the app runs on your computer and opens in
+  <p class="note">There is no ClipForge account and no ClipForge cloud service: the app runs on your computer and opens in
     your web browser (on a Mac, in its own window).</p>
 </section>
 
@@ -39,9 +41,8 @@
   <div class="grid">
     <div class="card">
       <h3>Finds the best moments</h3>
-      <p>It writes down what is said in your video, on your computer (fast with an NVIDIA graphics card), and picks
-        moments
-        that start strong and end on a payoff.</p>
+      <p>It writes down what is said in your video, on your computer (fast with an NVIDIA graphics card) or, with Full
+        Cloud, on your own ClipForge worker, and picks moments that start strong and end on a payoff.</p>
     </div>
     <div class="card">
       <h3>Makes vertical clips</h3>
@@ -83,9 +84,9 @@
   <h2 id="how">How it works</h2>
   <p class="flow">VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → TITLES → CHECK → POST OR EXPORT</p>
   <ol class="steps">
-    <li><b>Install it and start it.</b> On Windows, download ClipFoundry, extract it and double-click
+    <li><b>Install it and start it.</b> On Windows, download ClipForge, extract it and double-click
       <code>Open-ClipFoundry.cmd</code> (<code>start.bat</code> if you downloaded the source code); it opens in your
-      browser. On a Mac, download and open the DMG, drag ClipFoundry into Applications and open it; it opens in its
+      browser. On a Mac, download and open the DMG, drag ClipForge into Applications and open it; it opens in its
       own window. The Mac app is an unsigned preview that Apple has not notarized, so the first time macOS may ask
       you to allow it under System Settings, Privacy &amp; Security, Open Anyway. Either way it runs at <code>127.0.0.1</code>, an address only your own computer can reach.</li>
     <li><b>Add a video.</b> Choose a file, or paste the link to one public recorded video. To clip live streams
@@ -95,8 +96,8 @@
     <li><b>Check the clips.</b> Watch them, trim them or change the captions, then export them.</li>
     <li><b>Post, if you like.</b> Connect YouTube or TikTok, then approve each post, or choose Make &amp; upload
       clips when you add a video, so its clips that pass the final checks upload to YouTube by themselves. Before
-      Autopilot posts a clip, ClipFoundry checks the exact final file. A clip you post
-      yourself from its Prepare post page is uploaded when you confirm; if Autopilot made the clip or ClipFoundry
+      Autopilot posts a clip, ClipForge checks the exact final file. A clip you post
+      yourself from its Prepare post page is uploaded when you confirm; if Autopilot made the clip or ClipForge
       already checked it, that file must pass the check first.</li>
   </ol>
 </section>
@@ -104,20 +105,20 @@
 <section aria-labelledby="accounts">
   <h2 id="accounts">Connecting YouTube and TikTok</h2>
   <ul>
-    <li>You sign in on Google's or TikTok's own page. ClipFoundry never sees or stores your password.</li>
+    <li>You sign in on Google's or TikTok's own page. ClipForge never sees or stores your password.</li>
     <li>On YouTube it asks to manage your videos (it only uploads them), to see your YouTube account and to see YouTube
       Analytics reports. It uses them to upload your posts, to show your channel's name and picture, and to read the
       status and results of your posts. Autopilot no longer searches for videos. For a video that an earlier version of
-      ClipFoundry found, and only if you entered no YouTube API key of your own, ClipFoundry also uses your YouTube
+      ClipForge found, and only if you entered no YouTube API key of your own, ClipForge also uses your YouTube
       sign-in to check which channel posted it.</li>
     <li>On TikTok it asks to show your name and picture, to post videos or send them to your TikTok inbox, and to read
       the results of your posts.</li>
     <li>Before a TikTok post you choose who can see it, whether people can comment, duet or stitch, and whether it is
       promotional, and you confirm TikTok's music rules. TikTok always needs your OK on each post.</li>
     <li>The platforms' own limits apply. For example, until TikTok audits the app, posts sent straight to TikTok can
-      only be seen by you. ClipFoundry tells you so instead of working around it, and can send the video to your
+      only be seen by you. ClipForge tells you so instead of working around it, and can send the video to your
       TikTok inbox instead, where you finish and post it in the TikTok app.</li>
-    <li>You can disconnect an account at any time, in ClipFoundry or in your Google or TikTok settings.</li>
+    <li>You can disconnect an account at any time, in ClipForge or in your Google or TikTok settings.</li>
   </ul>
   <p>Read exactly what is stored and sent in the <a href="privacy.html">Privacy Policy</a>.</p>
 </section>
@@ -142,14 +143,15 @@
   <h2 id="support">Support</h2>
   <p>
     Email <a href="mailto:landryschreiner456@gmail.com">landryschreiner456@gmail.com</a>. Say what you did, what you expected and what
-    happened, and which ClipFoundry version you use. Please don't send passwords, sign-in codes or private videos.
+    happened, and which ClipForge version you use. Please don't send passwords, sign-in codes or private videos.
   </p>
   <p>
     You can also report a problem on <a href="https://github.com/landryschreiner33-coder/ClipForge-AI./issues">GitHub</a>, or read the
     <a href="https://github.com/landryschreiner33-coder/ClipForge-AI./blob/claude/wonderful-ritchie-909tq3/INSTALL.md#troubleshooting">troubleshooting guide</a>.
   </p>
-  <p class="note">ClipFoundry is made by Landry Schreiner. It is not affiliated with or endorsed by YouTube, Google or
-    TikTok.</p>
+  <p class="note">ClipForge is made by Landry Schreiner. It is not affiliated with or endorsed by YouTube, Google or
+    TikTok. ClipForge was called ClipFoundry until November 2026, so Google's and TikTok's sign-in pages may still
+    show that name, and the Mac app's file in the Applications folder is still ClipFoundry.app.</p>
 </section>
 </main>
 <footer>

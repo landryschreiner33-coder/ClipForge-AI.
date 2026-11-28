@@ -2,72 +2,172 @@
   "schema": 2,
   "current": {
     "name": "ClipForge",
-    "version": "2026.11.20",
-    "date": "2026-11-20",
-    "source_commit": "72af02d2d04d0b6786d65f8f813f3801686f77c1",
-    "summary": "The space studio moves: the sky streams past as if the ship were flying, the black hole’s disk turns, and pages and tabs change smoothly.",
+    "version": "2026.11.27",
+    "date": "2026-11-27",
+    "source_commit": "7fbc4b4ba16064bc176282bee62b683e77f4522e",
+    "summary": "The biggest update so far: much better editing (colour, steadier and punchier clips, speed, freeze frames and several cameras), clips picked by watching and listening, a viral predictor, text-message stories, a ClipForge AI that acts on what you ask and learns from your edits, Cancel upload, the new gold icon, and ClipForge’s name in the Mac’s Finder and Dock.",
     "changes": [
       {
-        "title": "A sky that moves",
-        "text": "Behind every page the sky streams past to the left, as if the ship were flying on: the small stars slide slowly, brighter stars twinkle and drift faster, specks of dust rush past and now and then a shooting star crosses. The faraway nebula holds still."
+        "title": "Better colour, automatically",
+        "text": "Phone HDR video (iPhone and most Android phones) no longer comes out flat and grey. **Automatic colour** (on) measures each recording once and gently corrects its white balance and brightness; cartoons and graphics are left as drawn, and a correction that would wash out colour or lose detail is eased or dropped. Pick one of nine looks (Natural, Clean and bright, Warm, Cool, Film, Teal and orange, Moody, Vintage, Black and white) with a strength, and **Clean up grainy footage** for low light. In a full video, recordings of people are nudged toward the one that plays longest. Set it in **Settings › Defaults**, the clip editor’s **Colour** tab or the Colour panel of a full video’s editor, or ask in words (“make it black and white”)."
       },
       {
-        "title": "The black hole turns",
-        "text": "The black hole’s disk turns, its inner streaks faster than its outer ones: the large one over the **Studio** and the small one at the top of every other page. Where the browser cannot draw it on the graphics chip, it shows its picture with patches of light travelling round the disk instead. If frames come too slowly, every black hole holds still for a while, so a computer without a graphics chip stays quick, and tries again after 2 minutes, then 4, 8 and so on, up to about an hour."
+        "title": "Steadier, punchier short clips",
+        "text": "Where a pause or filler word was cut out, the shot punches in or out on the cut; a key word gets a push-in, and no framing is held longer than about 5 seconds. A soft whoosh goes with each push-in (and a pop with each key word when **Emphasize key words in their own color** is on), captions turn the page on a cut and stay clear of the apps’ buttons. **Loop endings** stop a clip just after its last word so it runs straight back into its start. **Steady shaky footage** smooths handheld shake with a slight zoom, and leaves a tripod shot, a game or a screen recording as it is. Punch-ins, sound effects, loop endings and steadying are on by default in **Settings › Defaults** and can be changed per clip in the clip editor."
       },
       {
-        "title": "Smooth page and tab changes",
-        "text": "A new page fades in and rises a little. A new tab fades in only what is under the tab bar you chose it in, so the bars above it stay put, and what loads a moment later fades in too instead of popping in. **Settings** keeps its title and list of sections while a section loads. Nothing waits for the fade: the new page is there at once, and focus, reading order and clicks work as before."
+        "title": "Full videos: speed, freeze frames, camera moves and several cameras",
+        "text": "In Make a YouTube video’s editor a clip can play from 0.25× to 4× or ramp smoothly between speeds (the sound keeps its pitch), freeze on a frame, or slowly zoom and pan. Several cameras of one recording are lined up by their sound and the cut switches to whoever is talking (or between angles), with a camera or pictures in a corner. Cuts between recordings get split edits and no clicks, room tone fills the quiet under titles and photos, and ClipForge’s own music ends on the last frame. Say it in words too: “put clip 3 in slow motion”, “freeze the last frame for 2 seconds”, “switch cameras to whoever is talking”."
       },
       {
-        "title": "When it all holds still",
-        "text": "**Motion › Reduced** in **Settings › Appearance** holds the sky and the black hole still and makes page and tab changes instant; if your computer asks for less motion, ClipForge starts with Reduced. **Robot activity › Low power** and a hidden window hold the sky and the black hole still too."
+        "title": "Every render checked for sound and picture",
+        "text": "After every render in ClipForge’s own editor, ClipForge measures the finished file’s loudness and peaks and fixes them once if they missed (aiming at −14 LUFS, the level YouTube plays videos at and a good level for TikTok too, with peaks under −1 dBTP). The clip editor and the video editor say how loud the last render is and why, when its peaks held it back. The final check before posting now also reports loudness, picture levels and colour tags; these are warnings and never stop a post."
       },
       {
-        "title": "Fixed: pictures that stayed blank after a graphics reset",
-        "text": "If the graphics chip resets (for example during a driver update on Windows), the ship, the Brain’s galaxy and lightning and still robot portraits are drawn again at once; before, they could stay blank. The new sky and the black hole are drawn again too."
+        "title": "ClipForge watches and listens",
+        "text": "To pick clips, ClipForge now names every sound in the video (laughter, applause, cheering, screams, music, explosions…) with a small sound model that ships inside the app, and looks at the picture up to twice a second, less often in videos over 20 minutes (movement, cuts, faces, light). With the built-in model it also describes what happens in each part. Moments built around a laugh, a cheer or a burst of action are found even when nobody talks, and a clip’s details (click it on the project page) say what happens, what is heard and how the picture looks. Turn listening or watching off in **Settings › ClipForge AI › Watching and listening**."
+      },
+      {
+        "title": "A viral predictor for every clip",
+        "text": "Each clip gets an estimated viral score from 0 to 100, how strong its first 3 seconds are, a hold curve (the share still watching each second), its strongest moment and a heatmap, with reasons tied to moments. ClipForge tries fixes such as starting later, ending earlier or putting the hook on screen, offers only those that do not lower the score, and **Add to my edit** puts one in the clip editor. **Make › Check a video** predicts any video up to 10 minutes. These are estimates, never a promise of views; once your posts have results, ClipForge measures how well it matched and adjusts itself within limits."
+      },
+      {
+        "title": "Better clip picks, trims and titles",
+        "text": "Clip picking leaves out ad and sponsor reads, goodbyes and clips full of talk to chat (“thanks for the follow”), ranks a clip lower for a little chat talk, a “he” or “she” it never introduces or an ending that circles one point, and keeps a laugh or shout right after the last word. Each clip says why it ranks where it does, and the clip editor suggests tighter trims. New clips start on the first real word and cut outros, with **Put it back** in the clip editor. Each clip gets three kinds of title (Searchable, Curiosity and The moment) from its own words, with one recommended per destination, and tidier hashtags; **Hashtags on every post** in **Settings › Defaults** puts your own first."
+      },
+      {
+        "title": "Layouts for streams and gameplay",
+        "text": "Clips of a stream or a gameplay recording can be **Gameplay + Facecam**, **Picture-in-picture** (the cam in a corner box) or **Gameplay only**, per clip in the clip editor’s **Layout** tab or per live stream. ClipForge finds the face cam in the corner, or you draw a box around it for one clip or for every clip of the video; a separate camera recording is lined up with the video by its sound. While a live stream is recording, **Draw the face cam** on its row in **Missions › Live streams** (not with No split view)."
+      },
+      {
+        "title": "Text Stories, up to ten minutes",
+        "text": "**Make › Make a text story** makes two kinds: a text-message chat like the ones on TikTok, where bubbles pop up one at a time and each person’s messages are read in their own voice, or a narrated story read over background video. Write the script yourself or let ClipForge AI write and revise it, up to ten minutes. Use your own background video, one ClipForge picks from your videos, free footage it finds for you (with its licence and credit) or a moving colour, then preview and export a 1080×1920 video."
+      },
+      {
+        "title": "Animated shorts: characters, places and looks",
+        "text": "Keep a library of characters and places with their details and up to 3 reference pictures each. The details go into every shot they appear in, and the pictures too when your picture maker takes reference pictures (FLUX.2 klein); **Describe a change** shows what would change before anything is applied. With no characters added, a picture maker that takes reference pictures keeps the main character looking the same from scene to scene. Camera moves ease in and out, two new moves push in while drifting left or right, automatic moves now take turns through six, each voice of the local voice engine also comes in a deeper and a brighter version (30 voices instead of 10), and every look card shows an example picture."
+      },
+      {
+        "title": "ClipForge AI does what you ask",
+        "text": "Once a model is set up (the free built-in one in **Settings › ClipForge AI**, or an AI helper), ask in Talk to AI and it acts without a second OK: move, cancel, retry or approve posts (cancelling, retrying or approving several at once waits for one OK), fix posts that are too close together, write a clip’s post text again, trim, reframe or render a clip, start a stuck, failed or stopped project again (if it already has clips, that waits for your OK, because they are replaced), pause a mission, change a setting, or say why something is stuck. Deleting always asks, and a TikTok post always waits for your OK on its page; **Settings › ClipForge AI › Ask me first (OK button)** brings the OK button back for every change (rendering a clip again still starts at once). Talk to AI keeps as many saved chats as you start, 👍 and 👎 on an answer teach it, it reads your results and what the last render did, and the ready-made helpers can open the clips and numbers their jobs need."
+      },
+      {
+        "title": "It learns from your edits",
+        "text": "**Brain › Learned** reads each clip you save in the editor (trims, framing, captions, pacing and the titles you pick). When 3 clips agree, the habit is written down in words and tried on your own edited clips first; it is used for new clips only when it gets them clearly closer to your edits. Each habit can be turned off, changed or deleted, every change is a version you can go back to, and your own preferences always win. Publishing rules, accounts and spending limits are never learned."
+      },
+      {
+        "title": "Cancel upload, Missions and Compare",
+        "text": "**Cancel upload** on a post stops its upload after the part being sent: nothing is posted, the clip stays, and Retry makes exactly one new upload; if YouTube or TikTok already has the whole video, the page says it was too late. **Missions** is in the menu, and each mission shows its next upload, the robots working on it and its own **Pause uploads**; a post’s **Change the time** reads the time you type in your Autopilot time zone, and a time too close to another post offers the nearest free one. **Publishing › Results › Compare** compares your posts by format, channel, niche or length, each read 48 hours after it went out, and says when there are too few posts to tell. **Accounts** shows what each connected account can do."
+      },
+      {
+        "title": "Full Cloud: Make clips on your own worker",
+        "text": "**Settings › Processing** chooses where Make clips runs: Local (everything on this computer), Hybrid (clips are made on this computer; pictures and video for animated shorts on your cloud computer) or Full Cloud, where Make clips runs on your own ClipForge worker on another computer. You see an estimate from its past jobs, a monthly limit that stops a job before anything is sent, **Cancel processing** that also stops it on the worker, and on the project page what was sent, the stages, the cost and what stays on this computer."
+      },
+      {
+        "title": "The ClipForge name and the gold robot",
+        "text": "The app has its new gold command robot icon everywhere, and on a Mac it shows as ClipForge in Finder, the Dock, Launchpad and Spotlight. Its file is still ClipFoundry.app, so it replaces your copy in place and your Brain, clips, accounts and settings stay."
+      },
+      {
+        "title": "A new look for the studio, and a Taser",
+        "text": "The Studio’s black hole is drawn with its light bending round it as the ship orbits, with a little pixel ship flying in front, and falls back to the lighter turning disk on a slow computer. **Settings › Appearance** adds forest, ocean, ember and black backgrounds, gold, ruby and lime accents, a colour of your own, **Reset colors**, **Space view** and **Sound effects** (off by default). Pop-ups ease in and out, the ship’s camera glides to a room you pick, and reordered rows slide into place. And the office has a Taser: pick it up from its charger in the Control room and click a robot for one of twelve zap reactions (**Settings › Appearance › Taser in the office** hides it)."
       }
     ],
     "checked": [
-      "3,109 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code. The 31 checks that render real video and audio ran on GitHub’s Linux machine.",
-      "The sky, the black hole and the page and tab changes were checked in a browser in the cloud: the window’s sky and its copy behind the top bar line up with a scrollbar and after resizing; the disk turns smoothly after a week open, with no jump on the hour; the black hole holds still when frames come too slowly and turns again later; and after a crash of the browser’s graphics process, the black hole, the stars, the ship, the Brain’s galaxy and lightning and the robot portraits came back. Eleven tab changes on Missions, the Brain, Settings and Publishing were checked for what fades in and what stays put.",
-      "In the same browser, the sky and both black holes were checked to hold still with **Motion › Reduced** chosen in **Settings › Appearance**, with the computer asking for less motion, with **Robot activity › Low power** and with a hidden window, and to move again once the window was shown; with Reduced, a page change and a tab change started no fade.",
-      "This page’s notes and the Mac notes were checked claim by claim against this version’s code before release.",
+      "3,834 automatic checks with made-up test videos, stand-in accounts and stand-in AI answers, on this version’s exact code. The 55 checks that render real video and audio ran on GitHub’s Linux machine.",
+      "While the editing changes were built, each was rendered with FFmpeg on made-up test footage and the finished files were measured: a made-up phone HDR (HLG) video through the full-video renderer and through the short-clip renderer’s colour step, colour matching and looks, punch-ins and loop endings, speed changes and freeze frames, several cameras lined up by their sound, steadying, and the sound and picture checks after render.",
+      "Watching and listening was tried on two open films from the Blender Foundation: Tears of Steel on GitHub’s Mac and Linux machines, and Tears of Steel and Sintel on a Linux computer in the cloud. There, scenes full of action with little or no talking were picked, where the previous version picked only talking scenes. The sound model that ships inside the app gave the same top sounds as Google’s original, every score within 0.003, on four 30-second stretches of film sound.",
+      "ClipForge AI was tried with the real built-in Basic model on GitHub while it was changed; what each command does, and when it waits for an OK, is covered by the automatic checks with stand-in answers.",
+      "This page’s notes, the Mac notes, the privacy page, the Terms and the home page were checked claim by claim against this version’s code before release.",
       "The Mac app was built, opened and tested with its own video tools, Keychain and window on an Apple-silicon Mac with macOS 15 in GitHub’s test service. The DMG on this page is that exact build.",
-      "The Windows setup was installed in GitHub’s test service over the previous version: it kept the same data folder and settings, opened the app, and closed and reopened cleanly. Every installed file was compared with the exact source."
+      "The Windows setup was installed in GitHub’s test service over the previous version: it kept the same data folder and a setting saved before, opened the app, and closed and reopened cleanly. Every installed file was compared with the exact source."
     ],
     "not_checked": [
-      "How smoothly the sky and the black hole run, and how much power they use, on your own computer and graphics card. The cloud has no graphics chip, so they were checked in a browser that draws without one.",
-      "The moving sky and the turning black hole inside the Mac app’s own window and on a Windows PC; they were checked in Chromium on Linux.",
-      "A reset of a real graphics chip; a crash of the cloud browser’s graphics process stood in for it.",
-      "Moving the window to a screen with a different pixel density.",
+      "Real uploads to YouTube and TikTok, and **Cancel upload** during a real upload; stand-in accounts were used.",
+      "Video from your own phone, a real shoot with several cameras and real shaky handheld footage; made-up test footage was used.",
+      "The new editing on a Windows PC, and full videos with speed changes, several cameras or steadying on a Mac: those renders ran on Linux. The Mac app made one short test clip, and the Windows check only installed and opened the app.",
+      "Text stories with your Mac’s or Windows PC’s own voices and emoji, and a real AI model writing a ten-minute chat; they were made with Linux’s eSpeak voice, Noto emoji and stand-in AI answers.",
+      "Whether the viral predictor’s scores match how your posts really do: until your posts have results, its numbers come from its design and published research.",
+      "Watching and listening on a Windows PC (it ran on GitHub’s Mac and Linux machines), how long it takes on your computer, and how well the built-in model describes your own videos.",
+      "Full Cloud with a ClipForge worker on another computer, rented or your own; the checks ran a real worker on the same computer.",
+      "The new black hole, the little ship, the pop-ups and the Taser inside the Mac app’s own window and on a Windows PC, and how smoothly they run on your graphics card; they were looked at in Chromium on Linux.",
       "Whether Windows security accepts the setup without asking. If it reports a threat, stop and read what it found; do not turn protection off.",
-      "Apple’s notarization. macOS will ask once before opening the app."
+      "Apple’s notarization: this Mac app is not notarized, so the first time macOS may stop it; open System Settings › Privacy & Security and choose Open Anyway."
     ],
     "files": {
       "windows": {
         "file": "ClipForge-Windows-Setup.zip",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/2322e29352d5879e3876f2d5423209e0853f35ea/ClipForge-Windows-Setup.zip",
-        "bytes": 50491596,
-        "sha256": "b5e32961fb976330c881f3222a2bba9014b073755731732fbcdac566dfc68de0",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/5686dd25ef1f4b1b52d65c7d7821380d680c6a6b/ClipForge-Windows-Setup.zip",
+        "bytes": 68531384,
+        "sha256": "01d576b0f135433bda22488ea9dc77a6f0db59f5c2bb0345be6d6dca0b0a5e3b",
         "kind": "ZIP",
         "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44816196313",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46088176255",
         "tested_label": "Windows install check"
       },
       "mac": {
         "file": "ClipForge-Mac-Apple-Silicon.dmg",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-20-72af02d/ClipForge-Mac-Apple-Silicon.dmg",
-        "bytes": 232042612,
-        "sha256": "b72b1faa04c3a533dad10d479d7d2ed81586c033acbe10266e2e87f3f7fdbdb8",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-27-7fbc4b4/ClipForge-Mac-Apple-Silicon.dmg",
+        "bytes": 245927529,
+        "sha256": "f55ae5301187a1041b083506371c1bdcd5d4ce609b99b645621173d1d2e41296",
         "kind": "DMG",
         "requires": "Apple silicon, macOS 15 or newer",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44815897634",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/46088100968",
         "tested_label": "Mac build and test run"
       }
     }
   },
   "previous": [
+    {
+      "name": "ClipForge",
+      "version": "2026.11.20",
+      "date": "2026-11-20",
+      "source_commit": "72af02d2d04d0b6786d65f8f813f3801686f77c1",
+      "summary": "The space studio moves: the sky streams past as if the ship were flying, the black hole’s disk turns, and pages and tabs change smoothly.",
+      "changes": [
+        {
+          "title": "A sky that moves",
+          "text": "Behind every page the sky streams past to the left, as if the ship were flying on: the small stars slide slowly, brighter stars twinkle and drift faster, specks of dust rush past and now and then a shooting star crosses. The faraway nebula holds still."
+        },
+        {
+          "title": "The black hole turns",
+          "text": "The black hole’s disk turns, its inner streaks faster than its outer ones: the large one over the **Studio** and the small one at the top of every other page. Where the browser cannot draw it on the graphics chip, it shows its picture with patches of light travelling round the disk instead. If frames come too slowly, every black hole holds still for a while, so a computer without a graphics chip stays quick, and tries again after 2 minutes, then 4, 8 and so on, up to about an hour."
+        },
+        {
+          "title": "Smooth page and tab changes",
+          "text": "A new page fades in and rises a little. A new tab fades in only what is under the tab bar you chose it in, so the bars above it stay put, and what loads a moment later fades in too instead of popping in. **Settings** keeps its title and list of sections while a section loads. Nothing waits for the fade: the new page is there at once, and focus, reading order and clicks work as before."
+        },
+        {
+          "title": "When it all holds still",
+          "text": "**Motion › Reduced** in **Settings › Appearance** holds the sky and the black hole still and makes page and tab changes instant; if your computer asks for less motion, ClipForge starts with Reduced. **Robot activity › Low power** and a hidden window hold the sky and the black hole still too."
+        },
+        {
+          "title": "Fixed: pictures that stayed blank after a graphics reset",
+          "text": "If the graphics chip resets (for example during a driver update on Windows), the ship, the Brain’s galaxy and lightning and still robot portraits are drawn again at once; before, they could stay blank. The new sky and the black hole are drawn again too."
+        }
+      ],
+      "files": {
+        "windows": {
+          "file": "ClipForge-Windows-Setup.zip",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/2322e29352d5879e3876f2d5423209e0853f35ea/ClipForge-Windows-Setup.zip",
+          "bytes": 50491596,
+          "sha256": "b5e32961fb976330c881f3222a2bba9014b073755731732fbcdac566dfc68de0",
+          "kind": "ZIP",
+          "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44816196313",
+          "tested_label": "Windows install check"
+        },
+        "mac": {
+          "file": "ClipForge-Mac-Apple-Silicon.dmg",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-20-72af02d/ClipForge-Mac-Apple-Silicon.dmg",
+          "bytes": 232042612,
+          "sha256": "b72b1faa04c3a533dad10d479d7d2ed81586c033acbe10266e2e87f3f7fdbdb8",
+          "kind": "DMG",
+          "requires": "Apple silicon, macOS 15 or newer",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/44815897634",
+          "tested_label": "Mac build and test run"
+        }
+      }
+    },
     {
       "name": "ClipForge",
       "version": "2026.11.19.2",
