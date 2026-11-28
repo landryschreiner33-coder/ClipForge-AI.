@@ -1,5 +1,31 @@
 # AI handoff
 
+## Release 2026.11.27 published: the biggest update so far — 2026-11-27 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked on November 27 (4:52 PM Chicago time) to release all the new changes and
+update the website. ClipForge 2026.11.27 is on the download page for Mac and Windows: everything merged since
+2026.11.20 (PRs #68 to #101: editing, watching and listening, the viral predictor, text stories, characters, a
+ClipForge AI that acts on what you ask and learns from edits, Cancel upload, Missions, Compare, Full Cloud, the gold
+icon and the Taser), plus finished videos tagged BT.709 on newer FFmpeg. The site's home page, privacy page and Terms
+are now this release's `docs/legal` pages.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `7ad6fe9` (PR #102), whose
+  tree equals that of `7fbc4b4`, the source commit of both downloads; Mac release `clipforge-mac-2026-11-27-7fbc4b4`;
+  Windows ZIP at `raw/5686dd2` on `claude/clipforge-downloads` (record commit `182845d`); `gh-pages` `00a4e29`; every
+  URL, size, hash and run in [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 46088100968 on 7fbc4b4 (macOS 15 native build and bundled-app
+  smoke; 3,834 fast tests passed, 2 skipped; 55 slow tests passed, 1 skipped); Windows setup check 46088176255
+  (installed 2026.11.20 first, then this one over it); fact-checks of every release text; `build.py --check` and
+  `--verify`.
+- **Open follow-up (app code):** a Full Cloud worker ignores the Watching and listening switches (`ai_listen`,
+  `ai_watch` are not in `fullcloud/worker_api.py` `SETTING_KEYS`).
+- **Not verified (needs Landry's computers):** the new editing on a Windows PC, real uploads and Cancel upload during
+  one, a real Full Cloud worker on another computer, phone footage and real multi-camera shoots, text stories with the
+  computer's own voices, and the new look's smoothness on Landry's Mac and RTX 3050 laptop.
+- **Next release:** new work starts from `claude/project-thread-x72wkd` at `7ad6fe9` (or the records merge after it);
+  set `PREVIOUS_URL`/`PREVIOUS_SHA256` in `windows-setup-check.yml` to `raw/5686dd2` and `01d576b0…`. The next version
+  is the date it ships.
+
 ## Editing quality, batches 5b and 5c: the picture checked, the final check reads it all — 2026-11-27 (Claude Code, cloud session)
 
 **Plain-English summary:** automatic colour no longer brightens cartoons and graphics (they keep the colours they

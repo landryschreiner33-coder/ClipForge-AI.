@@ -1,9 +1,43 @@
 # AI changelog
 
+## Release 2026.11.27: the biggest update so far — 2026-11-27 (Claude Code)
+
+Landry asked on November 27 (4:52 PM Chicago time): "When done realese all the new changes and update the website".
+Published from `7fbc4b4` (PR #102: the release line at `5052851`, which holds PRs #68 to #101, plus the Mac release
+notes, the privacy page, the home page and Terms for 2026.11.27 and the FFmpeg 8 colour tag fix), merged as `7ad6fe9`
+with the same tree.
+
+- **Mac:** release `clipforge-mac-2026-11-27-7fbc4b4` (unsigned personal preview, marked prerelease like the earlier
+  ones), DMG 245,927,529 bytes, SHA-256 `f55ae5301187a1041b083506371c1bdcd5d4ce609b99b645621173d1d2e41296`, from
+  build and test run 46088100968 (native build and bundled-app smoke with the Keychain test; 3,834 fast tests passed,
+  2 skipped; 55 slow tests passed, 1 skipped), published unchanged by run 46091808935.
+- **Windows:** `raw/5686dd25ef1f4b1b52d65c7d7821380d680c6a6b/ClipForge-Windows-Setup.zip` (68,531,384 bytes, SHA-256
+  `01d576b0f135433bda22488ea9dc77a6f0db59f5c2bb0345be6d6dca0b0a5e3b`, 1,143 app files); Windows setup check
+  46088176255 installed 2026.11.20 (raw/2322e29) first, then this one over it; record commit `182845d` on
+  `claude/clipforge-downloads`. Earlier builds from `4f52676`, `3cffdb3` and `c142afb` were superseded by later fixes
+  and are not listed.
+- **Website:** `gh-pages` `00a4e29` (previous `e0c197c`): `releases.json` 2026.11.27 with sixteen changes and the
+  checked and not-checked lists, "Four ways" with a Make a text story picture, the pictures retaken from this version,
+  and the site's home page, privacy page and Terms replaced by this release's `docs/legal` pages with the gold icon
+  (Landry chose "rename the whole website").
+- **FFmpeg 8:** GitHub's Linux runner now has FFmpeg 8.0.1, which ignores the `-color_trc` and `-color_primaries`
+  output options. Finished videos now tag their frames BT.709 with `setparams` (`ffmpeg_utils.BT709_FRAMES`) at the
+  end of `render.py`, the text story's `TO_VIDEO`, `motion.py` and the photo chains; check run 46086199817 (184 colour,
+  camera and text story tests on FFmpeg 8.0.1) passed.
+- **Fact-checks:** the Mac notes, the download page text and the privacy page were checked claim by claim against the
+  code by area checkers and then rechecked (about 48 wordings corrected); the home page and Terms were checked by two
+  checkers and a skeptic (nine findings about Full Cloud, Find media's sources and the Mac app's file name, all fixed
+  in `7fbc4b4`; Terms effective November 27).
+- **Follow-up found while checking (app code, not changed):** a Full Cloud worker does not receive the Watching and
+  listening switches (`ai_listen` and `ai_watch` are missing from `fullcloud/worker_api.py` `SETTING_KEYS`), so it
+  listens and watches by its own settings. The privacy page says so.
+- **No built-in sign-in:** the repository's `CLIPFORGE_*` secrets are not set, so this release has no built-in
+  YouTube or TikTok sign-in; people use their own developer app, as the home page says.
+
 ## Editing quality, batch 5c: the final check reads loudness, picture levels and colour tags — 2026-11-27 (Claude Code)
 
 Batch 5c of Landry's "majorly improve the editing", on top of 5b. Details:
-[docs/clipforge/QC.md](docs/clipforge/QC.md#5c-the-final-quality-check-before-publishing). Not released.
+[docs/clipforge/QC.md](docs/clipforge/QC.md#5c-the-final-quality-check-before-publishing). Released as 2026.11.27.
 
 - **One pass** (`quality.scan`): `-filter_complex` with the detectors first (the progress still counts every frame
   for the decode check), a `split` keeping 2 frames a second at a quarter size (area average, standing in for EBU
@@ -31,7 +65,7 @@ Batch 5c of Landry's "majorly improve the editing", on top of 5b. Details:
 Batch 5b of Landry's "majorly improve the editing" (plan in
 [docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
 `claude/project-thread-c3hbwh` on top of batch 5a (PR #99). Details:
-[docs/clipforge/QC.md](docs/clipforge/QC.md#5b-the-picture). Not released.
+[docs/clipforge/QC.md](docs/clipforge/QC.md#5b-the-picture). Released as 2026.11.27.
 
 - **Flat cartoons and graphics** are left as drawn by automatic colour (`grade.measure`: `top8` = the 8 commonest
   exact colours of the check's real pixels, `graphic` at 80%; `correction` returns early with "Flat colours (a
@@ -62,7 +96,7 @@ Batch 5b of Landry's "majorly improve the editing" (plan in
 
 Part of Landry's "make the AI way smarter and more useful" (`claude/project-thread-st8tpc`), after the editing
 thread's batch 5a (sound check after every render). Details: [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md),
-"What the last render did, in words". Not released.
+"What the last render did, in words". Released as 2026.11.27.
 
 - **One clip** (`clip`): "The last render: …" with the sound check, steadied footage, a loop ending's seam and the
   colour check's notes.
@@ -74,7 +108,7 @@ thread's batch 5a (sound check after every render). Details: [docs/clipforge/CLI
 Batch 5a of Landry's "majorly improve the editing" (plan in
 [docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
 `claude/project-thread-c3hbwh` on top of batch 4d (PR #97). Details: [docs/clipforge/QC.md](docs/clipforge/QC.md).
-Not released.
+Released as 2026.11.27.
 
 - **Measuring** (`pipeline/loudness.py`, new): FFmpeg's `ebur128` (BS.1770 integrated loudness, loudness range, true
   peak at 4x) replaces `loudnorm`'s `input_i` in both renderers (`render._measure_audio`, `engine._measure`);
@@ -110,7 +144,7 @@ Not released.
 
 Part of Landry's "make the AI way smarter and more useful" (`claude/project-thread-st8tpc`), asked for by the editing
 thread after batch 4d (PR #97). Details: [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md),
-"Steadying shaky footage, in words". Not released.
+"Steadying shaky footage, in words". Released as 2026.11.27.
 
 - **One clip:** `edit_clip` takes `stabilize` (true/false), the clip editor's Colour switch.
 - **Setting:** "Steady shaky footage" joins the settings ClipForge AI sees and may change, with its own words
@@ -128,7 +162,7 @@ thread after batch 4d (PR #97). Details: [docs/clipforge/CLIPFORGE_AI.md](docs/c
 Batch 4d of Landry's "majorly improve the editing" (plan in
 [docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
 `claude/project-thread-c3hbwh` on top of batch 4c (PR #94). Details:
-[docs/clipforge/STEADY.md](docs/clipforge/STEADY.md). Not released.
+[docs/clipforge/STEADY.md](docs/clipforge/STEADY.md). Released as 2026.11.27.
 
 - **Measuring** (`pipeline/steady.py`): corners followed from frame to frame on a small grey copy (OpenCV
   goodFeaturesToTrack, calcOpticalFlowPyrLK, estimateAffinePartial2D with RANSAC); the camera's path smoothed per shot
@@ -178,7 +212,7 @@ Batch 4d of Landry's "majorly improve the editing" (plan in
 
 Part of Landry's "make the AI way smarter and more useful" (`claude/project-thread-st8tpc`), asked for by the editing
 thread after batch 4c (PR #94). Details: [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "Loop
-endings and sound effects, in words". Not released.
+endings and sound effects, in words". Released as 2026.11.27.
 
 - **One clip:** `edit_clip` takes `loop_ending` and `sound_effects` (true/false), the clip editor's Trim and Audio
   switches; the clip is rendered again.
@@ -201,7 +235,7 @@ endings and sound effects, in words". Not released.
 Batch 4c of Landry's "majorly improve the editing" (plan in
 [docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
 `claude/project-thread-c3hbwh` on top of batch 4b (PR #90). Details:
-[docs/clipforge/SHORTS_EDITING.md](docs/clipforge/SHORTS_EDITING.md), "Loop endings". Not released.
+[docs/clipforge/SHORTS_EDITING.md](docs/clipforge/SHORTS_EDITING.md), "Loop endings". Released as 2026.11.27.
 
 - **A tight seam** (`pipeline/loops.py`, used by `render.render_clip`): what is played starts 0.10 s before the first
   word and stops 0.15 s after the last sound (a laugh or shout right after the last word counts), on the frame grid,
@@ -277,7 +311,7 @@ Branch `claude/project-thread-xeb0pd`.
 Batch 4b of Landry's "majorly improve the editing" (plan in
 [docs/clipforge/EDITING_CRAFT_RESEARCH.md](docs/clipforge/EDITING_CRAFT_RESEARCH.md)), from
 `claude/project-thread-c3hbwh` on top of batch 4a (PR #85). Details:
-[docs/clipforge/MULTICAM.md](docs/clipforge/MULTICAM.md). Not released.
+[docs/clipforge/MULTICAM.md](docs/clipforge/MULTICAM.md). Released as 2026.11.27.
 
 - **Lining up by sound** (`studio/multicam.py`): each recording's speech-band loudness (cached in
   `data/cache/multicam/`) is cross-correlated at every shift (FFT, onsets, scored per second of overlap); the peak is
