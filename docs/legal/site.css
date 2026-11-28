@@ -1,65 +1,193 @@
-/* ClipFoundry website: the product page, Privacy Policy and Terms of Service. No web fonts, no scripts, nothing
-   loaded from other sites. Light by default, dark when the device asks for it. */
+/* ClipForge website: the home page, Privacy Policy and Terms of Service (the app also shows them at /legal/). The
+   app's space look: deep space with a blue haze, Courier type, gold for what you can press, and on the home page a
+   black hole whose disk turns. No web fonts, no scripts, no pictures but the icon, nothing loaded from other sites:
+   the stars and the black hole are drawn by the browser from this file. Nothing moves when the device asks for less
+   motion. */
 :root {
-  color-scheme: light dark;
-  --text: #1b1b22; --muted: #575768; --bg: #ffffff; --panel: #f5f5f8; --line: #e1e1e9;
-  --link: #b33a0b; --accent: #ff6a2b; --accent-text: #ffffff; --ink: #14131b;
+  color-scheme: dark;
+  --space: #05070F; --hull: #0B0F21; --hull-hi: #121937; --rule: #232B4D;
+  --star: #EEF0F8; --dust: #A3AACB; --gold: #F5B83D; --gold-hi: #FFD27A; --on-gold: #1B1304; --haze: #5299F2;
+  --font: "Courier Prime", "Courier New", Courier, monospace;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --text: #ececf3; --muted: #a6a6b8; --bg: #111117; --panel: #1b1b23; --line: #2d2d3b;
-    --link: #ff9a66; color-scheme: dark; }
-}
-:root[data-theme="dark"] { --text: #ececf3; --muted: #a6a6b8; --bg: #111117; --panel: #1b1b23; --line: #2d2d3b;
-  --link: #ff9a66; color-scheme: dark; }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--bg); color: var(--text);
-  font: 17px/1.65 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; }
-a { color: var(--link); text-underline-offset: 2px; }
-a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
-.wrap { max-width: 880px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
-.top { border-bottom: 1px solid var(--line); }
-.top-in { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-top: 12px; padding-bottom: 12px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; margin-right: auto; color: var(--text);
-  font-weight: 700; font-size: 18px; text-decoration: none; }
-.brand img { width: 40px; height: 40px; flex: none; image-rendering: pixelated; }
-.links { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 15px; }
-.links a[aria-current="page"] { color: var(--text); font-weight: 600; text-decoration: none; }
-main { padding-top: 28px; padding-bottom: 64px; }
-h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
-h2 { font-size: 22px; line-height: 1.3; margin: 36px 0 8px; }
-h3 { font-size: 18px; line-height: 1.35; margin: 22px 0 4px; }
-.doc h2 { padding-top: 16px; border-top: 1px solid var(--line); }
-.meta { color: var(--muted); font-size: 15px; margin: 0 0 18px; }
-.box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 20px; margin: 16px 0; }
-.doc .box h2 { border: 0; padding-top: 0; margin-top: 14px; }
-li { margin: 6px 0; }
-.table { overflow-x: auto; margin: 12px 0; }
-table { border-collapse: collapse; width: 100%; min-width: 540px; font-size: 15px; }
-th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-th { background: var(--panel); }
-code { font-size: 14px; overflow-wrap: anywhere; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 24px;
+  background:
+    radial-gradient(ellipse 70% 45% at 85% 0%, rgb(82 153 242 / 0.16), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 0% 60%, rgb(120 96 230 / 0.10), transparent 70%),
+    var(--space) fixed; }
+/* body has no background of its own, so the stars behind it (z-index -1) show */
+body { margin: 0; min-height: 100vh; color: var(--star); font: 400 17px/1.7 var(--font); overflow-x: hidden; }
+/* two layers of stars, drawn as dots and drifting slowly to the left, as if the ship were flying on */
+body::before, body::after { content: ""; position: fixed; top: 0; bottom: 0; left: 0; z-index: -1; pointer-events: none; }
+body::before { width: calc(100% + 360px);
+  background-image:
+    radial-gradient(circle at 235px 58px, rgb(255 255 255 / 0.86) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 327px 201px, rgb(255 255 255 / 0.92) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 119px 183px, rgb(255 255 255 / 0.90) 0 0.5px, transparent 1.2px),
+    radial-gradient(circle at 247px 137px, rgb(255 255 255 / 0.79) 0 0.6px, transparent 1.3px),
+    radial-gradient(circle at 270px 63px, rgb(255 233 207 / 0.81) 0 0.6px, transparent 1.3px),
+    radial-gradient(circle at 215px 314px, rgb(223 232 255 / 0.87) 0 0.6px, transparent 1.3px),
+    radial-gradient(circle at 318px 114px, rgb(255 255 255 / 0.56) 0 0.6px, transparent 1.3px),
+    radial-gradient(circle at 192px 193px, rgb(255 255 255 / 0.67) 0 0.9px, transparent 1.6px),
+    radial-gradient(circle at 359px 115px, rgb(255 233 207 / 0.66) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 191px 107px, rgb(255 255 255 / 0.63) 0 0.5px, transparent 1.2px),
+    radial-gradient(circle at 36px 44px, rgb(255 255 255 / 0.79) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 3px 201px, rgb(223 232 255 / 0.55) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 309px 206px, rgb(223 232 255 / 0.91) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 84px 22px, rgb(255 255 255 / 0.81) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 279px 106px, rgb(207 238 255 / 0.64) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 296px 213px, rgb(255 233 207 / 0.79) 0 0.9px, transparent 1.6px),
+    radial-gradient(circle at 24px 189px, rgb(207 238 255 / 0.57) 0 0.6px, transparent 1.3px),
+    radial-gradient(circle at 205px 220px, rgb(255 255 255 / 0.73) 0 0.9px, transparent 1.6px),
+    radial-gradient(circle at 352px 220px, rgb(255 233 207 / 0.57) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 318px 29px, rgb(223 232 255 / 0.80) 0 0.6px, transparent 1.3px),
+    radial-gradient(circle at 211px 65px, rgb(255 255 255 / 0.90) 0 0.6px, transparent 1.3px),
+    radial-gradient(circle at 316px 19px, rgb(255 255 255 / 0.87) 0 0.8px, transparent 1.5px);
+  background-size: 360px 360px; animation: drift-far 170s linear infinite; }
+body::after { width: calc(100% + 560px);
+  background-image:
+    radial-gradient(circle at 547px 445px, rgb(255 255 255 / 0.97) 0 1.0px, transparent 1.7px),
+    radial-gradient(circle at 213px 302px, rgb(255 255 255 / 0.84) 0 1.1px, transparent 1.8px),
+    radial-gradient(circle at 85px 364px, rgb(207 238 255 / 0.91) 0 1.3px, transparent 2.0px),
+    radial-gradient(circle at 243px 460px, rgb(255 233 207 / 0.92) 0 1.2px, transparent 1.9px),
+    radial-gradient(circle at 11px 79px, rgb(255 233 207 / 0.79) 0 1.2px, transparent 1.9px),
+    radial-gradient(circle at 78px 342px, rgb(255 255 255 / 0.93) 0 1.2px, transparent 1.9px),
+    radial-gradient(circle at 182px 71px, rgb(207 238 255 / 0.92) 0 0.9px, transparent 1.6px),
+    radial-gradient(circle at 64px 474px, rgb(207 238 255 / 0.85) 0 1.1px, transparent 1.8px),
+    radial-gradient(circle at 472px 505px, rgb(255 255 255 / 0.84) 0 1.3px, transparent 2.0px);
+  background-size: 560px 560px; animation: drift-near 75s linear infinite; }
+@keyframes drift-far { to { transform: translateX(-360px); } }
+@keyframes drift-near { to { transform: translateX(-560px); } }
+
+a { color: var(--gold-hi); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { color: #fff; }
+a:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
+b, strong { font-weight: 700; color: #fff; }
+.wrap { max-width: 1000px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+@media (min-width: 720px) { .wrap { padding-left: 32px; padding-right: 32px; } }
+
+/* header and footer */
+.top { border-bottom: 1px solid var(--rule); background: rgb(5 7 15 / 0.6); }
+.top-in { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; padding-top: 14px; padding-bottom: 14px; }
+.brand { display: inline-flex; align-items: center; gap: 12px; margin-right: auto; color: var(--star);
+  font-weight: 700; font-size: 1.2rem; text-decoration: none; }
+.brand img { width: 38px; height: 38px; flex: none; border-radius: 9px;
+  box-shadow: 0 0 0 1px rgb(245 184 61 / 0.35), 0 0 18px rgb(245 184 61 / 0.25); }
+.brand:hover { color: #fff; }
+.links { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 0.94rem; }
+.links a { color: var(--dust); text-decoration: none; padding: 4px 0; border-bottom: 1px solid transparent; }
+.links a:hover { color: var(--star); border-bottom-color: var(--gold); }
+.links a[aria-current="page"] { color: var(--star); border-bottom-color: var(--gold); }
+main { padding-top: 40px; padding-bottom: 80px; }
+footer { border-top: 1px solid var(--rule); color: var(--dust); font-size: 0.9rem; background: rgb(5 7 15 / 0.6); }
+footer .top-in { padding-top: 22px; padding-bottom: 36px; }
+footer .owner { margin-right: auto; }
+
+/* type */
+h1, h2, h3 { font-weight: 700; letter-spacing: 0; color: #fff; text-wrap: balance; }
+h1 { font-size: clamp(2rem, 1.3rem + 2.4vw, 2.75rem); line-height: 1.12; margin: 0 0 10px; }
+h2 { font-size: clamp(1.4rem, 1.1rem + 1vw, 1.75rem); line-height: 1.25; margin: 56px 0 14px; }
+h3 { font-size: 1.12rem; line-height: 1.35; margin: 28px 0 6px; }
+p, li { color: var(--star); }
+li { margin: 8px 0; }
+li::marker { color: var(--gold); }
+code { font: 700 0.92em/1.4 var(--font); overflow-wrap: anywhere; background: var(--hull-hi); padding: 1px 6px;
+  border-radius: 5px; }
+.meta { color: var(--dust); font-size: 0.94rem; margin: 0 0 28px; }
+.note { color: var(--dust); font-size: 0.92rem; }
+.lead { font-size: 1.15rem; line-height: 1.65; color: var(--star); opacity: 0.92; max-width: 62ch; }
+
+/* the Privacy Policy and Terms */
+.doc { max-width: 940px; }
+.doc > h1 { margin-top: 12px; }
+.doc h2 { padding-top: 22px; border-top: 1px solid var(--rule); position: relative; }
+.doc h2::before { content: ""; position: absolute; top: -1px; left: 0; width: 40px; height: 2px; background: var(--gold); }
+.doc p, .doc li { max-width: 74ch; overflow-wrap: anywhere; }
+/* behind long reading the stars sit further back */
+body:has(.doc)::before, body:has(.doc)::after { opacity: 0.45; }
 .doc a { overflow-wrap: anywhere; }  /* long addresses, such as the Google permissions page, wrap on a phone */
-.lead { font-size: 20px; color: var(--muted); max-width: 640px; }
-.hero { padding: 36px 0 12px; }
-.hero h1 { font-size: 40px; max-width: 700px; }
-.buttons { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 6px; }
-.btn { display: inline-block; padding: 11px 18px; border-radius: 10px; border: 1px solid var(--line);
-  color: var(--text); text-decoration: none; font-weight: 600; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--ink); }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 14px 0; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
-.card h3 { margin-top: 4px; }
-.card p { margin: 6px 0; }
-.flow { font-family: Consolas, "Courier New", monospace; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
-ol.steps li { margin: 10px 0; }
-.note { color: var(--muted); font-size: 15px; }
-footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
-footer .top-in { padding-top: 18px; padding-bottom: 32px; }
+.box { background: linear-gradient(180deg, rgb(18 25 55 / 0.75), rgb(11 15 33 / 0.75)); border: 1px solid var(--rule);
+  border-radius: 16px; padding: 6px 26px 10px; margin: 22px 0; }
+.doc .box h2 { border: 0; padding-top: 0; margin-top: 18px; }
+.doc .box h2::before { display: none; }
+.table { overflow-x: auto; margin: 16px 0; border: 1px solid var(--rule); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.92rem; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+tr:last-child td { border-bottom: 0; }
+th { background: var(--hull-hi); color: #fff; }
+
+/* the home page */
+.hero { position: relative; padding: 48px 0 24px; min-height: 420px; overflow-x: clip; }
+.hero h1 { font-size: clamp(2.1rem, 1.2rem + 3vw, 3.2rem); max-width: 17ch; line-height: 1.08; margin-bottom: 20px;
+  position: relative; }
+.hero .lead, .hero .buttons, .hero .note { position: relative; }
+.buttons { display: flex; flex-wrap: wrap; gap: 12px; margin: 28px 0 10px; }
+.btn { display: inline-block; padding: 12px 20px; border-radius: 999px; border: 1px solid var(--rule);
+  color: var(--star); text-decoration: none; font-weight: 700; background: rgb(11 15 33 / 0.7);
+  transition: transform 0.25s var(--ease), border-color 0.2s, box-shadow 0.25s; }
+.btn:hover { border-color: var(--gold); color: #fff; transform: translateY(-2px); }
+.btn.primary { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); border-color: var(--gold);
+  color: var(--on-gold); box-shadow: 0 10px 36px -12px rgb(245 184 61 / 0.6); }
+.btn.primary:hover { color: var(--on-gold); box-shadow: 0 16px 44px -12px rgb(245 184 61 / 0.75); }
+/* cards in two balanced columns, so short and long cards sit together without gaps; a wide card spans both */
+.grid { columns: 2 330px; column-gap: 16px; margin: 18px 0; }
+.grid > .card { break-inside: avoid; margin: 0 0 16px; }
+.grid > .card.wide { column-span: all; margin: 16px 0; }
+.card { background: linear-gradient(180deg, rgb(18 25 55 / 0.7), rgb(11 15 33 / 0.7)); border: 1px solid var(--rule);
+  border-radius: 16px; padding: 18px 22px; transition: border-color 0.25s, transform 0.25s var(--ease); }
+.card:hover { border-color: rgb(245 184 61 / 0.55); transform: translateY(-2px); }
+.card h3 { margin-top: 4px; color: var(--gold-hi); }
+.card p { margin: 8px 0; color: var(--dust); }
+.card b { color: var(--star); }
+.flow { font-size: 0.88rem; color: var(--gold-hi); overflow-wrap: anywhere; padding: 14px 18px; border-radius: 12px;
+  border: 1px dashed rgb(245 184 61 / 0.4); background: rgb(11 15 33 / 0.6); letter-spacing: 0.02em; }
+ol.steps { padding-left: 1.4em; }
+ol.steps li { margin: 14px 0; }
+ol.steps li::marker { font-weight: 700; }
+
+/* the black hole on the home page: a shadow, the light bent round it, and a disk that turns, the back half behind the
+   shadow and the front half across it */
+.hole { position: absolute; z-index: 0; right: -40px; top: 0; width: 420px; aspect-ratio: 1; pointer-events: none; }
+.hole > span { position: absolute; display: block; }
+.hole .lens { inset: 22%; border-radius: 50%;
+  background: radial-gradient(circle, transparent 47%, rgb(255 236 200 / 0.95) 50%, rgb(255 200 120 / 0.7) 54%,
+    rgb(240 150 70 / 0.35) 62%, rgb(200 100 50 / 0.12) 72%, transparent 80%);
+  filter: blur(1.5px); }
+.hole .core { inset: 33%; border-radius: 50%; background: #000;
+  box-shadow: 0 0 0 1.5px rgb(255 228 180 / 0.9), 0 0 24px 4px rgb(0 0 0 / 0.9); }
+.hole .disk { left: -2%; right: -2%; top: 0; bottom: 0; transform: rotateX(78deg); }
+.hole .disk::before { content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 30%, rgb(255 240 210 / 0.95) 31.5%, rgb(255 205 130 / 0.85) 36%,
+      rgb(240 150 70 / 0.55) 44%, rgb(170 70 40 / 0.25) 55%, transparent 66%),
+    repeating-conic-gradient(from 0deg, rgb(255 255 255 / 0.12) 0deg 5deg, transparent 5deg 13deg, rgb(0 0 0 / 0.12) 13deg 18deg,
+      transparent 18deg 26deg);
+  -webkit-mask: radial-gradient(circle, transparent 30%, #000 31.5%, #000 60%, transparent 66%);
+  mask: radial-gradient(circle, transparent 30%, #000 31.5%, #000 60%, transparent 66%);
+  animation: turn 24s linear infinite; }
+.hole .disk.back { clip-path: inset(0 0 50% 0); }
+.hole .disk.front { clip-path: inset(50% 0 0 0); }
+.hole .glow { inset: 8%; border-radius: 50%;
+  background: radial-gradient(ellipse 60% 22% at 50% 50%, rgb(255 190 110 / 0.22), transparent 70%),
+    radial-gradient(circle, rgb(82 153 242 / 0.12), transparent 65%); }
+@keyframes turn { to { transform: rotate(360deg); } }
+
+@media (max-width: 1120px) {
+  .hole { right: 0; width: 360px; }
+}
+@media (max-width: 820px) {
+  .hole { position: relative; right: auto; top: auto; width: min(320px, 80vw); margin: -10px auto -40px; }
+  .hero { padding-top: 24px; min-height: 0; }
+}
 @media (max-width: 560px) {
   body { font-size: 16px; }
-  h1, .hero h1 { font-size: 29px; }
-  .lead { font-size: 18px; }
+  .lead { font-size: 1.05rem; }
   .brand { margin-right: 0; width: 100%; }
+  .box { padding: 4px 18px 8px; }
 }
-footer .owner { margin-right: auto; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  body::before, body::after, .hole .disk::before { animation: none; }
+  .btn, .card { transition: none; }
+}
