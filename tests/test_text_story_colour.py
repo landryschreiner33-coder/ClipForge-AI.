@@ -67,7 +67,10 @@ def test_the_chat_card_keeps_its_exact_colours(env):
     url = f"/api/studio/text-stories/{story['id']}"
     espeak = _espeak()
     c.patch(url, json={"chat": {"people": {"Me": {"voice": espeak}, "Sienna": {"voice": espeak}}}})
-    c.post(f"{url}/backgrounds/auto")
+    # one fixed background: the automatic pick depends on the story's random id, and the quick preview's compression
+    # moves the flat dark header by up to 6 codes over the blue "Deep sea" one (a grey shows no matrix mix-up anyway;
+    # the blue bubbles below check the conversion exactly)
+    c.patch(url, json={"backgrounds": [{"builtin": "aurora", "out_s": 20.0, "loop": True}]})
     c.post(f"{url}/preview")
     assert [j["status"] for j in _run(env)] == ["done"]
     row = db.fetch("text_stories", story["id"])

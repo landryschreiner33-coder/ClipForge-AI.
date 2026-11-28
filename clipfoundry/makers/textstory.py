@@ -916,7 +916,7 @@ def _read(path: Path) -> str:
 # every picture is put together in RGB and turned into BT.709 limited range once, at the end: the chat card and the
 # captions keep their exact colours, and the file's BT.709 tags are true (FFmpeg's default conversion is BT.601,
 # which made reds up to 10 codes off and the card's blue 6)
-TO_VIDEO = "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p"
+TO_VIDEO = f"scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,{ffmpeg_utils.BT709_FRAMES}"
 BT709_TAGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
 
 

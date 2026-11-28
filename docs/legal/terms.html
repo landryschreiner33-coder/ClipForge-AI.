@@ -23,7 +23,7 @@
 </header>
 <main class="wrap doc">
 <h1>Terms of Service</h1>
-<p class="meta">ClipForge · Effective November 19, 2026</p>
+<p class="meta">ClipForge · Effective November 27, 2026</p>
 
 <section class="box" aria-labelledby="short">
   <h2 id="short">The short version</h2>
@@ -49,9 +49,11 @@
 <p>
   ClipForge is desktop software for Windows and for Macs with Apple silicon. It transcribes your videos, finds strong moments, makes vertical clips
   with captions, suggests titles and captions, and, if you connect your accounts, publishes the posts you approve to
-  YouTube and TikTok through their official APIs. Its optional Autopilot does these steps in the background. ClipForge itself runs on your computer. It sends information to other services only for features that need them,
-  such as posting, fetching a video from a link you add, downloading its speech model, an AI service you turn on or a
-  cloud computer you rent to make pictures and video, as our Privacy
+  YouTube and TikTok through their official APIs. Its optional Autopilot does these steps in the background. ClipForge itself runs on your computer; if you choose
+  Full Cloud in Settings → Processing, Make clips runs on your own ClipForge worker on another computer, and your video
+  (or its link) is sent there. It sends information to other services only for features that need them,
+  such as posting, fetching a video from a link you add, downloading its speech model, an AI service you turn on, a
+  cloud computer you rent to make pictures and video or your own Full Cloud worker, as our Privacy
   Policy explains. There is no ClipForge account and no ClipForge cloud service.
 </p>
 
@@ -87,7 +89,7 @@
     only on a link, file or live stream you submit; it does not find videos by itself. Make &amp; upload clips asks for its reuse
     basis and authorizes only qualifying new YouTube clips from that input, uploaded to the YouTube channels you
     ticked for it (each clip to every ticked channel or, if you chose to split the clips between them, to one of them
-    in turn), using its shown audience and kids choice. Make clips only keeps results local. Source reuse answers do not teach Brain.
+    in turn), using its shown audience and kids choice. Make clips only never posts anything; its clips stay in ClipForge (with Full Cloud they are made on your own worker and brought back to your computer). Source reuse answers do not teach Brain.
     Recorded coverage includes:
     it is your own; a license or creator agreement you recorded covers it;
     it comes from a creator you allowed in Autopilot; YouTube reports a Creative Commons Attribution (CC BY) license
@@ -189,8 +191,9 @@
   </li>
   <li>
     Other services have their own terms and, for some, their own costs. They include Hugging Face, where ClipForge
-    downloads its speech-recognition model the first time you transcribe a video, and Wikimedia Commons, where
-    Find media in the video editor can search for pictures, footage and sounds. They also include any website you import a
+    downloads its speech-recognition model the first time you transcribe a video, and the free media libraries that
+    Find media in the video editor and Find free footage in Text Stories search for pictures, footage, music and
+    sounds: Openverse, Wikimedia Commons and, if you add your own Pexels key, Pexels. They also include any website you import a
     video from by link and, only if you turn it on, an AI service. If you choose a cloud computer for pictures and
     video, the company you rent it from (for example RunPod) charges for it, usually for every hour it is on, until
     you stop or delete it there. You are responsible for any account and costs you have with them.
@@ -224,9 +227,11 @@
 
 <h2>10. Your computer and your data</h2>
 <p>
-  ClipForge runs on your computer and keeps its data there. It sends information to other services only for
+  ClipForge runs on your computer and keeps its data there. With Full Cloud, a Make clips video, its transcript and
+  its clips are also kept on your own worker until ClipForge brings the clips back or you cancel processing (a job
+  never brought back is deleted 3 days after it ends). It sends information to other services only for
   features that need them, such as posting, importing a video from a link, downloading its speech model, an AI
-  service you turn on, or a cloud computer you rent to make pictures and video. Our <a href="privacy.html">Privacy Policy</a> lists them. You are responsible for your computer's
+  service you turn on, a cloud computer you rent to make pictures and video, or your own Full Cloud worker. Our <a href="privacy.html">Privacy Policy</a> lists them. You are responsible for your computer's
   security and for keeping backups of anything you want to keep. Updates may stop working with older versions of other
   programs, and ClipForge may stop working with YouTube or TikTok if they change their services.
 </p>
@@ -262,7 +267,7 @@
 <h2>15. Ending</h2>
 <p>
   You can stop using ClipForge at any time: disconnect your accounts, remove its access in your Google and TikTok
-  settings, and delete its folder (on a Mac, delete ClipForge.app and the folder
+  settings, and delete its folder (on a Mac, delete the ClipForge app from Applications, whose file is named ClipFoundry.app, and the folder
   <code>~/Library/Application Support/ClipFoundry</code>, where its data is kept). We may stop offering or updating ClipForge at any time. Sections 5, 8 and 12 to 17
   continue to apply after you stop.
 </p>

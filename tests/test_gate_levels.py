@@ -14,6 +14,15 @@ from clipfoundry.pipeline import loudness, quality
 from synthetic_media import needs_ffmpeg
 
 TAGS = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
+# FFmpeg 8 and later take the transfer, primaries and range from the frames (and ignore the output options), so the
+# same tags go on the frames with setparams; older versions read either
+_ON_FRAMES = {"-colorspace": "colorspace", "-color_primaries": "color_primaries", "-color_trc": "color_trc",
+              "-color_range": "range"}
+
+
+def _frame_tags(tags: list[str]) -> str:
+    pairs = [f"{_ON_FRAMES[k]}={v}" for k, v in zip(tags[::2], tags[1::2])]
+    return f",setparams={':'.join(pairs)}" if pairs else ""
 
 
 def _make(path: Path, video: str, *, audio: str | None = "sine=frequency=330:sample_rate=48000:duration=4",
@@ -21,7 +30,7 @@ def _make(path: Path, video: str, *, audio: str | None = "sine=frequency=330:sam
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", video]
     if audio:
         cmd += ["-f", "lavfi", "-i", audio, "-af", af, "-c:a", "aac", "-b:a", "192k"]
-    cmd += ["-vf", f"{vf},format=yuv420p", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", *tags, "-shortest",
+    cmd += ["-vf", f"{vf},format=yuv420p{_frame_tags(tags)}", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", *tags, "-shortest",
             str(path)]
     subprocess.run(cmd, check=True)
     return path

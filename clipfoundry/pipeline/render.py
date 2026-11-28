@@ -23,8 +23,8 @@ from . import (artifact, audio_timing, captions, cleanup, facecam, grade, loops,
                trims)
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
-from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, FFmpegError, MediaWatchdog, delivery_args, ffmpeg_bin,
-                           filter_path, run_process, thumbnail, video_encoder_args)
+from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, BT709_FRAMES, FFmpegError, MediaWatchdog, delivery_args,
+                           ffmpeg_bin, filter_path, run_process, thumbnail, video_encoder_args)
 
 SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
 FILLER_WORD = re.compile(r"^(um+|uh+|erm+|hmm+|mm+|ah+)[,.!?]*$", re.I)
@@ -703,7 +703,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     # The frames arrive as RGB. Without an explicit matrix FFmpeg converts them to YUV with BT.601 coefficients
     # while every player treats a 1080x1920 file as BT.709, which shifts reds and greens; so the conversion and the
     # tags both say BT.709 (delivery_args).
-    vf = f"[0:v]ass=captions.ass:fontsdir={fonts},scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]"
+    vf = (f"[0:v]ass=captions.ass:fontsdir={fonts},scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
+          f"{BT709_FRAMES}[v]")
     audio_in: list[str]
     sound = _clean_sound(src, start, end + 0.2, words_all, opts, ctx) if info.get("has_audio", True) else None
     if sound is not None and sound.path is not None:

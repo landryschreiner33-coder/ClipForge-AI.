@@ -665,7 +665,10 @@ def _cam_video(path: Path, start: float, seconds: float, cb: int, cr: int) -> di
     k = int(start * 30)
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
                     f"nullsrc=s=320x180:r=30:d={seconds},format=yuv420p,"
-                    f"geq=lum='if(lt(X,W/2),30+mod(N+{k},25)*8,30+floor((N+{k})/25)*11)':cb={cb}:cr={cr}",
+                    f"geq=lum='if(lt(X,W/2),30+mod(N+{k},25)*8,30+floor((N+{k})/25)*11)':cb={cb}:cr={cr},"
+                    # the frames carry the tags (FFmpeg 8 and later convert untagged frames to the output's matrix,
+                    # which moves the brightness of the colour casts and so the frame numbers)
+                    "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv",
                     "-f", "lavfi", "-i",
                     f"aevalsrc='0.6*sin(2*PI*440*(t+{start}))*gt(sin(2*PI*0.9*(t+{start}))*"
                     f"sin(2*PI*0.37*(t+{start})+1),0.2)':s=48000:d={seconds}",

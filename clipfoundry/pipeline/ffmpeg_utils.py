@@ -351,10 +351,15 @@ def videotoolbox_available() -> bool:
 
 AUDIO_BITRATE = "256k"  # AAC-LC at 48 kHz; the platforms ask for 256-384 kbps on upload
 
+# The last filter of every renderer's picture: it tags the frames themselves as BT.709 limited range. FFmpeg 8 and
+# later (the Mac app bundles 9) take a file's transfer and primaries from the frames and ignore -color_trc and
+# -color_primaries, so without it a render is only partly tagged; older versions read the output options as well.
+BT709_FRAMES = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv"
+
 
 def delivery_args(fps: float) -> list[str]:
     """What the platforms ask of an upload, whatever the encoder: a closed GOP with a keyframe every half second,
-    and BT.709 colour tags (the renderer converts with that matrix)."""
+    and BT.709 colour tags (the renderer converts with that matrix and ends its filters with BT709_FRAMES)."""
     return ["-g", str(max(1, round(float(fps) / 2))), "-flags", "+cgop",
             "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
 

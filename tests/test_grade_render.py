@@ -26,7 +26,9 @@ def _with_sound(video: Path, out: Path) -> Path:
 def _hlg(path: Path) -> Path:
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=size={W}x{H}:rate=30:d=3",
                     "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000:duration=3", "-vf",
-                    "format=yuv420p10le", "-c:v", "libx264", "-pix_fmt", "yuv420p10le", "-crf", "8",
+                    # tagged on the frames too: FFmpeg 8 and later ignore -color_trc and -color_primaries
+                    "format=yuv420p10le,setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p10le", "-crf", "8",
                     "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc",
                     "-c:a", "aac", "-shortest", str(path)], check=True)
     return path
