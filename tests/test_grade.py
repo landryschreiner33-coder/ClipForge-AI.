@@ -42,11 +42,17 @@ def _grey_cast(rgb: np.ndarray) -> float:
     return float(np.abs(cb).mean() + np.abs(cr).mean())
 
 
+# the tags on the frames as well as in the output options: FFmpeg 8 and later take the transfer and primaries from
+# the frames only
+_BT709 = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv"
+_HLG = "setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc:range=tv"
+
+
 def _encode(frame: np.ndarray, path: Path, seconds: float = 1.0) -> Path:
     raw = (np.clip(frame, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes()
     n = int(seconds * 10)
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", "10",
-                    "-i", "-", "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p", "-c:v", "libx264",
+                    "-i", "-", "-vf", f"scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,{_BT709}", "-c:v", "libx264",
                     "-crf", "10", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
                     str(path)], input=raw * n, check=True)
     return path
@@ -54,7 +60,7 @@ def _encode(frame: np.ndarray, path: Path, seconds: float = 1.0) -> Path:
 
 def _hlg_clip(path: Path) -> Path:
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=size={W}x{H}:rate=10:d=1",
-                    "-vf", "format=yuv420p10le", "-c:v", "libx264", "-pix_fmt", "yuv420p10le", "-crf", "8",
+                    "-vf", f"format=yuv420p10le,{_HLG}", "-c:v", "libx264", "-pix_fmt", "yuv420p10le", "-crf", "8",
                     "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc",
                     str(path)], check=True)
     return path

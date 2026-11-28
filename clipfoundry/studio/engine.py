@@ -67,7 +67,7 @@ from ..pipeline import audio_timing, cleanup, grade, loudness, steady
 from . import multicam, retime, sound_joins
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
 from ..pipeline.common import Cancelled, log
-from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
+from ..pipeline.ffmpeg_utils import BT709_FRAMES, FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
 
 ENGINE = "ffmpeg-v2"
 SCHEMA = 2
@@ -1104,7 +1104,7 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
         lines.append(f"[fgs{idx}]scale={width}:{height}:force_original_aspect_ratio=decrease[fg{idx}]")
         chain = f"[bg{idx}][fg{idx}]overlay=(W-w)/2:(H-h)/2"
     if e["kind"] == "image":  # a photo's own colours (BT.601 JPEG, RGB PNG) into the output's BT.709
-        colour = "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p"
+        colour = f"scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,{BT709_FRAMES}"
     else:
         look = e.get("grade") or {}
         colour = grade.yuv_filters(e.get("colour") or {}, look.get("grade") or grade.Grade(), look.get("denoise", ""),
@@ -1166,7 +1166,7 @@ def _overlay_input(ov: dict, frames: int, fps: int, width: int, height: int, idx
         chain += "," + grade.yuv_filters(ov.get("colour") or {}, look.get("grade") or grade.Grade(),
                                          look.get("denoise", ""), cwd, int((ov.get("colour") or {}).get("height") or 0))
     elif ov["kind"] == "image":
-        chain += ",scale=out_color_matrix=bt709:out_range=tv"
+        chain += f",scale=out_color_matrix=bt709:out_range=tv,{BT709_FRAMES}"
     chain += f",fps={fps},setsar=1,settb=AVTB,setpts=PTS-STARTPTS,tpad=stop=-1:stop_mode=clone"
     if box:
         bd = multicam.border_px(width, height)

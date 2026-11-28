@@ -51,7 +51,7 @@ def pick_move(index: int, legacy: bool = False) -> str:
 
 
 def _encode_args(fps: int, frames: int, duration: float) -> list[str]:
-    return ["-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
+    return ["-vf", f"scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,{ffmpeg_utils.BT709_FRAMES}",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", CRF, "-profile:v", "high", "-pix_fmt", "yuv420p",
             *ffmpeg_utils.delivery_args(fps), "-r", str(fps), "-frames:v", str(frames),
             "-c:a", "aac", "-b:a", ffmpeg_utils.AUDIO_BITRATE, "-ar", AUDIO_RATE, "-ac", "2",
@@ -270,7 +270,7 @@ def video_clip(video: Path, audio: Path, out: Path, *, duration_s: float, fps: i
     vf = (f"[0:v]setpts={slow:.6f}*(PTS-STARTPTS),fps={fps},"
           f"scale={w_out}:{h_out}:force_original_aspect_ratio=increase:flags=lanczos,crop={w_out}:{h_out},"
           f"setsar=1,tpad=stop_mode=clone:stop_duration={hold:.6f},"
-          f"scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v];"
+          f"scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,{ffmpeg_utils.BT709_FRAMES}[v];"
           f"[1:a]aresample={AUDIO_RATE},apad=whole_dur={duration:.6f}[a]")
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
